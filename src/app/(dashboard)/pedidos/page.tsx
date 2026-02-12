@@ -74,7 +74,7 @@ export default function PedidosPage() {
             </div>
             <div>
               <p className="text-xs text-txt-secondary">Total</p>
-              <p className="text-lg font-bold text-txt-primary">{mockOrders.length}</p>
+              <p className="text-lg font-bold text-txt-primary">{total}</p>
             </div>
           </div>
         </Card>
@@ -85,9 +85,7 @@ export default function PedidosPage() {
             </div>
             <div>
               <p className="text-xs text-txt-secondary">Pendentes</p>
-              <p className="text-lg font-bold text-txt-primary">
-                {mockOrders.filter((o) => o.status === 'pending').length}
-              </p>
+              <p className="text-lg font-bold text-txt-primary">{pendingOrders}</p>
             </div>
           </div>
         </Card>
@@ -98,9 +96,7 @@ export default function PedidosPage() {
             </div>
             <div>
               <p className="text-xs text-txt-secondary">Entregues</p>
-              <p className="text-lg font-bold text-txt-primary">
-                {mockOrders.filter((o) => o.status === 'delivered').length}
-              </p>
+              <p className="text-lg font-bold text-txt-primary">{deliveredOrders}</p>
             </div>
           </div>
         </Card>
@@ -111,9 +107,7 @@ export default function PedidosPage() {
             </div>
             <div>
               <p className="text-xs text-txt-secondary">Receita</p>
-              <p className="text-lg font-bold text-txt-primary">
-                {formatCurrency(mockOrders.reduce((acc, o) => acc + o.total, 0))}
-              </p>
+              <p className="text-lg font-bold text-txt-primary">{formatCurrency(totalRevenue)}</p>
             </div>
           </div>
         </Card>
@@ -155,7 +149,13 @@ export default function PedidosPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 ? (
+              {isLoading ? (
+                <tr>
+                  <td colSpan={5} className="text-center py-12 text-txt-secondary">
+                    Carregando pedidos...
+                  </td>
+                </tr>
+              ) : orders.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="text-center py-12 text-txt-secondary">
                     <Package size={24} className="mx-auto mb-2" />
@@ -163,7 +163,7 @@ export default function PedidosPage() {
                   </td>
                 </tr>
               ) : (
-                filtered.map((order) => {
+                orders.map((order: Order) => {
                   const config = STATUS_MAP[order.status];
                   return (
                     <tr
@@ -176,7 +176,8 @@ export default function PedidosPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-sm text-txt-secondary">
-                        {order.items.length} {order.items.length === 1 ? 'item' : 'itens'}
+                        {/* {order.items?.length || 0} {order.items?.length === 1 ? 'item' : 'itens'} */}
+                        - itens
                       </td>
                       <td className="px-4 py-3">
                         <Badge variant={config.variant}>{config.label}</Badge>
