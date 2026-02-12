@@ -38,8 +38,10 @@ export async function GET(request: NextRequest) {
       .eq('id', profile.tenant_id)
       .single();
 
-    return NextResponse.json({ data: tenant?.config || {} });
-  } catch {
+    console.log('✅ Get config:', tenant?.config);
+    return NextResponse.json(tenant?.config || {});
+  } catch (error) {
+    console.error('❌ Get config error:', error);
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
   }
 }
@@ -90,11 +92,14 @@ export async function PUT(request: NextRequest) {
       .single();
 
     if (error) {
+      console.error('❌ Update config error:', error);
       return NextResponse.json({ error: 'Erro ao atualizar' }, { status: 500 });
     }
 
-    return NextResponse.json({ data: data.config });
-  } catch {
+    console.log('✅ Config atualizado:', data.config);
+    return NextResponse.json(data.config);
+  } catch (error) {
+    console.error('❌ Update config fatal error:', error);
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
   }
 }

@@ -121,6 +121,25 @@ function WhatsAppSettings({ config }: { config?: TenantConfig }) {
 }
 
 function FacilZapSettings({ config }: { config?: TenantConfig }) {
+  const { updateConfig, isUpdating } = useTenantConfig();
+  const [token, setToken] = useState(config?.facilzap?.token || '');
+  const [siteUrl, setSiteUrl] = useState(config?.facilzap?.site_url || '');
+
+  const handleSave = async () => {
+    try {
+      await updateConfig({
+        facilzap: {
+          enabled: !!token && !!siteUrl,
+          token,
+          site_url: siteUrl,
+        },
+      });
+      alert('✅ Configurações do FacilZap salvas com sucesso!');
+    } catch (error) {
+      alert('❌ Erro ao salvar: ' + (error as Error).message);
+    }
+  };
+
   const facilzap = config?.facilzap;
 
   return (
@@ -134,11 +153,26 @@ function FacilZapSettings({ config }: { config?: TenantConfig }) {
         </Badge>
       </CardHeader>
       <div className="px-6 pb-6 space-y-4">
-        <Input label="Token" type="password" placeholder="••••••••" defaultValue={facilzap?.token || ''} />
-        <Input label="URL do site" placeholder="https://meusite.facilzap.app.br" defaultValue={facilzap?.site_url || ''} />
+        <Input 
+          label="Token" 
+          type="password" 
+          placeholder="••••••••" 
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+        />
+        <Input 
+          label="URL do site" 
+          placeholder="https://meusite.facilzap.app.br" 
+          value={siteUrl}
+          onChange={(e) => setSiteUrl(e.target.value)}
+        />
         <div className="flex gap-2 pt-2">
-          <Button variant="primary">
-            <Save size={16} /> Salvar
+          <Button 
+            variant="primary" 
+            onClick={handleSave}
+            disabled={isUpdating}
+          >
+            <Save size={16} /> {isUpdating ? 'Salvando...' : 'Salvar'}
           </Button>
         </div>
       </div>
