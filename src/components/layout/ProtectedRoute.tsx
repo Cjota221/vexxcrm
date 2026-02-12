@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
+import { supabase } from '@/lib/supabase';
 
 /**
  * Componente wrapper para proteger rotas client-side.
@@ -10,14 +11,28 @@ import { useAuthStore } from '@/store/auth';
  */
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { isAuthenticated, isLoading } = useAuthStore();
+  const { isAuthenticated, isLoading, accessToken } = useAuthStore();
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      console.log('🔒 ProtectedRoute: Não autenticado, redirecionando...');
-      router.push('/login');
-    }
-  }, [isAuthenticated, isLoading, router]);
+    const checkAuth = async () => {
+      // Se ainda está carregando, aguardar
+      if (isLoading) {
+        return;
+      }
+
+      // Se não está autenticado E não tem token, redirecionar
+      if (!isAuthenticated && !accessToken) {
+        // Última verificação: verificar se há sessão no Supabase
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          console.log('🔒 ProtectedRoute: Não autenticado, redirecionando...');
+          router.push('/login');
+        }
+      }
+    };
+
+    checkAuth();
+  }, [isAuthenticated, isLoading, accessToken, router]);
 
   // Mostrar loading enquanto verifica autenticação
   if (isLoading) {
@@ -31,8 +46,8 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Se não autenticado, não renderizar nada (vai redirecionar)
-  if (!isAuthenticated) {
+  // Se não autenticado E não tem token, não renderizar nada (vai redirecionar)
+  if (!isAuthenticated && !accessToken) {
     return null;
   }
 
