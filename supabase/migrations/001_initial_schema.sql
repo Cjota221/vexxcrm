@@ -750,16 +750,19 @@ VALUES ('avatars', 'avatars', true)
 ON CONFLICT (id) DO NOTHING;
 
 -- Policies de storage
+DROP POLICY IF EXISTS "Media: authenticated upload" ON storage.objects;
 CREATE POLICY "Media: authenticated upload"
   ON storage.objects FOR INSERT
   TO authenticated
   WITH CHECK (bucket_id IN ('media', 'avatars'));
 
+DROP POLICY IF EXISTS "Media: public read" ON storage.objects;
 CREATE POLICY "Media: public read"
   ON storage.objects FOR SELECT
   TO public
   USING (bucket_id IN ('media', 'avatars'));
 
+DROP POLICY IF EXISTS "Media: owner delete" ON storage.objects;
 CREATE POLICY "Media: owner delete"
   ON storage.objects FOR DELETE
   TO authenticated

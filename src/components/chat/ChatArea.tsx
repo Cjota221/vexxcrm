@@ -25,8 +25,7 @@ export function ChatArea() {
   const handleSend = (content: string) => {
     if (!selectedChatId) return;
     sendMessage({
-      client_id: selectedChatId,
-      remote_jid: '', // TODO: resolver JID real do cliente
+      to: selectedChatId, // Telefone do cliente (será normalizado pela API)
       content,
       type: 'text',
     });
