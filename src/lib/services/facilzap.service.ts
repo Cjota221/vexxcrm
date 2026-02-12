@@ -17,7 +17,7 @@ interface FacilZapConfig {
 const API_BASE_URL = 'https://api.facilzap.app.br';
 
 /**
- * Helper para fazer requisições autenticadas à API FacilZap.
+ * Helper para fazer requisições autenticadas à API FacilZap com timeout.
  */
 async function request<T>(
   config: FacilZapConfig,
@@ -25,22 +25,46 @@ async function request<T>(
   options?: RequestInit
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
+  
+  console.log(`🔄 FacilZap Request: ${endpoint}`);
+  const startTime = Date.now();
 
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${config.token}`,
-      ...options?.headers,
-    },
-  });
+  try {
+    // Timeout de 20 segundos para evitar travar
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Erro desconhecido' }));
-    throw new Error(error.message || `HTTP ${response.status}`);
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.token}`,
+        ...options?.headers,
+      },
+    });
+
+    clearTimeout(timeoutId);
+    
+    const duration = Date.now() - startTime;
+    console.log(`✅ FacilZap Response: ${endpoint} (${duration}ms) - Status: ${response.status}`);
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Erro desconhecido' }));
+      console.error(`❌ FacilZap Error ${response.status}:`, error);
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+
+    return response.json();
+  } catch (error: any) {
+    const duration = Date.now() - startTime;
+    console.error(`❌ FacilZap Failed: ${endpoint} (${duration}ms)`, error.message);
+    
+    if (error.name === 'AbortError') {
+      throw new Error(`Timeout ao chamar FacilZap API: ${endpoint}`);
+    }
+    throw error;
   }
-
-  return response.json();
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
