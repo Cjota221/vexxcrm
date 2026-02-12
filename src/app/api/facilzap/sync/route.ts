@@ -97,8 +97,8 @@ export async function POST(request: NextRequest) {
       console.log('🔄 Sincronizando produtos do FacilZap...');
       const products = await fetchAllProducts(facilzapConfig);
       
-      // Limitar a 50 produtos por vez para evitar timeout
-      const productsToSync = products.slice(0, 50);
+      // Limitar a 20 produtos por vez para evitar timeout
+      const productsToSync = products.slice(0, 20);
       
       if (productsToSync.length > 0) {
         const productsData = productsToSync.map(product => ({
@@ -139,8 +139,8 @@ export async function POST(request: NextRequest) {
       console.log('🔄 Sincronizando clientes do FacilZap...');
       const clients = await fetchAllClients(facilzapConfig);
       
-      // Limitar a 50 clientes por vez
-      const clientsToSync = clients.slice(0, 50);
+      // Limitar a 20 clientes por vez
+      const clientsToSync = clients.slice(0, 20);
       
       const validClients = clientsToSync
         .map(client => {
@@ -199,8 +199,8 @@ export async function POST(request: NextRequest) {
       console.log('🔄 Sincronizando pedidos do FacilZap...');
       const orders = await fetchAllOrders(facilzapConfig);
       
-      // Limitar a 30 pedidos por vez (pedidos têm mais complexidade)
-      const ordersToSync = orders.slice(0, 30);
+      // Limitar a 10 pedidos por vez (pedidos têm mais complexidade)
+      const ordersToSync = orders.slice(0, 10);
       
       for (const order of ordersToSync) {
         // Buscar cliente pelo telefone
