@@ -55,16 +55,22 @@ export function useAuth() {
       });
 
       if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Session error:', errorData);
         clearSession();
+        setLoading(false);
         return;
       }
 
       const data: AuthSession = await response.json();
       setSession(data);
-    } catch {
+      setLoading(false);
+    } catch (err) {
+      console.error('Load user data error:', err);
       clearSession();
+      setLoading(false);
     }
-  }, [setSession, clearSession]);
+  }, [setSession, clearSession, setLoading]);
 
   /** Verificar sessão atual */
   const checkSession = useCallback(async () => {
@@ -100,11 +106,16 @@ export function useAuth() {
 
       if (data.session) {
         await loadUserData(data.session.access_token);
-        router.push('/');
+        
+        // Aguarda um pouco para verificar se o carregamento finalizou
+        setTimeout(() => {
+          router.push('/');
+        }, 500);
       }
 
       return { error: null };
     } catch (err) {
+      console.error('Login error:', err);
       setLoading(false);
       return { error: 'Erro ao fazer login. Tente novamente.' };
     }

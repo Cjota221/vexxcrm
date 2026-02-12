@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/Button';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
@@ -38,14 +37,15 @@ export default function LoginPage() {
       {/* Logo */}
       <div className="text-center mb-8">
         <div className="flex justify-center mb-4">
-          <Image
-            src="/images/logo-icon.png"
-            alt="VEXX CRM"
-            width={180}
-            height={50}
-            className="object-contain h-14 w-auto"
-            priority
-          />
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-linear-to-br from-primary to-primary-dark rounded-xl flex items-center justify-center shadow-lg">
+              <span className="text-2xl font-bold text-white">V</span>
+            </div>
+            <div className="text-left">
+              <h1 className="text-2xl font-bold text-txt-primary">VEXX CRM</h1>
+              <p className="text-xs text-txt-secondary">WhatsApp Multi-Tenant</p>
+            </div>
+          </div>
         </div>
         <p className="text-sm text-txt-secondary mt-2">
           Faça login para acessar sua conta

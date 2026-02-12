@@ -35,9 +35,18 @@ export async function GET(request: NextRequest) {
       .eq('id', authUser.id)
       .single();
 
-    if (profileError || !profile) {
+    if (profileError) {
+      console.error('Profile error:', profileError);
       return NextResponse.json(
-        { error: 'Usuário não encontrado' },
+        { error: `Erro ao buscar perfil: ${profileError.message}` },
+        { status: 500 }
+      );
+    }
+
+    if (!profile) {
+      console.error('Profile not found for user:', authUser.id);
+      return NextResponse.json(
+        { error: 'Perfil de usuário não encontrado. Entre em contato com o suporte.' },
         { status: 404 }
       );
     }
