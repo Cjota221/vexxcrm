@@ -16,7 +16,8 @@ import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency, formatDate, debounce } from '@/lib/utils';
+import { useOrders } from '@/hooks/useOrders';
 import type { Order, OrderStatus } from '@/types';
 
 const STATUS_MAP: Record<OrderStatus, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'neutral'; icon: typeof Clock }> = {
@@ -28,18 +29,26 @@ const STATUS_MAP: Record<OrderStatus, { label: string; variant: 'success' | 'war
   refunded: { label: 'Reembolsado', variant: 'neutral', icon: CreditCard },
 };
 
-// TODO: hook useOrders
-const mockOrders: Order[] = [];
-
 export default function PedidosPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<OrderStatus | ''>('');
 
-  const filtered = mockOrders.filter((o) => {
-    if (statusFilter && o.status !== statusFilter) return false;
-    if (search && !o.external_id?.includes(search) && !o.id.includes(search)) return false;
-    return true;
+  const { data, isLoading } = useOrders({
+    search: search || undefined,
+    status: statusFilter || undefined,
   });
+
+  const orders = data?.data ?? [];
+  const total = data?.total ?? 0;
+
+  const handleSearch = debounce((value: string) => {
+    setSearch(value);
+  }, 300);
+
+  // Estatísticas
+  const totalRevenue = orders.reduce((acc: number, o: Order) => acc + (o.total || 0), 0);
+  const pendingOrders = orders.filter((o: Order) => o.status === 'pending').length;
+  const deliveredOrders = orders.filter((o: Order) => o.status === 'delivered').length;
 
   return (
     <div className="space-y-6">
