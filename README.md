@@ -2,6 +2,8 @@
 
 > Sistema SaaS Multi-Tenant de gestão de vendas via WhatsApp para e-commerces.
 
+[![CI](https://github.com/Cjota221/vexxcrm/actions/workflows/ci.yml/badge.svg)](https://github.com/Cjota221/vexxcrm/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 ![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.3+-blue?logo=typescript)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind-4-06B6D4?logo=tailwindcss)
@@ -13,11 +15,41 @@
 
 VEXX CRM 2.0 é uma plataforma completa de CRM para e-commerces que operam via WhatsApp, com:
 
-- **Central de Atendimento** — Interface clone do WhatsApp Web para gestão de conversas
-- **CRM Inteligente** — Perfil do cliente com LTV, histórico de pedidos e tags
-- **Campanhas** — Disparo de sequências de mensagens em massa
-- **Anne (IA)** — Assistente de vendas com GPT-4o integrada
-- **Multi-Tenant** — Isolamento completo de dados com RLS no Supabase
+### ✨ Principais Features
+
+#### 💬 Central de Atendimento
+- Interface clone do WhatsApp Web
+- Mensagens em tempo real via SSE
+- Suporte a texto, imagens, vídeos, áudios e documentos
+- Indicadores de digitação e status de leitura
+- Respostas rápidas configuráveis
+
+#### 👥 CRM Inteligente
+- Perfil completo do cliente com histórico
+- LTV (Lifetime Value) automático
+- Tags e segmentação avançada
+- Notas e anotações sobre clientes
+- Integração com FacilZap para sincronização de pedidos
+
+#### 📢 Campanhas
+- Disparo em massa com anti-ban
+- Sequências de mensagens programadas
+- Segmentação de audiência por tags/status
+- Métricas em tempo real (enviados, lidos, respondidos)
+- Rate limiting configurável por tenant
+
+#### 🤖 Anne (IA)
+- Assistente de vendas com GPT-4o
+- Detecção de intenção do cliente
+- Respostas contextualizadas
+- Resumo de conversas
+- Transferência inteligente para humano
+
+#### 🏢 Multi-Tenant
+- Isolamento completo de dados com RLS
+- Cada cliente pode ter sua própria instância WhatsApp
+- Credenciais de integração por tenant
+- Planos com limites configuráveis (usuários, contatos, campanhas)
 
 ## 🛠 Stack Tecnológica
 
@@ -159,4 +191,22 @@ npm run lint     # Linting
 
 ## 📄 Licença
 
-Proprietário — VEXX © 2024-2025
+MIT License — Veja [LICENSE](LICENSE) para detalhes.
+
+---
+
+## 🤝 Contribuindo
+
+Contribuições são bem-vindas! Veja [CONTRIBUTING.md](CONTRIBUTING.md) para detalhes sobre nosso código de conduta e processo de envio de pull requests.
+
+---
+
+## 📞 Suporte
+
+- **Issues**: [GitHub Issues](https://github.com/Cjota221/vexxcrm/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/Cjota221/vexxcrm/discussions)
+- **Documentação**: [Docs](/docs)
+
+---
+
+**Desenvolvido com ❤️ por Cjota221**
