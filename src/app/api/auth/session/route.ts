@@ -6,9 +6,13 @@ import { createServerSupabaseClient } from '@/lib/supabase';
  * Retorna dados do usuário e tenant da sessão ativa.
  */
 export async function GET(request: NextRequest) {
+  console.log('🔑 API Session: Request recebida');
   try {
     const authorization = request.headers.get('Authorization');
+    console.log('🔑 API Session: Authorization header:', authorization ? 'Presente' : 'Ausente');
+    
     if (!authorization) {
+      console.error('🔑 API Session: Token não fornecido');
       return NextResponse.json(
         { error: 'Token não fornecido' },
         { status: 401 }
@@ -16,19 +20,27 @@ export async function GET(request: NextRequest) {
     }
 
     const token = authorization.replace('Bearer ', '');
+    console.log('🔑 API Session: Token extraído:', token.substring(0, 20) + '...');
+    
     const supabase = createServerSupabaseClient();
+    console.log('🔑 API Session: Supabase client criado');
 
     // Verificar token
+    console.log('🔑 API Session: Verificando token no Supabase...');
     const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
 
     if (authError || !authUser) {
+      console.error('🔑 API Session: Erro de autenticação:', authError);
       return NextResponse.json(
         { error: 'Sessão inválida ou expirada' },
         { status: 401 }
       );
     }
 
+    console.log('🔑 API Session: Usuário autenticado:', authUser.email);
+
     // Buscar dados do usuário e tenant
+    console.log('🔑 API Session: Buscando profile para user_id:', authUser.id);
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('*, tenant:tenants(*)')
@@ -36,7 +48,7 @@ export async function GET(request: NextRequest) {
       .single();
 
     if (profileError) {
-      console.error('Profile error:', profileError);
+      console.error('🔑 API Session: Erro ao buscar profile:', profileError);
       return NextResponse.json(
         { error: `Erro ao buscar perfil: ${profileError.message}` },
         { status: 500 }
@@ -44,12 +56,14 @@ export async function GET(request: NextRequest) {
     }
 
     if (!profile) {
-      console.error('Profile not found for user:', authUser.id);
+      console.error('🔑 API Session: Profile não encontrado para user:', authUser.id);
       return NextResponse.json(
         { error: 'Perfil de usuário não encontrado. Entre em contato com o suporte.' },
         { status: 404 }
       );
     }
+
+    console.log('✅ API Session: Profile encontrado:', profile.full_name, '- Tenant:', profile.tenant?.name);
 
     return NextResponse.json({
       user: {
@@ -64,7 +78,8 @@ export async function GET(request: NextRequest) {
       tenant: profile.tenant,
       access_token: token,
     });
-  } catch {
+  } catch (err) {
+    console.error('🔑 API Session: Erro fatal:', err);
     return NextResponse.json(
       { error: 'Erro interno do servidor' },
       { status: 500 }

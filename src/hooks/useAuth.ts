@@ -49,24 +49,30 @@ export function useAuth() {
 
   /** Carregar dados do usuário e tenant */
   const loadUserData = useCallback(async (accessToken: string) => {
+    console.log('📦 LoadUserData: Iniciando com token:', accessToken?.substring(0, 20) + '...');
     try {
+      console.log('📦 LoadUserData: Fazendo fetch para /api/auth/session...');
       const response = await fetch('/api/auth/session', {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
 
+      console.log('📦 LoadUserData: Response status:', response.status);
+
       if (!response.ok) {
         const errorData = await response.json();
-        console.error('Session error:', errorData);
+        console.error('❌ Session error:', errorData);
         clearSession();
         setLoading(false);
         return;
       }
 
       const data: AuthSession = await response.json();
+      console.log('✅ LoadUserData: Dados recebidos:', { user: data.user?.name, tenant: data.tenant?.name });
       setSession(data);
       setLoading(false);
+      console.log('✅ LoadUserData: Sessão configurada com sucesso!');
     } catch (err) {
-      console.error('Load user data error:', err);
+      console.error('❌ Load user data error:', err);
       clearSession();
       setLoading(false);
     }
@@ -108,8 +114,11 @@ export function useAuth() {
         await loadUserData(data.session.access_token);
         
         // Aguarda um pouco para verificar se o carregamento finalizou
+        console.log('🚀 Login: Iniciando redirecionamento para /');
         setTimeout(() => {
+          console.log('🚀 Login: Executando router.push("/")');
           router.push('/');
+          console.log('🚀 Login: router.push executado');
         }, 500);
       }
 

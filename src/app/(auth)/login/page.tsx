@@ -19,6 +19,7 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('🔐 Login: Iniciando...', { email });
     setError('');
 
     if (!email || !password) {
@@ -26,9 +27,15 @@ export default function LoginPage() {
       return;
     }
 
+    console.log('🔐 Login: Chamando função login...');
     const result = await login(email, password);
+    console.log('🔐 Login: Resultado:', result);
+    
     if (result.error) {
+      console.error('🔐 Login: Erro:', result.error);
       setError(result.error);
+    } else {
+      console.log('🔐 Login: Sucesso! Redirecionando...');
     }
   };
 

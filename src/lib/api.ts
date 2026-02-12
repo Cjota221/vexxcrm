@@ -1,3 +1,4 @@
+import { supabase } from './supabase';
 import type { ApiResponse } from '@/types';
 
 /**
@@ -25,10 +26,26 @@ class ApiClient {
   ): Promise<ApiResponse<T>> {
     const url = `${this.baseUrl}${endpoint}`;
 
-    const headers: HeadersInit = {
+    // Buscar token da sessão ativa do Supabase
+    let accessToken: string | null = null;
+    if (typeof window !== 'undefined') {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        accessToken = session?.access_token || null;
+      } catch (err) {
+        console.error('❌ Erro ao obter sessão do Supabase:', err);
+      }
+    }
+
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...options.headers,
+      ...(options.headers as Record<string, string>),
     };
+
+    // Adicionar Authorization header se tiver token
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
 
     try {
       const response = await fetch(url, {

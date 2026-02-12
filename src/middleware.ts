@@ -5,14 +5,13 @@ import { createServerSupabaseClient } from '@/lib/supabase';
 /**
  * Middleware Next.js — Proteção de rotas e validação de sessão.
  * 
- * Rotas protegidas:
- * - /dashboard/* — requer autenticação
- * - /api/* (exceto /api/auth, /api/webhooks) — requer autenticação
+ * IMPORTANTE: Como o Supabase armazena tokens no localStorage (client-side),
+ * o middleware não consegue validar sessões server-side de forma confiável.
  * 
- * Rotas públicas:
- * - /login, /register, /forgot-password
- * - /api/auth/*
- * - /api/webhooks/*
+ * Estratégia adotada:
+ * - Middleware NÃO bloqueia rotas de dashboard (proteção no client-side)
+ * - Middleware SÓ protege rotas de API que precisam de tenant_id
+ * - Páginas verificam autenticação via useAuth hook
  */
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -25,76 +24,61 @@ export async function middleware(request: NextRequest) {
   const isPublicApiRoute = pathname.startsWith('/api/auth') || 
                            pathname.startsWith('/api/webhooks');
 
-  // ─── VERIFICAR SESSÃO ───
-  const token = request.cookies.get('sb-access-token')?.value || 
-                request.headers.get('Authorization')?.replace('Bearer ', '');
-
-  let isAuthenticated = false;
-  let tenantId: string | null = null;
-
-  if (token) {
-    try {
-      const supabase = createServerSupabaseClient();
-      const { data: { user }, error } = await supabase.auth.getUser(token);
-
-      if (!error && user) {
-        // Buscar tenant_id do profile
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('tenant_id')
-          .eq('id', user.id)
-          .single();
-
-        if (profile) {
-          isAuthenticated = true;
-          tenantId = profile.tenant_id;
-        }
-      }
-    } catch {
-      // Token inválido ou erro de rede
-      isAuthenticated = false;
-    }
-  }
-
-  // ─── PROTEÇÃO DE ROTAS DO DASHBOARD ───
-  if (pathname.startsWith('/dashboard') || pathname === '/') {
-    if (!isAuthenticated) {
-      // Redirecionar para login
-      const loginUrl = new URL('/login', request.url);
-      loginUrl.searchParams.set('redirect', pathname);
-      return NextResponse.redirect(loginUrl);
-    }
-    // Usuário autenticado — permitir acesso
-    return NextResponse.next();
-  }
-
-  // ─── PROTEÇÃO DE ROTAS DA API ───
+  // ─── PROTEÇÃO APENAS DE ROTAS DE API (não rotas de página) ───
   if (pathname.startsWith('/api') && !isPublicApiRoute) {
-    if (!isAuthenticated || !tenantId) {
+    const token = request.headers.get('Authorization')?.replace('Bearer ', '');
+
+    if (!token) {
       return NextResponse.json(
-        { error: 'Não autorizado' },
+        { error: 'Token não fornecido' },
         { status: 401 }
       );
     }
 
-    // Injetar tenant_id no header para uso nas API routes
-    const requestHeaders = new Headers(request.headers);
-    requestHeaders.set('x-tenant-id', tenantId);
+    try {
+      const supabase = createServerSupabaseClient();
+      const { data: { user }, error } = await supabase.auth.getUser(token);
 
-    return NextResponse.next({
-      request: {
-        headers: requestHeaders,
-      },
-    });
+      if (error || !user) {
+        return NextResponse.json(
+          { error: 'Token inválido ou expirado' },
+          { status: 401 }
+        );
+      }
+
+      // Buscar tenant_id do profile
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('tenant_id')
+        .eq('id', user.id)
+        .single();
+
+      if (!profile?.tenant_id) {
+        return NextResponse.json(
+          { error: 'Tenant não encontrado' },
+          { status: 403 }
+        );
+      }
+
+      // Injetar tenant_id no header para uso nas API routes
+      const requestHeaders = new Headers(request.headers);
+      requestHeaders.set('x-tenant-id', profile.tenant_id);
+
+      return NextResponse.next({
+        request: {
+          headers: requestHeaders,
+        },
+      });
+    } catch {
+      return NextResponse.json(
+        { error: 'Erro ao validar token' },
+        { status: 500 }
+      );
+    }
   }
 
-  // ─── PÁGINAS DE AUTH (login, register) ───
-  if (isAuthPage && isAuthenticated) {
-    // Usuário já autenticado tentando acessar /login — redirecionar para dashboard
-    return NextResponse.redirect(new URL('/', request.url));
-  }
-
-  // ─── ROTAS PÚBLICAS E NÃO PROTEGIDAS ───
+  // ─── TODAS AS OUTRAS ROTAS (páginas) PASSAM LIVREMENTE ───
+  // A proteção de autenticação é feita no client-side via useAuth
   return NextResponse.next();
 }
 

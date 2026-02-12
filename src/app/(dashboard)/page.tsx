@@ -20,7 +20,7 @@ import type { DashboardKPIs } from '@/types';
  * Dashboard — Página inicial com KPIs e visão geral.
  */
 export default function DashboardPage() {
-  const { data: kpis, isLoading } = useQuery({
+  const { data: kpis, isLoading: isLoadingKpis } = useQuery({
     queryKey: ['dashboard-kpis'],
     queryFn: async () => {
       const response = await api.get<DashboardKPIs>('/api/dashboard');
@@ -89,6 +89,17 @@ export default function DashboardPage() {
     },
   ];
 
+  if (isLoadingKpis) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Carregando dados...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Page Title */}
@@ -103,7 +114,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {kpiCards.map((kpi) => (
           <Card key={kpi.label} hover padding="md">
-            {isLoading ? (
+            {isLoadingKpis ? (
               <div className="space-y-3">
                 <div className="skeleton h-10 w-10 rounded-xl" />
                 <div className="skeleton h-4 w-20" />
