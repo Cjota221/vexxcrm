@@ -34,12 +34,32 @@ export async function GET(request: NextRequest) {
 
     const { data: tenant } = await supabase
       .from('tenants')
-      .select('config')
+      .select('evolution_api_url, evolution_api_key, evolution_instance, facilzap_token, openai_api_key')
       .eq('id', profile.tenant_id)
       .single();
 
-    console.log('✅ Get config:', tenant?.config);
-    return NextResponse.json(tenant?.config || {});
+    // Transformar em formato esperado pelo frontend
+    const config = {
+      facilzap: {
+        enabled: !!tenant?.facilzap_token,
+        token: tenant?.facilzap_token || '',
+        site_url: '', // TODO: adicionar coluna se necessário
+      },
+      evolution: {
+        status: !!tenant?.evolution_api_url ? 'connected' : 'disconnected',
+        url: tenant?.evolution_api_url || '',
+        api_key: tenant?.evolution_api_key || '',
+        instance: tenant?.evolution_instance || '',
+      },
+      openai: {
+        enabled: !!tenant?.openai_api_key,
+        api_key: tenant?.openai_api_key || '',
+        model: 'gpt-4',
+      },
+    };
+
+    console.log('✅ Get config:', config);
+    return NextResponse.json(config);
   } catch (error) {
     console.error('❌ Get config error:', error);
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
@@ -72,23 +92,38 @@ export async function PUT(request: NextRequest) {
 
     const configUpdate = await request.json();
 
-    // Merge com config existente
-    const { data: currentTenant } = await supabase
-      .from('tenants')
-      .select('config')
-      .eq('id', profile.tenant_id)
-      .single();
+    // Mapear estrutura do frontend para colunas do banco
+    const dbUpdate: any = { updated_at: new Date().toISOString() };
 
-    const mergedConfig = {
-      ...currentTenant?.config,
-      ...configUpdate,
-    };
+    if (configUpdate.facilzap) {
+      if (configUpdate.facilzap.token !== undefined) {
+        dbUpdate.facilzap_token = configUpdate.facilzap.token;
+      }
+    }
+
+    if (configUpdate.evolution) {
+      if (configUpdate.evolution.url !== undefined) {
+        dbUpdate.evolution_api_url = configUpdate.evolution.url;
+      }
+      if (configUpdate.evolution.api_key !== undefined) {
+        dbUpdate.evolution_api_key = configUpdate.evolution.api_key;
+      }
+      if (configUpdate.evolution.instance !== undefined) {
+        dbUpdate.evolution_instance = configUpdate.evolution.instance;
+      }
+    }
+
+    if (configUpdate.openai) {
+      if (configUpdate.openai.api_key !== undefined) {
+        dbUpdate.openai_api_key = configUpdate.openai.api_key;
+      }
+    }
 
     const { data, error } = await supabase
       .from('tenants')
-      .update({ config: mergedConfig, updated_at: new Date().toISOString() })
+      .update(dbUpdate)
       .eq('id', profile.tenant_id)
-      .select('config')
+      .select('evolution_api_url, evolution_api_key, evolution_instance, facilzap_token, openai_api_key')
       .single();
 
     if (error) {
@@ -96,8 +131,28 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Erro ao atualizar' }, { status: 500 });
     }
 
-    console.log('✅ Config atualizado:', data.config);
-    return NextResponse.json(data.config);
+    // Retornar no formato esperado
+    const updatedConfig = {
+      facilzap: {
+        enabled: !!data.facilzap_token,
+        token: data.facilzap_token || '',
+        site_url: '',
+      },
+      evolution: {
+        status: !!data.evolution_api_url ? 'connected' : 'disconnected',
+        url: data.evolution_api_url || '',
+        api_key: data.evolution_api_key || '',
+        instance: data.evolution_instance || '',
+      },
+      openai: {
+        enabled: !!data.openai_api_key,
+        api_key: data.openai_api_key || '',
+        model: 'gpt-4',
+      },
+    };
+
+    console.log('✅ Config atualizado:', updatedConfig);
+    return NextResponse.json(updatedConfig);
   } catch (error) {
     console.error('❌ Update config fatal error:', error);
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 });

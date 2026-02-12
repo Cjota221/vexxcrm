@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import {
   Users,
@@ -11,6 +13,7 @@ import {
   UserPlus,
   Clock,
 } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { Card } from '@/components/ui/Card';
@@ -20,6 +23,22 @@ import type { DashboardKPIs } from '@/types';
  * Dashboard — Página inicial com KPIs e visão geral.
  */
 export default function DashboardPage() {
+  const router = useRouter();
+
+  // Verificar autenticação de forma simples
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        console.log('📊 Dashboard: Não autenticado, redirecionando...');
+        router.push('/login');
+      } else {
+        console.log('📊 Dashboard: ✅ Autenticado');
+      }
+    };
+    checkAuth();
+  }, [router]);
+
   const { data: kpis, isLoading: isLoadingKpis } = useQuery({
     queryKey: ['dashboard-kpis'],
     queryFn: async () => {

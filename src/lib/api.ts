@@ -3,8 +3,9 @@ import type { ApiResponse } from '@/types';
 
 /**
  * Base URL da API interna do Next.js.
+ * Usa string vazia para rotas relativas (mesma origem).
  */
-const API_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || '';
+const API_BASE_URL = '';
 
 /**
  * Classe helper para requisições à API.

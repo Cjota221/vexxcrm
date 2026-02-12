@@ -18,6 +18,7 @@ import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { supabase } from '@/lib/supabase';
 import type { TenantConfig } from '@/types';
 
 type SettingsTab = 'whatsapp' | 'facilzap' | 'anne' | 'preferences';
@@ -124,6 +125,7 @@ function FacilZapSettings({ config }: { config?: TenantConfig }) {
   const { updateConfig, isUpdating } = useTenantConfig();
   const [token, setToken] = useState(config?.facilzap?.token || '');
   const [siteUrl, setSiteUrl] = useState(config?.facilzap?.site_url || '');
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const handleSave = async () => {
     try {
@@ -137,6 +139,44 @@ function FacilZapSettings({ config }: { config?: TenantConfig }) {
       alert('✅ Configurações do FacilZap salvas com sucesso!');
     } catch (error) {
       alert('❌ Erro ao salvar: ' + (error as Error).message);
+    }
+  };
+
+  const handleSync = async () => {
+    if (!config?.facilzap?.token) {
+      alert('⚠️ Configure o token do FacilZap primeiro!');
+      return;
+    }
+
+    setIsSyncing(true);
+    try {
+      // Pegar o token da sessão atual do Supabase
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.access_token) {
+        alert('❌ Sessão expirada. Faça login novamente.');
+        return;
+      }
+
+      const response = await fetch('/api/facilzap/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        alert(`✅ Sincronização concluída!\n\n${data.message}\n\n${data.results.errors.length > 0 ? 'Erros: ' + data.results.errors.join('\n') : ''}`);
+      } else {
+        alert('❌ Erro: ' + data.error);
+      }
+    } catch (error) {
+      alert('❌ Erro ao sincronizar: ' + (error as Error).message);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -174,7 +214,20 @@ function FacilZapSettings({ config }: { config?: TenantConfig }) {
           >
             <Save size={16} /> {isUpdating ? 'Salvando...' : 'Salvar'}
           </Button>
+          <Button 
+            variant="secondary" 
+            onClick={handleSync}
+            disabled={isSyncing || !facilzap?.enabled}
+          >
+            <RefreshCw size={16} className={isSyncing ? 'animate-spin' : ''} /> 
+            {isSyncing ? 'Sincronizando...' : 'Sincronizar Dados'}
+          </Button>
         </div>
+        {facilzap?.enabled && (
+          <p className="text-xs text-gray-500 mt-2">
+            💡 Clique em "Sincronizar Dados" para importar produtos, clientes e pedidos do FacilZap.
+          </p>
+        )}
       </div>
     </Card>
   );

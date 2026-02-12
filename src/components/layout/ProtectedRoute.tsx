@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
 import { supabase } from '@/lib/supabase';
@@ -11,31 +11,46 @@ import { supabase } from '@/lib/supabase';
  */
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { isAuthenticated, isLoading, accessToken } = useAuthStore();
+  const { isAuthenticated, isLoading } = useAuthStore();
+  const [checking, setChecking] = useState(true);
 
   useEffect(() => {
     const checkAuth = async () => {
-      // Se ainda está carregando, aguardar
+      console.log('🔒 ProtectedRoute: Verificando...', { isAuthenticated, isLoading });
+      
+      // Se ainda está carregando o auth, aguardar
       if (isLoading) {
+        console.log('🔒 ProtectedRoute: Ainda carregando...');
         return;
       }
 
-      // Se não está autenticado E não tem token, redirecionar
-      if (!isAuthenticated && !accessToken) {
-        // Última verificação: verificar se há sessão no Supabase
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) {
-          console.log('🔒 ProtectedRoute: Não autenticado, redirecionando...');
-          router.push('/login');
-        }
+      // Se já está autenticado, liberar
+      if (isAuthenticated) {
+        console.log('🔒 ProtectedRoute: ✅ Autenticado!');
+        setChecking(false);
+        return;
       }
+
+      // Última verificação: ver se tem sessão no Supabase
+      console.log('🔒 ProtectedRoute: Verificando sessão no Supabase...');
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session) {
+        console.log('🔒 ProtectedRoute: ✅ Sessão encontrada no Supabase!');
+        setChecking(false);
+        return;
+      }
+
+      // Não tem sessão, redirecionar
+      console.log('🔒 ProtectedRoute: ❌ Não autenticado, redirecionando...');
+      router.push('/login');
     };
 
     checkAuth();
-  }, [isAuthenticated, isLoading, accessToken, router]);
+  }, [isAuthenticated, isLoading, router]);
 
-  // Mostrar loading enquanto verifica autenticação
-  if (isLoading) {
+  // Mostrar loading apenas nos primeiros 2 segundos
+  if (isLoading || checking) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -44,11 +59,6 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
         </div>
       </div>
     );
-  }
-
-  // Se não autenticado E não tem token, não renderizar nada (vai redirecionar)
-  if (!isAuthenticated && !accessToken) {
-    return null;
   }
 
   return <>{children}</>;
