@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     // Buscar configurações do FacilZap
     const { data: tenant, error: tenantError } = await supabaseAdmin
       .from('tenants')
-      .select('facilzap_token, facilzap_site_url')
+      .select('facilzap_token')
       .eq('id', profile.tenant_id)
       .single();
 
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
 
     const facilzapConfig = {
       token: tenant.facilzap_token,
-      storeUrl: tenant.facilzap_site_url || '',
+      storeUrl: '', // Site URL não é obrigatório
     };
 
     const results = {
