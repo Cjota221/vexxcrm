@@ -66,14 +66,15 @@ export default function RegisterPage() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="flex justify-center mb-4">
-            <Image
-              src="/images/logo-icon.png"
-              alt="VEXX CRM"
-              width={180}
-              height={50}
-              className="object-contain h-14 w-auto"
-              priority
-            />
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-linear-to-br from-primary to-primary-dark rounded-xl flex items-center justify-center shadow-lg">
+                <span className="text-2xl font-bold text-white">V</span>
+              </div>
+              <div className="text-left">
+                <h1 className="text-2xl font-bold text-txt-primary">VEXX CRM</h1>
+                <p className="text-xs text-txt-secondary">WhatsApp Multi-Tenant</p>
+              </div>
+            </div>
           </div>
         </div>
         <div className="bg-white rounded-2xl shadow-card p-8 text-center">
