@@ -126,12 +126,19 @@ function FacilZapSettings({ config }: { config?: TenantConfig }) {
   const [token, setToken] = useState(config?.facilzap?.token || '');
   const [siteUrl, setSiteUrl] = useState(config?.facilzap?.site_url || '');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState('');
+  const [syncResults, setSyncResults] = useState<{
+    products: number;
+    clients: number;
+    orders: number;
+    errors: string[];
+  } | null>(null);
 
   const handleSave = async () => {
     try {
       await updateConfig({
         facilzap: {
-          enabled: !!token && !!siteUrl,
+          enabled: !!token,
           token,
           site_url: siteUrl,
         },
@@ -144,36 +151,85 @@ function FacilZapSettings({ config }: { config?: TenantConfig }) {
 
   const handleSync = async () => {
     if (!config?.facilzap?.token) {
-      alert('⚠️ Configure o token do FacilZap primeiro!');
+      alert('⚠️ Configure e salve o token do FacilZap primeiro!');
       return;
     }
 
     setIsSyncing(true);
+    setSyncResults(null);
+    
+    const totals = { products: 0, clients: 0, orders: 0, errors: [] as string[] };
+    
     try {
-      // Pegar o token da sessão atual do Supabase
       const { data: { session } } = await supabase.auth.getSession();
-      
       if (!session?.access_token) {
         alert('❌ Sessão expirada. Faça login novamente.');
         return;
       }
 
-      const response = await fetch('/api/facilzap/sync', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-        },
-      });
+      const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      };
 
-      const data = await response.json();
-
-      if (response.ok) {
-        alert(`✅ Sincronização concluída!\n\n${data.message}\n\n${data.results.errors.length > 0 ? 'Erros: ' + data.results.errors.join('\n') : ''}`);
-      } else {
-        alert('❌ Erro: ' + data.error);
+      // ETAPA 1: Sincronizar PRODUTOS (múltiplas páginas)
+      let page = 1;
+      let hasMore = true;
+      while (hasMore && page <= 10) {
+        setSyncProgress(`📦 Sincronizando produtos... (página ${page})`);
+        const res = await fetch('/api/facilzap/sync', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ entity: 'products', page }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Erro ao sincronizar produtos');
+        totals.products += data.results?.products || 0;
+        if (data.results?.errors?.length) totals.errors.push(...data.results.errors);
+        hasMore = data.results?.hasMore?.products || false;
+        page++;
       }
+
+      // ETAPA 2: Sincronizar CLIENTES (múltiplas páginas)
+      page = 1;
+      hasMore = true;
+      while (hasMore && page <= 15) {
+        setSyncProgress(`👥 Sincronizando clientes... (página ${page})`);
+        const res = await fetch('/api/facilzap/sync', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ entity: 'clients', page }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Erro ao sincronizar clientes');
+        totals.clients += data.results?.clients || 0;
+        if (data.results?.errors?.length) totals.errors.push(...data.results.errors);
+        hasMore = data.results?.hasMore?.clients || false;
+        page++;
+      }
+
+      // ETAPA 3: Sincronizar PEDIDOS (múltiplas páginas)
+      page = 1;
+      hasMore = true;
+      while (hasMore && page <= 20) {
+        setSyncProgress(`🛒 Sincronizando pedidos... (página ${page})`);
+        const res = await fetch('/api/facilzap/sync', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ entity: 'orders', page }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Erro ao sincronizar pedidos');
+        totals.orders += data.results?.orders || 0;
+        if (data.results?.errors?.length) totals.errors.push(...data.results.errors);
+        hasMore = data.results?.hasMore?.orders || false;
+        page++;
+      }
+
+      setSyncProgress('✅ Sincronização completa!');
+      setSyncResults(totals);
     } catch (error) {
+      setSyncProgress('');
       alert('❌ Erro ao sincronizar: ' + (error as Error).message);
     } finally {
       setIsSyncing(false);
@@ -223,7 +279,36 @@ function FacilZapSettings({ config }: { config?: TenantConfig }) {
             {isSyncing ? 'Sincronizando...' : 'Sincronizar Dados'}
           </Button>
         </div>
-        {facilzap?.enabled && (
+        
+        {/* Progresso da sincronização */}
+        {syncProgress && (
+          <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-xl">
+            <p className="text-sm text-blue-700 font-medium">{syncProgress}</p>
+          </div>
+        )}
+
+        {/* Resultados da sincronização */}
+        {syncResults && (
+          <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-xl space-y-1">
+            <p className="text-sm font-medium text-green-700">✅ Sincronização completa!</p>
+            <p className="text-xs text-green-600">📦 {syncResults.products} produtos importados</p>
+            <p className="text-xs text-green-600">👥 {syncResults.clients} clientes importados</p>
+            <p className="text-xs text-green-600">🛒 {syncResults.orders} pedidos importados</p>
+            {syncResults.errors.length > 0 && (
+              <div className="mt-2 pt-2 border-t border-green-200">
+                <p className="text-xs text-orange-600 font-medium">⚠️ {syncResults.errors.length} avisos:</p>
+                {syncResults.errors.slice(0, 5).map((err, i) => (
+                  <p key={i} className="text-xs text-orange-500">{err}</p>
+                ))}
+                {syncResults.errors.length > 5 && (
+                  <p className="text-xs text-orange-500">... e mais {syncResults.errors.length - 5} avisos</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {facilzap?.enabled && !syncProgress && !syncResults && (
           <p className="text-xs text-gray-500 mt-2">
             💡 Clique em "Sincronizar Dados" para importar produtos, clientes e pedidos do FacilZap.
           </p>
