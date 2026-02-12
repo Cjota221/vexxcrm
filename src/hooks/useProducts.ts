@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, UseQueryResult } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { Product } from '@/types';
 
@@ -13,10 +13,13 @@ interface UseProductsParams {
 interface ProductsResponse {
   data: Product[];
   total: number;
+  page: number;
+  per_page: number;
+  total_pages: number;
 }
 
-export function useProducts(params?: UseProductsParams) {
-  return useQuery<ProductsResponse>({
+export function useProducts(params?: UseProductsParams): UseQueryResult<ProductsResponse, Error> {
+  return useQuery<ProductsResponse, Error>({
     queryKey: ['products', params],
     queryFn: async () => {
       const searchParams = new URLSearchParams();
@@ -25,7 +28,7 @@ export function useProducts(params?: UseProductsParams) {
       if (params?.is_active !== undefined) searchParams.set('is_active', String(params.is_active));
 
       const response = await api.get(`/products?${searchParams.toString()}`);
-      return response.data;
+      return response.data as ProductsResponse;
     },
   });
 }
