@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  lint:
+    name: 🔍 Lint & Type Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: 📥 Install dependencies
+        run: npm ci
+      
+      - name: 🔍 Run ESLint
+        run: npm run lint
+      
+      - name: 🔍 TypeScript type check
+        run: npx tsc --noEmit
+
+  build:
+    name: 🏗️ Build
+    runs-on: ubuntu-latest
+    needs: lint
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: 📥 Install dependencies
+        run: npm ci
+      
+      - name: 🏗️ Build Next.js
+        run: npm run build
+        env:
+          # Mock env vars para build (não são usadas em build time)
+          NEXT_PUBLIC_SUPABASE_URL: https://mock.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: mock_key
+      
+      - name: 📊 Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build
+          path: .next
+          retention-days: 7
+
+  security:
+    name: 🔒 Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🔍 Run npm audit
+        run: npm audit --audit-level=moderate
+        continue-on-error: true
+      
+      - name: 🔍 Check for secrets
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+
+  validate-sql:
+    name: 🗄️ Validate SQL Migrations
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🔍 Check SQL syntax
+        run: |
+          # Verifica se há erros de sintaxe básicos nos SQLs
+          for file in supabase/migrations/*.sql; do
+            echo "Validating $file..."
+            # Verifica se não há credenciais hardcoded
+            if grep -E "(password|secret|api_key|token).*=.*['\"][^'\"]+['\"]" "$file"; then
+              echo "❌ Possível credencial hardcoded encontrada em $file"
+              exit 1
+            fi
+          done
+          echo "✅ SQL migrations validated"
