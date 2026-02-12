@@ -63,9 +63,20 @@ export async function POST(request: NextRequest) {
     console.log('🔍 Tenant data:', { tenant, tenantError, tenant_id: profile.tenant_id });
 
     if (!tenant?.facilzap_token) {
+      console.error('❌ Token não encontrado:', { 
+        tenant, 
+        tenantError, 
+        tenant_id: profile.tenant_id,
+        has_tenant: !!tenant,
+        facilzap_token: tenant?.facilzap_token ? 'EXISTS' : 'NULL'
+      });
       return NextResponse.json({ 
         error: 'Token do FacilZap não configurado',
-        debug: { tenant, tenantError }
+        debug: { 
+          has_tenant: !!tenant,
+          tenant_id: profile.tenant_id,
+          error: tenantError?.message 
+        }
       }, { status: 400 });
     }
 
