@@ -1,0 +1,71 @@
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+
+import type { User, Tenant, AuthSession } from '@/types';
+
+interface AuthState {
+  /** Usuário autenticado */
+  user: User | null;
+  /** Tenant do usuário */
+  tenant: Tenant | null;
+  /** Token de acesso */
+  accessToken: string | null;
+  /** Se está autenticado */
+  isAuthenticated: boolean;
+  /** Se está carregando a sessão */
+  isLoading: boolean;
+
+  /** Define a sessão após login */
+  setSession: (session: AuthSession) => void;
+  /** Limpa a sessão (logout) */
+  clearSession: () => void;
+  /** Atualiza o tenant */
+  updateTenant: (tenant: Partial<Tenant>) => void;
+  /** Define loading */
+  setLoading: (loading: boolean) => void;
+}
+
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set) => ({
+      user: null,
+      tenant: null,
+      accessToken: null,
+      isAuthenticated: false,
+      isLoading: true,
+
+      setSession: (session) =>
+        set({
+          user: session.user,
+          tenant: session.tenant,
+          accessToken: session.access_token,
+          isAuthenticated: true,
+          isLoading: false,
+        }),
+
+      clearSession: () =>
+        set({
+          user: null,
+          tenant: null,
+          accessToken: null,
+          isAuthenticated: false,
+          isLoading: false,
+        }),
+
+      updateTenant: (tenantUpdate) =>
+        set((state) => ({
+          tenant: state.tenant
+            ? { ...state.tenant, ...tenantUpdate }
+            : null,
+        })),
+
+      setLoading: (loading) => set({ isLoading: loading }),
+    }),
+    {
+      name: 'vexx-auth',
+      partialize: (state) => ({
+        accessToken: state.accessToken,
+      }),
+    }
+  )
+);

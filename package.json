@@ -1,0 +1,37 @@
+{
+  "name": "vexx-crm",
+  "version": "2.0.0",
+  "description": "VEXX CRM 2.0 - SaaS Multi-Tenant de gestão de vendas via WhatsApp",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "author": "VEXX CRM Team",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.95.3",
+    "@tailwindcss/postcss": "^4.1.18",
+    "@tanstack/react-query": "^5.90.21",
+    "@types/node": "^25.2.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.563.0",
+    "next": "^16.1.6",
+    "postcss": "^8.5.6",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-window": "^2.2.6",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5.9.3",
+    "zustand": "^5.0.11"
+  },
+  "devDependencies": {
+    "@types/react-window": "^1.8.8",
+    "eslint": "^9.39.2",
+    "eslint-config-next": "^16.1.6"
+  }
+}

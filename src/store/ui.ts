@@ -1,0 +1,77 @@
+import { create } from 'zustand';
+
+interface UIState {
+  /** Sidebar expandida ou colapsada */
+  sidebarExpanded: boolean;
+  /** CRM sidebar visível (no atendimento) */
+  crmSidebarOpen: boolean;
+  /** Modal ativa (null = nenhuma) */
+  activeModal: string | null;
+  /** Dados do modal ativo */
+  modalData: unknown;
+  /** Toast messages */
+  toasts: Toast[];
+
+  /** Toggle sidebar */
+  toggleSidebar: () => void;
+  setSidebarExpanded: (expanded: boolean) => void;
+
+  /** Toggle CRM sidebar */
+  toggleCrmSidebar: () => void;
+  setCrmSidebarOpen: (open: boolean) => void;
+
+  /** Modais */
+  openModal: (id: string, data?: unknown) => void;
+  closeModal: () => void;
+
+  /** Toasts */
+  addToast: (toast: Omit<Toast, 'id'>) => void;
+  removeToast: (id: string) => void;
+}
+
+export interface Toast {
+  id: string;
+  type: 'success' | 'error' | 'warning' | 'info';
+  title: string;
+  message?: string;
+  duration?: number;
+}
+
+export const useUIStore = create<UIState>()((set) => ({
+  sidebarExpanded: true,
+  crmSidebarOpen: true,
+  activeModal: null,
+  modalData: null,
+  toasts: [],
+
+  toggleSidebar: () =>
+    set((state) => ({ sidebarExpanded: !state.sidebarExpanded })),
+
+  setSidebarExpanded: (expanded) =>
+    set({ sidebarExpanded: expanded }),
+
+  toggleCrmSidebar: () =>
+    set((state) => ({ crmSidebarOpen: !state.crmSidebarOpen })),
+
+  setCrmSidebarOpen: (open) =>
+    set({ crmSidebarOpen: open }),
+
+  openModal: (id, data) =>
+    set({ activeModal: id, modalData: data }),
+
+  closeModal: () =>
+    set({ activeModal: null, modalData: null }),
+
+  addToast: (toast) =>
+    set((state) => ({
+      toasts: [
+        ...state.toasts,
+        { ...toast, id: `toast-${Date.now()}-${Math.random().toString(36).slice(2)}` },
+      ],
+    })),
+
+  removeToast: (id) =>
+    set((state) => ({
+      toasts: state.toasts.filter((t) => t.id !== id),
+    })),
+}));
