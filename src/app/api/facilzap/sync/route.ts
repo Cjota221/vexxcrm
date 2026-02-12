@@ -92,62 +92,67 @@ export async function POST(request: NextRequest) {
       errors: [] as string[],
     };
 
-    // 1. Sincronizar PRODUTOS
+    // 1. Sincronizar PRODUTOS (em batch para performance)
     try {
       console.log('🔄 Sincronizando produtos do FacilZap...');
       const products = await fetchAllProducts(facilzapConfig);
       
-      for (const product of products) {
-        const { error } = await supabaseAdmin
+      // Limitar a 50 produtos por vez para evitar timeout
+      const productsToSync = products.slice(0, 50);
+      
+      if (productsToSync.length > 0) {
+        const productsData = productsToSync.map(product => ({
+          tenant_id: profile.tenant_id,
+          external_id: product.external_id,
+          sku: product.sku,
+          name: product.name,
+          description: product.description,
+          price: product.price,
+          stock: product.stock,
+          image_url: product.image_url,
+          category: product.category,
+          is_active: product.is_active,
+          synced_at: new Date().toISOString(),
+        }));
+
+        const { data, error } = await supabaseAdmin
           .from('products')
-          .upsert({
-            tenant_id: profile.tenant_id,
-            external_id: product.external_id,
-            sku: product.sku,
-            name: product.name,
-            description: product.description,
-            price: product.price,
-            stock: product.stock,
-            image_url: product.image_url,
-            category: product.category,
-            is_active: product.is_active,
-            synced_at: new Date().toISOString(),
-          }, {
+          .upsert(productsData, {
             onConflict: 'tenant_id,external_id',
           });
 
         if (error) {
-          console.error('❌ Erro ao inserir produto:', error);
-          results.errors.push(`Produto ${product.name}: ${error.message}`);
+          console.error('❌ Erro ao inserir produtos:', error);
+          results.errors.push(`Produtos batch: ${error.message}`);
         } else {
-          results.products++;
+          results.products = productsToSync.length;
+          console.log(`✅ ${results.products} produtos sincronizados`);
         }
       }
-
-      console.log(`✅ ${results.products} produtos sincronizados`);
     } catch (error: any) {
       console.error('❌ Erro ao sincronizar produtos:', error);
       results.errors.push(`Produtos: ${error.message}`);
     }
 
-    // 2. Sincronizar CLIENTES
+    // 2. Sincronizar CLIENTES (em batch para performance)
     try {
       console.log('🔄 Sincronizando clientes do FacilZap...');
       const clients = await fetchAllClients(facilzapConfig);
       
-      for (const client of clients) {
-        // Normalizar telefone (tenta whatsapp, telefone, celular)
-        const rawPhone = client.whatsapp || client.telefone || client.celular || '';
-        const phoneNormalized = rawPhone.replace(/\D/g, '');
-        
-        if (!phoneNormalized) {
-          results.errors.push(`Cliente ${client.nome}: sem telefone válido`);
-          continue;
-        }
-        
-        const { error } = await supabaseAdmin
-          .from('clients')
-          .upsert({
+      // Limitar a 50 clientes por vez
+      const clientsToSync = clients.slice(0, 50);
+      
+      const validClients = clientsToSync
+        .map(client => {
+          const rawPhone = client.whatsapp || client.telefone || client.celular || '';
+          const phoneNormalized = rawPhone.replace(/\D/g, '');
+          
+          if (!phoneNormalized) {
+            results.errors.push(`Cliente ${client.nome}: sem telefone válido`);
+            return null;
+          }
+          
+          return {
             tenant_id: profile.tenant_id,
             phone: phoneNormalized,
             phone_normalized: phoneNormalized,
@@ -155,41 +160,50 @@ export async function POST(request: NextRequest) {
             email: client.email || null,
             source: 'facilzap',
             status: 'active',
-            cpf: client.cpf_cnpj || null,
             notes: JSON.stringify({
               endereco: client.endereco,
               bairro: client.bairro,
               cidade: client.cidade,
               estado: client.estado,
               cep: client.cep,
+              cpf_cnpj: client.cpf_cnpj,
               origem: client.origem,
               ultima_compra: client.ultima_compra,
             }),
-          }, {
+          };
+        })
+        .filter(Boolean);
+
+      if (validClients.length > 0) {
+        const { error } = await supabaseAdmin
+          .from('clients')
+          .upsert(validClients as any, {
             onConflict: 'tenant_id,phone_normalized',
           });
 
         if (error) {
-          console.error('❌ Erro ao inserir cliente:', error);
-          results.errors.push(`Cliente ${client.nome}: ${error.message}`);
+          console.error('❌ Erro ao inserir clientes:', error);
+          results.errors.push(`Clientes batch: ${error.message}`);
         } else {
-          results.clients++;
+          results.clients = validClients.length;
+          console.log(`✅ ${results.clients} clientes sincronizados`);
         }
       }
-
-      console.log(`✅ ${results.clients} clientes sincronizados`);
     } catch (error: any) {
       console.error('❌ Erro ao sincronizar clientes:', error);
       results.errors.push(`Clientes: ${error.message}`);
     }
 
-    // 3. Sincronizar PEDIDOS
+    // 3. Sincronizar PEDIDOS (limitado para evitar timeout)
     try {
       console.log('🔄 Sincronizando pedidos do FacilZap...');
       const orders = await fetchAllOrders(facilzapConfig);
       
-      for (const order of orders) {
-        // Buscar cliente pelo telefone (pegar do objeto cliente do pedido)
+      // Limitar a 30 pedidos por vez (pedidos têm mais complexidade)
+      const ordersToSync = orders.slice(0, 30);
+      
+      for (const order of ordersToSync) {
+        // Buscar cliente pelo telefone
         const rawPhone = order.cliente?.telefone || '';
         const phoneNormalized = rawPhone.replace(/\D/g, '');
         
@@ -227,7 +241,6 @@ export async function POST(request: NextRequest) {
             payment_status: paymentStatus,
             payment_method: order.forma_pagamento || null,
             total: order.total || order.valor_total || 0,
-            source: order.origem || 'facilzap',
             notes: JSON.stringify({
               status_pedido: order.status_pedido,
               status_pago: order.status_pago,
@@ -248,18 +261,18 @@ export async function POST(request: NextRequest) {
         } else {
           results.orders++;
 
-          // Inserir itens do pedido
+          // Inserir itens do pedido em batch
           if (insertedOrder && order.itens && order.itens.length > 0) {
-            for (const item of order.itens) {
-              await supabaseAdmin.from('order_items').insert({
-                tenant_id: profile.tenant_id,
-                order_id: insertedOrder.id,
-                product_name: item.nome,
-                quantity: item.quantidade,
-                unit_price: item.preco_unitario || item.valor,
-                total_price: item.quantidade * (item.preco_unitario || item.valor),
-              });
-            }
+            const orderItems = order.itens.map(item => ({
+              tenant_id: profile.tenant_id,
+              order_id: insertedOrder.id,
+              product_name: item.nome,
+              quantity: item.quantidade,
+              unit_price: item.preco_unitario || item.valor || 0,
+              total_price: item.quantidade * (item.preco_unitario || item.valor || 0),
+            }));
+
+            await supabaseAdmin.from('order_items').insert(orderItems);
           }
         }
       }
