@@ -242,3 +242,218 @@ export function useLogEvent() {
     },
   });
 }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   INTELLIGENCE V2 — Seasonal, Products, Sales Assistant
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+interface SeasonalInsight {
+  event_slug: string;
+  event_name: string;
+  year: number;
+  total_revenue: number;
+  total_orders: number;
+  avg_ticket: number;
+  unique_buyers: number;
+  top_products: Array<{ name: string; quantity: number; revenue: number }>;
+  top_segments: Array<{ segment: string; count: number; revenue: number }>;
+  yoy_growth: number | null;
+}
+
+interface SeasonalResponse {
+  success: boolean;
+  insights: SeasonalInsight[];
+  stats: {
+    seasonal_buyers: number;
+    total_clients: number;
+    coverage_pct: number;
+  };
+  year: number;
+}
+
+interface ProductTrendsResponse {
+  success: boolean;
+  trends: {
+    growing: ProductTrendItem[];
+    declining: ProductTrendItem[];
+    top_sellers: ProductTrendItem[];
+    total: number;
+  };
+}
+
+interface ProductTrendItem {
+  product_name: string;
+  category: string | null;
+  total_quantity: number;
+  total_revenue: number;
+  unique_buyers: number;
+  qty_growth_pct: number | null;
+  revenue_growth_pct: number | null;
+  trend_direction: 'growing' | 'stable' | 'declining';
+  velocity_score: number;
+  period_start: string;
+}
+
+interface AffinityResponse {
+  success: boolean;
+  affinity: Array<{
+    product_a_name: string;
+    product_b_name: string;
+    co_purchase_count: number;
+    affinity_score: number;
+    confidence_a_to_b: number;
+  }>;
+  total: number;
+}
+
+interface ClientInsightResponse {
+  success: boolean;
+  insight: {
+    client_id: string;
+    client_name: string;
+    summary: string;
+    urgency: 'low' | 'medium' | 'high' | 'critical';
+    rfm: {
+      segment: string;
+      score: string;
+      churn_probability: number;
+      purchase_prob_30d: number;
+      ltv_projected_12m: number;
+      days_since_purchase: number;
+    } | null;
+    purchase: {
+      total_orders: number;
+      total_spent: number;
+      avg_ticket: number;
+      preferred_category: string | null;
+      price_sensitivity: string | null;
+    };
+    seasonal: {
+      is_seasonal_buyer: boolean;
+      preferred_season: string | null;
+      upcoming_event: string | null;
+      days_until_event: number | null;
+    } | null;
+    favorites: Array<{ name: string; qty: number }>;
+    cross_sell: Array<{ product_name: string; reason: string; confidence: number }>;
+    script: {
+      greeting: string;
+      talking_points: string[];
+      offers: string[];
+      caution: string[];
+    };
+    flags: {
+      is_vip: boolean;
+      is_at_risk: boolean;
+      needs_attention: boolean;
+      upsell_ready: boolean;
+    };
+    generated_at: string;
+  };
+}
+
+/**
+ * Hook para insights sazonais.
+ */
+export function useSeasonalInsights(year?: number) {
+  return useQuery({
+    queryKey: ['intelligence', 'seasonal', year],
+    queryFn: async () => {
+      const params: Record<string, string> = {};
+      if (year) params.year = String(year);
+      const response = await api.get<SeasonalResponse>('/api/intelligence/seasonal', params);
+      if (response.error) throw new Error(response.error);
+      return response.data;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * Hook para calcular sazonalidade (mutação).
+ */
+export function useCalculateSeasonal() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const response = await api.post('/api/intelligence/seasonal');
+      if (response.error) throw new Error(response.error);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['intelligence', 'seasonal'] });
+    },
+  });
+}
+
+/**
+ * Hook para tendências de produto.
+ */
+export function useProductTrends(limit = 20) {
+  return useQuery({
+    queryKey: ['intelligence', 'products', 'trends', limit],
+    queryFn: async () => {
+      const response = await api.get<ProductTrendsResponse>('/api/intelligence/products', {
+        type: 'trends',
+        limit: String(limit),
+      });
+      if (response.error) throw new Error(response.error);
+      return response.data;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * Hook para afinidade de produtos.
+ */
+export function useProductAffinity(limit = 10) {
+  return useQuery({
+    queryKey: ['intelligence', 'products', 'affinity', limit],
+    queryFn: async () => {
+      const response = await api.get<AffinityResponse>('/api/intelligence/products', {
+        type: 'affinity',
+        limit: String(limit),
+      });
+      if (response.error) throw new Error(response.error);
+      return response.data;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * Hook para calcular inteligência de produto (mutação).
+ */
+export function useCalculateProducts() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const response = await api.post('/api/intelligence/products');
+      if (response.error) throw new Error(response.error);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['intelligence', 'products'] });
+    },
+  });
+}
+
+/**
+ * Hook para insight de vendas de um cliente.
+ */
+export function useClientInsight(clientId: string | null) {
+  return useQuery({
+    queryKey: ['intelligence', 'assistant', clientId],
+    queryFn: async () => {
+      if (!clientId) return null;
+      const response = await api.get<ClientInsightResponse>('/api/intelligence/assistant', {
+        client_id: clientId,
+      });
+      if (response.error) throw new Error(response.error);
+      return response.data?.insight || null;
+    },
+    enabled: !!clientId,
+    staleTime: 2 * 60 * 1000,
+  });
+}

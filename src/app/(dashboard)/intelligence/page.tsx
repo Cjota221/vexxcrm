@@ -21,6 +21,8 @@ import { SegmentGrid } from '@/components/intelligence/SegmentGrid';
 import { RFMChart } from '@/components/intelligence/RFMChart';
 import { AIAlerts } from '@/components/intelligence/AIAlerts';
 import { CalculateRFMButton } from '@/components/intelligence/CalculateRFMButton';
+import { SeasonalInsights } from '@/components/intelligence/SeasonalInsights';
+import { ProductTrends } from '@/components/intelligence/ProductTrends';
 
 /**
  * Intelligence Dashboard — Painel completo de IA comportamental.
@@ -219,7 +221,13 @@ export default function IntelligencePage() {
               totalClients={totalCalculated}
             />
 
-            {/* Linha 4: Nota sobre estado */}
+            {/* Linha 4: Inteligência v2 — Sazonalidade + Produto */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <SeasonalInsights />
+              <ProductTrends />
+            </div>
+
+            {/* Linha 5: Nota sobre estado */}
             {totalCalculated === 0 && (
               <div className="bg-violet-50 border border-violet-200 rounded-2xl p-8 text-center">
                 <Brain size={48} className="text-violet-400 mx-auto mb-4" />
