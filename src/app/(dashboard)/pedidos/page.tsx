@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import {
   ShoppingBag,
   Download,
@@ -20,6 +21,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
 import { formatCurrency, formatDate, debounce, displayOrderNumber } from '@/lib/utils';
 import { useOrders } from '@/hooks/useOrders';
+import { api } from '@/lib/api';
 import type { OrderStatus } from '@/types';
 
 const STATUS_MAP: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'neutral'; icon: typeof Clock }> = {
@@ -58,6 +60,15 @@ export default function PedidosPage() {
   const total = data?.total ?? 0;
   const totalPages = data?.total_pages ?? 1;
 
+  // Stats gerais (não da página)
+  const { data: stats } = useQuery({
+    queryKey: ['orders-stats'],
+    queryFn: async () => {
+      const res = await api.get('/api/orders/stats');
+      return res.data as { total_orders: number; total_paid: number; total_delivered: number; total_revenue: number };
+    },
+  });
+
   const handleSearch = debounce((value: string) => {
     setSearch(value);
     setCurrentPage(1);
@@ -78,7 +89,7 @@ export default function PedidosPage() {
         </Button>
       </div>
 
-      {/* KPIs */}
+      {/* KPIs Gerais */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <div className="p-4 flex items-center gap-3">
@@ -87,7 +98,7 @@ export default function PedidosPage() {
             </div>
             <div>
               <p className="text-xs text-txt-secondary">Total Pedidos</p>
-              <p className="text-lg font-bold text-txt-primary">{total}</p>
+              <p className="text-lg font-bold text-txt-primary">{stats?.total_orders ?? total}</p>
             </div>
           </div>
         </Card>
@@ -97,9 +108,9 @@ export default function PedidosPage() {
               <CheckCircle size={20} className="text-green-600" />
             </div>
             <div>
-              <p className="text-xs text-txt-secondary">Pagos (página)</p>
+              <p className="text-xs text-txt-secondary">Pagos</p>
               <p className="text-lg font-bold text-txt-primary">
-                {orders.filter((o: any) => o.payment_status === 'paid').length}
+                {stats?.total_paid ?? 0}
               </p>
             </div>
           </div>
@@ -110,9 +121,9 @@ export default function PedidosPage() {
               <Truck size={20} className="text-blue-600" />
             </div>
             <div>
-              <p className="text-xs text-txt-secondary">Entregues (página)</p>
+              <p className="text-xs text-txt-secondary">Entregues</p>
               <p className="text-lg font-bold text-txt-primary">
-                {orders.filter((o: any) => o.status === 'delivered').length}
+                {stats?.total_delivered ?? 0}
               </p>
             </div>
           </div>
@@ -123,9 +134,9 @@ export default function PedidosPage() {
               <CreditCard size={20} className="text-emerald-500" />
             </div>
             <div>
-              <p className="text-xs text-txt-secondary">Receita (página)</p>
+              <p className="text-xs text-txt-secondary">Receita Total</p>
               <p className="text-lg font-bold text-txt-primary">
-                {formatCurrency(orders.reduce((acc: number, o: any) => acc + (Number(o.total) || 0), 0))}
+                {formatCurrency(stats?.total_revenue ?? 0)}
               </p>
             </div>
           </div>

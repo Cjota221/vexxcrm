@@ -9,6 +9,7 @@ import {
   Megaphone,
   ShoppingBag,
   Package,
+  ShoppingCart,
   Ticket,
   Settings,
   LayoutDashboard,
@@ -34,6 +35,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Campanhas', href: '/campanhas', icon: <Megaphone size={20} /> },
   { label: 'Produtos', href: '/produtos', icon: <ShoppingBag size={20} /> },
   { label: 'Pedidos', href: '/pedidos', icon: <Package size={20} /> },
+  { label: 'Carrinhos', href: '/carrinhos', icon: <ShoppingCart size={20} /> },
   { label: 'Cupons', href: '/cupons', icon: <Ticket size={20} /> },
   { label: 'Configurações', href: '/configuracoes', icon: <Settings size={20} /> },
 ];

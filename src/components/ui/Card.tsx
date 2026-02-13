@@ -6,12 +6,13 @@ interface CardProps {
   children: React.ReactNode;
   hover?: boolean;
   padding?: 'sm' | 'md' | 'lg' | 'none';
+  onClick?: () => void;
 }
 
 /**
  * Card com bordas arredondadas e sombra sutil.
  */
-export function Card({ className, children, hover = false, padding = 'md' }: CardProps) {
+export function Card({ className, children, hover = false, padding = 'md', onClick }: CardProps) {
   const paddingClasses = {
     none: '',
     sm: 'p-4',
@@ -28,6 +29,7 @@ export function Card({ className, children, hover = false, padding = 'md' }: Car
         paddingClasses[padding],
         className
       )}
+      onClick={onClick}
     >
       {children}
     </div>

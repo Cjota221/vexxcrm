@@ -5,13 +5,15 @@ import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import {
   Users,
-  MessageCircle,
-  Megaphone,
-  Send,
+  ShoppingBag,
+  Package,
   TrendingUp,
   Receipt,
   UserPlus,
-  Clock,
+  DollarSign,
+  Truck,
+  CheckCircle,
+  BarChart3,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { api } from '@/lib/api';
@@ -25,15 +27,12 @@ import type { DashboardKPIs } from '@/types';
 export default function DashboardPage() {
   const router = useRouter();
 
-  // Verificar autenticação de forma simples
+  // Verificar autenticação
   useEffect(() => {
     const checkAuth = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        console.log('📊 Dashboard: Não autenticado, redirecionando...');
         router.push('/login');
-      } else {
-        console.log('📊 Dashboard: ✅ Autenticado');
       }
     };
     checkAuth();
@@ -46,7 +45,7 @@ export default function DashboardPage() {
       if (response.error) throw new Error(response.error);
       return response.data;
     },
-    refetchInterval: 60_000, // Atualizar a cada 1 minuto
+    refetchInterval: 60_000,
   });
 
   const kpiCards = [
@@ -58,30 +57,30 @@ export default function DashboardPage() {
       bg: 'bg-crm-primary/10',
     },
     {
-      label: 'Conversas Ativas',
-      value: kpis?.active_chats ?? 0,
-      icon: <MessageCircle size={22} />,
+      label: 'Total Pedidos',
+      value: kpis?.total_orders ?? 0,
+      icon: <ShoppingBag size={22} />,
+      color: 'text-blue-600',
+      bg: 'bg-blue-50',
+    },
+    {
+      label: 'Pedidos Pagos',
+      value: kpis?.total_paid ?? 0,
+      icon: <CheckCircle size={22} />,
       color: 'text-emerald-600',
       bg: 'bg-emerald-50',
     },
     {
-      label: 'Campanhas Rodando',
-      value: kpis?.running_campaigns ?? 0,
-      icon: <Megaphone size={22} />,
-      color: 'text-violet-600',
-      bg: 'bg-violet-50',
-    },
-    {
-      label: 'Mensagens Hoje',
-      value: kpis?.messages_today ?? 0,
-      icon: <Send size={22} />,
+      label: 'Pedidos Entregues',
+      value: kpis?.total_delivered ?? 0,
+      icon: <Truck size={22} />,
       color: 'text-sky-600',
       bg: 'bg-sky-50',
     },
     {
       label: 'Receita Total',
       value: formatCurrency(kpis?.total_revenue ?? 0),
-      icon: <TrendingUp size={22} />,
+      icon: <DollarSign size={22} />,
       color: 'text-emerald-600',
       bg: 'bg-emerald-50',
     },
@@ -100,20 +99,25 @@ export default function DashboardPage() {
       bg: 'bg-crm-primary/10',
     },
     {
-      label: 'Tempo Resposta',
-      value: `${kpis?.response_time_avg ?? 0}min`,
-      icon: <Clock size={22} />,
-      color: 'text-rose-600',
-      bg: 'bg-rose-50',
+      label: 'Total Produtos',
+      value: kpis?.messages_today ?? 0,
+      icon: <Package size={22} />,
+      color: 'text-violet-600',
+      bg: 'bg-violet-50',
     },
   ];
 
   if (isLoadingKpis) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Carregando dados...</p>
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-txt-primary">Dashboard</h1>
+          <p className="text-sm text-txt-secondary mt-1">Visão geral do seu negócio</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="h-24 bg-surface-200 rounded-2xl animate-pulse" />
+          ))}
         </div>
       </div>
     );
@@ -133,38 +137,70 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {kpiCards.map((kpi) => (
           <Card key={kpi.label} hover padding="md">
-            {isLoadingKpis ? (
-              <div className="space-y-3">
-                <div className="skeleton h-10 w-10 rounded-xl" />
-                <div className="skeleton h-4 w-20" />
-                <div className="skeleton h-8 w-24" />
+            <div className="space-y-3">
+              <div className={`w-10 h-10 rounded-xl ${kpi.bg} flex items-center justify-center ${kpi.color}`}>
+                {kpi.icon}
               </div>
-            ) : (
-              <div className="space-y-3">
-                <div className={`w-10 h-10 rounded-xl ${kpi.bg} flex items-center justify-center ${kpi.color}`}>
-                  {kpi.icon}
-                </div>
-                <p className="text-sm text-txt-secondary">{kpi.label}</p>
-                <p className="text-2xl font-bold text-txt-primary">{kpi.value}</p>
-              </div>
-            )}
+              <p className="text-sm text-txt-secondary">{kpi.label}</p>
+              <p className="text-2xl font-bold text-txt-primary">{kpi.value}</p>
+            </div>
           </Card>
         ))}
       </div>
 
-      {/* Placeholder: Gráficos e mais seções */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <h3 className="text-lg font-semibold text-txt-primary mb-4">Vendas dos últimos 30 dias</h3>
-          <div className="h-64 flex items-center justify-center text-txt-muted text-sm">
-            📊 Gráfico será implementado aqui
+      {/* Links rápidos */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card
+          hover
+          className="cursor-pointer"
+          onClick={() => router.push('/pedidos')}
+        >
+          <div className="p-4 flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center">
+              <ShoppingBag size={24} className="text-blue-600" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-txt-primary">Pedidos</h3>
+              <p className="text-xs text-txt-secondary mt-0.5">
+                {kpis?.total_orders ?? 0} pedidos · {formatCurrency(kpis?.total_revenue ?? 0)} em receita
+              </p>
+            </div>
           </div>
         </Card>
 
-        <Card>
-          <h3 className="text-lg font-semibold text-txt-primary mb-4">Últimas conversas</h3>
-          <div className="h-64 flex items-center justify-center text-txt-muted text-sm">
-            💬 Lista de conversas recentes
+        <Card
+          hover
+          className="cursor-pointer"
+          onClick={() => router.push('/clientes')}
+        >
+          <div className="p-4 flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-crm-primary/10 flex items-center justify-center">
+              <Users size={24} className="text-crm-primary" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-txt-primary">Clientes</h3>
+              <p className="text-xs text-txt-secondary mt-0.5">
+                {kpis?.total_clients ?? 0} clientes · {kpis?.new_clients_month ?? 0} novos este mês
+              </p>
+            </div>
+          </div>
+        </Card>
+
+        <Card
+          hover
+          className="cursor-pointer"
+          onClick={() => router.push('/produtos')}
+        >
+          <div className="p-4 flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-violet-50 flex items-center justify-center">
+              <Package size={24} className="text-violet-600" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-txt-primary">Produtos</h3>
+              <p className="text-xs text-txt-secondary mt-0.5">
+                {kpis?.messages_today ?? 0} produtos no catálogo
+              </p>
+            </div>
           </div>
         </Card>
       </div>

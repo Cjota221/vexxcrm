@@ -8,6 +8,8 @@ interface UseProductsParams {
   search?: string;
   category?: string;
   is_active?: boolean;
+  page?: number;
+  per_page?: number;
 }
 
 interface ProductsResponse {
@@ -26,6 +28,8 @@ export function useProducts(params?: UseProductsParams): UseQueryResult<Products
       if (params?.search) searchParams.set('search', params.search);
       if (params?.category) searchParams.set('category', params.category);
       if (params?.is_active !== undefined) searchParams.set('is_active', String(params.is_active));
+      if (params?.page) searchParams.set('page', String(params.page));
+      if (params?.per_page) searchParams.set('per_page', String(params.per_page));
 
       const response = await api.get(`/api/products?${searchParams.toString()}`);
       const raw = response.data as any;

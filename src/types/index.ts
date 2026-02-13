@@ -30,6 +30,8 @@ export interface TenantConfigOpenAI {
   model?: string;
   enabled: boolean;
   system_prompt?: string;
+  provider?: string;  // openai, anthropic, google, groq, deepseek, custom
+  base_url?: string;  // URL base customizada para provedores alternativos
 }
 
 export interface TenantPreferences {
@@ -332,6 +334,10 @@ export interface DashboardKPIs {
   avg_ticket: number;
   new_clients_month: number;
   response_time_avg: number; // em minutos
+  total_orders?: number;
+  total_paid?: number;
+  total_delivered?: number;
+  total_products?: number;
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

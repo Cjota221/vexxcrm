@@ -426,7 +426,31 @@ function FacilZapSettings({ config }: { config?: TenantConfig }) {
 }
 
 function AnneSettings({ config }: { config?: TenantConfig }) {
+  const { updateConfig, isUpdating } = useTenantConfig();
   const openai = config?.openai;
+  const [provider, setProvider] = useState(openai?.provider || 'openai');
+  const [apiKey, setApiKey] = useState(openai?.api_key || '');
+  const [baseUrl, setBaseUrl] = useState(openai?.base_url || '');
+  const [model, setModel] = useState(openai?.model || 'gpt-4o');
+  const [systemPrompt, setSystemPrompt] = useState(openai?.system_prompt || '');
+
+  const handleSave = async () => {
+    try {
+      await updateConfig({
+        openai: {
+          enabled: !!apiKey,
+          api_key: apiKey,
+          model,
+          system_prompt: systemPrompt,
+          provider,
+          base_url: baseUrl,
+        },
+      });
+      alert('✅ Configurações da IA salvas com sucesso!');
+    } catch (error) {
+      alert('❌ Erro ao salvar: ' + (error as Error).message);
+    }
+  };
 
   return (
     <Card>
@@ -439,19 +463,69 @@ function AnneSettings({ config }: { config?: TenantConfig }) {
         </Badge>
       </CardHeader>
       <div className="px-6 pb-6 space-y-4">
-        <Input label="OpenAI API Key" type="password" placeholder="sk-..." defaultValue={openai?.api_key || ''} />
-        <Input label="Modelo" placeholder="gpt-4o" defaultValue={openai?.model || 'gpt-4o'} />
         <div>
-          <label className="label mb-1.5">System Prompt</label>
+          <label className="label mb-1.5">Provedor de IA</label>
+          <select
+            className="input"
+            value={provider}
+            onChange={(e) => setProvider(e.target.value)}
+          >
+            <option value="openai">OpenAI (ChatGPT)</option>
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="google">Google (Gemini)</option>
+            <option value="groq">Groq</option>
+            <option value="deepseek">DeepSeek</option>
+            <option value="custom">Outro (Custom API)</option>
+          </select>
+        </div>
+
+        <Input
+          label="API Key"
+          type="password"
+          placeholder="sk-... ou chave do provedor"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+        />
+
+        {(provider === 'custom' || provider === 'groq' || provider === 'deepseek') && (
+          <Input
+            label="URL Base da API"
+            placeholder="https://api.provedor.com/v1"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+          />
+        )}
+
+        <Input
+          label="Modelo"
+          placeholder={
+            provider === 'openai' ? 'gpt-4o' :
+            provider === 'anthropic' ? 'claude-3-5-sonnet-20241022' :
+            provider === 'google' ? 'gemini-pro' :
+            provider === 'groq' ? 'llama-3.3-70b-versatile' :
+            provider === 'deepseek' ? 'deepseek-chat' :
+            'nome-do-modelo'
+          }
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+        />
+
+        <div>
+          <label className="label mb-1.5">System Prompt (Personalidade da Anne)</label>
           <textarea
             className="input min-h-32 resize-y"
-            placeholder="Você é a Anne, assistente virtual de vendas..."
-            defaultValue={openai?.system_prompt || ''}
+            placeholder="Você é a Anne, assistente virtual de vendas da loja. Seja educada, proativa e ajude os clientes com dúvidas sobre produtos, pedidos e promoções..."
+            value={systemPrompt}
+            onChange={(e) => setSystemPrompt(e.target.value)}
           />
+          <p className="text-xs text-txt-muted mt-1">
+            💡 Escreva a personalidade e instruções da sua IA. Ela vai usar esse prompt como base para todas as respostas.
+          </p>
         </div>
+
         <div className="flex gap-2 pt-2">
-          <Button variant="primary">
-            <Save size={16} /> Salvar
+          <Button variant="primary" onClick={handleSave} disabled={isUpdating}>
+            <Save size={16} /> {isUpdating ? 'Salvando...' : 'Salvar'}
           </Button>
         </div>
       </div>

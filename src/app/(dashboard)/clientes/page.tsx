@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Plus,
   Download,
   Users,
   TrendingUp,
@@ -60,11 +59,8 @@ export default function ClientesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-txt-primary">Clientes</h1>
-          <p className="text-sm text-txt-secondary mt-1">{total} clientes cadastrados</p>
+          <p className="text-sm text-txt-secondary mt-1">{total} clientes sincronizados via FacilZap</p>
         </div>
-        <Button variant="primary">
-          <Plus size={16} /> Novo Cliente
-        </Button>
       </div>
 
       {/* KPI Cards */}

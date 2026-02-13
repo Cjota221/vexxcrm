@@ -1,12 +1,14 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Search,
   Package,
-  Plus,
   ExternalLink,
   Image as ImageIcon,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -17,15 +19,20 @@ import { useProducts } from '@/hooks/useProducts';
 import type { Product } from '@/types';
 
 export default function ProdutosPage() {
+  const router = useRouter();
   const [search, setSearch] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const perPage = 24;
 
-  const { data, isLoading } = useProducts({ search: search || undefined });
+  const { data, isLoading } = useProducts({ search: search || undefined, page: currentPage, per_page: perPage });
 
   const products = data?.data ?? [];
   const total = data?.total ?? 0;
+  const totalPages = data?.total_pages ?? 1;
 
   const handleSearch = debounce((value: string) => {
     setSearch(value);
+    setCurrentPage(1);
   }, 300);
 
   return (
@@ -35,16 +42,8 @@ export default function ProdutosPage() {
         <div>
           <h1 className="text-2xl font-bold text-txt-primary">Produtos</h1>
           <p className="text-sm text-txt-secondary mt-1">
-            Catálogo sincronizado com FacilZap
+            {total} produtos sincronizados via FacilZap
           </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="secondary">
-            <ExternalLink size={16} /> Sincronizar FacilZap
-          </Button>
-          <Button variant="primary">
-            <Plus size={16} /> Novo Produto
-          </Button>
         </div>
       </div>
 
@@ -52,7 +51,7 @@ export default function ProdutosPage() {
       <Card>
         <div className="p-4">
           <Input
-            placeholder="Buscar produto..."
+            placeholder="Buscar produto por nome..."
             onChange={(e) => handleSearch(e.target.value)}
           />
         </div>
@@ -60,8 +59,10 @@ export default function ProdutosPage() {
 
       {/* Grid de produtos */}
       {isLoading ? (
-        <div className="text-center py-12">
-          <p className="text-txt-secondary">Carregando produtos...</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="bg-surface-200 rounded-2xl h-72 animate-pulse" />
+          ))}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -70,12 +71,18 @@ export default function ProdutosPage() {
               <Package size={32} className="mx-auto text-txt-secondary mb-3" />
               <p className="text-txt-secondary">Nenhum produto encontrado</p>
               <p className="text-xs text-txt-muted mt-1">
-                Sincronize com FacilZap ou adicione manualmente
+                Sincronize com FacilZap em Configurações para importar seus produtos
               </p>
             </div>
           ) : (
             products.map((product: any) => (
-            <Card key={product.id} hover padding="none">
+            <Card
+              key={product.id}
+              hover
+              padding="none"
+              className="cursor-pointer"
+              onClick={() => router.push(`/produtos/${product.id}`)}
+            >
               <div className="aspect-square bg-surface-100 rounded-t-2xl overflow-hidden flex items-center justify-center">
                 {product.image_url ? (
                   <img
@@ -150,6 +157,58 @@ export default function ProdutosPage() {
           ))
         )}
         </div>
+      )}
+
+      {/* Paginação */}
+      {totalPages > 1 && (
+        <Card>
+          <div className="flex items-center justify-between px-4 py-3">
+            <p className="text-xs text-txt-secondary">
+              Mostrando {((currentPage - 1) * perPage) + 1}–{Math.min(currentPage * perPage, total)} de {total} produtos
+            </p>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="p-1.5 rounded-lg hover:bg-surface-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let pageNum: number;
+                if (totalPages <= 5) {
+                  pageNum = i + 1;
+                } else if (currentPage <= 3) {
+                  pageNum = i + 1;
+                } else if (currentPage >= totalPages - 2) {
+                  pageNum = totalPages - 4 + i;
+                } else {
+                  pageNum = currentPage - 2 + i;
+                }
+                return (
+                  <button
+                    key={pageNum}
+                    onClick={() => setCurrentPage(pageNum)}
+                    className={`w-8 h-8 rounded-lg text-xs font-medium transition-colors ${
+                      currentPage === pageNum
+                        ? 'bg-crm-primary text-white'
+                        : 'hover:bg-surface-100 text-txt-secondary'
+                    }`}
+                  >
+                    {pageNum}
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="p-1.5 rounded-lg hover:bg-surface-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+        </Card>
       )}
     </div>
   );
