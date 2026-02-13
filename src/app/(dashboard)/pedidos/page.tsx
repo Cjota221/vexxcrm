@@ -185,7 +185,9 @@ export default function PedidosPage() {
                           #{order.order_number || order.external_id || order.id.slice(0, 8)}
                         </span>
                         {meta.forma_entrega && (
-                          <p className="text-[10px] text-txt-secondary mt-0.5">{meta.forma_entrega}</p>
+                          <p className="text-[10px] text-txt-secondary mt-0.5">
+                            {typeof meta.forma_entrega === 'object' ? meta.forma_entrega.nome || '' : meta.forma_entrega}
+                          </p>
                         )}
                       </td>
                       <td className="px-4 py-3">
@@ -205,7 +207,9 @@ export default function PedidosPage() {
                       <td className="px-4 py-3">
                         <Badge variant={paymentVariant as any}>{paymentLabel}</Badge>
                         {order.payment_method && (
-                          <p className="text-[10px] text-txt-secondary mt-0.5">{order.payment_method}</p>
+                          <p className="text-[10px] text-txt-secondary mt-0.5">
+                            {typeof order.payment_method === 'object' ? (order.payment_method.nome || order.payment_method.forma || JSON.stringify(order.payment_method)) : order.payment_method}
+                          </p>
                         )}
                       </td>
                       <td className="px-4 py-3 text-sm text-right font-medium text-txt-primary">

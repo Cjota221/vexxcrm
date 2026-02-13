@@ -186,10 +186,18 @@ export async function POST(request: NextRequest) {
             // Payment status
             const paymentStatus = String(o.status_pago) === '1' ? 'paid' : 'pending';
 
-            // Método de pagamento
-            const paymentMethod = o.metodo_pagamento || o.forma_pagamento
-              || (o.pagamentos && o.pagamentos.length > 0 ? o.pagamentos[0].metodo || o.pagamentos[0].forma : null)
-              || null;
+            // Método de pagamento (garantir que é string, não objeto)
+            let paymentMethod: string | null = null;
+            if (typeof o.metodo_pagamento === 'string' && o.metodo_pagamento) {
+              paymentMethod = o.metodo_pagamento;
+            } else if (typeof o.metodo_pagamento === 'object' && o.metodo_pagamento?.nome) {
+              paymentMethod = o.metodo_pagamento.nome;
+            } else if (typeof o.forma_pagamento === 'string' && o.forma_pagamento) {
+              paymentMethod = o.forma_pagamento;
+            } else if (o.pagamentos && o.pagamentos.length > 0) {
+              const p = o.pagamentos[0];
+              paymentMethod = p.metodo || p.forma || p.nome || (typeof p === 'string' ? p : null);
+            }
 
             // Itens do pedido (pode vir como itens ou produtos)
             const items = o.itens || o.produtos || [];
@@ -246,8 +254,8 @@ export async function POST(request: NextRequest) {
                 // Pagamentos
                 pagamentos: o.pagamentos || [],
                 metodo_pagamento: o.metodo_pagamento || null,
-                // Entrega
-                forma_entrega: o.forma_entrega || null,
+                // Entrega (pode ser objeto {id, nome} ou string)
+                forma_entrega: typeof o.forma_entrega === 'object' ? (o.forma_entrega?.nome || JSON.stringify(o.forma_entrega)) : (o.forma_entrega || null),
                 // Status detalhados (valores originais da API)
                 status_original: o.status || null,
                 status_pedido: o.status_pedido || null,
@@ -256,10 +264,10 @@ export async function POST(request: NextRequest) {
                 status_separado: o.status_separado || null,
                 status_despachado: o.status_despachado || null,
                 status_entregue: o.status_entregue || null,
-                // Extras
+                // Extras (podem ser objetos {id, nome})
                 origem: o.origem || null,
-                vendedor: o.vendedor || null,
-                catalogo: o.catalogo || null,
+                vendedor: typeof o.vendedor === 'object' ? (o.vendedor?.nome || JSON.stringify(o.vendedor)) : (o.vendedor || null),
+                catalogo: typeof o.catalogo === 'object' ? (o.catalogo?.nome || JSON.stringify(o.catalogo)) : (o.catalogo || null),
                 taxa: parseNum(o.taxa),
                 desconto_sistema: parseNum(o.desconto_sistema),
                 cupom_info: o.cupom_info || null,
