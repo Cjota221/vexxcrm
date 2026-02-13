@@ -453,3 +453,153 @@ export interface SentinelaResult {
   tempoExecucao: string;
   erros: string[];
 }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   INTELIGÊNCIA AI — RFM, Behavioral Events, Predictions
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+export type RFMSegmentName =
+  | 'Champions'
+  | 'Loyal Customers'
+  | 'Potential Loyalist'
+  | 'New Customers'
+  | 'Promising'
+  | 'Need Attention'
+  | 'About to Sleep'
+  | 'At Risk'
+  | 'Cant Lose Them'
+  | 'Hibernating'
+  | 'Lost';
+
+export interface ClientRFMData {
+  rfm_recency: number;
+  rfm_frequency: number;
+  rfm_monetary: number;
+  rfm_score: string;
+  rfm_segment: RFMSegmentName;
+  rfm_calculated_at: string | null;
+  churn_probability: number;
+  purchase_prob_30d: number;
+  expected_frequency: number;
+  expected_next_ticket: number;
+  next_purchase_at: string | null;
+  ltv_projected_12m: number;
+  ltv_projected_life: number;
+  flag_auto_vip: boolean;
+  flag_churn_risk: boolean;
+  flag_needs_attention: boolean;
+  flag_upsell_ready: boolean;
+  sentiment_score: number | null;
+  sentiment_label: string | null;
+}
+
+export type EventCategory =
+  | 'purchase'
+  | 'communication'
+  | 'engagement'
+  | 'support'
+  | 'lifecycle'
+  | 'campaign'
+  | 'product'
+  | 'churn_signal';
+
+export type EventType =
+  | 'order_placed'
+  | 'order_completed'
+  | 'order_cancelled'
+  | 'message_sent'
+  | 'message_received'
+  | 'message_read'
+  | 'cart_created'
+  | 'cart_abandoned'
+  | 'cart_recovered'
+  | 'campaign_sent'
+  | 'campaign_opened'
+  | 'campaign_clicked'
+  | 'campaign_converted'
+  | 'support_requested'
+  | 'complaint_made'
+  | 'product_viewed'
+  | 'product_wishlisted'
+  | 'coupon_used'
+  | 'coupon_expired'
+  | 'review_submitted'
+  | 'client_created'
+  | 'client_returned'
+  | 'inactivity_30d'
+  | 'inactivity_60d'
+  | 'inactivity_90d'
+  | 'churn_detected'
+  | 'win_back'
+  | 'upgrade_segment'
+  | 'downgrade_segment';
+
+export interface BehavioralEvent {
+  id: string;
+  tenant_id: string;
+  client_id: string;
+  event_type: EventType;
+  event_category: EventCategory;
+  event_data?: Record<string, unknown>;
+  channel?: string;
+  sentiment_score?: number;
+  sentiment_label?: string;
+  session_id?: string;
+  source?: string;
+  created_at: string;
+}
+
+export interface RFMReport {
+  execution: {
+    started_at: string;
+    finished_at: string;
+    duration_secs: number;
+    algorithm_version: string;
+  };
+  stats: {
+    total_processed: number;
+    total_updated: number;
+    total_errors: number;
+    segment_changes: number;
+    upgrades: number;
+    downgrades: number;
+  };
+  distribution: Record<string, number>;
+  alerts: Array<{
+    type: 'critical' | 'warning' | 'info';
+    message: string;
+    action: string;
+  }>;
+}
+
+export interface PredictionLog {
+  id: string;
+  tenant_id: string;
+  client_id?: string;
+  prediction_type: string;
+  model_version: string;
+  input_features: Record<string, unknown>;
+  predicted_value: number;
+  predicted_label?: string;
+  confidence: number;
+  actual_value?: number;
+  was_correct?: boolean;
+  validated_at?: string;
+  created_at: string;
+}
+
+export interface SyncAuditLog {
+  id: string;
+  tenant_id: string;
+  sync_type: string;
+  source: string;
+  records_fetched: number;
+  records_created: number;
+  records_updated: number;
+  records_failed: number;
+  errors?: unknown[];
+  metadata?: Record<string, unknown>;
+  duration_ms: number;
+  status: 'success' | 'partial' | 'error';
+  created_at: string;
+}
