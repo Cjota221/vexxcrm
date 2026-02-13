@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Package, Truck, CheckCircle, XCircle, Clock, CreditCard, ChevronDown, ChevronUp, ExternalLink, Image as ImageIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency, formatDate, displayOrderNumber } from '@/lib/utils';
 
 interface OrderHistoryProps {
   orders: any[];
@@ -79,7 +79,7 @@ export function OrderHistory({ orders, isLoading }: OrderHistoryProps) {
                 <div className="flex items-center gap-2">
                   <Icon size={14} className="text-txt-secondary" />
                   <span className="text-sm font-semibold text-crm-primary">
-                    #{order.order_number || order.external_id || '—'}
+                    #{displayOrderNumber(order.order_number, order.external_id)}
                   </span>
                   <Badge variant={config.variant}>{config.label}</Badge>
                 </div>

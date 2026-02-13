@@ -174,6 +174,24 @@ export async function POST(request: NextRequest) {
           const { data: ec } = await supabaseAdmin.from('clients').select('id, phone_normalized').eq('tenant_id', tenantId);
           const cm = new Map((ec || []).map((c: any) => [c.phone_normalized, c.id]));
 
+          // Buscar produtos do tenant para cross-reference de imagens (SKU -> image_url)
+          const { data: existingProducts } = await supabaseAdmin
+            .from('products')
+            .select('external_id, sku, image_url, name')
+            .eq('tenant_id', tenantId);
+          
+          // Criar mapas de lookup: por SKU e por external_id (FacilZap product id)
+          const productImageBySku = new Map<string, string>();
+          const productImageByExtId = new Map<string, string>();
+          const productImageByName = new Map<string, string>();
+          for (const p of (existingProducts || [])) {
+            if (p.image_url) {
+              if (p.sku) productImageBySku.set(String(p.sku).toLowerCase(), p.image_url);
+              if (p.external_id) productImageByExtId.set(String(p.external_id), p.image_url);
+              if (p.name) productImageByName.set(p.name.toLowerCase().trim(), p.image_url);
+            }
+          }
+
           const data = orders.map((o: any) => {
             // Telefone do cliente: prioriza whatsapp, depois telefone
             const rawPhone = o.cliente?.whatsapp || o.cliente?.telefone || '';
@@ -220,13 +238,14 @@ export async function POST(request: NextRequest) {
             const shipping = parseNum(o.valor_frete);
             const total = parseNum(o.total || o.valor_total) || (subtotal - discount + shipping);
 
-            // Helper: extrair URL de imagem do item (vários formatos possíveis)
+            // Helper: extrair URL de imagem do item via cross-reference com products table
+            // FacilZap NÃO retorna imagens nos itens de pedido!
             const extractItemImage = (it: any): string | null => {
-              // Campo direto string
+              // 1. Tentar campo direto (caso FacilZap mude no futuro)
               for (const key of ['imagem', 'foto', 'foto_url', 'imagem_url', 'image', 'image_url', 'thumb', 'thumbnail']) {
                 if (it[key] && typeof it[key] === 'string') return it[key];
               }
-              // Campo pode ser objeto {url, file, path}
+              // 2. Campo pode ser objeto {url, file, path}
               for (const key of ['imagem', 'foto', 'image']) {
                 if (it[key] && typeof it[key] === 'object') {
                   if (it[key].url) return it[key].url;
@@ -234,15 +253,28 @@ export async function POST(request: NextRequest) {
                   if (it[key].file) return `https://arquivos.facilzap.app.br/${it[key].file}`;
                 }
               }
-              // Se tem produto_id, tentar pegar a imagem do produto pai
-              if (it.produto && typeof it.produto === 'object') {
-                const p = it.produto;
-                if (p.imagem_url || p.image_url) return p.imagem_url || p.image_url;
-                if (p.imagens && Array.isArray(p.imagens) && p.imagens.length > 0) {
-                  const img = p.imagens[0];
-                  if (typeof img === 'string') return img;
-                  if (typeof img === 'object') return img.url || img.path || (img.file ? `https://arquivos.facilzap.app.br/${img.file}` : null);
-                }
+              // 3. Cross-reference: buscar na tabela products por SKU
+              const itemSku = it.sku || it.codigo || (it.variacao?.sku) || null;
+              if (itemSku) {
+                // Tentar SKU exato
+                const img = productImageBySku.get(String(itemSku).toLowerCase());
+                if (img) return img;
+                // SKU de variação pode ser "FZ3691503.5", tentar base "FZ3691503"
+                const baseSku = String(itemSku).split('.')[0];
+                const imgBase = productImageBySku.get(baseSku.toLowerCase());
+                if (imgBase) return imgBase;
+              }
+              // 4. Cross-reference: buscar por produto_id / id como external_id
+              const prodId = it.produto_id || it.id;
+              if (prodId) {
+                const img = productImageByExtId.get(String(prodId));
+                if (img) return img;
+              }
+              // 5. Cross-reference: buscar por nome do produto
+              const itemName = it.nome || it.name || it.produto_nome || '';
+              if (itemName) {
+                const img = productImageByName.get(itemName.toLowerCase().trim());
+                if (img) return img;
               }
               return null;
             };

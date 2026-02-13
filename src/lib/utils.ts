@@ -153,3 +153,21 @@ export async function copyToClipboard(text: string): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Exibe o número do pedido de forma legível.
+ * Se o order_number for um UUID (Supabase PK) ou vazio, usa external_id.
+ * FacilZap retorna o `codigo` como "GKFS7p" (alfanumérico curto).
+ *
+ * @example
+ * displayOrderNumber('GKFS7p', '5255125') → 'GKFS7p'
+ * displayOrderNumber('a1b2c3d4-...uuid...', '5255125') → '5255125'
+ * displayOrderNumber(null, '5255125') → '5255125'
+ */
+export function displayOrderNumber(orderNumber?: string | null, externalId?: string | null): string {
+  // Se order_number parece UUID (36 chars com hífens), usar external_id
+  if (orderNumber && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderNumber)) {
+    return externalId || orderNumber;
+  }
+  return orderNumber || externalId || '—';
+}

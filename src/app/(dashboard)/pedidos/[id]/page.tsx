@@ -23,7 +23,7 @@ import { api } from '@/lib/api';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency, formatDate, displayOrderNumber } from '@/lib/utils';
 
 const STATUS_MAP: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'neutral'; icon: typeof Clock }> = {
   pending: { label: 'Pendente', variant: 'warning', icon: Clock },
@@ -112,7 +112,7 @@ export default function PedidoDetalhe() {
         <div className="flex-1">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold text-txt-primary">
-              Pedido #{order.order_number || order.external_id || '—'}
+              Pedido #{displayOrderNumber(order.order_number, order.external_id)}
             </h1>
             <Badge variant={config.variant}>{config.label}</Badge>
             <Badge variant={order.payment_status === 'paid' ? 'success' : 'warning'}>

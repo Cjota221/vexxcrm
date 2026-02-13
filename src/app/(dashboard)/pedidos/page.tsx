@@ -18,7 +18,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
-import { formatCurrency, formatDate, debounce } from '@/lib/utils';
+import { formatCurrency, formatDate, debounce, displayOrderNumber } from '@/lib/utils';
 import { useOrders } from '@/hooks/useOrders';
 import type { OrderStatus } from '@/types';
 
@@ -207,7 +207,7 @@ export default function PedidosPage() {
                     >
                       <td className="px-4 py-3">
                         <span className="text-sm font-medium text-crm-primary">
-                          #{order.order_number || order.external_id || '—'}
+                          #{displayOrderNumber(order.order_number, order.external_id)}
                         </span>
                         {meta.forma_entrega && (
                           <p className="text-[10px] text-txt-secondary mt-0.5">
