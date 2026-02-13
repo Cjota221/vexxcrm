@@ -385,3 +385,71 @@ export interface EvolutionWebhookPayload {
     status?: string;
   };
 }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   CUSTOMER HEALTH (Sentinela)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+export type HealthClassification = 'VIP' | 'Ativo' | 'Oportunidade' | 'Risco' | 'Perdido';
+export type TendenciaType = 'aumentando' | 'estavel' | 'diminuindo';
+
+export interface ProdutoPreferido {
+  nome: string;
+  quantidade: number;
+  percentualCompras: number;
+}
+
+export interface CustomerHealth {
+  clienteId: string;
+  metricas: {
+    diasInatividade: number;
+    ultimaCompra: string | null;
+    frequenciaCompra: {
+      mediaComprasMes: number;
+      totalPedidos: number;
+      primeiraCompra: string | null;
+      mesesComoCliente: number;
+    };
+    comportamentoCompra: {
+      ticketMedio: number;
+      valorTotalGasto: number;
+      produtosPreferidos: ProdutoPreferido[];
+      categoriasPreferidas: string[];
+    };
+    tendencias: {
+      crescimentoFrequencia: TendenciaType;
+      crescimentoTicket: TendenciaType;
+      ultimosTresMeses: {
+        pedidos: number;
+        valorTotal: number;
+      };
+    };
+  };
+  classificacao: {
+    nivel: HealthClassification;
+    score: number;
+    razao: string;
+    recomendacoes: string[];
+  };
+  calculadoEm: string;
+}
+
+export interface SentinelaResult {
+  totalProcessados: number;
+  distribuicao: {
+    VIP: number;
+    Ativo: number;
+    Oportunidade: number;
+    Risco: number;
+    Perdido: number;
+  };
+  mudancasStatus: Array<{
+    clienteId: string;
+    clienteNome: string;
+    statusAnterior: string;
+    statusNovo: string;
+    razao: string;
+  }>;
+  tempoExecucao: string;
+  erros: string[];
+}

@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useClient } from '@/hooks/useClients';
 import { OrderHistory } from '@/components/crm/OrderHistory';
+import { CustomerHealthPanel } from '@/components/crm/CustomerHealthPanel';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -329,6 +330,9 @@ export default function ClienteDetalhe() {
 
         {/* Sidebar (1/3) */}
         <div className="space-y-6">
+          {/* Saúde do Cliente (Sentinela) */}
+          <CustomerHealthPanel clientId={clientId} />
+
           {/* Preferências de Pagamento */}
           {Object.keys(paymentMethods).length > 0 && (
             <Card>

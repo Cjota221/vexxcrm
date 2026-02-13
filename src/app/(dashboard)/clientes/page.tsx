@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
+import { SentinelaButton } from '@/components/crm/SentinelaButton';
 import { formatCurrency, formatRelativeTime, getInitials, getAvatarColor, debounce } from '@/lib/utils';
 import type { ClientStatus } from '@/types';
 
@@ -61,6 +62,7 @@ export default function ClientesPage() {
           <h1 className="text-2xl font-bold text-txt-primary">Clientes</h1>
           <p className="text-sm text-txt-secondary mt-1">{total} clientes sincronizados via FacilZap</p>
         </div>
+        <SentinelaButton />
       </div>
 
       {/* KPI Cards */}

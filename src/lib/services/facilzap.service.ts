@@ -17,54 +17,72 @@ interface FacilZapConfig {
 const API_BASE_URL = 'https://api.facilzap.app.br';
 
 /**
- * Helper para fazer requisições autenticadas à API FacilZap com timeout.
+ * Helper para fazer requisições autenticadas à API FacilZap com timeout e retry.
  */
 async function request<T>(
   config: FacilZapConfig,
   endpoint: string,
-  options?: RequestInit
+  options?: RequestInit,
+  retryAttempts = 3
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
   
-  console.log(`🔄 FacilZap Request: ${endpoint}`);
-  const startTime = Date.now();
+  for (let attempt = 1; attempt <= retryAttempts; attempt++) {
+    console.log(`🔄 FacilZap Request: ${endpoint} (tentativa ${attempt}/${retryAttempts})`);
+    const startTime = Date.now();
 
-  try {
-    // Timeout de 20 segundos para evitar travar
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000);
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.token}`,
-        ...options?.headers,
-      },
-    });
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.token}`,
+          ...options?.headers,
+        },
+      });
 
-    clearTimeout(timeoutId);
-    
-    const duration = Date.now() - startTime;
-    console.log(`✅ FacilZap Response: ${endpoint} (${duration}ms) - Status: ${response.status}`);
+      clearTimeout(timeoutId);
+      
+      const duration = Date.now() - startTime;
+      console.log(`✅ FacilZap Response: ${endpoint} (${duration}ms) - Status: ${response.status}`);
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: 'Erro desconhecido' }));
-      console.error(`❌ FacilZap Error ${response.status}:`, error);
-      throw new Error(error.message || `HTTP ${response.status}`);
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ message: 'Erro desconhecido' }));
+        console.error(`❌ FacilZap Error ${response.status}:`, error);
+        throw new Error(error.message || `HTTP ${response.status}`);
+      }
+
+      return response.json();
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      console.error(`❌ FacilZap Failed: ${endpoint} (${duration}ms)`, error.message);
+      
+      if (error.name === 'AbortError') {
+        if (attempt < retryAttempts) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+          console.log(`⏳ Retry em ${delay}ms...`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        throw new Error(`Timeout ao chamar FacilZap API: ${endpoint}`);
+      }
+
+      // Para outros erros, retry com backoff
+      if (attempt < retryAttempts) {
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+        console.log(`⏳ Retry em ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw error;
     }
-
-    return response.json();
-  } catch (error: any) {
-    const duration = Date.now() - startTime;
-    console.error(`❌ FacilZap Failed: ${endpoint} (${duration}ms)`, error.message);
-    
-    if (error.name === 'AbortError') {
-      throw new Error(`Timeout ao chamar FacilZap API: ${endpoint}`);
-    }
-    throw error;
   }
+
+  throw new Error(`Falha após ${retryAttempts} tentativas: ${endpoint}`);
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -114,7 +132,7 @@ export async function fetchProducts(
  * 
  * @param config - Configuração FacilZap
  * @param length - Itens por página (padrão: 100)
- * @param maxPages - Limite de páginas (padrão: 20)
+ * @param maxPages - Limite de páginas (padrão: 50)
  * @returns Todos os produtos normalizados
  * 
  * @example
@@ -124,23 +142,27 @@ export async function fetchProducts(
 export async function fetchAllProducts(
   config: FacilZapConfig,
   length = 100,
-  maxPages = 20
+  maxPages = 50
 ): Promise<NormalizedProduct[]> {
   const allProducts: NormalizedProduct[] = [];
   let page = 1;
   let hasMore = true;
+
+  console.log(`📦 Sync Produtos: Iniciando busca (maxPages=${maxPages}, length=${length})`);
 
   while (hasMore && page <= maxPages) {
     const result = await fetchProducts(config, page, length);
     
     if (result.products.length > 0) {
       allProducts.push(...(result.products as NormalizedProduct[]));
+      console.log(`📦 Produtos: página ${page} → ${result.products.length} itens (total acumulado: ${allProducts.length})`);
       page++;
     } else {
-      hasMore = false; // Array vazio = não tem mais dados
+      hasMore = false;
     }
   }
 
+  console.log(`✅ Sync Produtos: ${allProducts.length} produtos em ${page - 1} páginas`);
   return allProducts;
 }
 
@@ -218,29 +240,33 @@ export async function fetchClients(
  * 
  * @param config - Configuração FacilZap
  * @param length - Itens por página
- * @param maxPages - Limite de páginas (padrão: 15)
+ * @param maxPages - Limite de páginas (padrão: 50)
  * @returns Todos os clientes
  */
 export async function fetchAllClients(
   config: FacilZapConfig,
   length = 100,
-  maxPages = 15
+  maxPages = 50
 ): Promise<FacilZapClient[]> {
   const allClients: FacilZapClient[] = [];
   let page = 1;
   let hasMore = true;
+
+  console.log(`👥 Sync Clientes: Iniciando busca (maxPages=${maxPages})`);
 
   while (hasMore && page <= maxPages) {
     const result = await fetchClients(config, page, length);
     
     if (result.clients.length > 0) {
       allClients.push(...result.clients);
+      console.log(`👥 Clientes: página ${page} → ${result.clients.length} itens (total: ${allClients.length})`);
       page++;
     } else {
       hasMore = false;
     }
   }
 
+  console.log(`✅ Sync Clientes: ${allClients.length} clientes em ${page - 1} páginas`);
   return allClients;
 }
 
@@ -369,25 +395,27 @@ export async function fetchOrders(
  * 
  * @param config - Configuração FacilZap
  * @param length - Itens por página
- * @param maxPages - Limite de páginas (padrão: 20)
- * @param yearsBack - Anos para buscar histórico (padrão: 2)
+ * @param maxPages - Limite de páginas (padrão: 50)
+ * @param yearsBack - Anos para buscar histórico (padrão: 5)
  * @returns Todos os pedidos
  */
 export async function fetchAllOrders(
   config: FacilZapConfig,
   length = 100,
-  maxPages = 20,
-  yearsBack = 2
+  maxPages = 50,
+  yearsBack = 5
 ): Promise<FacilZapOrder[]> {
   const allOrders: FacilZapOrder[] = [];
   let page = 1;
   let hasMore = true;
 
-  // Calcular período (últimos 2 anos)
+  // Calcular período (últimos N anos)
   const dataFinal = new Date().toISOString().split('T')[0];
   const dataInicial = new Date();
   dataInicial.setFullYear(dataInicial.getFullYear() - yearsBack);
   const dataInicialStr = dataInicial.toISOString().split('T')[0];
+
+  console.log(`📋 Sync Pedidos: Iniciando busca de ${dataInicialStr} até ${dataFinal} (maxPages=${maxPages})`);
 
   while (hasMore && page <= maxPages) {
     const result = await fetchOrders(config, page, length, {
@@ -397,12 +425,14 @@ export async function fetchAllOrders(
     
     if (result.orders.length > 0) {
       allOrders.push(...result.orders);
+      console.log(`📋 Pedidos: página ${page} → ${result.orders.length} itens (total: ${allOrders.length})`);
       page++;
     } else {
       hasMore = false;
     }
   }
 
+  console.log(`✅ Sync Pedidos: ${allOrders.length} pedidos em ${page - 1} páginas`);
   return allOrders;
 }
 
