@@ -49,6 +49,7 @@ export async function POST(request: NextRequest) {
             description: p.description || null, price: p.price || 0,
             stock: p.stock ?? 0, image_url: p.image_url || null,
             category: p.category || null, is_active: p.is_active !== false,
+            custom_fields: p.custom_fields ? JSON.stringify(p.custom_fields) : '{}',
             synced_at: new Date().toISOString(),
           }));
           const { error } = await supabaseAdmin.from('products').upsert(data, { onConflict: 'tenant_id,external_id' });
@@ -108,12 +109,24 @@ export async function POST(request: NextRequest) {
             let os = 'pending';
             if (o.status_entregue) os = 'delivered';
             else if (o.status_pago) os = 'confirmed';
+            // Calcular total de itens
+            const totalItems = (o.itens || []).reduce((sum: number, it: any) => sum + (it.quantidade || 1), 0);
             return {
               tenant_id: tenantId, client_id: ph ? cm.get(ph) || null : null,
               external_id: String(o.id), order_number: o.codigo || String(o.id),
               status: os, payment_status: o.status_pago ? 'paid' : 'pending',
               payment_method: o.forma_pagamento || null,
               total: o.total || o.valor_total || 0,
+              created_at: o.data ? new Date(o.data).toISOString() : new Date().toISOString(),
+              metadata: JSON.stringify({
+                cliente_nome: o.cliente?.nome || null,
+                cliente_telefone: o.cliente?.telefone || null,
+                total_items: totalItems,
+                itens: (o.itens || []).map((it: any) => ({
+                  nome: it.nome, quantidade: it.quantidade || 1,
+                  valor: it.valor || it.preco_unitario || 0,
+                })),
+              }),
               notes: JSON.stringify({ status_pedido: o.status_pedido, status_pago: o.status_pago, status_entregue: o.status_entregue, data: o.data, cliente_id: o.cliente_id || o.id_cliente }),
               synced_at: new Date().toISOString(),
             };

@@ -74,7 +74,7 @@ export default function ProdutosPage() {
               </p>
             </div>
           ) : (
-            products.map((product: Product) => (
+            products.map((product: any) => (
             <Card key={product.id} hover padding="none">
               <div className="aspect-square bg-surface-100 rounded-t-2xl overflow-hidden flex items-center justify-center">
                 {product.image_url ? (
@@ -94,6 +94,32 @@ export default function ProdutosPage() {
                 {product.category && (
                   <Badge variant="neutral">{product.category}</Badge>
                 )}
+                {/* Variações (tamanhos) */}
+                {(() => {
+                  const cf = typeof product.custom_fields === 'string'
+                    ? JSON.parse(product.custom_fields || '{}')
+                    : (product.custom_fields || {});
+                  const variations = cf.variations || [];
+                  if (variations.length > 0) {
+                    return (
+                      <div className="flex flex-wrap gap-1">
+                        {variations.map((v: any) => (
+                          <span
+                            key={v.id}
+                            className={`text-xs px-1.5 py-0.5 rounded border ${
+                              v.stock > 0
+                                ? 'border-green-200 bg-green-50 text-green-700'
+                                : 'border-red-200 bg-red-50 text-red-500 line-through'
+                            }`}
+                          >
+                            {v.name}
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
                 <div className="flex items-center justify-between">
                   <div>
                     {product.price_promotional ? (

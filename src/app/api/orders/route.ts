@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false });
 
     if (search) {
-      query = query.or(`order_number.ilike.%${search}%,external_id.ilike.%${search}%`);
+      query = query.or(`order_number.ilike.%${search}%,external_id.ilike.%${search}%,metadata->>cliente_nome.ilike.%${search}%`);
     }
 
     if (status) {

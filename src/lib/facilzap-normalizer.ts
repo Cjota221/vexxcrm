@@ -247,8 +247,24 @@ export function normalizeProduct(raw: FacilZapProduct): NormalizedProduct[] {
     });
   }
   // ━━━ CASO 2: Produto COM variações ━━━
+  // Agrupado: produto único com estoque total e variações em custom_fields
   else {
-    // Adicionar produto pai (referência, sem estoque próprio)
+    // Somar estoque de todas as variações
+    const totalStock = raw.variacoes.reduce((sum, v) => {
+      const vStock = extractStock(v, true);
+      return sum + (vStock > 0 ? vStock : 0);
+    }, 0);
+
+    // Montar lista de variações para metadado
+    const variations = raw.variacoes.map((v) => ({
+      id: v.id,
+      name: v.nome,
+      sku: v.sku || `FZ-${raw.id}-${v.id}`,
+      stock: extractStock(v, true),
+      price: parsePrice(v.preco || v.valor) || pricing.price,
+      is_active: v.ativado !== false,
+    }));
+
     products.push({
       external_id: String(raw.id),
       sku: raw.sku || raw.codigo || `FZ-${raw.id}`,
@@ -256,42 +272,13 @@ export function normalizeProduct(raw: FacilZapProduct): NormalizedProduct[] {
       price: pricing.price,
       compare_at_price: pricing.compareAt,
       cost: 0,
-      stock: 0, // Pai não tem estoque próprio (soma das variações)
+      stock: totalStock,
       custom_fields: {
         is_variation: false,
         has_variations: true,
-        parent_product_id: raw.id,
+        variations,
         barcode: extractBarcode(raw),
       },
-    });
-
-    // Adicionar cada variação como produto independente
-    raw.variacoes.forEach((variation) => {
-      const varPricing = extractPrice({ 
-        ...raw, 
-        preco: variation.preco || variation.valor || raw.preco 
-      } as FacilZapProduct);
-      
-      products.push({
-        external_id: `${raw.id}-${variation.id}`,
-        sku: variation.sku || `FZ-${raw.id}-${variation.id}`,
-        name: `${raw.nome} - ${variation.nome}`,
-        description: baseProduct.description,
-        price: varPricing.price,
-        compare_at_price: varPricing.compareAt,
-        cost: 0,
-        stock: extractStock(variation, true),
-        category: baseProduct.category,
-        image_url: baseProduct.image_url,
-        images: baseProduct.images,
-        is_active: variation.ativado !== false && baseProduct.is_active,
-        custom_fields: {
-          is_variation: true,
-          parent_product_id: raw.id,
-          variation_id: variation.id,
-          variation_name: variation.nome,
-        },
-      });
     });
   }
 

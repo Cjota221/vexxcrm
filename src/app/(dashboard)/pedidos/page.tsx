@@ -143,7 +143,8 @@ export default function PedidosPage() {
             <thead>
               <tr className="border-b border-surface-200">
                 <th className="text-left text-xs font-medium text-txt-secondary px-4 py-3">Pedido</th>
-                <th className="text-left text-xs font-medium text-txt-secondary px-4 py-3">Itens</th>
+                <th className="text-left text-xs font-medium text-txt-secondary px-4 py-3">Cliente</th>
+                <th className="text-left text-xs font-medium text-txt-secondary px-4 py-3">Peças</th>
                 <th className="text-left text-xs font-medium text-txt-secondary px-4 py-3">Status</th>
                 <th className="text-right text-xs font-medium text-txt-secondary px-4 py-3">Total</th>
                 <th className="text-right text-xs font-medium text-txt-secondary px-4 py-3">Data</th>
@@ -152,20 +153,24 @@ export default function PedidosPage() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-12 text-txt-secondary">
+                  <td colSpan={6} className="text-center py-12 text-txt-secondary">
                     Carregando pedidos...
                   </td>
                 </tr>
               ) : orders.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-12 text-txt-secondary">
+                  <td colSpan={6} className="text-center py-12 text-txt-secondary">
                     <Package size={24} className="mx-auto mb-2" />
                     Nenhum pedido encontrado
                   </td>
                 </tr>
               ) : (
-                orders.map((order: Order) => {
+                orders.map((order: any) => {
                   const config = STATUS_MAP[order.status] || { label: order.status || 'Desconhecido', variant: 'neutral' as const, icon: Clock };
+                  // Nome do cliente: primeiro tenta join, depois metadata
+                  const meta = typeof order.metadata === 'string' ? JSON.parse(order.metadata || '{}') : (order.metadata || {});
+                  const clientName = order.clients?.name || meta.cliente_nome || '—';
+                  const totalItems = meta.total_items || 0;
                   return (
                     <tr
                       key={order.id}
@@ -173,12 +178,19 @@ export default function PedidosPage() {
                     >
                       <td className="px-4 py-3">
                         <span className="text-sm font-medium text-txt-primary">
-                          #{order.external_id || order.id.slice(0, 8)}
+                          #{order.order_number || order.external_id || order.id.slice(0, 8)}
                         </span>
                       </td>
+                      <td className="px-4 py-3">
+                        <div>
+                          <p className="text-sm font-medium text-txt-primary">{clientName}</p>
+                          {order.clients?.phone && (
+                            <p className="text-xs text-txt-secondary">{order.clients.phone}</p>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-sm text-txt-secondary">
-                        {/* {order.items?.length || 0} {order.items?.length === 1 ? 'item' : 'itens'} */}
-                        - itens
+                        {totalItems > 0 ? `${totalItems} ${totalItems === 1 ? 'peça' : 'peças'}` : '—'}
                       </td>
                       <td className="px-4 py-3">
                         <Badge variant={config.variant}>{config.label}</Badge>
