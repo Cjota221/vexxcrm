@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
 
     // Filtros
     if (search) {
-      query = query.or(`full_name.ilike.%${search}%,phone.ilike.%${search}%`);
+      query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%`);
     }
 
     if (status && status !== '') {

@@ -22,7 +22,12 @@ export function useClients(filters?: ClientFilters) {
 
       const response = await api.get<PaginatedResponse<Client>>('/api/clients', params);
       if (response.error) throw new Error(response.error);
-      return response.data;
+      const raw = response.data;
+      // API retorna { data, total, page, ... } mas api.ts extrai json.data
+      if (Array.isArray(raw)) {
+        return { data: raw, total: raw.length, page: 1, per_page: raw.length, total_pages: 1 };
+      }
+      return raw;
     },
     staleTime: 5 * 60 * 1000, // 5 minutos
   });
