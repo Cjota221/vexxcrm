@@ -104,9 +104,9 @@ export default function ClienteDetalhe() {
   const fullAddress = addressParts.length > 0 ? addressParts.join(', ') : null;
 
   // CPF/CNPJ, data nascimento
-  const cpfCnpj = custom.cpf_cnpj || c.cpf || null;
-  const dataNascimento = custom.data_nascimento || c.birthday || null;
-  const origem = custom.origem || c.source || c.origem || null;
+  const cpfCnpj = (() => { const v = custom.cpf_cnpj || c.cpf || null; return v && typeof v === 'object' ? JSON.stringify(v) : v; })();
+  const dataNascimento = (() => { const v = custom.data_nascimento || c.birthday || null; return v && typeof v === 'object' ? JSON.stringify(v) : v; })();
+  const origem = (() => { const v = custom.origem || c.source || c.origem || null; return v && typeof v === 'object' ? (v.nome || v.name || JSON.stringify(v)) : v; })();
 
   // Tags
   const tags = Array.isArray(c.tags) ? c.tags : [];
@@ -283,7 +283,7 @@ export default function ClienteDetalhe() {
               </CardHeader>
               <div className="p-4 pt-0">
                 <p className="text-sm text-txt-secondary whitespace-pre-wrap">
-                  {c.notes || c.notas}
+                  {typeof (c.notes || c.notas) === 'object' ? JSON.stringify(c.notes || c.notas) : (c.notes || c.notas)}
                 </p>
               </div>
             </Card>

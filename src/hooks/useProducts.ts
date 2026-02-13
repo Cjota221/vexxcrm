@@ -28,13 +28,16 @@ export function useProducts(params?: UseProductsParams): UseQueryResult<Products
       if (params?.is_active !== undefined) searchParams.set('is_active', String(params.is_active));
 
       const response = await api.get(`/api/products?${searchParams.toString()}`);
-      const raw = response.data;
-      // API retorna { data, total, page, ... } mas api.ts extrai json.data
-      // Se raw é array, significa que api.ts extraiu json.data (o array)
+      const raw = response.data as any;
+      // API retorna { data, total, page, ... }. api.ts agora preserva respostas paginadas.
+      if (raw && typeof raw === 'object' && !Array.isArray(raw) && 'data' in raw) {
+        return raw as ProductsResponse;
+      }
+      // Fallback: se for array (resposta não-paginada)
       if (Array.isArray(raw)) {
         return { data: raw, total: raw.length, page: 1, per_page: raw.length, total_pages: 1 };
       }
-      return raw as ProductsResponse;
+      return { data: [], total: 0, page: 1, per_page: 50, total_pages: 1 };
     },
   });
 }

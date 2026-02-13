@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
             return {
               tenant_id: tenantId,
               external_id: p.external_id || String(p.id),
-              sku: p.sku || null,
+              sku: typeof p.sku === 'object' ? (p.sku?.nome || p.sku?.sku || JSON.stringify(p.sku)) : (p.sku || null),
               name: p.name || p.nome || 'Sem nome',
               description: p.description || null,
               price: Number(p.price) || 0,
@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
               stock,
               image_url: p.image_url || null,
               images,
-              category: p.category || null,
+              category: typeof p.category === 'object' ? (p.category?.nome || p.category?.name || JSON.stringify(p.category)) : (p.category || null),
               is_active: p.is_active !== false,
               custom_fields: {
                 ...(p.custom_fields || {}),

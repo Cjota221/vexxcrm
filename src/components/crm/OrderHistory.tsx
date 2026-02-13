@@ -91,7 +91,7 @@ export function OrderHistory({ orders, isLoading }: OrderHistoryProps) {
 
             {order.tracking_code && (
               <p className="text-xs text-txt-secondary mt-1 flex items-center gap-1">
-                <Truck size={10} /> {order.tracking_code}
+                <Truck size={10} /> {typeof order.tracking_code === 'object' ? JSON.stringify(order.tracking_code) : order.tracking_code}
               </p>
             )}
 

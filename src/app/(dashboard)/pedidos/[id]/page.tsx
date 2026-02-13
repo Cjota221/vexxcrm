@@ -92,8 +92,12 @@ export default function PedidoDetalhe() {
   const formaEntrega = meta.forma_entrega
     ? (typeof meta.forma_entrega === 'object' ? (meta.forma_entrega.nome || '') : String(meta.forma_entrega))
     : '';
-  const vendedor = meta.vendedor || '';
-  const catalogo = meta.catalogo || '';
+  const vendedor = meta.vendedor
+    ? (typeof meta.vendedor === 'object' ? (meta.vendedor.nome || meta.vendedor.name || JSON.stringify(meta.vendedor)) : String(meta.vendedor))
+    : '';
+  const catalogo = meta.catalogo
+    ? (typeof meta.catalogo === 'object' ? (meta.catalogo.nome || meta.catalogo.name || JSON.stringify(meta.catalogo)) : String(meta.catalogo))
+    : '';
 
   return (
     <div className="space-y-6">
@@ -188,7 +192,7 @@ export default function PedidoDetalhe() {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-txt-primary truncate">{item.nome || 'Sem nome'}</p>
                         {item.variacao && (
-                          <p className="text-xs text-txt-secondary">Variação: {item.variacao}</p>
+                          <p className="text-xs text-txt-secondary">Variação: {typeof item.variacao === 'object' ? (item.variacao.nome || item.variacao.name || JSON.stringify(item.variacao)) : item.variacao}</p>
                         )}
                         <p className="text-xs text-txt-secondary">
                           {item.quantidade || 1}x {formatCurrency(Number(item.preco_unitario || item.valor) || 0)}
@@ -301,7 +305,7 @@ export default function PedidoDetalhe() {
               {order.coupon_code && (
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-txt-secondary">Cupom</span>
-                  <span className="text-sm text-crm-primary font-medium">{order.coupon_code}</span>
+                  <span className="text-sm text-crm-primary font-medium">{typeof order.coupon_code === 'object' ? JSON.stringify(order.coupon_code) : order.coupon_code}</span>
                 </div>
               )}
             </div>
@@ -323,7 +327,7 @@ export default function PedidoDetalhe() {
                 {order.tracking_code && (
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-txt-secondary">Rastreio</span>
-                    <span className="text-sm text-crm-primary font-medium">{order.tracking_code}</span>
+                    <span className="text-sm text-crm-primary font-medium">{typeof order.tracking_code === 'object' ? JSON.stringify(order.tracking_code) : order.tracking_code}</span>
                   </div>
                 )}
               </div>

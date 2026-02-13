@@ -92,7 +92,11 @@ export default function ProdutosPage() {
                   {product.name}
                 </h3>
                 {product.category && (
-                  <Badge variant="neutral">{product.category}</Badge>
+                  <Badge variant="neutral">
+                    {typeof product.category === 'object'
+                      ? (product.category.nome || product.category.name || JSON.stringify(product.category))
+                      : product.category}
+                  </Badge>
                 )}
                 {/* Variações (tamanhos) */}
                 {(() => {
