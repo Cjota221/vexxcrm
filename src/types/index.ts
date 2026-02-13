@@ -88,7 +88,7 @@ export interface AuthSession {
    CLIENT (CRM)
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-export type ClientStatus = 'novo' | 'ativo' | 'risco' | 'inativo' | 'vip';
+export type ClientStatus = 'novo' | 'ativo' | 'active' | 'risco' | 'inativo' | 'inactive' | 'blocked' | 'vip';
 
 export interface Client {
   id: string;
@@ -232,7 +232,7 @@ export interface Product {
    ORDER (Pedido)
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-export type OrderStatus = 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled' | 'refunded';
+export type OrderStatus = 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'refunded' | 'paid';
 
 export interface OrderItem {
   product_id: string;

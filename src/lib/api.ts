@@ -63,6 +63,12 @@ class ApiClient {
         };
       }
 
+      // Se a resposta tem estrutura paginada (data + total + page), retornar o JSON inteiro
+      // para que os hooks possam acessar total, page, total_pages
+      if (json && typeof json === 'object' && 'data' in json && 'total' in json && 'page' in json) {
+        return { data: json as T };
+      }
+
       return { data: json.data ?? json };
     } catch (error) {
       return {

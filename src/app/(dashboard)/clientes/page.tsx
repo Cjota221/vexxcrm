@@ -3,22 +3,22 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Search,
   Plus,
-  Filter,
   Download,
   Users,
   TrendingUp,
   ShoppingBag,
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { useClients } from '@/hooks/useClients';
 import { Badge } from '@/components/ui/Badge';
-import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { formatCurrency, formatRelativeTime, getInitials, getAvatarColor, debounce } from '@/lib/utils';
-import type { Client, ClientStatus } from '@/types';
+import type { ClientStatus } from '@/types';
 
 const STATUS_MAP: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'neutral' }> = {
   novo: { label: 'Novo', variant: 'info' },
@@ -35,24 +35,24 @@ export default function ClientesPage() {
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ClientStatus | ''>('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const perPage = 30;
 
   const { data, isLoading } = useClients({
     search: search || undefined,
     status: statusFilter || undefined,
+    page: currentPage,
+    per_page: perPage,
   });
 
   const clients = data?.data ?? [];
   const total = data?.total ?? 0;
+  const totalPages = data?.total_pages ?? 1;
 
   const handleSearch = debounce((value: string) => {
     setSearch(value);
+    setCurrentPage(1);
   }, 300);
-
-  // Métricas rápidas
-  const totalClients = total;
-  const vipClients = clients.filter((c: Client) => c.status === 'vip').length;
-  const riskClients = clients.filter((c: Client) => c.status === 'risco').length;
-  const totalLTV = clients.reduce((acc: number, c: Client) => acc + c.ltv, 0);
 
   return (
     <div className="space-y-6">
@@ -60,11 +60,10 @@ export default function ClientesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-txt-primary">Clientes</h1>
-          <p className="text-sm text-txt-secondary mt-1">{totalClients} clientes cadastrados</p>
+          <p className="text-sm text-txt-secondary mt-1">{total} clientes cadastrados</p>
         </div>
         <Button variant="primary">
-          <Plus size={16} />
-          Novo Cliente
+          <Plus size={16} /> Novo Cliente
         </Button>
       </div>
 
@@ -77,7 +76,7 @@ export default function ClientesPage() {
             </div>
             <div>
               <p className="text-xs text-txt-secondary">Total</p>
-              <p className="text-lg font-bold text-txt-primary">{totalClients}</p>
+              <p className="text-lg font-bold text-txt-primary">{total}</p>
             </div>
           </div>
         </Card>
@@ -88,7 +87,9 @@ export default function ClientesPage() {
             </div>
             <div>
               <p className="text-xs text-txt-secondary">VIP</p>
-              <p className="text-lg font-bold text-txt-primary">{vipClients}</p>
+              <p className="text-lg font-bold text-txt-primary">
+                {clients.filter((c: any) => c.status === 'vip').length}
+              </p>
             </div>
           </div>
         </Card>
@@ -99,7 +100,9 @@ export default function ClientesPage() {
             </div>
             <div>
               <p className="text-xs text-txt-secondary">Em Risco</p>
-              <p className="text-lg font-bold text-txt-primary">{riskClients}</p>
+              <p className="text-lg font-bold text-txt-primary">
+                {clients.filter((c: any) => c.status === 'risco').length}
+              </p>
             </div>
           </div>
         </Card>
@@ -109,8 +112,10 @@ export default function ClientesPage() {
               <ShoppingBag size={20} className="text-green-600" />
             </div>
             <div>
-              <p className="text-xs text-txt-secondary">LTV Total</p>
-              <p className="text-lg font-bold text-txt-primary">{formatCurrency(totalLTV)}</p>
+              <p className="text-xs text-txt-secondary">LTV Total (página)</p>
+              <p className="text-lg font-bold text-txt-primary">
+                {formatCurrency(clients.reduce((acc: number, c: any) => acc + (Number(c.ltv) || 0), 0))}
+              </p>
             </div>
           </div>
         </Card>
@@ -127,7 +132,7 @@ export default function ClientesPage() {
           </div>
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as ClientStatus | '')}
+            onChange={(e) => { setStatusFilter(e.target.value as ClientStatus | ''); setCurrentPage(1); }}
             className="input text-sm py-2 px-3 min-w-[150px]"
           >
             <option value="">Todos os status</option>
@@ -136,8 +141,7 @@ export default function ClientesPage() {
             ))}
           </select>
           <Button variant="ghost">
-            <Download size={16} />
-            Exportar
+            <Download size={16} /> Exportar
           </Button>
         </div>
       </Card>
@@ -175,7 +179,7 @@ export default function ClientesPage() {
                   </td>
                 </tr>
               ) : (
-                clients.map((client: Client) => {
+                clients.map((client: any) => {
                   const status = STATUS_MAP[client.status] || { label: client.status || 'Desconhecido', variant: 'neutral' as const };
                   return (
                     <tr
@@ -193,9 +197,7 @@ export default function ClientesPage() {
                           </div>
                           <div>
                             <p className="text-sm font-medium text-txt-primary">{client.name}</p>
-                            {client.email && (
-                              <p className="text-xs text-txt-secondary">{client.email}</p>
-                            )}
+                            {client.email && <p className="text-xs text-txt-secondary">{client.email}</p>}
                           </div>
                         </div>
                       </td>
@@ -204,13 +206,15 @@ export default function ClientesPage() {
                         <Badge variant={status.variant}>{status.label}</Badge>
                       </td>
                       <td className="px-4 py-3 text-sm text-right font-medium text-txt-primary">
-                        {formatCurrency(client.ltv)}
+                        {formatCurrency(Number(client.ltv) || 0)}
                       </td>
                       <td className="px-4 py-3 text-sm text-right text-txt-primary">
-                        {client.total_pedidos}
+                        {client.total_orders || client.total_pedidos || 0}
                       </td>
                       <td className="px-4 py-3 text-sm text-right text-txt-secondary">
-                        {client.ultima_compra ? formatRelativeTime(client.ultima_compra) : '—'}
+                        {(client.last_order_at || client.ultima_compra)
+                          ? formatRelativeTime(client.last_order_at || client.ultima_compra)
+                          : '—'}
                       </td>
                     </tr>
                   );
@@ -219,6 +223,56 @@ export default function ClientesPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Paginação */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-surface-200">
+            <p className="text-xs text-txt-secondary">
+              Mostrando {((currentPage - 1) * perPage) + 1}–{Math.min(currentPage * perPage, total)} de {total} clientes
+            </p>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="p-1.5 rounded-lg hover:bg-surface-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let pageNum: number;
+                if (totalPages <= 5) {
+                  pageNum = i + 1;
+                } else if (currentPage <= 3) {
+                  pageNum = i + 1;
+                } else if (currentPage >= totalPages - 2) {
+                  pageNum = totalPages - 4 + i;
+                } else {
+                  pageNum = currentPage - 2 + i;
+                }
+                return (
+                  <button
+                    key={pageNum}
+                    onClick={() => setCurrentPage(pageNum)}
+                    className={`w-8 h-8 rounded-lg text-xs font-medium transition-colors ${
+                      currentPage === pageNum
+                        ? 'bg-crm-primary text-white'
+                        : 'hover:bg-surface-100 text-txt-secondary'
+                    }`}
+                  >
+                    {pageNum}
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="p-1.5 rounded-lg hover:bg-surface-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+        )}
       </Card>
     </div>
   );

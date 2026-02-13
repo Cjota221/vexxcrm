@@ -1,22 +1,23 @@
 'use client';
 
 import { Package, Truck, CheckCircle, XCircle, Clock, CreditCard } from 'lucide-react';
-import type { Order } from '@/types';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency, formatDate } from '@/lib/utils';
 
 interface OrderHistoryProps {
-  orders: Order[];
+  orders: any[];
   isLoading?: boolean;
 }
 
-const STATUS_CONFIG: Record<Order['status'], { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'neutral'; icon: typeof Package }> = {
+const STATUS_CONFIG: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'neutral'; icon: typeof Package }> = {
   pending: { label: 'Pendente', variant: 'warning', icon: Clock },
-  confirmed: { label: 'Confirmado', variant: 'info', icon: CheckCircle },
+  confirmed: { label: 'Pago', variant: 'success', icon: CheckCircle },
+  processing: { label: 'Separando', variant: 'info', icon: Package },
   shipped: { label: 'Enviado', variant: 'info', icon: Truck },
   delivered: { label: 'Entregue', variant: 'success', icon: CheckCircle },
   cancelled: { label: 'Cancelado', variant: 'danger', icon: XCircle },
   refunded: { label: 'Reembolsado', variant: 'neutral', icon: CreditCard },
+  paid: { label: 'Pago', variant: 'success', icon: CheckCircle },
 };
 
 export function OrderHistory({ orders, isLoading }: OrderHistoryProps) {
@@ -33,7 +34,7 @@ export function OrderHistory({ orders, isLoading }: OrderHistoryProps) {
     );
   }
 
-  if (orders.length === 0) {
+  if (!orders || orders.length === 0) {
     return (
       <div className="text-center py-6">
         <Package size={24} className="mx-auto text-txt-secondary mb-2" />
@@ -44,9 +45,15 @@ export function OrderHistory({ orders, isLoading }: OrderHistoryProps) {
 
   return (
     <div className="space-y-2">
-      {orders.map((order) => {
-        const config = STATUS_CONFIG[order.status];
+      {orders.map((order: any) => {
+        const config = STATUS_CONFIG[order.status] || { label: order.status || 'Desconhecido', variant: 'neutral' as const, icon: Clock };
         const Icon = config.icon;
+        const meta = typeof order.metadata === 'string'
+          ? (() => { try { return JSON.parse(order.metadata); } catch { return {}; } })()
+          : (order.metadata || {});
+        const totalItems = meta.total_items || 0;
+        const paymentStatus = order.payment_status === 'paid' ? 'Pago' : 'Pendente';
+        const paymentVariant = order.payment_status === 'paid' ? 'success' : 'warning';
 
         return (
           <div
@@ -57,7 +64,7 @@ export function OrderHistory({ orders, isLoading }: OrderHistoryProps) {
               <div className="flex items-center gap-1.5">
                 <Icon size={14} className="text-txt-secondary" />
                 <span className="text-xs font-medium text-txt-primary">
-                  #{order.external_id || order.id.slice(0, 8)}
+                  #{order.order_number || order.external_id || '—'}
                 </span>
               </div>
               <Badge variant={config.variant}>{config.label}</Badge>
@@ -65,12 +72,22 @@ export function OrderHistory({ orders, isLoading }: OrderHistoryProps) {
 
             <div className="flex items-center justify-between">
               <span className="text-xs text-txt-secondary">
-                {order.items.length} {order.items.length === 1 ? 'item' : 'itens'}
+                {totalItems > 0 ? `${totalItems} ${totalItems === 1 ? 'item' : 'itens'}` : '—'}
               </span>
               <span className="text-sm font-semibold text-crm-primary">
-                {formatCurrency(order.total)}
+                {formatCurrency(Number(order.total) || 0)}
               </span>
             </div>
+
+            {order.payment_method && (
+              <p className="text-xs text-txt-secondary mt-1">
+                {typeof order.payment_method === 'object' ? (order.payment_method.nome || '') : order.payment_method}
+                {' · '}
+                <span className={paymentVariant === 'success' ? 'text-green-600' : 'text-yellow-600'}>
+                  {paymentStatus}
+                </span>
+              </p>
+            )}
 
             {order.tracking_code && (
               <p className="text-xs text-txt-secondary mt-1 flex items-center gap-1">

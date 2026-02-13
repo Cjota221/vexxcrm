@@ -1,0 +1,359 @@
+'use client';
+
+import { useParams, useRouter } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
+import {
+  ArrowLeft,
+  Package,
+  Truck,
+  CheckCircle,
+  XCircle,
+  Clock,
+  CreditCard,
+  User,
+  Phone,
+  Mail,
+  MapPin,
+  Hash,
+  Calendar,
+  ShoppingBag,
+  Image as ImageIcon,
+} from 'lucide-react';
+import { api } from '@/lib/api';
+import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
+import { formatCurrency, formatDate } from '@/lib/utils';
+
+const STATUS_MAP: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'neutral'; icon: typeof Clock }> = {
+  pending: { label: 'Pendente', variant: 'warning', icon: Clock },
+  confirmed: { label: 'Pago', variant: 'success', icon: CheckCircle },
+  processing: { label: 'Separando', variant: 'info', icon: Package },
+  shipped: { label: 'Enviado', variant: 'info', icon: Truck },
+  delivered: { label: 'Entregue', variant: 'success', icon: CheckCircle },
+  cancelled: { label: 'Cancelado', variant: 'danger', icon: XCircle },
+  refunded: { label: 'Reembolsado', variant: 'neutral', icon: CreditCard },
+  paid: { label: 'Pago', variant: 'success', icon: CheckCircle },
+};
+
+export default function PedidoDetalhe() {
+  const params = useParams();
+  const router = useRouter();
+  const orderId = params.id as string;
+
+  const { data: order, isLoading } = useQuery({
+    queryKey: ['order', orderId],
+    queryFn: async () => {
+      const response = await api.get(`/api/orders/${orderId}`);
+      return response.data as any;
+    },
+    enabled: !!orderId,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="h-8 bg-surface-200 rounded w-48 animate-pulse" />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-24 bg-surface-200 rounded-xl animate-pulse" />
+          ))}
+        </div>
+        <div className="h-64 bg-surface-200 rounded-xl animate-pulse" />
+      </div>
+    );
+  }
+
+  if (!order) {
+    return (
+      <div className="text-center py-20">
+        <Package size={48} className="mx-auto text-txt-secondary mb-4" />
+        <p className="text-txt-secondary">Pedido não encontrado</p>
+        <Button variant="ghost" onClick={() => router.back()} className="mt-4">
+          <ArrowLeft size={16} /> Voltar
+        </Button>
+      </div>
+    );
+  }
+
+  const meta = typeof order.metadata === 'string'
+    ? (() => { try { return JSON.parse(order.metadata); } catch { return {}; } })()
+    : (order.metadata || {});
+
+  const config = STATUS_MAP[order.status] || { label: order.status || 'Desconhecido', variant: 'neutral' as const, icon: Clock };
+  const StatusIcon = config.icon;
+  const items = meta.itens || [];
+  const clientName = order.clients?.name || meta.cliente_nome || '—';
+  const clientPhone = order.clients?.phone || meta.cliente_whatsapp || meta.cliente_telefone || '';
+  const clientEmail = order.clients?.email || meta.cliente_email || '';
+  const paymentMethod = order.payment_method
+    ? (typeof order.payment_method === 'object' ? (order.payment_method.nome || order.payment_method.forma || '') : String(order.payment_method))
+    : '';
+  const formaEntrega = meta.forma_entrega
+    ? (typeof meta.forma_entrega === 'object' ? (meta.forma_entrega.nome || '') : String(meta.forma_entrega))
+    : '';
+  const vendedor = meta.vendedor || '';
+  const catalogo = meta.catalogo || '';
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center gap-4">
+        <button
+          onClick={() => router.back()}
+          className="p-2 rounded-lg hover:bg-surface-100 text-txt-secondary transition-colors"
+        >
+          <ArrowLeft size={20} />
+        </button>
+        <div className="flex-1">
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-txt-primary">
+              Pedido #{order.order_number || order.external_id || '—'}
+            </h1>
+            <Badge variant={config.variant}>{config.label}</Badge>
+            <Badge variant={order.payment_status === 'paid' ? 'success' : 'warning'}>
+              {order.payment_status === 'paid' ? 'Pago' : 'Pgto Pendente'}
+            </Badge>
+          </div>
+          <p className="text-sm text-txt-secondary mt-1">
+            Criado em {formatDate(order.created_at)}
+          </p>
+        </div>
+      </div>
+
+      {/* Resumo financeiro */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <Card>
+          <div className="p-4 text-center">
+            <p className="text-xs text-txt-secondary">Subtotal</p>
+            <p className="text-lg font-bold text-txt-primary">{formatCurrency(Number(order.subtotal) || 0)}</p>
+          </div>
+        </Card>
+        <Card>
+          <div className="p-4 text-center">
+            <p className="text-xs text-txt-secondary">Desconto</p>
+            <p className="text-lg font-bold text-red-500">-{formatCurrency(Number(order.discount) || 0)}</p>
+          </div>
+        </Card>
+        <Card>
+          <div className="p-4 text-center">
+            <p className="text-xs text-txt-secondary">Frete</p>
+            <p className="text-lg font-bold text-txt-primary">{formatCurrency(Number(order.shipping) || 0)}</p>
+          </div>
+        </Card>
+        <Card>
+          <div className="p-4 text-center">
+            <p className="text-xs text-txt-secondary">Total Itens</p>
+            <p className="text-lg font-bold text-txt-primary">{meta.total_items || items.length || 0}</p>
+          </div>
+        </Card>
+        <Card>
+          <div className="p-4 text-center">
+            <p className="text-xs text-txt-secondary">Total</p>
+            <p className="text-xl font-bold text-crm-primary">{formatCurrency(Number(order.total) || 0)}</p>
+          </div>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Coluna principal */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Itens do pedido */}
+          <Card>
+            <CardHeader>
+              <CardTitle><ShoppingBag size={16} /> Itens do Pedido ({items.length})</CardTitle>
+            </CardHeader>
+            <div className="p-4 pt-0">
+              {items.length === 0 ? (
+                <p className="text-sm text-txt-secondary text-center py-4">
+                  Nenhum item detalhado disponível
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {items.map((item: any, idx: number) => (
+                    <div key={idx} className="flex items-center gap-3 p-3 bg-surface-50 rounded-lg">
+                      {/* Imagem do produto */}
+                      {item.imagem ? (
+                        <img
+                          src={item.imagem}
+                          alt={item.nome}
+                          className="w-14 h-14 rounded-lg object-cover shrink-0"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      ) : (
+                        <div className="w-14 h-14 rounded-lg bg-surface-200 flex items-center justify-center shrink-0">
+                          <ImageIcon size={20} className="text-txt-secondary" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-txt-primary truncate">{item.nome || 'Sem nome'}</p>
+                        {item.variacao && (
+                          <p className="text-xs text-txt-secondary">Variação: {item.variacao}</p>
+                        )}
+                        <p className="text-xs text-txt-secondary">
+                          {item.quantidade || 1}x {formatCurrency(Number(item.preco_unitario || item.valor) || 0)}
+                        </p>
+                      </div>
+                      <p className="text-sm font-semibold text-txt-primary shrink-0">
+                        {formatCurrency((Number(item.quantidade) || 1) * (Number(item.preco_unitario || item.valor) || 0))}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {/* Status detalhados */}
+          <Card>
+            <CardHeader>
+              <CardTitle><Clock size={16} /> Status Detalhados</CardTitle>
+            </CardHeader>
+            <div className="p-4 pt-0">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {[
+                  { label: 'Pago', value: meta.status_pago },
+                  { label: 'Em Separação', value: meta.status_em_separacao },
+                  { label: 'Separado', value: meta.status_separado },
+                  { label: 'Despachado', value: meta.status_despachado },
+                  { label: 'Entregue', value: meta.status_entregue },
+                ].map(({ label, value }) => {
+                  const active = value === '1' || value === 1 || value === true || value === 'true';
+                  return (
+                    <div key={label} className={`p-2 rounded-lg text-center text-xs font-medium ${
+                      active ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-surface-50 text-txt-secondary'
+                    }`}>
+                      {active ? '✓ ' : ''}{label}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </Card>
+
+          {/* Notas */}
+          {order.notes && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Observações</CardTitle>
+              </CardHeader>
+              <div className="p-4 pt-0">
+                <p className="text-sm text-txt-secondary whitespace-pre-wrap">{order.notes}</p>
+              </div>
+            </Card>
+          )}
+        </div>
+
+        {/* Sidebar */}
+        <div className="space-y-6">
+          {/* Cliente */}
+          <Card>
+            <CardHeader>
+              <CardTitle><User size={16} /> Cliente</CardTitle>
+            </CardHeader>
+            <div className="p-4 pt-0 space-y-2">
+              <p className="text-sm font-medium text-txt-primary">{clientName}</p>
+              {clientPhone && (
+                <p className="text-xs text-txt-secondary flex items-center gap-1">
+                  <Phone size={12} /> {clientPhone}
+                </p>
+              )}
+              {clientEmail && (
+                <p className="text-xs text-txt-secondary flex items-center gap-1">
+                  <Mail size={12} /> {clientEmail}
+                </p>
+              )}
+              {meta.cliente_cpf_cnpj && (
+                <p className="text-xs text-txt-secondary flex items-center gap-1">
+                  <Hash size={12} /> {meta.cliente_cpf_cnpj}
+                </p>
+              )}
+              {order.clients?.id && (
+                <Button
+                  variant="ghost"
+                  onClick={() => router.push(`/clientes/${order.clients.id}`)}
+                  className="mt-2 text-xs"
+                >
+                  Ver perfil do cliente →
+                </Button>
+              )}
+            </div>
+          </Card>
+
+          {/* Pagamento */}
+          <Card>
+            <CardHeader>
+              <CardTitle><CreditCard size={16} /> Pagamento</CardTitle>
+            </CardHeader>
+            <div className="p-4 pt-0 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-txt-secondary">Status</span>
+                <Badge variant={order.payment_status === 'paid' ? 'success' : 'warning'}>
+                  {order.payment_status === 'paid' ? 'Pago' : 'Pendente'}
+                </Badge>
+              </div>
+              {paymentMethod && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-txt-secondary">Método</span>
+                  <span className="text-sm text-txt-primary">{paymentMethod}</span>
+                </div>
+              )}
+              {order.coupon_code && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-txt-secondary">Cupom</span>
+                  <span className="text-sm text-crm-primary font-medium">{order.coupon_code}</span>
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {/* Entrega */}
+          {(formaEntrega || order.tracking_code) && (
+            <Card>
+              <CardHeader>
+                <CardTitle><Truck size={16} /> Entrega</CardTitle>
+              </CardHeader>
+              <div className="p-4 pt-0 space-y-2">
+                {formaEntrega && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-txt-secondary">Forma</span>
+                    <span className="text-sm text-txt-primary">{formaEntrega}</span>
+                  </div>
+                )}
+                {order.tracking_code && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-txt-secondary">Rastreio</span>
+                    <span className="text-sm text-crm-primary font-medium">{order.tracking_code}</span>
+                  </div>
+                )}
+              </div>
+            </Card>
+          )}
+
+          {/* Extras */}
+          {(vendedor || catalogo) && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Detalhes</CardTitle>
+              </CardHeader>
+              <div className="p-4 pt-0 space-y-2">
+                {vendedor && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-txt-secondary">Vendedor</span>
+                    <span className="text-sm text-txt-primary">{vendedor}</span>
+                  </div>
+                )}
+                {catalogo && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-txt-secondary">Catálogo</span>
+                    <span className="text-sm text-txt-primary">{catalogo}</span>
+                  </div>
+                )}
+              </div>
+            </Card>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -22,12 +22,16 @@ export function useClients(filters?: ClientFilters) {
 
       const response = await api.get<PaginatedResponse<Client>>('/api/clients', params);
       if (response.error) throw new Error(response.error);
-      const raw = response.data;
-      // API retorna { data, total, page, ... } mas api.ts extrai json.data
+      const raw = response.data as any;
+      // API retorna { data, total, page, ... }. api.ts agora preserva respostas paginadas.
+      if (raw && typeof raw === 'object' && !Array.isArray(raw) && 'data' in raw) {
+        return raw;
+      }
+      // Fallback: se for array (resposta não-paginada)
       if (Array.isArray(raw)) {
         return { data: raw, total: raw.length, page: 1, per_page: raw.length, total_pages: 1 };
       }
-      return raw;
+      return { data: [], total: 0, page: 1, per_page: 20, total_pages: 1 };
     },
     staleTime: 5 * 60 * 1000, // 5 minutos
   });

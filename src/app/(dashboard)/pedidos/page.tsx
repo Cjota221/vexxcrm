@@ -1,9 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   ShoppingBag,
-  Search,
   Download,
   Package,
   Truck,
@@ -11,18 +11,20 @@ import {
   XCircle,
   Clock,
   CreditCard,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
-import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
 import { formatCurrency, formatDate, debounce } from '@/lib/utils';
 import { useOrders } from '@/hooks/useOrders';
-import type { Order, OrderStatus } from '@/types';
+import type { OrderStatus } from '@/types';
 
 const STATUS_MAP: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'neutral'; icon: typeof Clock }> = {
   pending: { label: 'Pendente', variant: 'warning', icon: Clock },
-  confirmed: { label: 'Confirmado', variant: 'info', icon: CheckCircle },
+  confirmed: { label: 'Pago', variant: 'success', icon: CheckCircle },
   processing: { label: 'Separando', variant: 'info', icon: Package },
   shipped: { label: 'Enviado', variant: 'info', icon: Truck },
   delivered: { label: 'Entregue', variant: 'success', icon: CheckCircle },
@@ -31,26 +33,35 @@ const STATUS_MAP: Record<string, { label: string; variant: 'success' | 'warning'
   paid: { label: 'Pago', variant: 'success', icon: CheckCircle },
 };
 
+const PAYMENT_STATUS_MAP: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' }> = {
+  paid: { label: 'Pago', variant: 'success' },
+  pending: { label: 'Pendente', variant: 'warning' },
+  failed: { label: 'Falhou', variant: 'danger' },
+  refunded: { label: 'Reembolsado', variant: 'warning' },
+};
+
 export default function PedidosPage() {
+  const router = useRouter();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<OrderStatus | ''>('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const perPage = 30;
 
   const { data, isLoading } = useOrders({
     search: search || undefined,
     status: statusFilter || undefined,
+    page: currentPage,
+    per_page: perPage,
   });
 
   const orders = data?.data ?? [];
   const total = data?.total ?? 0;
+  const totalPages = data?.total_pages ?? 1;
 
   const handleSearch = debounce((value: string) => {
     setSearch(value);
+    setCurrentPage(1);
   }, 300);
-
-  // Estatísticas
-  const totalRevenue = orders.reduce((acc: number, o: Order) => acc + (o.total || 0), 0);
-  const pendingOrders = orders.filter((o: Order) => o.status === 'pending').length;
-  const deliveredOrders = orders.filter((o: Order) => o.status === 'delivered').length;
 
   return (
     <div className="space-y-6">
@@ -59,7 +70,7 @@ export default function PedidosPage() {
         <div>
           <h1 className="text-2xl font-bold text-txt-primary">Pedidos</h1>
           <p className="text-sm text-txt-secondary mt-1">
-            Histórico de pedidos sincronizados via FacilZap
+            {total} pedidos sincronizados via FacilZap
           </p>
         </div>
         <Button variant="ghost">
@@ -75,19 +86,8 @@ export default function PedidosPage() {
               <ShoppingBag size={20} className="text-crm-primary" />
             </div>
             <div>
-              <p className="text-xs text-txt-secondary">Total</p>
+              <p className="text-xs text-txt-secondary">Total Pedidos</p>
               <p className="text-lg font-bold text-txt-primary">{total}</p>
-            </div>
-          </div>
-        </Card>
-        <Card>
-          <div className="p-4 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-yellow-500/10 flex items-center justify-center">
-              <Clock size={20} className="text-yellow-600" />
-            </div>
-            <div>
-              <p className="text-xs text-txt-secondary">Pendentes</p>
-              <p className="text-lg font-bold text-txt-primary">{pendingOrders}</p>
             </div>
           </div>
         </Card>
@@ -97,19 +97,36 @@ export default function PedidosPage() {
               <CheckCircle size={20} className="text-green-600" />
             </div>
             <div>
-              <p className="text-xs text-txt-secondary">Entregues</p>
-              <p className="text-lg font-bold text-txt-primary">{deliveredOrders}</p>
+              <p className="text-xs text-txt-secondary">Pagos (página)</p>
+              <p className="text-lg font-bold text-txt-primary">
+                {orders.filter((o: any) => o.payment_status === 'paid').length}
+              </p>
             </div>
           </div>
         </Card>
         <Card>
           <div className="p-4 flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
-              <CreditCard size={20} className="text-blue-500" />
+              <Truck size={20} className="text-blue-600" />
             </div>
             <div>
-              <p className="text-xs text-txt-secondary">Receita</p>
-              <p className="text-lg font-bold text-txt-primary">{formatCurrency(totalRevenue)}</p>
+              <p className="text-xs text-txt-secondary">Entregues (página)</p>
+              <p className="text-lg font-bold text-txt-primary">
+                {orders.filter((o: any) => o.status === 'delivered').length}
+              </p>
+            </div>
+          </div>
+        </Card>
+        <Card>
+          <div className="p-4 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+              <CreditCard size={20} className="text-emerald-500" />
+            </div>
+            <div>
+              <p className="text-xs text-txt-secondary">Receita (página)</p>
+              <p className="text-lg font-bold text-txt-primary">
+                {formatCurrency(orders.reduce((acc: number, o: any) => acc + (Number(o.total) || 0), 0))}
+              </p>
             </div>
           </div>
         </Card>
@@ -120,13 +137,13 @@ export default function PedidosPage() {
         <div className="p-4 flex flex-wrap items-center gap-3">
           <div className="flex-1 min-w-48">
             <Input
-              placeholder="Buscar pedido por ID..."
-              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar por nº pedido, cliente..."
+              onChange={(e) => handleSearch(e.target.value)}
             />
           </div>
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as OrderStatus | '')}
+            onChange={(e) => { setStatusFilter(e.target.value as OrderStatus | ''); setCurrentPage(1); }}
             className="input text-sm py-2 px-3"
           >
             <option value="">Todos os status</option>
@@ -154,11 +171,13 @@ export default function PedidosPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td colSpan={7} className="text-center py-12 text-txt-secondary">
-                    Carregando pedidos...
-                  </td>
-                </tr>
+                Array.from({ length: 5 }).map((_, i) => (
+                  <tr key={i} className="border-b border-surface-100">
+                    {Array.from({ length: 7 }).map((_, j) => (
+                      <td key={j} className="px-4 py-3"><div className="h-4 bg-surface-200 rounded w-20 animate-pulse" /></td>
+                    ))}
+                  </tr>
+                ))
               ) : orders.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="text-center py-12 text-txt-secondary">
@@ -169,20 +188,26 @@ export default function PedidosPage() {
               ) : (
                 orders.map((order: any) => {
                   const config = STATUS_MAP[order.status] || { label: order.status || 'Desconhecido', variant: 'neutral' as const, icon: Clock };
-                  const meta = typeof order.metadata === 'string' ? JSON.parse(order.metadata || '{}') : (order.metadata || {});
+                  const meta = typeof order.metadata === 'string'
+                    ? (() => { try { return JSON.parse(order.metadata); } catch { return {}; } })()
+                    : (order.metadata || {});
                   const clientName = order.clients?.name || meta.cliente_nome || '—';
                   const clientPhone = order.clients?.phone || meta.cliente_whatsapp || meta.cliente_telefone || '';
                   const totalItems = meta.total_items || 0;
-                  const paymentLabel = order.payment_status === 'paid' ? 'Pago' : 'Pendente';
-                  const paymentVariant = order.payment_status === 'paid' ? 'success' : 'warning';
+                  const payStatus = PAYMENT_STATUS_MAP[order.payment_status] || { label: order.payment_status || '—', variant: 'warning' as const };
+                  const payMethod = order.payment_method
+                    ? (typeof order.payment_method === 'object' ? (order.payment_method.nome || order.payment_method.forma || '') : String(order.payment_method))
+                    : '';
+
                   return (
                     <tr
                       key={order.id}
                       className="border-b border-surface-100 hover:bg-surface-50 cursor-pointer transition-colors"
+                      onClick={() => router.push(`/pedidos/${order.id}`)}
                     >
                       <td className="px-4 py-3">
-                        <span className="text-sm font-medium text-txt-primary">
-                          #{order.order_number || order.external_id || order.id.slice(0, 8)}
+                        <span className="text-sm font-medium text-crm-primary">
+                          #{order.order_number || order.external_id || '—'}
                         </span>
                         {meta.forma_entrega && (
                           <p className="text-[10px] text-txt-secondary mt-0.5">
@@ -193,9 +218,7 @@ export default function PedidosPage() {
                       <td className="px-4 py-3">
                         <div>
                           <p className="text-sm font-medium text-txt-primary">{clientName}</p>
-                          {clientPhone && (
-                            <p className="text-xs text-txt-secondary">{clientPhone}</p>
-                          )}
+                          {clientPhone && <p className="text-xs text-txt-secondary">{clientPhone}</p>}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-sm text-txt-secondary">
@@ -205,20 +228,16 @@ export default function PedidosPage() {
                         <Badge variant={config.variant}>{config.label}</Badge>
                       </td>
                       <td className="px-4 py-3">
-                        <Badge variant={paymentVariant as any}>{paymentLabel}</Badge>
-                        {order.payment_method && (
-                          <p className="text-[10px] text-txt-secondary mt-0.5">
-                            {typeof order.payment_method === 'object' ? (order.payment_method.nome || order.payment_method.forma || JSON.stringify(order.payment_method)) : order.payment_method}
-                          </p>
-                        )}
+                        <Badge variant={payStatus.variant}>{payStatus.label}</Badge>
+                        {payMethod && <p className="text-[10px] text-txt-secondary mt-0.5">{payMethod}</p>}
                       </td>
                       <td className="px-4 py-3 text-sm text-right font-medium text-txt-primary">
-                        {formatCurrency(order.total)}
-                        {(order.discount > 0 || order.shipping > 0) && (
+                        {formatCurrency(Number(order.total) || 0)}
+                        {(Number(order.discount) > 0 || Number(order.shipping) > 0) && (
                           <div className="text-[10px] text-txt-secondary">
-                            {order.discount > 0 && <span>-{formatCurrency(order.discount)} desc</span>}
-                            {order.discount > 0 && order.shipping > 0 && <span> · </span>}
-                            {order.shipping > 0 && <span>+{formatCurrency(order.shipping)} frete</span>}
+                            {Number(order.discount) > 0 && <span>-{formatCurrency(order.discount)} desc</span>}
+                            {Number(order.discount) > 0 && Number(order.shipping) > 0 && <span> · </span>}
+                            {Number(order.shipping) > 0 && <span>+{formatCurrency(order.shipping)} frete</span>}
                           </div>
                         )}
                       </td>
@@ -232,6 +251,56 @@ export default function PedidosPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Paginação */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-surface-200">
+            <p className="text-xs text-txt-secondary">
+              Mostrando {((currentPage - 1) * perPage) + 1}–{Math.min(currentPage * perPage, total)} de {total} pedidos
+            </p>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="p-1.5 rounded-lg hover:bg-surface-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let pageNum: number;
+                if (totalPages <= 5) {
+                  pageNum = i + 1;
+                } else if (currentPage <= 3) {
+                  pageNum = i + 1;
+                } else if (currentPage >= totalPages - 2) {
+                  pageNum = totalPages - 4 + i;
+                } else {
+                  pageNum = currentPage - 2 + i;
+                }
+                return (
+                  <button
+                    key={pageNum}
+                    onClick={() => setCurrentPage(pageNum)}
+                    className={`w-8 h-8 rounded-lg text-xs font-medium transition-colors ${
+                      currentPage === pageNum
+                        ? 'bg-crm-primary text-white'
+                        : 'hover:bg-surface-100 text-txt-secondary'
+                    }`}
+                  >
+                    {pageNum}
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="p-1.5 rounded-lg hover:bg-surface-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+        )}
       </Card>
     </div>
   );

@@ -161,6 +161,8 @@ export async function POST(request: NextRequest) {
     if (entity === 'all' || entity === 'orders') {
       try {
         const parseNum = (v: any): number => { const n = parseFloat(String(v || '0').replace(',', '.')); return isNaN(n) ? 0 : n; };
+        // Helper: FacilZap retorna status como "0"/"1", true/false, 0/1 ou "true"/"false"
+        const isTruthy = (v: any): boolean => v === '1' || v === 1 || v === true || v === 'true' || v === 'sim';
         const df = new Date().toISOString().split('T')[0];
         const di = new Date(); di.setFullYear(di.getFullYear() - 2);
         const dis = di.toISOString().split('T')[0];
@@ -177,14 +179,14 @@ export async function POST(request: NextRequest) {
 
             // Status do pedido baseado nos campos booleanos (strings "0"/"1")
             let orderStatus = 'pending';
-            if (String(o.status_entregue) === '1') orderStatus = 'delivered';
-            else if (String(o.status_despachado) === '1') orderStatus = 'shipped';
-            else if (String(o.status_separado) === '1' || String(o.status_em_separacao) === '1') orderStatus = 'processing';
-            else if (String(o.status_pago) === '1') orderStatus = 'confirmed';
+            if (isTruthy(o.status_entregue)) orderStatus = 'delivered';
+            else if (isTruthy(o.status_despachado)) orderStatus = 'shipped';
+            else if (isTruthy(o.status_separado) || isTruthy(o.status_em_separacao)) orderStatus = 'processing';
+            else if (isTruthy(o.status_pago)) orderStatus = 'confirmed';
             else if (o.status === 'cancelado' || o.status_pedido === 'cancelado') orderStatus = 'cancelled';
 
             // Payment status
-            const paymentStatus = String(o.status_pago) === '1' ? 'paid' : 'pending';
+            const paymentStatus = isTruthy(o.status_pago) ? 'paid' : 'pending';
 
             // Método de pagamento (garantir que é string, não objeto)
             let paymentMethod: string | null = null;
