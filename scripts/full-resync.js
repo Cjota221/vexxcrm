@@ -1,5 +1,5 @@
-// Script de re-sync completa + relink final
-// Puxa TODAS as páginas de pedidos da FacilZap (5 anos) e re-vincula
+// Script de re-sync completa + relink final (v2)
+// Usa os mesmos params que facilzap.service.ts: length, filtros[data_inicial], filtros[incluir_produtos]=1
 // Executar: node scripts/full-resync.js
 
 const { createClient } = require('@supabase/supabase-js');
@@ -33,27 +33,30 @@ class PhoneNormalizer {
   }
 }
 
-async function fetchFacilZap(token, endpoint, retries = 3) {
+async function fetchFZ(token, endpoint, retries = 3) {
   for (let i = 1; i <= retries; i++) {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 30000);
       const res = await fetch(`${FZ_API}${endpoint}`, {
         signal: controller.signal,
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}` 
+        }
       });
       clearTimeout(timeout);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
     } catch (e) {
       if (i === retries) throw e;
-      console.log(`  Retry ${i}/${retries}...`);
+      console.log(`  Retry ${i}/${retries}: ${e.message}`);
       await new Promise(r => setTimeout(r, 2000 * i));
     }
   }
 }
 
-async function fetchAll(table, select, filter) {
+async function fetchAllSB(table, select, filter) {
   const all = [];
   let from = 0;
   while (true) {
@@ -69,7 +72,7 @@ async function fetchAll(table, select, filter) {
 }
 
 async function main() {
-  console.log('=== FULL RE-SYNC + RELINK ===\n');
+  console.log('=== FULL RE-SYNC + RELINK (v2) ===\n');
 
   // 1. Buscar token FacilZap
   const { data: tenants } = await sb.from('tenants').select('id, facilzap_token');
@@ -79,34 +82,48 @@ async function main() {
   const fzToken = tenant.facilzap_token;
   console.log('Tenant:', tenantId);
 
-  // 2. Buscar TODOS os pedidos da FacilZap (todas as páginas, 5 anos)
+  // 2. Buscar TODOS os pedidos — usando mesmos params do facilzap.service.ts
   const di = new Date(); di.setFullYear(di.getFullYear() - 5);
   const df = new Date();
-  const params = `data_inicial=${di.toISOString().split('T')[0]}&data_final=${df.toISOString().split('T')[0]}`;
-  
+  const diStr = di.toISOString().split('T')[0];
+  const dfStr = df.toISOString().split('T')[0];
+
   let allFzOrders = [];
   let page = 1;
-  while (page <= 50) {
-    console.log(`Buscando pedidos página ${page}...`);
+  const maxPages = 50;
+  const length = 100;
+  
+  console.log(`Periodo: ${diStr} ate ${dfStr}`);
+  
+  while (page <= maxPages) {
+    const params = new URLSearchParams({
+      page: String(page),
+      length: String(length),
+      'filtros[incluir_produtos]': '1',
+      'filtros[data_inicial]': diStr,
+      'filtros[data_final]': dfStr,
+    });
+    
+    console.log(`Buscando pedidos pagina ${page}...`);
     try {
-      const json = await fetchFacilZap(fzToken, `/pedidos?page=${page}&per_page=100&${params}`);
+      const json = await fetchFZ(fzToken, `/pedidos?${params.toString()}`);
       const orders = json.data || [];
-      if (!orders.length) break;
+      if (!orders.length) {
+        console.log('  Pagina vazia, fim.');
+        break;
+      }
       allFzOrders.push(...orders);
       console.log(`  ${orders.length} pedidos (total acumulado: ${allFzOrders.length})`);
-      
-      const totalPages = json.last_page || json.total_pages || Math.ceil((json.total || 0) / 100);
-      if (page >= totalPages) break;
       page++;
     } catch (e) {
-      console.log(`  Erro na página ${page}: ${e.message}`);
+      console.log(`  Erro na pagina ${page}: ${e.message}`);
       break;
     }
   }
   console.log(`\nTotal pedidos da FacilZap: ${allFzOrders.length}`);
 
   // 3. Carregar TODOS os clientes do banco
-  const clients = await fetchAll('clients', 'id, phone, phone_normalized, name, email, custom_fields', q => q.eq('tenant_id', tenantId));
+  const clients = await fetchAllSB('clients', 'id, phone, phone_normalized, name, email, custom_fields', q => q.eq('tenant_id', tenantId));
   console.log(`Clientes no banco: ${clients.length}`);
 
   // Criar mapas de lookup
@@ -130,11 +147,19 @@ async function main() {
     if (c.name && c.name !== 'Sem nome') nameMap.set(c.name.toLowerCase().trim(), c.id);
   }
 
-  // 4. Processar pedidos — atualizar metadados e vincular
+  // 4. Carregar external_id -> id mapeamento de pedidos existentes
+  console.log('Carregando pedidos existentes...');
+  const existingOrders = await fetchAllSB('orders', 'id, external_id', q => q.eq('tenant_id', tenantId));
+  const existingMap = new Map();
+  for (const o of existingOrders) existingMap.set(o.external_id, o.id);
+  console.log(`Pedidos existentes no banco: ${existingMap.size}`);
+
+  // 5. Processar pedidos — atualizar metadados e vincular
   const parseNum = v => { const n = parseFloat(String(v || '0').replace(',', '.')); return isNaN(n) ? 0 : n; };
   const isTruthy = v => v === '1' || v === 1 || v === true || v === 'true' || v === 'sim';
 
-  let updated = 0, newOrders = 0, relinked = 0;
+  let processed = 0;
+  let linkedCount = 0;
   
   for (let i = 0; i < allFzOrders.length; i += 50) {
     const batch = allFzOrders.slice(i, i + 50);
@@ -143,7 +168,7 @@ async function main() {
       const rawPhone = (o.cliente?.whatsapp_e164 || o.cliente?.whatsapp || o.cliente?.telefone || '');
       const ph = rawPhone.replace(/\D/g, '');
       
-      // Vincular por múltiplas estratégias
+      // Vincular por multiplas estrategias
       let clientId = null;
       if (ph && ph.length >= 8) {
         clientId = phoneMap.get(ph) || phoneMap.get(PhoneNormalizer.canonical(ph)) || phoneMap.get(PhoneNormalizer.normalize(ph)) || null;
@@ -152,6 +177,8 @@ async function main() {
       if (!clientId && o.cliente?.email) clientId = emailMap.get(o.cliente.email.toLowerCase().trim()) || null;
       if (!clientId && o.cliente?.nome && o.cliente.nome !== 'Sem nome') clientId = nameMap.get(o.cliente.nome.toLowerCase().trim()) || null;
       
+      if (clientId) linkedCount++;
+
       // Status
       let orderStatus = 'pending';
       if (isTruthy(o.status_entregue)) orderStatus = 'delivered';
@@ -225,21 +252,85 @@ async function main() {
     const seen = new Set();
     const unique = upsertData.filter(o => { if (seen.has(o.external_id)) return false; seen.add(o.external_id); return true; });
     
-    const { error } = await sb.from('orders').upsert(unique, { onConflict: 'tenant_id,external_id' });
-    if (error) {
-      // Fallback: delete + insert
-      const ids = unique.map(o => o.external_id);
-      await sb.from('orders').delete().eq('tenant_id', tenantId).in('external_id', ids);
-      await sb.from('orders').insert(unique);
+    // Separar em updates e inserts
+    const toUpdate = [];
+    const toInsert = [];
+    for (const row of unique) {
+      const existingId = existingMap.get(row.external_id);
+      if (existingId) {
+        toUpdate.push({ ...row, id: existingId });
+      } else {
+        toInsert.push(row);
+      }
     }
-    updated += unique.length;
-    process.stdout.write(`\r  Processados: ${updated}/${allFzOrders.length}`);
+    
+    // Batch updates (parallel, 10 at a time)
+    for (let j = 0; j < toUpdate.length; j += 10) {
+      const updateBatch = toUpdate.slice(j, j + 10);
+      await Promise.all(updateBatch.map(row => {
+        const { id, tenant_id, external_id, ...data } = row;
+        return sb.from('orders').update(data).eq('id', id);
+      }));
+    }
+    
+    // Batch inserts
+    if (toInsert.length > 0) {
+      const { error } = await sb.from('orders').insert(toInsert);
+      if (error) {
+        // Fallback individual
+        for (const row of toInsert) {
+          const { error: e2 } = await sb.from('orders').insert([row]);
+          if (e2) console.log(`    Insert erro ${row.external_id}: ${e2.message}`);
+        }
+      }
+    }
+    
+    processed += unique.length;
+    process.stdout.write(`\r  Processados: ${processed}/${allFzOrders.length} (vinculados: ${linkedCount}, updates: ${toUpdate.length}, inserts: ${toInsert.length})`);
   }
-  console.log(`\n\nPedidos processados: ${updated}`);
+  console.log(`\n\nPedidos processados: ${processed}`);
+  console.log(`Vinculados via FacilZap: ${linkedCount}`);
 
-  // 5. Recalcular stats
-  console.log('Recalculando stats...');
-  const allOrders = await fetchAll('orders', 'client_id, total, created_at', q => q.eq('tenant_id', tenantId));
+  // 5. Segundo passo: relink orfaos que estao no banco mas nao vieram neste sync
+  console.log('\n--- Relink de orfaos existentes no banco ---');
+  const orphans = await fetchAllSB('orders', 'id, external_id, metadata', q => q.eq('tenant_id', tenantId).is('client_id', null));
+  console.log(`Orfaos no banco: ${orphans.length}`);
+
+  let relinkCount = 0;
+  const relinkBatch = [];
+  for (const o of orphans) {
+    const meta = o.metadata || {};
+    const rawPhone = meta.cliente_whatsapp_e164 || meta.cliente_whatsapp || meta.cliente_telefone || '';
+    const ph = rawPhone.replace(/\D/g, '');
+    
+    let clientId = null;
+    if (ph && ph.length >= 8) {
+      clientId = phoneMap.get(ph) || phoneMap.get(PhoneNormalizer.canonical(ph)) || phoneMap.get(PhoneNormalizer.normalize(ph)) || null;
+    }
+    if (!clientId && meta.cliente_id_facilzap) clientId = fzIdMap.get(String(meta.cliente_id_facilzap)) || null;
+    if (!clientId && meta.cliente_email) clientId = emailMap.get(meta.cliente_email.toLowerCase().trim()) || null;
+    if (!clientId && meta.cliente_nome && meta.cliente_nome !== 'Sem nome') clientId = nameMap.get(meta.cliente_nome.toLowerCase().trim()) || null;
+
+    if (clientId) {
+      relinkBatch.push({ id: o.id, clientId });
+      relinkCount++;
+    }
+  }
+
+  // Aplicar relinks em batch
+  for (let i = 0; i < relinkBatch.length; i += 50) {
+    const batch = relinkBatch.slice(i, i + 50);
+    await Promise.all(batch.map(({ id, clientId }) =>
+      sb.from('orders').update({ client_id: clientId }).eq('id', id)
+    ));
+    process.stdout.write(`\r  Relinked: ${Math.min(i + 50, relinkBatch.length)}/${relinkBatch.length}`);
+  }
+  if (relinkCount > 0) console.log(`\nRelinked: ${relinkCount} orfaos`);
+  else console.log('Nenhum orfao relinked (sem match).');
+
+  // 6. Recalcular stats de TODOS os clientes
+  console.log('\nRecalculando stats de clientes...');
+  const allOrders = await fetchAllSB('orders', 'client_id, total, created_at', q => q.eq('tenant_id', tenantId));
   const statsMap = new Map();
   for (const c of clients) statsMap.set(c.id, { total: 0, count: 0, last: '' });
   for (const o of allOrders) {
@@ -266,14 +357,14 @@ async function main() {
     statsUpdated += batch.length;
   }
 
-  // 6. Resultado final
+  // 7. Resultado final
   const { count: fO } = await sb.from('orders').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId).is('client_id', null);
   const { count: fL } = await sb.from('orders').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId).not('client_id', 'is', null);
   const { count: fT } = await sb.from('orders').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId);
   console.log(`\n=== RESULTADO FINAL ===`);
-  console.log(`Total pedidos: ${fT}`);
-  console.log(`Vinculados: ${fL} (${Math.round(fL/fT*100)}%)`);
-  console.log(`Órfãos: ${fO}`);
+  console.log(`Total pedidos no banco: ${fT}`);
+  console.log(`Vinculados: ${fL} (${fT > 0 ? Math.round(fL/fT*100) : 0}%)`);
+  console.log(`Orfaos: ${fO}`);
   console.log(`Stats atualizadas: ${statsUpdated} clientes`);
 }
 
