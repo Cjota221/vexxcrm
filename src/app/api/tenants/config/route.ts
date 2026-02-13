@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
 
     const { data: tenant } = await supabase
       .from('tenants')
-      .select('evolution_api_url, evolution_api_key, evolution_instance, facilzap_token, openai_api_key, anne_enabled, anne_system_prompt, anne_model, anne_max_tokens')
+      .select('evolution_api_url, evolution_api_key, evolution_instance, facilzap_token, openai_api_key')
       .eq('id', profile.tenant_id)
       .single();
 
@@ -52,10 +52,10 @@ export async function GET(request: NextRequest) {
         instance: tenant?.evolution_instance || '',
       },
       openai: {
-        enabled: tenant?.anne_enabled ?? !!tenant?.openai_api_key,
+        enabled: !!tenant?.openai_api_key,
         api_key: tenant?.openai_api_key || '',
-        model: tenant?.anne_model || 'gpt-4o-mini',
-        system_prompt: tenant?.anne_system_prompt || '',
+        model: 'gpt-4o-mini',
+        system_prompt: '',
       },
     };
 
@@ -118,22 +118,13 @@ export async function PUT(request: NextRequest) {
       if (configUpdate.openai.api_key !== undefined) {
         dbUpdate.openai_api_key = configUpdate.openai.api_key;
       }
-      if (configUpdate.openai.model !== undefined) {
-        dbUpdate.anne_model = configUpdate.openai.model;
-      }
-      if (configUpdate.openai.system_prompt !== undefined) {
-        dbUpdate.anne_system_prompt = configUpdate.openai.system_prompt;
-      }
-      if (configUpdate.openai.enabled !== undefined) {
-        dbUpdate.anne_enabled = configUpdate.openai.enabled;
-      }
     }
 
     const { data, error } = await supabase
       .from('tenants')
       .update(dbUpdate)
       .eq('id', profile.tenant_id)
-      .select('evolution_api_url, evolution_api_key, evolution_instance, facilzap_token, openai_api_key, anne_enabled, anne_system_prompt, anne_model, anne_max_tokens')
+      .select('evolution_api_url, evolution_api_key, evolution_instance, facilzap_token, openai_api_key')
       .single();
 
     if (error) {
@@ -155,10 +146,10 @@ export async function PUT(request: NextRequest) {
         instance: data.evolution_instance || '',
       },
       openai: {
-        enabled: data.anne_enabled ?? !!data.openai_api_key,
+        enabled: !!data.openai_api_key,
         api_key: data.openai_api_key || '',
-        model: data.anne_model || 'gpt-4o-mini',
-        system_prompt: data.anne_system_prompt || '',
+        model: 'gpt-4o-mini',
+        system_prompt: '',
       },
     };
 

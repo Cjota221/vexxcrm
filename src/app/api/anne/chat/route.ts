@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     // ── Buscar config do tenant ────────────────
     const { data: tenant } = await supabase
       .from('tenants')
-      .select('openai_api_key, anne_enabled, anne_system_prompt, anne_model, anne_max_tokens, name')
+      .select('openai_api_key, name')
       .eq('id', profile.tenant_id)
       .single();
 
@@ -107,15 +107,15 @@ Responda sempre em português brasileiro, de forma objetiva e útil.
 Use emojis quando apropriado para deixar a comunicação mais amigável.
 Se tiver dados do cliente no contexto, use-os para dar respostas personalizadas.`;
 
-    const systemPrompt = tenant.anne_system_prompt || defaultPrompt;
+    const systemPrompt = defaultPrompt;
 
     // ── Chamar IA ──────────────────────────────
     const response = await chat(
       {
         apiKey: tenant.openai_api_key,
-        model: tenant.anne_model || 'gpt-4o-mini',
+        model: 'gpt-4o-mini',
         systemPrompt,
-        maxTokens: tenant.anne_max_tokens || 500,
+        maxTokens: 500,
       },
       message,
       chatHistory,

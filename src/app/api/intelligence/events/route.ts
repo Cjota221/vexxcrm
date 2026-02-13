@@ -32,15 +32,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
     }
 
-    const { data: tenant } = await supabase
-      .from('tenants')
-      .select('id')
-      .eq('owner_id', user.id)
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('tenant_id')
+      .eq('id', user.id)
       .single();
 
-    if (!tenant) {
-      return NextResponse.json({ error: 'Tenant não encontrado' }, { status: 404 });
+    if (!profile) {
+      return NextResponse.json({ error: 'Perfil não encontrado' }, { status: 404 });
     }
+
+    const tenant = { id: profile.tenant_id };
 
     const body = await request.json();
     const logger = createLearningLogger(supabase, tenant.id);
@@ -117,15 +119,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
     }
 
-    const { data: tenant } = await supabase
-      .from('tenants')
-      .select('id')
-      .eq('owner_id', user.id)
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('tenant_id')
+      .eq('id', user.id)
       .single();
 
-    if (!tenant) {
-      return NextResponse.json({ error: 'Tenant não encontrado' }, { status: 404 });
+    if (!profile) {
+      return NextResponse.json({ error: 'Perfil não encontrado' }, { status: 404 });
     }
+
+    const tenant = { id: profile.tenant_id };
 
     const { searchParams } = new URL(request.url);
     const clientId = searchParams.get('client_id');
