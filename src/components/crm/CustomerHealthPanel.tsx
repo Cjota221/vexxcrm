@@ -18,7 +18,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useAuthStore } from '@/store/auth';
+import { supabase } from '@/lib/supabase';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -99,30 +99,36 @@ interface HealthResponse {
 export function CustomerHealthPanel({ clientId }: CustomerHealthPanelProps) {
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
-  const { accessToken } = useAuthStore();
+
+  const getToken = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token || null;
+  };
 
   const { data: healthData, isLoading, error } = useQuery<HealthResponse>({
     queryKey: ['client-health', clientId],
     queryFn: async () => {
+      const token = await getToken();
+      if (!token) throw new Error('Não autenticado');
       const res = await fetch(`/api/clients/${clientId}/health`, {
-        headers: { Authorization: `Bearer ${accessToken || ''}` },
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error('Erro ao calcular saúde');
       return res.json();
     },
     staleTime: 6 * 60 * 60 * 1000, // 6 horas
     retry: 1,
-    enabled: !!accessToken,
   });
 
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
+      const token = await getToken();
       await queryClient.fetchQuery<HealthResponse>({
         queryKey: ['client-health', clientId, 'refresh'],
         queryFn: async () => {
           const res = await fetch(`/api/clients/${clientId}/health?refresh=true`, {
-            headers: { Authorization: `Bearer ${accessToken || ''}` },
+            headers: { Authorization: `Bearer ${token || ''}` },
           });
           return res.json();
         },

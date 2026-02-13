@@ -13,7 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { useAuthStore } from '@/store/auth';
+import { supabase } from '@/lib/supabase';
 import type { SentinelaResult, HealthClassification } from '@/types';
 
 const DIST_CONFIG: Record<HealthClassification, {
@@ -34,7 +34,6 @@ export function SentinelaButton() {
   const [showModal, setShowModal] = useState(false);
   const [result, setResult] = useState<SentinelaResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { accessToken } = useAuthStore();
 
   const executeScan = async () => {
     setIsRunning(true);
@@ -43,11 +42,14 @@ export function SentinelaButton() {
     setError(null);
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token || '';
+
       const res = await fetch('/api/sentinela/scan', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken || ''}`,
+          Authorization: `Bearer ${token}`,
         },
       });
 
