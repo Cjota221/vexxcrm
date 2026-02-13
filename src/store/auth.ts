@@ -21,6 +21,8 @@ interface AuthState {
   clearSession: () => void;
   /** Atualiza o tenant */
   updateTenant: (tenant: Partial<Tenant>) => void;
+  /** Atualiza dados do usuário (ex: avatar) */
+  updateUser: (user: Partial<User>) => void;
   /** Define loading */
   setLoading: (loading: boolean) => void;
 }
@@ -56,6 +58,13 @@ export const useAuthStore = create<AuthState>()(
         set((state) => ({
           tenant: state.tenant
             ? { ...state.tenant, ...tenantUpdate }
+            : null,
+        })),
+
+      updateUser: (userUpdate) =>
+        set((state) => ({
+          user: state.user
+            ? { ...state.user, ...userUpdate }
             : null,
         })),
 
