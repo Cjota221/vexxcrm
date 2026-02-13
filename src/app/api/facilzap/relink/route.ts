@@ -171,8 +171,8 @@ export async function POST(request: NextRequest) {
 
         let clientId: string | null = null;
 
-        // Estratégia 1: Telefone
-        const rawPhone = meta.cliente_whatsapp || meta.cliente_telefone || '';
+        // Estratégia 1: Telefone (prioriza e164, depois whatsapp, depois telefone)
+        const rawPhone = meta.cliente_whatsapp_e164 || meta.cliente_whatsapp || meta.cliente_telefone || '';
         const ph = rawPhone.replace(/\D/g, '');
         if (ph && ph.length >= 8) {
           clientId = phoneMap.get(ph)

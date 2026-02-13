@@ -97,7 +97,8 @@ export async function POST(request: NextRequest) {
         results.hasMore.clients = hasMore;
         if (clients.length > 0) {
           const mapped = clients.map((c: any) => {
-            const ph = (c.whatsapp || c.telefone || c.celular || '').replace(/\D/g, '');
+            // Priorizar whatsapp_e164 (com DDI), depois whatsapp, telefone, celular
+            const ph = (c.whatsapp_e164 || c.whatsapp || c.telefone || c.celular || '').replace(/\D/g, '');
             if (!ph) return null;
 
             // Normalizar telefone com PhoneNormalizer para matching confiável
@@ -171,7 +172,7 @@ export async function POST(request: NextRequest) {
         // Helper: FacilZap retorna status como "0"/"1", true/false, 0/1 ou "true"/"false"
         const isTruthy = (v: any): boolean => v === '1' || v === 1 || v === true || v === 'true' || v === 'sim';
         const df = new Date().toISOString().split('T')[0];
-        const di = new Date(); di.setFullYear(di.getFullYear() - 2);
+        const di = new Date(); di.setFullYear(di.getFullYear() - 5);
         const dis = di.toISOString().split('T')[0];
         const { orders, hasMore } = await fetchOrders(facilzapConfig, page, 100, { data_inicial: dis, data_final: df });
         results.hasMore.orders = hasMore;
@@ -221,13 +222,18 @@ export async function POST(request: NextRequest) {
           }
 
           const data = orders.map((o: any) => {
-            // Telefone do cliente: prioriza whatsapp, depois telefone
-            const rawPhone = o.cliente?.whatsapp || o.cliente?.telefone || '';
+            // Telefone do cliente: prioriza whatsapp_e164, whatsapp, telefone
+            // API FacilZap retorna whatsapp sem DDI (ex: "31998573334")
+            // e whatsapp_e164 com DDI (ex: "+5531998573334")
+            const rawPhone = o.cliente?.whatsapp_e164 
+              || o.cliente?.whatsapp 
+              || o.cliente?.telefone 
+              || '';
             const ph = rawPhone.replace(/\D/g, '');
 
             // Tentar encontrar client_id por várias estratégias
             let clientId: string | null = null;
-            if (ph) {
+            if (ph && ph.length >= 8) {
               clientId = cm.get(ph)
                 || cm.get(PhoneNormalizer.canonical(ph))
                 || cm.get(PhoneNormalizer.normalize(ph))
@@ -372,6 +378,8 @@ export async function POST(request: NextRequest) {
                 cliente_nome: o.cliente?.nome || null,
                 cliente_telefone: rawPhone || null,
                 cliente_whatsapp: o.cliente?.whatsapp || null,
+                cliente_whatsapp_e164: o.cliente?.whatsapp_e164 || null,
+                cliente_whatsapp_ddi: o.cliente?.whatsapp_ddi || null,
                 cliente_cpf_cnpj: o.cliente?.cpf_cnpj || null,
                 cliente_email: o.cliente?.email || null,
                 cliente_id_facilzap: o.cliente?.id || null,
@@ -448,23 +456,30 @@ export async function POST(request: NextRequest) {
     // PÓS-SYNC: Re-vincular pedidos órfãos e atualizar estatísticas
     if ((entity === 'all' || entity === 'orders') && results.orders > 0) {
       try {
-        // Re-vincular pedidos sem client_id usando PhoneNormalizer
+        // Re-vincular pedidos sem client_id usando múltiplas estratégias
         const { data: freshClients } = await supabaseAdmin
           .from('clients')
-          .select('id, phone, phone_normalized')
+          .select('id, phone, phone_normalized, name, email, custom_fields')
           .eq('tenant_id', tenantId);
 
         const phoneMap = new Map<string, string>();
+        const fzMap = new Map<string, string>();
+        const emMap = new Map<string, string>();
+        const nmMap = new Map<string, string>();
         for (const c of (freshClients || [])) {
-          if (c.phone_normalized) {
-            phoneMap.set(c.phone_normalized, c.id);
-            phoneMap.set(PhoneNormalizer.normalize(c.phone_normalized), c.id);
+          for (const raw of [c.phone_normalized, c.phone]) {
+            if (!raw) continue;
+            const cl = raw.replace(/\D/g, '');
+            if (cl) {
+              phoneMap.set(cl, c.id);
+              phoneMap.set(PhoneNormalizer.canonical(cl), c.id);
+              phoneMap.set(PhoneNormalizer.normalize(cl), c.id);
+            }
           }
-          if (c.phone) {
-            const cleaned = c.phone.replace(/\D/g, '');
-            phoneMap.set(cleaned, c.id);
-            phoneMap.set(PhoneNormalizer.canonical(cleaned), c.id);
-          }
+          const fzId = (c.custom_fields as any)?.facilzap_id;
+          if (fzId) fzMap.set(String(fzId), c.id);
+          if (c.email) emMap.set(c.email.toLowerCase().trim(), c.id);
+          if (c.name && c.name !== 'Sem nome') nmMap.set(c.name.toLowerCase().trim(), c.id);
         }
 
         // Buscar pedidos órfãos
@@ -478,12 +493,19 @@ export async function POST(request: NextRequest) {
         for (const order of (orphans || [])) {
           const meta = order.metadata as any;
           if (!meta) continue;
-          const rawPh = (meta.cliente_whatsapp || meta.cliente_telefone || '').replace(/\D/g, '');
-          if (!rawPh) continue;
-          const cid = phoneMap.get(rawPh)
-            || phoneMap.get(PhoneNormalizer.canonical(rawPh))
-            || phoneMap.get(PhoneNormalizer.normalize(rawPh))
-            || null;
+          let cid: string | null = null;
+          // 1. Telefone (e164 > whatsapp > telefone)
+          const rawPh = (meta.cliente_whatsapp_e164 || meta.cliente_whatsapp || meta.cliente_telefone || '').replace(/\D/g, '');
+          if (rawPh && rawPh.length >= 8) {
+            cid = phoneMap.get(rawPh) || phoneMap.get(PhoneNormalizer.canonical(rawPh)) || phoneMap.get(PhoneNormalizer.normalize(rawPh)) || null;
+          }
+          // 2. FacilZap ID
+          if (!cid && meta.cliente_id_facilzap) cid = fzMap.get(String(meta.cliente_id_facilzap)) || null;
+          // 3. Email
+          if (!cid && meta.cliente_email) cid = emMap.get(meta.cliente_email.toLowerCase().trim()) || null;
+          // 4. Nome
+          if (!cid && meta.cliente_nome && meta.cliente_nome !== 'Sem nome') cid = nmMap.get(meta.cliente_nome.toLowerCase().trim()) || null;
+
           if (cid) {
             await supabaseAdmin.from('orders').update({ client_id: cid }).eq('id', order.id);
             relinked++;
