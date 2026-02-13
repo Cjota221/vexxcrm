@@ -166,158 +166,138 @@ export function CustomerHealthPanel({ clientId }: CustomerHealthPanelProps) {
   const config = CLASSIFICATION_CONFIG[health.classificacao.nivel as HealthClassification];
   const Icon = config.icon;
 
+  // Cor da barra de progresso
+  const scoreBarColor =
+    health.classificacao.score >= 80 ? 'bg-amber-500' :
+    health.classificacao.score >= 60 ? 'bg-green-500' :
+    health.classificacao.score >= 40 ? 'bg-blue-500' :
+    health.classificacao.score >= 20 ? 'bg-orange-500' : 'bg-red-500';
+
   return (
-    <div className="space-y-5">
-      {/* Header com Score */}
-      <Card className={`${config.border} border-2`} padding="none">
-        {/* Título + Botão */}
-        <div className="flex items-center justify-between px-5 pt-5 pb-3">
+    <div className="space-y-4">
+      {/* ══════════════════════════════════════════
+          CARD PRINCIPAL — Score + KPIs
+         ══════════════════════════════════════════ */}
+      <Card padding="none">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 pt-4 pb-3">
           <div className="flex items-center gap-2">
-            <Heart size={18} className="text-red-500" />
-            <span className="text-base font-semibold text-txt-primary">Saúde do Cliente</span>
+            <Heart size={16} className="text-red-400" />
+            <h3 className="text-sm font-semibold text-txt-primary">Saúde do Cliente</h3>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
+          <button
             onClick={handleRefresh}
             disabled={refreshing}
+            className="flex items-center gap-1.5 text-xs text-txt-secondary hover:text-crm-primary transition-colors disabled:opacity-50"
           >
-            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
-            {refreshing ? 'Calculando...' : 'Atualizar'}
-          </Button>
+            <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
+            <span>{refreshing ? 'Calculando...' : 'Atualizar'}</span>
+          </button>
         </div>
 
-        {/* Classificação + Score */}
-        <div className="px-5 pb-5">
-          <div className="flex items-center gap-4 mb-5">
-            <div className={`flex items-center gap-2 px-4 py-2 rounded-full ${config.bg}`}>
-              <Icon size={16} className={config.color} />
-              <span className={`text-sm font-bold ${config.color}`}>{config.label}</span>
+        {/* Badge + Score Bar */}
+        <div className="px-5 pb-4">
+          <div className="flex items-center gap-3">
+            <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${config.bg} ${config.color}`}>
+              <Icon size={13} />
+              <span>{config.label}</span>
             </div>
-            <div className="flex-1">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs text-txt-secondary">Score de Saúde</span>
-                <span className="text-sm font-bold text-txt-primary">{health.classificacao.score}/100</span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] text-txt-muted">Score de Saúde</span>
+                <span className="text-xs font-bold text-txt-primary">{health.classificacao.score}/100</span>
               </div>
-              <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
+              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                 <div
-                  className={`h-full rounded-full transition-all duration-500 ${
-                    health.classificacao.score >= 80 ? 'bg-amber-500' :
-                    health.classificacao.score >= 60 ? 'bg-green-500' :
-                    health.classificacao.score >= 40 ? 'bg-blue-500' :
-                    health.classificacao.score >= 20 ? 'bg-orange-500' : 'bg-red-500'
-                  }`}
+                  className={`h-full rounded-full transition-all duration-500 ${scoreBarColor}`}
                   style={{ width: `${health.classificacao.score}%` }}
                 />
               </div>
             </div>
           </div>
+        </div>
 
-          {/* Mini KPIs */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="text-center px-3 py-3.5 bg-surface-bg rounded-xl">
-              <p className="text-[11px] text-txt-secondary uppercase tracking-wide mb-1.5">Inativo há</p>
-              <p className="text-xl font-bold text-txt-primary leading-tight">
-                {health.metricas.diasInatividade > 900 ? '—' : `${health.metricas.diasInatividade}d`}
+        {/* Separador */}
+        <div className="border-t border-surface-border" />
+
+        {/* KPIs Grid — altura fixa e alinhamento consistente */}
+        <div className="grid grid-cols-4 divide-x divide-surface-border">
+          {[
+            {
+              label: 'INATIVO HÁ',
+              value: health.metricas.diasInatividade > 900 ? '—' : `${health.metricas.diasInatividade}d`,
+              highlight: false,
+            },
+            {
+              label: 'TICKET MÉDIO',
+              value: formatCurrency(health.metricas.comportamentoCompra.ticketMedio),
+              highlight: false,
+            },
+            {
+              label: 'FREQUÊNCIA',
+              value: `${health.metricas.frequenciaCompra.mediaComprasMes.toFixed(1)}/mês`,
+              highlight: false,
+            },
+            {
+              label: 'LTV',
+              value: formatCurrency(health.metricas.comportamentoCompra.valorTotalGasto),
+              highlight: true,
+            },
+          ].map((kpi, i) => (
+            <div key={i} className="py-3.5 px-2 text-center">
+              <p className="text-[10px] font-medium text-txt-muted uppercase tracking-wider mb-1">{kpi.label}</p>
+              <p className={`text-sm font-bold leading-tight ${kpi.highlight ? 'text-crm-primary' : 'text-txt-primary'}`}>
+                {kpi.value}
               </p>
             </div>
-            <div className="text-center px-3 py-3.5 bg-surface-bg rounded-xl">
-              <p className="text-[11px] text-txt-secondary uppercase tracking-wide mb-1.5">Ticket Médio</p>
-              <p className="text-xl font-bold text-txt-primary leading-tight">
-                {formatCurrency(health.metricas.comportamentoCompra.ticketMedio)}
-              </p>
-            </div>
-            <div className="text-center px-3 py-3.5 bg-surface-bg rounded-xl">
-              <p className="text-[11px] text-txt-secondary uppercase tracking-wide mb-1.5">Frequência</p>
-              <p className="text-xl font-bold text-txt-primary leading-tight">
-                {health.metricas.frequenciaCompra.mediaComprasMes.toFixed(1)}/mês
-              </p>
-            </div>
-            <div className="text-center px-3 py-3.5 bg-surface-bg rounded-xl">
-              <p className="text-[11px] text-txt-secondary uppercase tracking-wide mb-1.5">LTV</p>
-              <p className="text-xl font-bold text-crm-primary leading-tight">
-                {formatCurrency(health.metricas.comportamentoCompra.valorTotalGasto)}
-              </p>
-            </div>
-          </div>
+          ))}
         </div>
       </Card>
 
-      {/* Produtos Preferidos */}
-      {health.metricas.comportamentoCompra.produtosPreferidos.length > 0 && (
-        <Card padding="none">
-          <div className="px-5 pt-5 pb-2">
-            <div className="flex items-center gap-2">
-              <Package size={16} className="text-crm-primary" />
-              <span className="text-base font-semibold text-txt-primary">Produtos Preferidos</span>
-            </div>
-          </div>
-          <div className="px-5 pb-5 space-y-3">
-            {health.metricas.comportamentoCompra.produtosPreferidos.map((prod, i) => (
-              <div key={i} className="flex items-center gap-3">
-                <span className="w-7 h-7 rounded-full bg-crm-primary/10 text-crm-primary text-xs font-bold flex items-center justify-center shrink-0">
-                  {i + 1}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-txt-primary truncate">{prod.nome}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-crm-primary/60 rounded-full"
-                        style={{ width: `${prod.percentualCompras}%` }}
-                      />
-                    </div>
-                    <span className="text-[11px] text-txt-secondary shrink-0">
-                      {prod.percentualCompras}% · {prod.quantidade}x
-                    </span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {/* Tendências */}
+      {/* ══════════════════════════════════════════
+          TENDÊNCIAS
+         ══════════════════════════════════════════ */}
       <Card padding="none">
-        <div className="px-5 pt-5 pb-2">
+        <div className="px-5 py-3.5 border-b border-surface-border">
           <div className="flex items-center gap-2">
-            <TrendingUp size={16} className="text-crm-primary" />
-            <span className="text-base font-semibold text-txt-primary">Tendências</span>
+            <TrendingUp size={15} className="text-crm-primary" />
+            <h3 className="text-sm font-semibold text-txt-primary">Tendências</h3>
           </div>
         </div>
-        <div className="px-5 pb-5 space-y-3.5">
-          <div className="flex items-center justify-between">
+        <div className="px-5 py-3 space-y-0">
+          <div className="flex items-center justify-between py-2.5">
             <span className="text-sm text-txt-secondary">Frequência</span>
             <div className="flex items-center gap-1.5">
               <TendenciaIcon tipo={health.metricas.tendencias.crescimentoFrequencia} />
-              <span className="text-sm font-medium text-txt-primary">
+              <span className={`text-sm font-medium ${
+                health.metricas.tendencias.crescimentoFrequencia === 'aumentando' ? 'text-green-600' :
+                health.metricas.tendencias.crescimentoFrequencia === 'diminuindo' ? 'text-red-500' : 'text-txt-primary'
+              }`}>
                 {TendenciaLabel[health.metricas.tendencias.crescimentoFrequencia] || 'Estável'}
               </span>
             </div>
           </div>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between py-2.5 border-t border-surface-border/50">
             <span className="text-sm text-txt-secondary">Ticket Médio</span>
             <div className="flex items-center gap-1.5">
               <TendenciaIcon tipo={health.metricas.tendencias.crescimentoTicket} />
-              <span className="text-sm font-medium text-txt-primary">
+              <span className={`text-sm font-medium ${
+                health.metricas.tendencias.crescimentoTicket === 'aumentando' ? 'text-green-600' :
+                health.metricas.tendencias.crescimentoTicket === 'diminuindo' ? 'text-red-500' : 'text-txt-primary'
+              }`}>
                 {TendenciaLabel[health.metricas.tendencias.crescimentoTicket] || 'Estável'}
               </span>
             </div>
           </div>
-          <div className="flex items-center justify-between pt-3 border-t border-surface-border">
+          <div className="flex items-center justify-between py-2.5 border-t border-surface-border/50">
             <span className="text-sm text-txt-secondary">Últimos 3 meses</span>
-            <div className="text-right">
-              <span className="text-sm font-medium text-txt-primary">
-                {health.metricas.tendencias.ultimosTresMeses.pedidos} pedidos
-              </span>
-              <span className="text-xs text-txt-secondary ml-2">
-                {formatCurrency(health.metricas.tendencias.ultimosTresMeses.valorTotal)}
-              </span>
-            </div>
+            <span className="text-sm text-txt-primary">
+              <span className="font-semibold">{health.metricas.tendencias.ultimosTresMeses.pedidos} pedidos</span>
+              <span className="text-txt-muted ml-1.5">{formatCurrency(health.metricas.tendencias.ultimosTresMeses.valorTotal)}</span>
+            </span>
           </div>
           {health.metricas.frequenciaCompra.primeiraCompra && (
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between py-2.5 border-t border-surface-border/50">
               <span className="text-sm text-txt-secondary">Tempo como cliente</span>
               <span className="text-sm font-medium text-txt-primary">
                 {health.metricas.frequenciaCompra.mesesComoCliente} meses
@@ -327,24 +307,63 @@ export function CustomerHealthPanel({ clientId }: CustomerHealthPanelProps) {
         </div>
       </Card>
 
-      {/* Recomendações */}
-      {health.classificacao.recomendacoes.length > 0 && (
-        <Card className="border-crm-primary/20 border" padding="none">
-          <div className="px-5 pt-5 pb-2">
+      {/* ══════════════════════════════════════════
+          PRODUTOS PREFERIDOS
+         ══════════════════════════════════════════ */}
+      {health.metricas.comportamentoCompra.produtosPreferidos.length > 0 && (
+        <Card padding="none">
+          <div className="px-5 py-3.5 border-b border-surface-border">
             <div className="flex items-center gap-2">
-              <Lightbulb size={16} className="text-amber-500" />
-              <span className="text-base font-semibold text-txt-primary">Recomendações</span>
+              <Package size={15} className="text-crm-primary" />
+              <h3 className="text-sm font-semibold text-txt-primary">Produtos Preferidos</h3>
             </div>
           </div>
-          <div className="px-5 pb-4 space-y-2.5">
+          <div className="px-5 py-3 space-y-2.5">
+            {health.metricas.comportamentoCompra.produtosPreferidos.map((prod, i) => (
+              <div key={i} className="flex items-center gap-2.5">
+                <span className="w-6 h-6 rounded-full bg-crm-primary/10 text-crm-primary text-[11px] font-bold flex items-center justify-center shrink-0">
+                  {i + 1}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-txt-primary truncate pr-2">{prod.nome}</p>
+                    <span className="text-[11px] text-txt-muted shrink-0">
+                      {prod.percentualCompras}% · {prod.quantidade}x
+                    </span>
+                  </div>
+                  <div className="mt-1 h-1 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-crm-primary/50 rounded-full"
+                      style={{ width: `${prod.percentualCompras}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* ══════════════════════════════════════════
+          RECOMENDAÇÕES
+         ══════════════════════════════════════════ */}
+      {health.classificacao.recomendacoes.length > 0 && (
+        <Card padding="none">
+          <div className="px-5 py-3.5 border-b border-surface-border">
+            <div className="flex items-center gap-2">
+              <Lightbulb size={15} className="text-amber-500" />
+              <h3 className="text-sm font-semibold text-txt-primary">Recomendações</h3>
+            </div>
+          </div>
+          <div className="px-5 py-3 space-y-2">
             {health.classificacao.recomendacoes.map((rec, i) => (
-              <div key={i} className="flex items-start gap-2.5">
-                <span className="text-crm-primary mt-0.5 shrink-0">•</span>
+              <div key={i} className="flex items-start gap-2">
+                <span className="text-crm-primary text-xs mt-1 shrink-0">●</span>
                 <p className="text-sm text-txt-primary leading-relaxed">{rec}</p>
               </div>
             ))}
           </div>
-          <div className="mx-5 pt-3 pb-5 border-t border-surface-border">
+          <div className="px-5 py-3 border-t border-surface-border bg-surface-bg/50 rounded-b-[16px]">
             <p className="text-[11px] text-txt-muted italic leading-relaxed">
               {health.classificacao.razao}
             </p>
