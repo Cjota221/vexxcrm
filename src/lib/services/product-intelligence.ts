@@ -525,20 +525,35 @@ export class ProductIntelligence {
     let from = 0;
 
     while (true) {
-      const { data } = await this.supabase
+      const { data, error } = await this.supabase
         .from('orders')
-        .select('id, client_id, items, total, created_at')
+        .select('id, client_id, metadata, total, created_at')
         .eq('tenant_id', this.tenantId)
         .order('created_at', { ascending: false })
         .range(from, from + 999);
 
+      if (error) {
+        console.error('❌ Erro ao buscar orders:', error.message);
+        break;
+      }
       if (!data || data.length === 0) break;
 
       for (const o of data) {
+        // Extrair itens do metadata (FacilZap armazena como metadata.itens)
+        const meta = (o.metadata || {}) as Record<string, unknown>;
+        const rawItems = (meta.itens || meta.items || []) as Array<Record<string, unknown>>;
+        const items = Array.isArray(rawItems) ? rawItems.map(item => ({
+          product_id: (item.produto_id || item.product_id || undefined) as string | undefined,
+          product_name: (item.nome || item.product_name || 'Desconhecido') as string,
+          quantity: Number(item.quantidade || item.quantity || 1),
+          unit_price: Number(item.preco_unitario || item.unit_price || item.valor || 0),
+          total: Number(item.valor || item.total || 0),
+        })) : [];
+
         allOrders.push({
           id: o.id,
           client_id: o.client_id,
-          items: o.items || [],
+          items,
           total: Number(o.total) || 0,
           created_at: o.created_at,
         });

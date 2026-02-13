@@ -383,6 +383,9 @@ export function useCalculateSeasonal() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['intelligence', 'seasonal'] });
     },
+    onError: (error: Error) => {
+      console.error('❌ Erro ao calcular sazonal:', error.message);
+    },
   });
 }
 
@@ -435,6 +438,9 @@ export function useCalculateProducts() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['intelligence', 'products'] });
+    },
+    onError: (error: Error) => {
+      console.error('❌ Erro ao calcular produtos:', error.message);
     },
   });
 }

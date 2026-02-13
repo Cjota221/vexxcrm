@@ -57,7 +57,10 @@ export function SeasonalInsights() {
             className="px-3 py-1.5 text-xs font-medium rounded-lg bg-orange-50 text-orange-700 hover:bg-orange-100 transition-colors disabled:opacity-50"
           >
             {calculateSeasonal.isPending ? (
-              <Loader2 size={12} className="animate-spin" />
+              <span className="flex items-center gap-1">
+                <Loader2 size={12} className="animate-spin" />
+                Calculando...
+              </span>
             ) : (
               '⚡ Calcular'
             )}
@@ -70,6 +73,18 @@ export function SeasonalInsights() {
           </button>
         </div>
       </div>
+
+      {/* Status messages */}
+      {calculateSeasonal.isSuccess && (
+        <div className="mb-3 p-2 rounded-lg bg-green-50 border border-green-200">
+          <p className="text-xs text-green-700">✅ Análise sazonal calculada com sucesso!</p>
+        </div>
+      )}
+      {calculateSeasonal.isError && (
+        <div className="mb-3 p-2 rounded-lg bg-red-50 border border-red-200">
+          <p className="text-xs text-red-700">❌ Erro: {calculateSeasonal.error?.message || 'Falha ao calcular'}</p>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="flex items-center justify-center py-8">

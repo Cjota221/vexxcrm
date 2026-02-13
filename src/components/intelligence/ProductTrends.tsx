@@ -54,7 +54,10 @@ export function ProductTrends() {
             className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors disabled:opacity-50"
           >
             {calculateProducts.isPending ? (
-              <Loader2 size={12} className="animate-spin" />
+              <span className="flex items-center gap-1">
+                <Loader2 size={12} className="animate-spin" />
+                Calculando...
+              </span>
             ) : (
               '⚡ Calcular'
             )}
@@ -67,6 +70,18 @@ export function ProductTrends() {
           </button>
         </div>
       </div>
+
+      {/* Status messages */}
+      {calculateProducts.isSuccess && (
+        <div className="mb-3 p-2 rounded-lg bg-green-50 border border-green-200">
+          <p className="text-xs text-green-700">✅ Inteligência de produto calculada com sucesso!</p>
+        </div>
+      )}
+      {calculateProducts.isError && (
+        <div className="mb-3 p-2 rounded-lg bg-red-50 border border-red-200">
+          <p className="text-xs text-red-700">❌ Erro: {calculateProducts.error?.message || 'Falha ao calcular'}</p>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 mb-4 bg-surface-50 rounded-lg p-0.5">

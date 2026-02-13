@@ -435,14 +435,18 @@ export class SeasonalAnalyzer {
     let from = 0;
 
     while (true) {
-      const { data } = await this.supabase
+      const { data, error } = await this.supabase
         .from('orders')
-        .select('id, client_id, total, items, created_at, status')
+        .select('id, client_id, total, metadata, created_at, status')
         .eq('tenant_id', this.tenantId)
         .not('client_id', 'is', null)
         .order('created_at', { ascending: false })
         .range(from, from + 999);
 
+      if (error) {
+        console.error('❌ Erro ao buscar orders:', error.message);
+        break;
+      }
       if (!data || data.length === 0) break;
 
       // Fetch client segments for these orders
@@ -460,11 +464,20 @@ export class SeasonalAnalyzer {
       }
 
       for (const o of data) {
+        // Extrair itens do metadata (FacilZap armazena como metadata.itens)
+        const meta = (o.metadata || {}) as Record<string, unknown>;
+        const rawItems = (meta.itens || meta.items || []) as Array<Record<string, unknown>>;
+        const items = Array.isArray(rawItems) ? rawItems.map(item => ({
+          product_name: (item.nome || item.product_name || 'Desconhecido') as string,
+          quantity: Number(item.quantidade || item.quantity || 1),
+          total: Number(item.valor || item.total || item.preco_unitario || 0),
+        })) : [];
+
         allOrders.push({
           id: o.id,
           client_id: o.client_id,
           total: Number(o.total) || 0,
-          items: o.items || [],
+          items,
           created_at: o.created_at,
           status: o.status,
           client_segment: segmentMap.get(o.client_id) || 'Unknown',
