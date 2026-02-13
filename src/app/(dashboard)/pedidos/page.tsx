@@ -14,6 +14,8 @@ import {
   CreditCard,
   ChevronLeft,
   ChevronRight,
+  Store,
+  Monitor,
 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -217,9 +219,17 @@ export default function PedidosPage() {
                       onClick={() => router.push(`/pedidos/${order.id}`)}
                     >
                       <td className="px-4 py-3">
-                        <span className="text-sm font-medium text-crm-primary">
-                          #{displayOrderNumber(order.order_number, order.external_id)}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-medium text-crm-primary">
+                            #{displayOrderNumber(order.order_number, order.external_id)}
+                          </span>
+                          {meta.origem && meta.origem.toLowerCase() !== 'loja' && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase bg-purple-50 text-purple-700 border border-purple-200">
+                              <Monitor size={9} />
+                              {meta.origem}
+                            </span>
+                          )}
+                        </div>
                         {meta.forma_entrega && (
                           <p className="text-[10px] text-txt-secondary mt-0.5">
                             {typeof meta.forma_entrega === 'object' ? meta.forma_entrega.nome || '' : meta.forma_entrega}

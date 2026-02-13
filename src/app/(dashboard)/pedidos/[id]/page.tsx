@@ -134,6 +134,11 @@ export default function PedidoDetalhe() {
             <Badge variant={order.payment_status === 'paid' ? 'success' : 'warning'}>
               {order.payment_status === 'paid' ? 'Pago' : 'Pgto Pendente'}
             </Badge>
+            {meta.origem && (
+              <Badge variant={meta.origem.toLowerCase() === 'pdv' ? 'info' : 'neutral'}>
+                {meta.origem.toUpperCase() === 'PDV' ? '🖥️ PDV' : meta.origem === 'loja' ? '🛒 Loja' : meta.origem}
+              </Badge>
+            )}
           </div>
           <p className="text-sm text-txt-secondary mt-1">
             Criado em {formatDate(order.created_at)}
