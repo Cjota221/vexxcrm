@@ -182,19 +182,28 @@ export default function PedidoDetalhe() {
                       : '';
                     return (
                       <div key={idx} className="flex items-start gap-4 p-3 bg-surface-50 rounded-xl">
-                        {/* Imagem do produto - tamanho maior */}
-                        {item.imagem ? (
-                          <img
-                            src={item.imagem}
-                            alt={item.nome || 'Produto'}
-                            className="w-20 h-20 rounded-xl object-cover shrink-0 border border-surface-200"
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                          />
-                        ) : (
-                          <div className="w-20 h-20 rounded-xl bg-surface-200 flex items-center justify-center shrink-0">
+                        {/* Imagem do produto */}
+                        <div className="w-20 h-20 rounded-xl shrink-0 border border-surface-200 overflow-hidden bg-surface-200 flex items-center justify-center relative">
+                          {item.imagem ? (
+                            <img
+                              src={item.imagem}
+                              alt={item.nome || 'Produto'}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                const img = e.target as HTMLImageElement;
+                                img.style.display = 'none';
+                                const parent = img.parentElement;
+                                if (parent) {
+                                  const fallback = parent.querySelector('.img-fallback');
+                                  if (fallback) (fallback as HTMLElement).style.display = 'flex';
+                                }
+                              }}
+                            />
+                          ) : null}
+                          <div className={`img-fallback absolute inset-0 items-center justify-center ${item.imagem ? 'hidden' : 'flex'}`}>
                             <ImageIcon size={24} className="text-txt-secondary" />
                           </div>
-                        )}
+                        </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-txt-primary">{item.nome || 'Sem nome'}</p>
                           {variacaoStr && (
