@@ -6,12 +6,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createServerSupabaseClient } from '@/lib/supabase';
 import { RFMEngine } from '@/lib/services/rfm-engine';
 import { createLearningLogger } from '@/lib/services/learning-logger';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    POST — Calcular RFM
@@ -26,7 +23,7 @@ export async function POST(request: NextRequest) {
     }
 
     const token = authHeader.replace('Bearer ', '');
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = createServerSupabaseClient();
 
     // Validar usuário
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
@@ -94,7 +91,7 @@ export async function GET(request: NextRequest) {
     }
 
     const token = authHeader.replace('Bearer ', '');
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = createServerSupabaseClient();
 
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) {
