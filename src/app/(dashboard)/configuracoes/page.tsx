@@ -12,6 +12,7 @@ import {
   RefreshCw,
   CheckCircle,
   AlertCircle,
+  Trash2,
 } from 'lucide-react';
 import { useTenantConfig } from '@/hooks/useTenantConfig';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -126,12 +127,19 @@ function FacilZapSettings({ config }: { config?: TenantConfig }) {
   const [token, setToken] = useState(config?.facilzap?.token || '');
   const [siteUrl, setSiteUrl] = useState(config?.facilzap?.site_url || '');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [syncProgress, setSyncProgress] = useState('');
   const [syncResults, setSyncResults] = useState<{
     products: number;
     clients: number;
     orders: number;
     errors: string[];
+  } | null>(null);
+  const [clearResults, setClearResults] = useState<{
+    products_deleted: number;
+    clients_deleted: number;
+    orders_deleted: number;
   } | null>(null);
 
   const handleSave = async () => {
@@ -146,6 +154,51 @@ function FacilZapSettings({ config }: { config?: TenantConfig }) {
       alert('✅ Configurações do FacilZap salvas com sucesso!');
     } catch (error) {
       alert('❌ Erro ao salvar: ' + (error as Error).message);
+    }
+  };
+
+  const handleClear = async (andResync = false) => {
+    setIsClearing(true);
+    setClearResults(null);
+    setSyncResults(null);
+    setSyncProgress('🗑️ Limpando dados sincronizados...');
+    setShowClearConfirm(false);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        alert('❌ Sessão expirada. Faça login novamente.');
+        return;
+      }
+
+      const res = await fetch('/api/facilzap/clear', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({}),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erro ao limpar dados');
+
+      setClearResults(data.results);
+      setSyncProgress('✅ Dados limpos com sucesso!');
+
+      // Se pediu para re-sincronizar, iniciar sync automaticamente
+      if (andResync) {
+        setIsClearing(false);
+        // Aguardar 1 segundo para dar feedback visual
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        handleSync();
+        return;
+      }
+    } catch (error) {
+      setSyncProgress('');
+      alert('❌ Erro ao limpar: ' + (error as Error).message);
+    } finally {
+      setIsClearing(false);
     }
   };
 
@@ -262,7 +315,7 @@ function FacilZapSettings({ config }: { config?: TenantConfig }) {
           value={siteUrl}
           onChange={(e) => setSiteUrl(e.target.value)}
         />
-        <div className="flex gap-2 pt-2">
+        <div className="flex flex-wrap gap-2 pt-2">
           <Button 
             variant="primary" 
             onClick={handleSave}
@@ -273,12 +326,56 @@ function FacilZapSettings({ config }: { config?: TenantConfig }) {
           <Button 
             variant="secondary" 
             onClick={handleSync}
-            disabled={isSyncing || !facilzap?.enabled}
+            disabled={isSyncing || isClearing || !facilzap?.enabled}
           >
             <RefreshCw size={16} className={isSyncing ? 'animate-spin' : ''} /> 
             {isSyncing ? 'Sincronizando...' : 'Sincronizar Dados'}
           </Button>
+          <Button 
+            variant="ghost" 
+            onClick={() => setShowClearConfirm(true)}
+            disabled={isSyncing || isClearing || !facilzap?.enabled}
+            className="text-red-600 hover:bg-red-50 hover:text-red-700"
+          >
+            <Trash2 size={16} /> 
+            {isClearing ? 'Limpando...' : 'Limpar Dados'}
+          </Button>
         </div>
+
+        {/* Modal de confirmação de limpeza */}
+        {showClearConfirm && (
+          <div className="mt-3 p-4 bg-red-50 border border-red-200 rounded-xl space-y-3">
+            <p className="text-sm font-medium text-red-700">
+              ⚠️ Tem certeza que deseja limpar todos os dados sincronizados?
+            </p>
+            <p className="text-xs text-red-600">
+              Isso irá remover TODOS os produtos, clientes e pedidos importados do FacilZap. 
+              Esta ação não pode ser desfeita.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button 
+                variant="primary" 
+                onClick={() => handleClear(true)}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                <Trash2 size={14} /> Limpar e Re-sincronizar
+              </Button>
+              <Button 
+                variant="ghost" 
+                onClick={() => handleClear(false)}
+                className="text-red-600 hover:bg-red-100"
+              >
+                <Trash2 size={14} /> Apenas Limpar
+              </Button>
+              <Button 
+                variant="ghost" 
+                onClick={() => setShowClearConfirm(false)}
+              >
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        )}
         
         {/* Progresso da sincronização */}
         {syncProgress && (
@@ -305,6 +402,16 @@ function FacilZapSettings({ config }: { config?: TenantConfig }) {
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Resultados da limpeza */}
+        {clearResults && !syncResults && (
+          <div className="mt-3 p-3 bg-orange-50 border border-orange-200 rounded-xl space-y-1">
+            <p className="text-sm font-medium text-orange-700">🗑️ Limpeza concluída!</p>
+            <p className="text-xs text-orange-600">📦 {clearResults.products_deleted} produtos removidos</p>
+            <p className="text-xs text-orange-600">👥 {clearResults.clients_deleted} clientes removidos</p>
+            <p className="text-xs text-orange-600">🛒 {clearResults.orders_deleted} pedidos removidos</p>
           </div>
         )}
 

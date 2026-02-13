@@ -164,22 +164,29 @@ export async function fetchProductById(
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 interface FacilZapClient {
-  id: number;
+  id: string | number;
+  tipo_contato?: string;
   nome: string;
+  cpf_cnpj?: string;
   email?: string;
+  data_nascimento?: string;
+  demais_dados?: string;
+  catalogos?: string;
+  vendedores_associados?: string;
+  grupos?: string;
+  origem?: string;
+  ultima_compra?: string;
+  status?: string;
+  created_at?: string;
+  // Campos legados/extras que podem vir em algumas respostas
   telefone?: string;
   whatsapp?: string;
   celular?: string;
-  cpf_cnpj?: string;
-  data_nascimento?: string;
   endereco?: string;
   bairro?: string;
   cidade?: string;
   estado?: string;
   cep?: string;
-  origem?: string;
-  ultima_compra?: string;
-  created_at: string;
 }
 
 /**

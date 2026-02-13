@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     const tenantId = profile.tenant_id;
     const results = { products: 0, clients: 0, orders: 0, errors: [] as string[], hasMore: { products: false, clients: false, orders: false } };
 
-    // PRODUTOS
+    // PRODUTOS - Captura completa de todos os campos da API FacilZap
     if (entity === 'all' || entity === 'products') {
       try {
         const { products, hasMore } = await fetchProducts(facilzapConfig, page, 100);
@@ -47,13 +47,29 @@ export async function POST(request: NextRequest) {
             // Garantir que stock é um inteiro válido (INTEGER max = 2147483647)
             let stock = parseInt(String(p.stock ?? 0), 10);
             if (isNaN(stock) || stock < -1 || stock > 2147483647) stock = 0;
+
+            // Imagens como array TEXT[]
+            const images = Array.isArray(p.images) ? p.images.filter((i: string) => !!i) : [];
+
             return {
-              tenant_id: tenantId, external_id: p.external_id || String(p.id),
-              sku: p.sku || null, name: p.name || p.nome || 'Sem nome',
-              description: p.description || null, price: Number(p.price) || 0,
-              stock, image_url: p.image_url || null,
-              category: p.category || null, is_active: p.is_active !== false,
-              custom_fields: p.custom_fields || {},
+              tenant_id: tenantId,
+              external_id: p.external_id || String(p.id),
+              sku: p.sku || null,
+              name: p.name || p.nome || 'Sem nome',
+              description: p.description || null,
+              price: Number(p.price) || 0,
+              compare_at_price: Number(p.compare_at_price) || null,
+              cost: Number(p.cost) || null,
+              stock,
+              image_url: p.image_url || null,
+              images,
+              category: p.category || null,
+              is_active: p.is_active !== false,
+              custom_fields: {
+                ...(p.custom_fields || {}),
+                // Dados extras do FacilZap
+                source: 'facilzap',
+              },
               synced_at: new Date().toISOString(),
             };
           });
@@ -73,7 +89,7 @@ export async function POST(request: NextRequest) {
       } catch (e: any) { results.errors.push('Produtos: ' + e.message); }
     }
 
-    // CLIENTES
+    // CLIENTES - Captura completa de todos os campos da API FacilZap
     if (entity === 'all' || entity === 'clients') {
       try {
         const { clients, hasMore } = await fetchClients(facilzapConfig, page, 100);
@@ -82,13 +98,48 @@ export async function POST(request: NextRequest) {
           const mapped = clients.map((c: any) => {
             const ph = (c.whatsapp || c.telefone || c.celular || '').replace(/\D/g, '');
             if (!ph) return null;
+
+            // Status mapeamento
+            let clientStatus = 'active';
+            if (c.status === 'inativo' || c.status === 'inactive') clientStatus = 'inactive';
+            else if (c.status === 'bloqueado' || c.status === 'blocked') clientStatus = 'blocked';
+            else if (c.status === 'vip') clientStatus = 'vip';
+
             return {
-              tenant_id: tenantId, phone: ph, phone_normalized: ph,
-              name: c.nome || 'Sem nome', email: c.email || null,
-              source: 'facilzap', status: 'active',
-              notes: JSON.stringify({ endereco: c.endereco, bairro: c.bairro, cidade: c.cidade, estado: c.estado, cep: c.cep, cpf_cnpj: c.cpf_cnpj, origem: c.origem, ultima_compra: c.ultima_compra }),
+              tenant_id: tenantId,
+              phone: ph,
+              phone_normalized: ph,
+              name: c.nome || 'Sem nome',
+              email: c.email || null,
+              source: 'facilzap',
+              status: clientStatus,
+              // Dados de endereço (se disponíveis)
+              address_city: c.cidade || null,
+              address_state: c.estado || null,
+              address_zip: c.cep || null,
+              address_neighborhood: c.bairro || null,
+              address_street: c.endereco || null,
+              // Notas com dados ricos
+              notes: c.observacoes || null,
+              // Metadata completa do FacilZap
+              custom_fields: {
+                facilzap_id: c.id || null,
+                tipo_contato: c.tipo_contato || null,
+                cpf_cnpj: c.cpf_cnpj || null,
+                data_nascimento: c.data_nascimento || null,
+                demais_dados: c.demais_dados || null,
+                catalogos: c.catalogos || null,
+                vendedores_associados: c.vendedores_associados || null,
+                grupos: c.grupos || null,
+                origem: c.origem || null,
+                ultima_compra: c.ultima_compra || null,
+                status_facilzap: c.status || null,
+                created_at_facilzap: c.created_at || null,
+                source: 'facilzap',
+              },
             };
           }).filter(Boolean);
+
           // Deduplicar por phone_normalized (evita "cannot affect row a second time")
           const seen = new Set<string>();
           const valid = mapped.filter((c: any) => {
