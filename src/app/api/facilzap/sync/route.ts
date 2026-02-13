@@ -370,6 +370,7 @@ export async function POST(request: NextRequest) {
               discount,
               shipping,
               total,
+              tracking_code: o.codigo_rastreio || null,
               notes: o.observacoes || null,
               coupon_code: o.cupom_info?.codigo || null,
               created_at: orderDate,
@@ -417,6 +418,11 @@ export async function POST(request: NextRequest) {
                 status_separado: o.status_separado || null,
                 status_despachado: o.status_despachado || null,
                 status_entregue: o.status_entregue || null,
+                // Rastreio
+                codigo_rastreio: o.codigo_rastreio || null,
+                // Frete detalhado
+                info_extra_frete: o.info_extra_frete || null,
+                prazo_frete: o.prazo_frete || null,
                 // Extras (podem ser objetos {id, nome})
                 origem: o.origem || null,
                 vendedor: typeof o.vendedor === 'object' ? (o.vendedor?.nome || JSON.stringify(o.vendedor)) : (o.vendedor || null),

@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery, UseQueryResult } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, UseQueryResult } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { Order } from '@/types';
 
@@ -42,6 +42,34 @@ export function useOrders(params?: UseOrdersParams): UseQueryResult<OrdersRespon
         return { data: raw, total: raw.length, page: 1, per_page: raw.length, total_pages: 1 };
       }
       return { data: [], total: 0, page: 1, per_page: 50, total_pages: 1 };
+    },
+  });
+}
+
+/**
+ * Hook para atualizar código de rastreio de um pedido.
+ * Sincroniza com a API FacilZap e salva localmente.
+ */
+export function useUpdateTracking(orderId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (trackingCode: string | null) => {
+      const response = await api.patch(`/api/orders/${orderId}/tracking`, {
+        tracking_code: trackingCode,
+      });
+      return response.data as {
+        success: boolean;
+        tracking_code: string | null;
+        facilzap_synced: boolean;
+        facilzap_error: string | null;
+        message: string;
+      };
+    },
+    onSuccess: () => {
+      // Invalidar queries relacionadas ao pedido
+      queryClient.invalidateQueries({ queryKey: ['order', orderId] });
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
     },
   });
 }

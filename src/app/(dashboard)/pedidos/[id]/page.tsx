@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -18,12 +19,21 @@ import {
   Calendar,
   ShoppingBag,
   Image as ImageIcon,
+  Copy,
+  ExternalLink,
+  Check,
+  Loader2,
+  Save,
+  X,
+  Pencil,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { Input } from '@/components/ui/Input';
 import { formatCurrency, formatDate, displayOrderNumber } from '@/lib/utils';
+import { useUpdateTracking } from '@/hooks/useOrders';
 
 const STATUS_MAP: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'neutral'; icon: typeof Clock }> = {
   pending: { label: 'Pendente', variant: 'warning', icon: Clock },
@@ -40,6 +50,12 @@ export default function PedidoDetalhe() {
   const params = useParams();
   const router = useRouter();
   const orderId = params.id as string;
+  const [editingTracking, setEditingTracking] = useState(false);
+  const [trackingInput, setTrackingInput] = useState('');
+  const [trackingMessage, setTrackingMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [copiedTracking, setCopiedTracking] = useState(false);
+
+  const updateTracking = useUpdateTracking(orderId);
 
   const { data: order, isLoading } = useQuery({
     queryKey: ['order', orderId],
@@ -332,28 +348,198 @@ export default function PedidoDetalhe() {
             </div>
           </Card>
 
-          {/* Entrega */}
-          {(formaEntrega || order.tracking_code) && (
-            <Card>
-              <CardHeader>
-                <CardTitle><Truck size={16} /> Entrega</CardTitle>
-              </CardHeader>
-              <div className="p-4 pt-0 space-y-2">
-                {formaEntrega && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-txt-secondary">Forma</span>
-                    <span className="text-sm text-txt-primary">{formaEntrega}</span>
+          {/* Entrega & Rastreio */}
+          <Card>
+            <CardHeader>
+              <CardTitle><Truck size={16} /> Entrega & Rastreio</CardTitle>
+            </CardHeader>
+            <div className="p-4 pt-0 space-y-3">
+              {formaEntrega && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-txt-secondary">Forma de Entrega</span>
+                  <span className="text-sm text-txt-primary">{formaEntrega}</span>
+                </div>
+              )}
+
+              {/* Código de Rastreio */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-txt-secondary">Código de Rastreio</span>
+                  {!editingTracking && (
+                    <button
+                      onClick={() => {
+                        setTrackingInput(order.tracking_code || meta.codigo_rastreio || '');
+                        setEditingTracking(true);
+                        setTrackingMessage(null);
+                      }}
+                      className="text-xs text-crm-primary hover:underline flex items-center gap-1"
+                    >
+                      <Pencil size={10} /> {order.tracking_code || meta.codigo_rastreio ? 'Editar' : 'Adicionar'}
+                    </button>
+                  )}
+                </div>
+
+                {editingTracking ? (
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <Input
+                        value={trackingInput}
+                        onChange={(e) => setTrackingInput(e.target.value)}
+                        placeholder="Ex: BR123456789BR"
+                        className="text-sm flex-1"
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const code = trackingInput.trim() || null;
+                            updateTracking.mutate(code, {
+                              onSuccess: (data) => {
+                                setEditingTracking(false);
+                                setTrackingMessage({
+                                  text: data.message,
+                                  type: 'success',
+                                });
+                                setTimeout(() => setTrackingMessage(null), 5000);
+                              },
+                              onError: (err) => {
+                                setTrackingMessage({
+                                  text: err.message || 'Erro ao salvar',
+                                  type: 'error',
+                                });
+                              },
+                            });
+                          }
+                          if (e.key === 'Escape') {
+                            setEditingTracking(false);
+                          }
+                        }}
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          const code = trackingInput.trim() || null;
+                          updateTracking.mutate(code, {
+                            onSuccess: (data) => {
+                              setEditingTracking(false);
+                              setTrackingMessage({
+                                text: data.message,
+                                type: 'success',
+                              });
+                              setTimeout(() => setTrackingMessage(null), 5000);
+                            },
+                            onError: (err) => {
+                              setTrackingMessage({
+                                text: err.message || 'Erro ao salvar',
+                                type: 'error',
+                              });
+                            },
+                          });
+                        }}
+                        disabled={updateTracking.isPending}
+                        className="flex-1"
+                      >
+                        {updateTracking.isPending ? (
+                          <><Loader2 size={12} className="animate-spin" /> Salvando...</>
+                        ) : (
+                          <><Save size={12} /> Salvar</>
+                        )}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setEditingTracking(false)}
+                        disabled={updateTracking.isPending}
+                      >
+                        <X size={12} /> Cancelar
+                      </Button>
+                    </div>
+                    <p className="text-[10px] text-txt-muted">
+                      Será salvo no CRM e sincronizado com a FacilZap. Enter para salvar, Esc para cancelar.
+                    </p>
                   </div>
+                ) : (
+                  <>
+                    {(order.tracking_code || meta.codigo_rastreio) ? (
+                      <div className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-200 rounded-lg">
+                        <Package size={14} className="text-blue-600 shrink-0" />
+                        <span className="text-sm font-mono font-medium text-blue-800 flex-1">
+                          {order.tracking_code || meta.codigo_rastreio}
+                        </span>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(order.tracking_code || meta.codigo_rastreio || '');
+                            setCopiedTracking(true);
+                            setTimeout(() => setCopiedTracking(false), 2000);
+                          }}
+                          className="p-1 hover:bg-blue-100 rounded transition-colors"
+                          title="Copiar código"
+                        >
+                          {copiedTracking ? (
+                            <Check size={14} className="text-green-600" />
+                          ) : (
+                            <Copy size={14} className="text-blue-600" />
+                          )}
+                        </button>
+                        <a
+                          href={`https://www.google.com/search?q=${encodeURIComponent(order.tracking_code || meta.codigo_rastreio || '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1 hover:bg-blue-100 rounded transition-colors"
+                          title="Rastrear"
+                        >
+                          <ExternalLink size={14} className="text-blue-600" />
+                        </a>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-txt-muted italic">Nenhum código de rastreio cadastrado</p>
+                    )}
+                  </>
                 )}
-                {order.tracking_code && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-txt-secondary">Rastreio</span>
-                    <span className="text-sm text-crm-primary font-medium">{typeof order.tracking_code === 'object' ? JSON.stringify(order.tracking_code) : order.tracking_code}</span>
+
+                {/* Mensagem de feedback */}
+                {trackingMessage && (
+                  <div className={`text-xs p-2 rounded-lg ${
+                    trackingMessage.type === 'success'
+                      ? 'bg-green-50 text-green-700 border border-green-200'
+                      : 'bg-red-50 text-red-700 border border-red-200'
+                  }`}>
+                    {trackingMessage.type === 'success' ? '✓' : '✗'} {trackingMessage.text}
                   </div>
                 )}
               </div>
-            </Card>
-          )}
+
+              {/* Info extra de frete */}
+              {meta.info_extra_frete && typeof meta.info_extra_frete === 'object' && (
+                <>
+                  {meta.info_extra_frete.transportadora && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-txt-secondary">Transportadora</span>
+                      <span className="text-sm text-txt-primary">{meta.info_extra_frete.transportadora}</span>
+                    </div>
+                  )}
+                  {meta.info_extra_frete.servico && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-txt-secondary">Serviço</span>
+                      <span className="text-sm text-txt-primary">{meta.info_extra_frete.servico}</span>
+                    </div>
+                  )}
+                  {meta.info_extra_frete.prazo_entrega && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-txt-secondary">Prazo</span>
+                      <span className="text-sm text-txt-primary">{meta.info_extra_frete.prazo_entrega}</span>
+                    </div>
+                  )}
+                </>
+              )}
+              {meta.prazo_frete && !meta.info_extra_frete?.prazo_entrega && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-txt-secondary">Prazo Frete</span>
+                  <span className="text-sm text-txt-primary">{meta.prazo_frete}</span>
+                </div>
+              )}
+            </div>
+          </Card>
 
           {/* Extras */}
           {(vendedor || catalogo) && (
