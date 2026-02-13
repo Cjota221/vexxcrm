@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
     const events = Array.isArray(body.events) ? body.events : [body];
 
     for (const event of events) {
-      if (!event.client_id || !event.event_type || !event.event_category) {
+      if (!event.client_id || !event.event_type || !event.category) {
         continue;
       }
 
@@ -58,8 +58,8 @@ export async function POST(request: NextRequest) {
           {
             client_id: event.client_id,
             event_type: event.event_type as EventType,
-            event_category: event.event_category as EventCategory,
-            event_data: event.event_data,
+            category: event.category as EventCategory,
+            data: event.data,
             channel: event.channel,
             source: event.source,
             session_id: event.session_id,
@@ -70,13 +70,13 @@ export async function POST(request: NextRequest) {
         await logger.logEvent({
           client_id: event.client_id,
           event_type: event.event_type as EventType,
-          event_category: event.event_category as EventCategory,
-          event_data: event.event_data,
+          category: event.category as EventCategory,
+          data: event.data,
           channel: event.channel,
           source: event.source,
           session_id: event.session_id,
           sentiment_score: event.sentiment_score,
-          sentiment_label: event.sentiment_label,
+          sentiment: event.sentiment,
         });
       }
     }
@@ -139,8 +139,8 @@ export async function GET(request: NextRequest) {
       .from('behavioral_events')
       .select('*')
       .eq('tenant_id', tenant.id)
-      .gte('created_at', since)
-      .order('created_at', { ascending: false })
+      .gte('occurred_at', since)
+      .order('occurred_at', { ascending: false })
       .limit(limit);
 
     if (clientId) {
@@ -148,7 +148,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (category) {
-      query = query.eq('event_category', category);
+      query = query.eq('category', category);
     }
 
     const { data: events, error } = await query;
@@ -160,7 +160,7 @@ export async function GET(request: NextRequest) {
     // Resumo por categoria
     const summary: Record<string, number> = {};
     for (const e of events || []) {
-      summary[e.event_category] = (summary[e.event_category] || 0) + 1;
+      summary[e.category] = (summary[e.category] || 0) + 1;
     }
 
     return NextResponse.json({

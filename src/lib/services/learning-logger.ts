@@ -58,11 +58,11 @@ export interface BehavioralEvent {
   tenant_id: string;
   client_id: string;
   event_type: EventType;
-  event_category: EventCategory;
-  event_data?: Record<string, unknown>;
+  category: EventCategory;
+  data?: Record<string, unknown>;
   channel?: string;
   sentiment_score?: number;
-  sentiment_label?: string;
+  sentiment?: string;
   session_id?: string;
   source?: string;
 }
@@ -72,23 +72,23 @@ export interface PredictionLog {
   client_id?: string;
   prediction_type: string;
   model_version: string;
-  input_features: Record<string, unknown>;
-  predicted_value: number;
-  predicted_label?: string;
+  features_used: Record<string, unknown>;
+  predicted_value: Record<string, unknown>;
   confidence: number;
-  actual_value?: number;
-  was_correct?: boolean;
+  actual_value?: Record<string, unknown>;
+  prediction_correct?: boolean;
 }
 
 export interface MLFeedback {
   tenant_id: string;
-  prediction_id?: string;
-  feedback_type: 'accuracy' | 'relevance' | 'timing' | 'action_result';
+  client_id?: string;
+  decision_type: string;
+  features: Record<string, unknown>;
+  action_taken?: string;
   expected_outcome: string;
   actual_outcome: string;
-  accuracy_score: number;
-  context?: Record<string, unknown>;
-  learned_rule?: string;
+  success?: boolean;
+  performance?: number;
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -192,14 +192,14 @@ export class LearningLogger {
 
   /** Registrar evento com análise de sentimento automática */
   async logEventWithSentiment(
-    event: Omit<BehavioralEvent, 'tenant_id' | 'sentiment_score' | 'sentiment_label'>,
+    event: Omit<BehavioralEvent, 'tenant_id' | 'sentiment_score' | 'sentiment'>,
     messageText: string
   ): Promise<void> {
     const sentiment = analyzeSentiment(messageText);
     await this.logEvent({
       ...event,
       sentiment_score: sentiment.score,
-      sentiment_label: sentiment.label,
+      sentiment: sentiment.label,
     });
 
     // Atualizar sentimento do cliente
@@ -256,8 +256,8 @@ export class LearningLogger {
     await this.logEvent({
       client_id: clientId,
       event_type: 'order_placed',
-      event_category: 'purchase',
-      event_data: orderData,
+      category: 'purchase',
+      data: orderData,
       source: 'facilzap',
     });
   }
@@ -267,8 +267,8 @@ export class LearningLogger {
     await this.logEvent({
       client_id: clientId,
       event_type: 'order_cancelled',
-      event_category: 'purchase',
-      event_data: orderData,
+      category: 'purchase',
+      data: orderData,
       source: 'facilzap',
     });
   }
@@ -279,7 +279,7 @@ export class LearningLogger {
       {
         client_id: clientId,
         event_type: 'message_received',
-        event_category: 'communication',
+        category: 'communication',
         channel,
       },
       messageText
@@ -291,7 +291,7 @@ export class LearningLogger {
     await this.logEvent({
       client_id: clientId,
       event_type: 'message_sent',
-      event_category: 'communication',
+      category: 'communication',
       channel,
     });
   }
@@ -301,8 +301,8 @@ export class LearningLogger {
     await this.logEvent({
       client_id: clientId,
       event_type: 'campaign_sent',
-      event_category: 'campaign',
-      event_data: campaignData,
+      category: 'campaign',
+      data: campaignData,
     });
   }
 
@@ -311,8 +311,8 @@ export class LearningLogger {
     await this.logEvent({
       client_id: clientId,
       event_type: 'campaign_converted',
-      event_category: 'campaign',
-      event_data: campaignData,
+      category: 'campaign',
+      data: campaignData,
     });
   }
 
@@ -321,8 +321,8 @@ export class LearningLogger {
     await this.logEvent({
       client_id: clientId,
       event_type: 'cart_abandoned',
-      event_category: 'engagement',
-      event_data: cartData,
+      category: 'engagement',
+      data: cartData,
     });
   }
 
@@ -331,19 +331,19 @@ export class LearningLogger {
     await this.logEvent({
       client_id: clientId,
       event_type: 'cart_recovered',
-      event_category: 'engagement',
-      event_data: cartData,
+      category: 'engagement',
+      data: cartData,
     });
   }
 
   /** Mudança de segmento */
-  async logSegmentChange(clientId: string, data: { from: string; to: string; direction: string }) {
-    const eventType = data.direction === 'upgrade' ? 'upgrade_segment' : 'downgrade_segment';
+  async logSegmentChange(clientId: string, segData: { from: string; to: string; direction: string }) {
+    const eventType = segData.direction === 'upgrade' ? 'upgrade_segment' : 'downgrade_segment';
     await this.logEvent({
       client_id: clientId,
       event_type: eventType,
-      event_category: 'lifecycle',
-      event_data: data,
+      category: 'lifecycle',
+      data: segData,
     });
   }
 
@@ -352,8 +352,8 @@ export class LearningLogger {
     await this.logEvent({
       client_id: clientId,
       event_type: 'coupon_used',
-      event_category: 'engagement',
-      event_data: couponData,
+      category: 'engagement',
+      data: couponData,
     });
   }
 
@@ -381,36 +381,43 @@ export class LearningLogger {
   async validatePrediction(predictionId: string, actualValue: number): Promise<void> {
     const { data } = await this.supabase
       .from('predictions_log')
-      .select('predicted_value, predicted_label')
+      .select('predicted_value, confidence')
       .eq('id', predictionId)
       .eq('tenant_id', this.tenantId)
       .single();
 
     if (!data) return;
 
+    // predicted_value é JSONB — extrair valor numérico
+    const predictedNumeric = typeof data.predicted_value === 'object'
+      ? (data.predicted_value?.value ?? 0)
+      : Number(data.predicted_value) || 0;
+
     // Calcular precisão
-    const deviation = Math.abs(data.predicted_value - actualValue);
-    const accuracy = data.predicted_value !== 0
-      ? Math.max(0, 100 - (deviation / data.predicted_value) * 100)
+    const deviation = Math.abs(predictedNumeric - actualValue);
+    const accuracy = predictedNumeric !== 0
+      ? Math.max(0, 100 - (deviation / predictedNumeric) * 100)
       : (actualValue === 0 ? 100 : 0);
 
     await this.supabase
       .from('predictions_log')
       .update({
-        actual_value: actualValue,
-        was_correct: accuracy >= 70,
+        actual_value: { value: actualValue },
+        prediction_correct: accuracy >= 70,
+        absolute_error: deviation,
         validated_at: new Date().toISOString(),
       })
       .eq('id', predictionId);
 
     // Feedback automático
     await this.logFeedback({
-      prediction_id: predictionId,
-      feedback_type: 'accuracy',
-      expected_outcome: `predicted=${data.predicted_value}`,
+      decision_type: 'prediction_validation',
+      features: { prediction_id: predictionId },
+      action_taken: 'validate',
+      expected_outcome: `predicted=${predictedNumeric}`,
       actual_outcome: `actual=${actualValue}`,
-      accuracy_score: accuracy,
-      context: { deviation, predicted: data.predicted_value, actual: actualValue },
+      success: accuracy >= 70,
+      performance: accuracy / 100,
     });
   }
 
@@ -441,17 +448,17 @@ export class LearningLogger {
 
     const { data } = await this.supabase
       .from('predictions_log')
-      .select('was_correct, confidence')
+      .select('prediction_correct, confidence')
       .eq('tenant_id', this.tenantId)
       .eq('model_version', modelVersion)
-      .not('was_correct', 'is', null)
-      .gte('created_at', since);
+      .not('prediction_correct', 'is', null)
+      .gte('predicted_at', since);
 
     if (!data || data.length === 0) {
       return { total_predictions: 0, correct: 0, incorrect: 0, accuracy_rate: 0, avg_confidence: 0 };
     }
 
-    const correct = data.filter(d => d.was_correct).length;
+    const correct = data.filter(d => d.prediction_correct).length;
     const avgConfidence = data.reduce((sum, d) => sum + (d.confidence || 0), 0) / data.length;
 
     return {
@@ -471,20 +478,30 @@ export class LearningLogger {
   async logSync(syncData: {
     sync_type: string;
     source: string;
-    records_fetched: number;
-    records_created: number;
+    records_imported: number;
+    records_new: number;
     records_updated: number;
-    records_failed: number;
+    total_errors: number;
     errors?: unknown[];
     metadata?: Record<string, unknown>;
-    duration_ms: number;
+    duration_secs: number;
     status: 'success' | 'partial' | 'error';
   }): Promise<void> {
     const { error } = await this.supabase
       .from('sync_audit_log')
       .insert({
         tenant_id: this.tenantId,
-        ...syncData,
+        sync_type: syncData.sync_type,
+        source: syncData.source,
+        records_imported: syncData.records_imported,
+        records_new: syncData.records_new,
+        records_updated: syncData.records_updated,
+        total_errors: syncData.total_errors,
+        errors: syncData.errors ? JSON.stringify(syncData.errors) : null,
+        config_used: syncData.metadata || {},
+        duration_secs: syncData.duration_secs,
+        status: syncData.status,
+        started_at: new Date().toISOString(),
       });
 
     if (error) {
@@ -501,13 +518,13 @@ export class LearningLogger {
     // Buscar sentimento atual
     const { data } = await this.supabase
       .from('clients')
-      .select('sentiment_score, custom_fields')
+      .select('nps_estimated, custom_fields')
       .eq('id', clientId)
       .single();
 
     if (!data) return;
 
-    const currentScore = data.sentiment_score || 0;
+    const currentScore = data.nps_estimated || 0;
     // Média exponencial ponderada (novo vale 30%)
     const updatedScore = Math.round(currentScore * 0.7 + newScore * 0.3);
 
@@ -521,9 +538,8 @@ export class LearningLogger {
     await this.supabase
       .from('clients')
       .update({
-        sentiment_score: updatedScore,
-        sentiment_label: label,
-        sentiment_updated_at: new Date().toISOString(),
+        nps_estimated: updatedScore,
+        sentiment_general: label,
       })
       .eq('id', clientId);
   }

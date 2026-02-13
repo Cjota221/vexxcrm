@@ -46,30 +46,30 @@ export async function GET(request: NextRequest) {
       // Clientes com RFM calculado
       supabase
         .from('clients')
-        .select('rfm_segment, churn_probability, purchase_prob_30d, ltv_projected_12m, flag_auto_vip, flag_churn_risk, flag_needs_attention, flag_upsell_ready, sentiment_score, rfm_calculated_at')
+        .select('rfm_segment, churn_probability, purchase_prob_30d, ltv_projected_12m, flag_auto_vip, flag_churn_risk, flag_needs_attention, flag_upsell_ready, nps_estimated, rfm_calculated_at')
         .eq('tenant_id', tenant.id)
         .not('rfm_segment', 'is', null),
 
       // Eventos dos últimos 7 dias
       supabase
         .from('behavioral_events')
-        .select('event_category, event_type, sentiment_score, created_at')
+        .select('category, event_type, sentiment_score, occurred_at')
         .eq('tenant_id', tenant.id)
-        .gte('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()),
+        .gte('occurred_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()),
 
       // Predições validadas
       supabase
         .from('predictions_log')
-        .select('was_correct, confidence, prediction_type')
+        .select('prediction_correct, confidence, prediction_type')
         .eq('tenant_id', tenant.id)
-        .not('was_correct', 'is', null),
+        .not('prediction_correct', 'is', null),
 
       // Último sync
       supabase
         .from('sync_audit_log')
         .select('*')
         .eq('tenant_id', tenant.id)
-        .order('created_at', { ascending: false })
+        .order('started_at', { ascending: false })
         .limit(5),
     ]);
 
@@ -99,19 +99,20 @@ export async function GET(request: NextRequest) {
     const totalLTV12m = clients.reduce((s, c) => s + (c.ltv_projected_12m || 0), 0);
 
     // Sentimento médio
-    const sentimentClients = clients.filter(c => c.sentiment_score != null);
+    const sentimentClients = clients.filter(c => c.nps_estimated != null);
     const avgSentiment = sentimentClients.length > 0
-      ? parseFloat((sentimentClients.reduce((s, c) => s + c.sentiment_score, 0) / sentimentClients.length).toFixed(1))
+      ? parseFloat((sentimentClients.reduce((s, c) => s + c.nps_estimated, 0) / sentimentClients.length).toFixed(1))
       : 0;
 
     // Eventos por categoria
     const eventsByCategory: Record<string, number> = {};
     for (const e of events) {
-      eventsByCategory[e.event_category] = (eventsByCategory[e.event_category] || 0) + 1;
+      const cat = e.category || 'unknown';
+      eventsByCategory[cat] = (eventsByCategory[cat] || 0) + 1;
     }
 
     // Precisão do modelo
-    const correctPredictions = predictions.filter(p => p.was_correct).length;
+    const correctPredictions = predictions.filter(p => p.prediction_correct).length;
     const modelAccuracy = predictions.length > 0
       ? parseFloat(((correctPredictions / predictions.length) * 100).toFixed(1))
       : null;

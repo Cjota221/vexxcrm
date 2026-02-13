@@ -54,11 +54,11 @@ export async function POST(request: NextRequest) {
     await logger.logSync({
       sync_type: 'rfm_calculation',
       source: 'rfm_engine',
-      records_fetched: report.stats.total_processed,
-      records_created: 0,
+      records_imported: report.stats.total_processed,
+      records_new: 0,
       records_updated: report.stats.total_updated,
-      records_failed: report.stats.total_errors,
-      duration_ms: report.execution.duration_secs * 1000,
+      total_errors: report.stats.total_errors,
+      duration_secs: report.execution.duration_secs,
       status: report.stats.total_errors === 0 ? 'success' : 'partial',
       metadata: {
         algorithm_version: report.execution.algorithm_version,
@@ -117,7 +117,7 @@ export async function GET(request: NextRequest) {
     if (clientId) {
       const { data } = await supabase
         .from('clients')
-        .select('id, name, phone, rfm_recency, rfm_frequency, rfm_monetary, rfm_score, rfm_segment, rfm_calculated_at, churn_probability, purchase_prob_30d, ltv_projected_12m, ltv_projected_life, flag_auto_vip, flag_churn_risk, flag_needs_attention, flag_upsell_ready, sentiment_score, sentiment_label')
+        .select('id, name, phone, rfm_recency, rfm_frequency, rfm_monetary, rfm_score, rfm_segment, rfm_calculated_at, churn_probability, purchase_prob_30d, ltv_projected_12m, ltv_projected_life, flag_auto_vip, flag_churn_risk, flag_needs_attention, flag_upsell_ready, nps_estimated, sentiment_general')
         .eq('id', clientId)
         .eq('tenant_id', tenant.id)
         .single();
