@@ -2,6 +2,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { fetchProducts, fetchClients, fetchOrders } from '@/lib/services/facilzap.service';
+import { PhoneNormalizer } from '@/lib/phone-normalizer';
 
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
@@ -99,6 +100,10 @@ export async function POST(request: NextRequest) {
             const ph = (c.whatsapp || c.telefone || c.celular || '').replace(/\D/g, '');
             if (!ph) return null;
 
+            // Normalizar telefone com PhoneNormalizer para matching confiável
+            const phoneCanonical = PhoneNormalizer.canonical(ph);
+            const phoneDisplay = PhoneNormalizer.normalize(ph);
+
             // Status mapeamento
             let clientStatus = 'active';
             if (c.status === 'inativo' || c.status === 'inactive') clientStatus = 'inactive';
@@ -107,8 +112,8 @@ export async function POST(request: NextRequest) {
 
             return {
               tenant_id: tenantId,
-              phone: ph,
-              phone_normalized: ph,
+              phone: phoneDisplay,
+              phone_normalized: phoneCanonical,
               name: c.nome || 'Sem nome',
               email: c.email || null,
               source: 'facilzap',
@@ -171,8 +176,24 @@ export async function POST(request: NextRequest) {
         const { orders, hasMore } = await fetchOrders(facilzapConfig, page, 100, { data_inicial: dis, data_final: df });
         results.hasMore.orders = hasMore;
         if (orders.length > 0) {
-          const { data: ec } = await supabaseAdmin.from('clients').select('id, phone_normalized').eq('tenant_id', tenantId);
-          const cm = new Map((ec || []).map((c: any) => [c.phone_normalized, c.id]));
+          const { data: ec } = await supabaseAdmin.from('clients').select('id, phone_normalized, phone').eq('tenant_id', tenantId);
+          // Criar mapa de lookup com TODAS as variações de phone → client_id
+          const cm = new Map<string, string>();
+          for (const c of (ec || [])) {
+            // Mapear pela phone_normalized original
+            if (c.phone_normalized) cm.set(c.phone_normalized, c.id);
+            // Mapear pela versão canônica (sem 9° dígito)
+            if (c.phone_normalized) cm.set(PhoneNormalizer.canonical(c.phone_normalized), c.id);
+            // Mapear pela versão com 9° dígito
+            if (c.phone_normalized) cm.set(PhoneNormalizer.normalize(c.phone_normalized), c.id);
+            // Mapear pelo phone de exibição também
+            if (c.phone) {
+              const phoneCleaned = c.phone.replace(/\D/g, '');
+              cm.set(phoneCleaned, c.id);
+              cm.set(PhoneNormalizer.canonical(phoneCleaned), c.id);
+              cm.set(PhoneNormalizer.normalize(phoneCleaned), c.id);
+            }
+          }
 
           // Buscar produtos do tenant para cross-reference de imagens (SKU -> image_url)
           const { data: existingProducts } = await supabaseAdmin
@@ -196,6 +217,15 @@ export async function POST(request: NextRequest) {
             // Telefone do cliente: prioriza whatsapp, depois telefone
             const rawPhone = o.cliente?.whatsapp || o.cliente?.telefone || '';
             const ph = rawPhone.replace(/\D/g, '');
+
+            // Tentar encontrar client_id por várias variações do telefone
+            let clientId: string | null = null;
+            if (ph) {
+              clientId = cm.get(ph)
+                || cm.get(PhoneNormalizer.canonical(ph))
+                || cm.get(PhoneNormalizer.normalize(ph))
+                || null;
+            }
 
             // Status do pedido baseado nos campos booleanos (strings "0"/"1")
             let orderStatus = 'pending';
@@ -305,7 +335,7 @@ export async function POST(request: NextRequest) {
 
             return {
               tenant_id: tenantId,
-              client_id: ph ? cm.get(ph) || null : null,
+              client_id: clientId,
               external_id: String(o.id),
               order_number: orderNumber,
               status: orderStatus,
@@ -396,10 +426,53 @@ export async function POST(request: NextRequest) {
       } catch (e: any) { results.errors.push('Pedidos: ' + e.message); }
     }
 
-    // PÓS-SYNC: Atualizar estatísticas dos clientes (LTV, total_orders, avg_ticket)
+    // PÓS-SYNC: Re-vincular pedidos órfãos e atualizar estatísticas
     if ((entity === 'all' || entity === 'orders') && results.orders > 0) {
       try {
-        // Buscar todos os pedidos do tenant agrupados por client_id
+        // Re-vincular pedidos sem client_id usando PhoneNormalizer
+        const { data: freshClients } = await supabaseAdmin
+          .from('clients')
+          .select('id, phone, phone_normalized')
+          .eq('tenant_id', tenantId);
+
+        const phoneMap = new Map<string, string>();
+        for (const c of (freshClients || [])) {
+          if (c.phone_normalized) {
+            phoneMap.set(c.phone_normalized, c.id);
+            phoneMap.set(PhoneNormalizer.normalize(c.phone_normalized), c.id);
+          }
+          if (c.phone) {
+            const cleaned = c.phone.replace(/\D/g, '');
+            phoneMap.set(cleaned, c.id);
+            phoneMap.set(PhoneNormalizer.canonical(cleaned), c.id);
+          }
+        }
+
+        // Buscar pedidos órfãos
+        const { data: orphans } = await supabaseAdmin
+          .from('orders')
+          .select('id, metadata')
+          .eq('tenant_id', tenantId)
+          .is('client_id', null);
+
+        let relinked = 0;
+        for (const order of (orphans || [])) {
+          const meta = order.metadata as any;
+          if (!meta) continue;
+          const rawPh = (meta.cliente_whatsapp || meta.cliente_telefone || '').replace(/\D/g, '');
+          if (!rawPh) continue;
+          const cid = phoneMap.get(rawPh)
+            || phoneMap.get(PhoneNormalizer.canonical(rawPh))
+            || phoneMap.get(PhoneNormalizer.normalize(rawPh))
+            || null;
+          if (cid) {
+            await supabaseAdmin.from('orders').update({ client_id: cid }).eq('id', order.id);
+            relinked++;
+          }
+        }
+        if (relinked > 0) console.log(`[SYNC] Re-vinculados ${relinked} pedidos órfãos`);
+
+        // Recalcular stats de todos os clientes
         const { data: allOrders } = await supabaseAdmin
           .from('orders')
           .select('client_id, total, created_at')
@@ -417,7 +490,6 @@ export async function POST(request: NextRequest) {
             clientStats.set(o.client_id, prev);
           }
 
-          // Atualizar em lote (máx 100 por vez)
           const updates = Array.from(clientStats.entries()).map(([clientId, stats]) => ({
             id: clientId,
             tenant_id: tenantId,
@@ -427,7 +499,6 @@ export async function POST(request: NextRequest) {
             last_order_at: stats.last || null,
           }));
 
-          // Atualizar em batches de 100
           for (let i = 0; i < updates.length; i += 100) {
             const batch = updates.slice(i, i + 100);
             await supabaseAdmin.from('clients').upsert(batch, { onConflict: 'id' });
