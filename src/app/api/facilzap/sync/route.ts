@@ -176,23 +176,30 @@ export async function POST(request: NextRequest) {
         const { orders, hasMore } = await fetchOrders(facilzapConfig, page, 100, { data_inicial: dis, data_final: df });
         results.hasMore.orders = hasMore;
         if (orders.length > 0) {
-          const { data: ec } = await supabaseAdmin.from('clients').select('id, phone_normalized, phone').eq('tenant_id', tenantId);
-          // Criar mapa de lookup com TODAS as variações de phone → client_id
+          const { data: ec } = await supabaseAdmin.from('clients').select('id, phone_normalized, phone, name, email, custom_fields').eq('tenant_id', tenantId);
+          // Criar mapa de lookup com TODAS as variações → client_id
           const cm = new Map<string, string>();
+          const fzIdMap = new Map<string, string>();
+          const emailMap = new Map<string, string>();
+          const nameMap = new Map<string, string>();
           for (const c of (ec || [])) {
-            // Mapear pela phone_normalized original
-            if (c.phone_normalized) cm.set(c.phone_normalized, c.id);
-            // Mapear pela versão canônica (sem 9° dígito)
-            if (c.phone_normalized) cm.set(PhoneNormalizer.canonical(c.phone_normalized), c.id);
-            // Mapear pela versão com 9° dígito
-            if (c.phone_normalized) cm.set(PhoneNormalizer.normalize(c.phone_normalized), c.id);
-            // Mapear pelo phone de exibição também
-            if (c.phone) {
-              const phoneCleaned = c.phone.replace(/\D/g, '');
-              cm.set(phoneCleaned, c.id);
-              cm.set(PhoneNormalizer.canonical(phoneCleaned), c.id);
-              cm.set(PhoneNormalizer.normalize(phoneCleaned), c.id);
+            // Telefone (todas variações)
+            for (const raw of [c.phone_normalized, c.phone]) {
+              if (!raw) continue;
+              const cleaned = raw.replace(/\D/g, '');
+              if (cleaned) {
+                cm.set(cleaned, c.id);
+                cm.set(PhoneNormalizer.canonical(cleaned), c.id);
+                cm.set(PhoneNormalizer.normalize(cleaned), c.id);
+              }
             }
+            // FacilZap ID
+            const fzId = (c.custom_fields as any)?.facilzap_id;
+            if (fzId) fzIdMap.set(String(fzId), c.id);
+            // Email
+            if (c.email) emailMap.set(c.email.toLowerCase().trim(), c.id);
+            // Nome
+            if (c.name && c.name !== 'Sem nome') nameMap.set(c.name.toLowerCase().trim(), c.id);
           }
 
           // Buscar produtos do tenant para cross-reference de imagens (SKU -> image_url)
@@ -218,13 +225,25 @@ export async function POST(request: NextRequest) {
             const rawPhone = o.cliente?.whatsapp || o.cliente?.telefone || '';
             const ph = rawPhone.replace(/\D/g, '');
 
-            // Tentar encontrar client_id por várias variações do telefone
+            // Tentar encontrar client_id por várias estratégias
             let clientId: string | null = null;
             if (ph) {
               clientId = cm.get(ph)
                 || cm.get(PhoneNormalizer.canonical(ph))
                 || cm.get(PhoneNormalizer.normalize(ph))
                 || null;
+            }
+            // Fallback: FacilZap ID do cliente
+            if (!clientId && o.cliente?.id) {
+              clientId = fzIdMap.get(String(o.cliente.id)) || null;
+            }
+            // Fallback: Email
+            if (!clientId && o.cliente?.email) {
+              clientId = emailMap.get(o.cliente.email.toLowerCase().trim()) || null;
+            }
+            // Fallback: Nome (match exato)
+            if (!clientId && o.cliente?.nome && o.cliente.nome !== 'Sem nome') {
+              clientId = nameMap.get(o.cliente.nome.toLowerCase().trim()) || null;
             }
 
             // Status do pedido baseado nos campos booleanos (strings "0"/"1")

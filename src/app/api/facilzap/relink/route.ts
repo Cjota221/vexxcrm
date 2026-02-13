@@ -114,15 +114,28 @@ export async function POST(request: NextRequest) {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     console.log('[RELINK] Fase 2: Re-vinculando pedidos órfãos...');
 
-    // Recarregar clientes (com phones normalizados)
-    const { data: freshClients } = await supabaseAdmin
-      .from('clients')
-      .select('id, phone, phone_normalized')
-      .eq('tenant_id', tenantId);
+    // Recarregar clientes (com phones normalizados) — buscar TODOS (paginado)
+    let freshClients: any[] = [];
+    let offset = 0;
+    while (true) {
+      const { data } = await supabaseAdmin
+        .from('clients')
+        .select('id, phone, phone_normalized, name, email, custom_fields')
+        .eq('tenant_id', tenantId)
+        .range(offset, offset + 999);
+      if (!data || data.length === 0) break;
+      freshClients.push(...data);
+      if (data.length < 1000) break;
+      offset += 1000;
+    }
 
-    // Criar mapa com TODAS as variações possíveis
+    // Criar mapas com TODAS as estratégias de matching
     const phoneMap = new Map<string, string>();
-    for (const c of (freshClients || [])) {
+    const fzIdMap = new Map<string, string>();
+    const emailMap = new Map<string, string>();
+    const nameMap = new Map<string, string>();
+    for (const c of freshClients) {
+      // Telefone
       if (c.phone_normalized) {
         phoneMap.set(c.phone_normalized, c.id);
         phoneMap.set(PhoneNormalizer.normalize(c.phone_normalized), c.id);
@@ -133,6 +146,13 @@ export async function POST(request: NextRequest) {
         phoneMap.set(PhoneNormalizer.canonical(cleaned), c.id);
         phoneMap.set(PhoneNormalizer.normalize(cleaned), c.id);
       }
+      // FacilZap ID
+      const fzId = c.custom_fields?.facilzap_id;
+      if (fzId) fzIdMap.set(String(fzId), c.id);
+      // Email
+      if (c.email) emailMap.set(c.email.toLowerCase().trim(), c.id);
+      // Nome
+      if (c.name && c.name !== 'Sem nome') nameMap.set(c.name.toLowerCase().trim(), c.id);
     }
 
     // Buscar pedidos sem client_id que tenham telefone nos metadados
@@ -149,16 +169,32 @@ export async function POST(request: NextRequest) {
         const meta = order.metadata as any;
         if (!meta) continue;
 
-        // Extrair telefone dos metadados (salvos durante sync)
+        let clientId: string | null = null;
+
+        // Estratégia 1: Telefone
         const rawPhone = meta.cliente_whatsapp || meta.cliente_telefone || '';
         const ph = rawPhone.replace(/\D/g, '');
-        if (!ph) continue;
+        if (ph && ph.length >= 8) {
+          clientId = phoneMap.get(ph)
+            || phoneMap.get(PhoneNormalizer.canonical(ph))
+            || phoneMap.get(PhoneNormalizer.normalize(ph))
+            || null;
+        }
 
-        // Tentar encontrar cliente por múltiplas variações
-        const clientId = phoneMap.get(ph)
-          || phoneMap.get(PhoneNormalizer.canonical(ph))
-          || phoneMap.get(PhoneNormalizer.normalize(ph))
-          || null;
+        // Estratégia 2: FacilZap ID
+        if (!clientId && meta.cliente_id_facilzap) {
+          clientId = fzIdMap.get(String(meta.cliente_id_facilzap)) || null;
+        }
+
+        // Estratégia 3: Email
+        if (!clientId && meta.cliente_email) {
+          clientId = emailMap.get(meta.cliente_email.toLowerCase().trim()) || null;
+        }
+
+        // Estratégia 4: Nome (match exato, último recurso)
+        if (!clientId && meta.cliente_nome && meta.cliente_nome !== 'Sem nome') {
+          clientId = nameMap.get(meta.cliente_nome.toLowerCase().trim()) || null;
+        }
 
         if (clientId) {
           const { error } = await supabaseAdmin
