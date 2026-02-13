@@ -174,35 +174,47 @@ export default function PedidoDetalhe() {
                 </p>
               ) : (
                 <div className="space-y-3">
-                  {items.map((item: any, idx: number) => (
-                    <div key={idx} className="flex items-center gap-3 p-3 bg-surface-50 rounded-lg">
-                      {/* Imagem do produto */}
-                      {item.imagem ? (
-                        <img
-                          src={item.imagem}
-                          alt={item.nome}
-                          className="w-14 h-14 rounded-lg object-cover shrink-0"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                        />
-                      ) : (
-                        <div className="w-14 h-14 rounded-lg bg-surface-200 flex items-center justify-center shrink-0">
-                          <ImageIcon size={20} className="text-txt-secondary" />
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-txt-primary truncate">{item.nome || 'Sem nome'}</p>
-                        {item.variacao && (
-                          <p className="text-xs text-txt-secondary">Variação: {typeof item.variacao === 'object' ? (item.variacao.nome || item.variacao.name || JSON.stringify(item.variacao)) : item.variacao}</p>
+                  {items.map((item: any, idx: number) => {
+                    const preco = Number(item.preco_unitario || item.valor) || 0;
+                    const qty = Number(item.quantidade) || 1;
+                    const variacaoStr = item.variacao
+                      ? (typeof item.variacao === 'object' ? (item.variacao.nome || item.variacao.name || JSON.stringify(item.variacao)) : String(item.variacao))
+                      : '';
+                    return (
+                      <div key={idx} className="flex items-start gap-4 p-3 bg-surface-50 rounded-xl">
+                        {/* Imagem do produto - tamanho maior */}
+                        {item.imagem ? (
+                          <img
+                            src={item.imagem}
+                            alt={item.nome || 'Produto'}
+                            className="w-20 h-20 rounded-xl object-cover shrink-0 border border-surface-200"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        ) : (
+                          <div className="w-20 h-20 rounded-xl bg-surface-200 flex items-center justify-center shrink-0">
+                            <ImageIcon size={24} className="text-txt-secondary" />
+                          </div>
                         )}
-                        <p className="text-xs text-txt-secondary">
-                          {item.quantidade || 1}x {formatCurrency(Number(item.preco_unitario || item.valor) || 0)}
-                        </p>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-txt-primary">{item.nome || 'Sem nome'}</p>
+                          {variacaoStr && (
+                            <p className="text-xs text-txt-secondary mt-0.5">Variação: {variacaoStr}</p>
+                          )}
+                          {item.sku && (
+                            <p className="text-[10px] text-txt-muted mt-0.5">SKU: {typeof item.sku === 'object' ? JSON.stringify(item.sku) : item.sku}</p>
+                          )}
+                          <div className="flex items-center justify-between mt-2">
+                            <p className="text-xs text-txt-secondary">
+                              {qty}x {formatCurrency(preco)}
+                            </p>
+                            <p className="text-sm font-bold text-crm-primary">
+                              {formatCurrency(qty * preco)}
+                            </p>
+                          </div>
+                        </div>
                       </div>
-                      <p className="text-sm font-semibold text-txt-primary shrink-0">
-                        {formatCurrency((Number(item.quantidade) || 1) * (Number(item.preco_unitario || item.valor) || 0))}
-                      </p>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

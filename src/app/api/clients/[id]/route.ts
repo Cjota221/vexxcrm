@@ -48,14 +48,14 @@ export async function GET(
       return NextResponse.json({ error: 'Cliente não encontrado' }, { status: 404 });
     }
 
-    // Buscar últimos pedidos do cliente
+    // Buscar últimos pedidos do cliente (com detalhes completos)
     const { data: orders } = await supabase
       .from('orders')
       .select('*')
       .eq('tenant_id', profile.tenant_id)
       .eq('client_id', id)
       .order('created_at', { ascending: false })
-      .limit(10);
+      .limit(50);
 
     return NextResponse.json({
       data: {

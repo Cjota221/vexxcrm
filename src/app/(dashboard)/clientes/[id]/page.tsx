@@ -99,9 +99,46 @@ export default function ClienteDetalhe() {
     if (de) deliveryMethods[de] = (deliveryMethods[de] || 0) + 1;
   });
 
-  // Endereço formatado
-  const addressParts = [c.address_street, c.address_number, c.address_complement, c.address_neighborhood, c.address_city, c.address_state, c.address_zip].filter(Boolean);
-  const fullAddress = addressParts.length > 0 ? addressParts.join(', ') : null;
+  // Endereço formatado - tentar vários fontes
+  const fullAddress = (() => {
+    // 1. Campos diretos do banco (address_*)
+    const addressParts = [c.address_street, c.address_number, c.address_complement, c.address_neighborhood, c.address_city, c.address_state, c.address_zip].filter(Boolean);
+    if (addressParts.length > 0) return addressParts.join(', ');
+
+    // 2. Tentar extrair de demais_dados (pode ser JSON ou texto)
+    const dd = custom.demais_dados || c.demais_dados;
+    if (dd) {
+      if (typeof dd === 'string') {
+        // Pode ser JSON
+        try {
+          const parsed = JSON.parse(dd);
+          const ddParts = [parsed.endereco || parsed.rua || parsed.logradouro, parsed.numero, parsed.complemento, parsed.bairro, parsed.cidade, parsed.estado || parsed.uf, parsed.cep].filter(Boolean);
+          if (ddParts.length > 0) return ddParts.join(', ');
+        } catch {
+          // Texto livre — se tiver algo útil (endereço, CEP etc.)
+          if (dd.length > 5 && dd.length < 500) return dd;
+        }
+      } else if (typeof dd === 'object') {
+        const ddParts = [dd.endereco || dd.rua || dd.logradouro, dd.numero, dd.complemento, dd.bairro, dd.cidade, dd.estado || dd.uf, dd.cep].filter(Boolean);
+        if (ddParts.length > 0) return ddParts.join(', ');
+      }
+    }
+
+    // 3. Endereço do metadata dos pedidos (último pedido)
+    if (orders.length > 0) {
+      for (const o of orders) {
+        const meta = typeof o.metadata === 'string' ? (() => { try { return JSON.parse(o.metadata); } catch { return {}; } })() : (o.metadata || {});
+        const addr = meta.endereco_entrega || meta.endereco;
+        if (addr && typeof addr === 'string') return addr;
+        if (addr && typeof addr === 'object') {
+          const parts = [addr.logradouro || addr.rua || addr.endereco, addr.numero, addr.complemento, addr.bairro, addr.cidade, addr.estado || addr.uf, addr.cep].filter(Boolean);
+          if (parts.length > 0) return parts.join(', ');
+        }
+      }
+    }
+
+    return null;
+  })();
 
   // CPF/CNPJ, data nascimento
   const cpfCnpj = (() => { const v = custom.cpf_cnpj || c.cpf || null; return v && typeof v === 'object' ? JSON.stringify(v) : v; })();

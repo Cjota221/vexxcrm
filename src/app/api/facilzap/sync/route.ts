@@ -113,12 +113,14 @@ export async function POST(request: NextRequest) {
               email: c.email || null,
               source: 'facilzap',
               status: clientStatus,
-              // Dados de endereço (se disponíveis)
-              address_city: c.cidade || null,
-              address_state: c.estado || null,
-              address_zip: c.cep || null,
-              address_neighborhood: c.bairro || null,
-              address_street: c.endereco || null,
+              // Dados de endereço (pode vir em vários campos)
+              address_city: c.cidade || c.city || null,
+              address_state: c.estado || c.state || c.uf || null,
+              address_zip: c.cep || c.zip || c.codigo_postal || null,
+              address_neighborhood: c.bairro || c.neighborhood || null,
+              address_street: c.endereco || c.logradouro || c.rua || null,
+              address_number: c.numero || c.number || null,
+              address_complement: c.complemento || null,
               // Notas com dados ricos
               notes: c.observacoes || null,
               // Metadata completa do FacilZap
@@ -218,11 +220,62 @@ export async function POST(request: NextRequest) {
             const shipping = parseNum(o.valor_frete);
             const total = parseNum(o.total || o.valor_total) || (subtotal - discount + shipping);
 
+            // Helper: extrair URL de imagem do item (vários formatos possíveis)
+            const extractItemImage = (it: any): string | null => {
+              // Campo direto string
+              for (const key of ['imagem', 'foto', 'foto_url', 'imagem_url', 'image', 'image_url', 'thumb', 'thumbnail']) {
+                if (it[key] && typeof it[key] === 'string') return it[key];
+              }
+              // Campo pode ser objeto {url, file, path}
+              for (const key of ['imagem', 'foto', 'image']) {
+                if (it[key] && typeof it[key] === 'object') {
+                  if (it[key].url) return it[key].url;
+                  if (it[key].path) return it[key].path;
+                  if (it[key].file) return `https://arquivos.facilzap.app.br/${it[key].file}`;
+                }
+              }
+              // Se tem produto_id, tentar pegar a imagem do produto pai
+              if (it.produto && typeof it.produto === 'object') {
+                const p = it.produto;
+                if (p.imagem_url || p.image_url) return p.imagem_url || p.image_url;
+                if (p.imagens && Array.isArray(p.imagens) && p.imagens.length > 0) {
+                  const img = p.imagens[0];
+                  if (typeof img === 'string') return img;
+                  if (typeof img === 'object') return img.url || img.path || (img.file ? `https://arquivos.facilzap.app.br/${img.file}` : null);
+                }
+              }
+              return null;
+            };
+
+            // Helper: extrair preço unitário do item (vários campos possíveis)
+            const extractItemPrice = (it: any): number => {
+              // Prioridade: preco_unitario > valor_unitario > preco > valor > price
+              for (const key of ['preco_unitario', 'valor_unitario', 'preco', 'valor', 'price']) {
+                const v = parseNum(it[key]);
+                if (v > 0) return v;
+              }
+              // Se tem um subtotal do item e quantidade
+              const qty = parseNum(it.quantidade) || 1;
+              const sub = parseNum(it.subtotal || it.total);
+              if (sub > 0) return sub / qty;
+              return 0;
+            };
+
+            // order_number: usar o.codigo (número legível da FacilZap), limpar
+            const orderNumber = (() => {
+              const codigo = o.codigo || o.numero || o.number || o.numero_pedido;
+              if (codigo) {
+                const s = String(codigo).trim();
+                return s || String(o.id);
+              }
+              return String(o.id);
+            })();
+
             return {
               tenant_id: tenantId,
               client_id: ph ? cm.get(ph) || null : null,
               external_id: String(o.id),
-              order_number: o.codigo || String(o.id),
+              order_number: orderNumber,
               status: orderStatus,
               payment_status: paymentStatus,
               payment_method: paymentMethod,
@@ -241,18 +294,27 @@ export async function POST(request: NextRequest) {
                 cliente_cpf_cnpj: o.cliente?.cpf_cnpj || null,
                 cliente_email: o.cliente?.email || null,
                 cliente_id_facilzap: o.cliente?.id || null,
-                // Itens detalhados com variação
+                // Itens detalhados com variação, imagem e preço
                 total_items: totalItems,
-                itens: items.slice(0, 50).map((it: any) => ({
-                  id: it.id || null,
-                  produto_id: it.produto_id || null,
-                  nome: it.nome || '',
-                  quantidade: parseNum(it.quantidade) || 1,
-                  valor: parseNum(it.valor || it.preco_unitario),
-                  preco_unitario: parseNum(it.preco_unitario || it.valor),
-                  variacao: it.variacao || null,
-                  imagem: it.imagem || null,
-                })),
+                itens: items.slice(0, 50).map((it: any) => {
+                  const precoUnit = extractItemPrice(it);
+                  const imagem = extractItemImage(it);
+                  const variacaoRaw = it.variacao || it.variacao_nome || it.opcao || null;
+                  const variacao = variacaoRaw && typeof variacaoRaw === 'object'
+                    ? (variacaoRaw.nome || variacaoRaw.name || JSON.stringify(variacaoRaw))
+                    : variacaoRaw;
+                  return {
+                    id: it.id || null,
+                    produto_id: it.produto_id || null,
+                    nome: it.nome || it.name || it.produto_nome || '',
+                    quantidade: parseNum(it.quantidade) || 1,
+                    valor: precoUnit,
+                    preco_unitario: precoUnit,
+                    variacao,
+                    imagem,
+                    sku: it.sku || it.codigo || null,
+                  };
+                }),
                 // Pagamentos
                 pagamentos: o.pagamentos || [],
                 metodo_pagamento: o.metodo_pagamento || null,
@@ -300,6 +362,49 @@ export async function POST(request: NextRequest) {
           }
         }
       } catch (e: any) { results.errors.push('Pedidos: ' + e.message); }
+    }
+
+    // PÓS-SYNC: Atualizar estatísticas dos clientes (LTV, total_orders, avg_ticket)
+    if ((entity === 'all' || entity === 'orders') && results.orders > 0) {
+      try {
+        // Buscar todos os pedidos do tenant agrupados por client_id
+        const { data: allOrders } = await supabaseAdmin
+          .from('orders')
+          .select('client_id, total, created_at')
+          .eq('tenant_id', tenantId)
+          .not('client_id', 'is', null);
+
+        if (allOrders && allOrders.length > 0) {
+          const clientStats = new Map<string, { total: number; count: number; last: string }>();
+          for (const o of allOrders) {
+            if (!o.client_id) continue;
+            const prev = clientStats.get(o.client_id) || { total: 0, count: 0, last: '' };
+            prev.total += Number(o.total) || 0;
+            prev.count += 1;
+            if (o.created_at > prev.last) prev.last = o.created_at;
+            clientStats.set(o.client_id, prev);
+          }
+
+          // Atualizar em lote (máx 100 por vez)
+          const updates = Array.from(clientStats.entries()).map(([clientId, stats]) => ({
+            id: clientId,
+            tenant_id: tenantId,
+            ltv: Math.round(stats.total * 100) / 100,
+            total_orders: stats.count,
+            avg_ticket: stats.count > 0 ? Math.round((stats.total / stats.count) * 100) / 100 : 0,
+            last_order_at: stats.last || null,
+          }));
+
+          // Atualizar em batches de 100
+          for (let i = 0; i < updates.length; i += 100) {
+            const batch = updates.slice(i, i + 100);
+            await supabaseAdmin.from('clients').upsert(batch, { onConflict: 'id' });
+          }
+          console.log('[SYNC] Atualizadas stats de ' + clientStats.size + ' clientes');
+        }
+      } catch (e: any) {
+        console.error('[SYNC] Erro ao atualizar stats clientes:', e.message);
+      }
     }
 
     const duration = Date.now() - startTime;
