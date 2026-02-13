@@ -496,35 +496,39 @@ export class SeasonalAnalyzer {
      ════════════════════════════════════════════════════════════ */
 
   private async persistInsights(insights: SeasonalInsight[]): Promise<void> {
-    for (const insight of insights) {
+    const records = insights.map(insight => {
+      const event = SEASONAL_CALENDAR.find(e => e.slug === insight.event_slug);
+      const range = event?.getDateRange(insight.year);
+      return {
+        tenant_id: this.tenantId,
+        name: insight.event_name,
+        slug: insight.event_slug,
+        event_type: 'seasonal',
+        start_date: range ? range.start.toISOString().split('T')[0] : `${insight.year}-01-01`,
+        end_date: range ? range.end.toISOString().split('T')[0] : `${insight.year}-12-31`,
+        total_revenue: insight.total_revenue,
+        total_orders: insight.total_orders,
+        avg_ticket: insight.avg_ticket,
+        top_products: insight.top_products,
+        top_segments: insight.top_segments,
+        growth_rate_pct: insight.yoy_growth,
+        year: insight.year,
+        updated_at: new Date().toISOString(),
+      };
+    });
+
+    // Batch upsert (max 20 seasonal events per year, total ~40)
+    if (records.length > 0) {
       await this.supabase
         .from('seasonal_events')
-        .upsert({
-          tenant_id: this.tenantId,
-          name: insight.event_name,
-          slug: insight.event_slug,
-          event_type: 'seasonal',
-          start_date: SEASONAL_CALENDAR.find(e => e.slug === insight.event_slug)!
-            .getDateRange(insight.year).start.toISOString().split('T')[0],
-          end_date: SEASONAL_CALENDAR.find(e => e.slug === insight.event_slug)!
-            .getDateRange(insight.year).end.toISOString().split('T')[0],
-          total_revenue: insight.total_revenue,
-          total_orders: insight.total_orders,
-          avg_ticket: insight.avg_ticket,
-          top_products: insight.top_products,
-          top_segments: insight.top_segments,
-          growth_rate_pct: insight.yoy_growth,
-          year: insight.year,
-          updated_at: new Date().toISOString(),
-        }, {
-          onConflict: 'tenant_id,slug,year',
-        });
+        .upsert(records, { onConflict: 'tenant_id,slug,year' });
     }
   }
 
   private async persistClientProfiles(profiles: ClientSeasonalProfile[]): Promise<void> {
-    for (let i = 0; i < profiles.length; i += 50) {
-      const batch = profiles.slice(i, i + 50);
+    // Batch upsert em client_seasonal_profiles
+    for (let i = 0; i < profiles.length; i += 100) {
+      const batch = profiles.slice(i, i + 100);
       const records = batch.map(p => ({
         tenant_id: this.tenantId,
         client_id: p.client_id,
@@ -546,18 +550,47 @@ export class SeasonalAnalyzer {
       await this.supabase
         .from('client_seasonal_profiles')
         .upsert(records, { onConflict: 'tenant_id,client_id' });
+    }
 
-      // Atualizar flags na tabela clients
-      for (const p of batch) {
+    // Batch update clients: separar seasonal_buyers e non_seasonal
+    const seasonalIds = profiles.filter(p => p.seasonal_events_count > 0).map(p => p.client_id);
+    const nonSeasonalIds = profiles.filter(p => p.seasonal_events_count === 0).map(p => p.client_id);
+
+    if (seasonalIds.length > 0) {
+      // Batch update em chunks de 200
+      for (let i = 0; i < seasonalIds.length; i += 200) {
+        const chunk = seasonalIds.slice(i, i + 200);
         await this.supabase
           .from('clients')
+          .update({ seasonal_buyer: true })
+          .in('id', chunk);
+      }
+    }
+
+    if (nonSeasonalIds.length > 0) {
+      for (let i = 0; i < nonSeasonalIds.length; i += 200) {
+        const chunk = nonSeasonalIds.slice(i, i + 200);
+        await this.supabase
+          .from('clients')
+          .update({ seasonal_buyer: false })
+          .in('id', chunk);
+      }
+    }
+
+    // Update preferred_season e seasonal_score para os que têm dados
+    const withSeason = profiles.filter(p => p.preferred_season && p.seasonal_score > 0);
+    for (let i = 0; i < withSeason.length; i += 100) {
+      const chunk = withSeason.slice(i, i + 100);
+      // Use parallel updates por chunk
+      await Promise.all(chunk.map(p =>
+        this.supabase
+          .from('clients')
           .update({
-            seasonal_buyer: p.seasonal_events_count > 0,
             seasonal_score: p.seasonal_score,
             preferred_season: p.preferred_season,
           })
-          .eq('id', p.client_id);
-      }
+          .eq('id', p.client_id)
+      ));
     }
   }
 

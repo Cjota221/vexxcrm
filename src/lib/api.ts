@@ -54,6 +54,17 @@ class ApiClient {
         headers,
       });
 
+      // Verificar se a resposta é JSON antes de parsear
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const text = await response.text();
+        console.error('❌ API retornou não-JSON:', response.status, text.substring(0, 200));
+        return {
+          data: null as T,
+          error: `Erro ${response.status}: servidor retornou resposta inesperada`,
+        };
+      }
+
       const json = await response.json();
 
       if (!response.ok) {

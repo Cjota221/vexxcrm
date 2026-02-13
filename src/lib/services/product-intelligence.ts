@@ -666,8 +666,9 @@ export class ProductIntelligence {
   }
 
   private async persistGradeProfiles(profiles: ClientGradeProfile[]): Promise<void> {
-    for (let i = 0; i < profiles.length; i += 50) {
-      const batch = profiles.slice(i, i + 50).map(p => ({
+    // Batch upsert em client_grade_preferences
+    for (let i = 0; i < profiles.length; i += 100) {
+      const batch = profiles.slice(i, i + 100).map(p => ({
         tenant_id: this.tenantId,
         client_id: p.client_id,
         preferred_categories: p.preferred_categories,
@@ -685,9 +686,10 @@ export class ProductIntelligence {
         .from('client_grade_preferences')
         .upsert(batch, { onConflict: 'tenant_id,client_id' });
 
-      // Update client table
-      for (const p of profiles.slice(i, i + 50)) {
-        await this.supabase
+      // Batch update clients em paralelo (chunks de 100)
+      const chunk = profiles.slice(i, i + 100);
+      await Promise.all(chunk.map(p =>
+        this.supabase
           .from('clients')
           .update({
             variety_score: p.variety_score,
@@ -695,8 +697,8 @@ export class ProductIntelligence {
             reorder_rate: p.reorder_rate,
             preferred_category: p.preferred_categories[0] || null,
           })
-          .eq('id', p.client_id);
-      }
+          .eq('id', p.client_id)
+      ));
     }
   }
 

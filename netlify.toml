@@ -10,11 +10,8 @@
   NODE_VERSION = "20"
   NPM_FLAGS = "--legacy-peer-deps"
 
-# Redirects and rewrites
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
+# Redirects and rewrites — NÃO interceptar rotas de API
+# O plugin @netlify/plugin-nextjs gerencia todas as rotas do Next.js automaticamente
 
 # Headers for security
 [[headers]]
