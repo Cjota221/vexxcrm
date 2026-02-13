@@ -20,12 +20,15 @@ import { Button } from '@/components/ui/Button';
 import { formatCurrency, formatRelativeTime, getInitials, getAvatarColor, debounce } from '@/lib/utils';
 import type { Client, ClientStatus } from '@/types';
 
-const STATUS_MAP: Record<ClientStatus, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'neutral' }> = {
+const STATUS_MAP: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'neutral' }> = {
   novo: { label: 'Novo', variant: 'info' },
   ativo: { label: 'Ativo', variant: 'success' },
+  active: { label: 'Ativo', variant: 'success' },
   vip: { label: 'VIP', variant: 'warning' },
   risco: { label: 'Em risco', variant: 'danger' },
   inativo: { label: 'Inativo', variant: 'neutral' },
+  inactive: { label: 'Inativo', variant: 'neutral' },
+  blocked: { label: 'Bloqueado', variant: 'danger' },
 };
 
 export default function ClientesPage() {
@@ -173,7 +176,7 @@ export default function ClientesPage() {
                 </tr>
               ) : (
                 clients.map((client: Client) => {
-                  const status = STATUS_MAP[client.status];
+                  const status = STATUS_MAP[client.status] || { label: client.status || 'Desconhecido', variant: 'neutral' as const };
                   return (
                     <tr
                       key={client.id}

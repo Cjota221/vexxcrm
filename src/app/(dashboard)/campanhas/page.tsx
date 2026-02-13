@@ -130,7 +130,7 @@ export default function CampanhasPage() {
               </Card>
             ))
           : filtered.map((campaign) => {
-              const config = STATUS_MAP[campaign.status];
+              const config = STATUS_MAP[campaign.status] || { label: campaign.status || 'Desconhecido', variant: 'neutral' as const, icon: FileText };
               const Icon = config.icon;
               const totalSent = campaign.enviadas;
               const totalTarget = campaign.total_destinatarios;

@@ -20,13 +20,14 @@ import { formatCurrency, formatDate, debounce } from '@/lib/utils';
 import { useOrders } from '@/hooks/useOrders';
 import type { Order, OrderStatus } from '@/types';
 
-const STATUS_MAP: Record<OrderStatus, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'neutral'; icon: typeof Clock }> = {
+const STATUS_MAP: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'neutral'; icon: typeof Clock }> = {
   pending: { label: 'Pendente', variant: 'warning', icon: Clock },
   confirmed: { label: 'Confirmado', variant: 'info', icon: CheckCircle },
   shipped: { label: 'Enviado', variant: 'info', icon: Truck },
   delivered: { label: 'Entregue', variant: 'success', icon: CheckCircle },
   cancelled: { label: 'Cancelado', variant: 'danger', icon: XCircle },
   refunded: { label: 'Reembolsado', variant: 'neutral', icon: CreditCard },
+  paid: { label: 'Pago', variant: 'success', icon: CheckCircle },
 };
 
 export default function PedidosPage() {
@@ -164,7 +165,7 @@ export default function PedidosPage() {
                 </tr>
               ) : (
                 orders.map((order: Order) => {
-                  const config = STATUS_MAP[order.status];
+                  const config = STATUS_MAP[order.status] || { label: order.status || 'Desconhecido', variant: 'neutral' as const, icon: Clock };
                   return (
                     <tr
                       key={order.id}
