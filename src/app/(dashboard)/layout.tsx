@@ -1,9 +1,11 @@
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Header } from '@/components/layout/Header';
 import { ToastContainer } from '@/components/ui/Toast';
+import { AutoSyncProvider } from '@/components/layout/AutoSyncProvider';
 
 /**
  * Layout do Dashboard — Sidebar + Header + Área de conteúdo.
+ * Inclui AutoSyncProvider para sincronização automática com FacilZap.
  */
 export default function DashboardLayout({
   children,
@@ -23,6 +25,9 @@ export default function DashboardLayout({
           {children}
         </main>
       </div>
+
+      {/* Auto-sync FacilZap (pedidos, produtos, clientes) a cada 5 min */}
+      <AutoSyncProvider />
 
       {/* Toast notifications */}
       <ToastContainer />
