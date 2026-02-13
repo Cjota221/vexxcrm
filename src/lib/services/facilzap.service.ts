@@ -260,36 +260,52 @@ export async function fetchClientById(
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 interface FacilZapOrder {
-  id: number;
-  codigo?: string;
-  cliente_id?: number;
-  id_cliente?: number;
-  cliente?: {
-    id: number;
+  id: string | number;
+  codigo: string;
+  data: string;
+  catalogo?: { id: number; nome: string; tipo: string };
+  vendedor?: { id: number; nome: string };
+  cliente: {
+    id: string;
     nome: string;
+    cpf_cnpj?: string;
+    whatsapp?: string;
     telefone?: string;
     email?: string;
-    cpf_cnpj?: string;
   };
-  data: string;
+  forma_entrega?: { id: string; nome: string } | null;
+  pagamentos?: Array<{ forma_pagamento?: string; valor?: string }>;
+  metodo_pagamento?: string;
+  subtotal: string;
+  valor_frete: string;
+  desconto: string;
+  desconto_sistema?: string;
+  desconto_total?: string;
+  total: string;
+  taxa?: string;
   status: string;
-  status_pedido?: string;
-  status_pago?: boolean;
-  status_entregue?: boolean;
-  total: number;
-  valor_total?: number;
-  forma_pagamento?: string;
+  status_pedido: string;
+  status_pago: string;
+  status_em_separacao?: string;
+  status_separado?: string;
+  status_despachado?: string;
+  status_entregue: string;
+  observacoes?: string;
   origem?: string;
-  itens: FacilZapOrderItem[];
-  created_at?: string;
+  cupom_info?: string;
+  // Itens só vêm quando incluir_produtos=1
+  itens?: FacilZapOrderItem[];
+  produtos?: FacilZapOrderItem[];
 }
 
 interface FacilZapOrderItem {
-  produto_id: number;
+  id?: number;
+  produto_id?: number;
   nome: string;
   quantidade: number;
-  valor: number;
-  preco_unitario?: number;
+  valor: string | number;
+  preco_unitario?: string | number;
+  variacao?: string;
   imagem?: string;
 }
 

@@ -23,6 +23,7 @@ import type { Order, OrderStatus } from '@/types';
 const STATUS_MAP: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'neutral'; icon: typeof Clock }> = {
   pending: { label: 'Pendente', variant: 'warning', icon: Clock },
   confirmed: { label: 'Confirmado', variant: 'info', icon: CheckCircle },
+  processing: { label: 'Separando', variant: 'info', icon: Package },
   shipped: { label: 'Enviado', variant: 'info', icon: Truck },
   delivered: { label: 'Entregue', variant: 'success', icon: CheckCircle },
   cancelled: { label: 'Cancelado', variant: 'danger', icon: XCircle },
@@ -146,6 +147,7 @@ export default function PedidosPage() {
                 <th className="text-left text-xs font-medium text-txt-secondary px-4 py-3">Cliente</th>
                 <th className="text-left text-xs font-medium text-txt-secondary px-4 py-3">Peças</th>
                 <th className="text-left text-xs font-medium text-txt-secondary px-4 py-3">Status</th>
+                <th className="text-left text-xs font-medium text-txt-secondary px-4 py-3">Pagamento</th>
                 <th className="text-right text-xs font-medium text-txt-secondary px-4 py-3">Total</th>
                 <th className="text-right text-xs font-medium text-txt-secondary px-4 py-3">Data</th>
               </tr>
@@ -153,13 +155,13 @@ export default function PedidosPage() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-12 text-txt-secondary">
+                  <td colSpan={7} className="text-center py-12 text-txt-secondary">
                     Carregando pedidos...
                   </td>
                 </tr>
               ) : orders.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-12 text-txt-secondary">
+                  <td colSpan={7} className="text-center py-12 text-txt-secondary">
                     <Package size={24} className="mx-auto mb-2" />
                     Nenhum pedido encontrado
                   </td>
@@ -167,10 +169,12 @@ export default function PedidosPage() {
               ) : (
                 orders.map((order: any) => {
                   const config = STATUS_MAP[order.status] || { label: order.status || 'Desconhecido', variant: 'neutral' as const, icon: Clock };
-                  // Nome do cliente: primeiro tenta join, depois metadata
                   const meta = typeof order.metadata === 'string' ? JSON.parse(order.metadata || '{}') : (order.metadata || {});
                   const clientName = order.clients?.name || meta.cliente_nome || '—';
+                  const clientPhone = order.clients?.phone || meta.cliente_whatsapp || meta.cliente_telefone || '';
                   const totalItems = meta.total_items || 0;
+                  const paymentLabel = order.payment_status === 'paid' ? 'Pago' : 'Pendente';
+                  const paymentVariant = order.payment_status === 'paid' ? 'success' : 'warning';
                   return (
                     <tr
                       key={order.id}
@@ -180,12 +184,15 @@ export default function PedidosPage() {
                         <span className="text-sm font-medium text-txt-primary">
                           #{order.order_number || order.external_id || order.id.slice(0, 8)}
                         </span>
+                        {meta.forma_entrega && (
+                          <p className="text-[10px] text-txt-secondary mt-0.5">{meta.forma_entrega}</p>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <div>
                           <p className="text-sm font-medium text-txt-primary">{clientName}</p>
-                          {order.clients?.phone && (
-                            <p className="text-xs text-txt-secondary">{order.clients.phone}</p>
+                          {clientPhone && (
+                            <p className="text-xs text-txt-secondary">{clientPhone}</p>
                           )}
                         </div>
                       </td>
@@ -195,8 +202,21 @@ export default function PedidosPage() {
                       <td className="px-4 py-3">
                         <Badge variant={config.variant}>{config.label}</Badge>
                       </td>
+                      <td className="px-4 py-3">
+                        <Badge variant={paymentVariant as any}>{paymentLabel}</Badge>
+                        {order.payment_method && (
+                          <p className="text-[10px] text-txt-secondary mt-0.5">{order.payment_method}</p>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-sm text-right font-medium text-txt-primary">
                         {formatCurrency(order.total)}
+                        {(order.discount > 0 || order.shipping > 0) && (
+                          <div className="text-[10px] text-txt-secondary">
+                            {order.discount > 0 && <span>-{formatCurrency(order.discount)} desc</span>}
+                            {order.discount > 0 && order.shipping > 0 && <span> · </span>}
+                            {order.shipping > 0 && <span>+{formatCurrency(order.shipping)} frete</span>}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-sm text-right text-txt-secondary">
                         {formatDate(order.created_at)}

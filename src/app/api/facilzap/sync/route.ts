@@ -106,9 +106,10 @@ export async function POST(request: NextRequest) {
       } catch (e: any) { results.errors.push('Clientes: ' + e.message); }
     }
 
-    // PEDIDOS
+    // PEDIDOS - Captura completa de todos os campos da API FacilZap
     if (entity === 'all' || entity === 'orders') {
       try {
+        const parseNum = (v: any): number => { const n = parseFloat(String(v || '0').replace(',', '.')); return isNaN(n) ? 0 : n; };
         const df = new Date().toISOString().split('T')[0];
         const di = new Date(); di.setFullYear(di.getFullYear() - 2);
         const dis = di.toISOString().split('T')[0];
@@ -117,41 +118,106 @@ export async function POST(request: NextRequest) {
         if (orders.length > 0) {
           const { data: ec } = await supabaseAdmin.from('clients').select('id, phone_normalized').eq('tenant_id', tenantId);
           const cm = new Map((ec || []).map((c: any) => [c.phone_normalized, c.id]));
+
           const data = orders.map((o: any) => {
-            const ph = (o.cliente?.telefone || '').replace(/\D/g, '');
-            let os = 'pending';
-            if (o.status_entregue) os = 'delivered';
-            else if (o.status_pago) os = 'confirmed';
-            // Calcular total de itens
-            const totalItems = (o.itens || []).reduce((sum: number, it: any) => sum + (it.quantidade || 1), 0);
+            // Telefone do cliente: prioriza whatsapp, depois telefone
+            const rawPhone = o.cliente?.whatsapp || o.cliente?.telefone || '';
+            const ph = rawPhone.replace(/\D/g, '');
+
+            // Status do pedido baseado nos campos booleanos (strings "0"/"1")
+            let orderStatus = 'pending';
+            if (String(o.status_entregue) === '1') orderStatus = 'delivered';
+            else if (String(o.status_despachado) === '1') orderStatus = 'shipped';
+            else if (String(o.status_separado) === '1' || String(o.status_em_separacao) === '1') orderStatus = 'processing';
+            else if (String(o.status_pago) === '1') orderStatus = 'confirmed';
+            else if (o.status === 'cancelado' || o.status_pedido === 'cancelado') orderStatus = 'cancelled';
+
+            // Payment status
+            const paymentStatus = String(o.status_pago) === '1' ? 'paid' : 'pending';
+
+            // Método de pagamento
+            const paymentMethod = o.metodo_pagamento || o.forma_pagamento
+              || (o.pagamentos && o.pagamentos.length > 0 ? o.pagamentos[0].metodo || o.pagamentos[0].forma : null)
+              || null;
+
+            // Itens do pedido (pode vir como itens ou produtos)
+            const items = o.itens || o.produtos || [];
+            const totalItems = items.reduce((sum: number, it: any) => sum + (parseNum(it.quantidade) || 1), 0);
+
             // Validar data do pedido
             let orderDate: string;
             try {
               const d = o.data ? new Date(o.data) : null;
               orderDate = (d && !isNaN(d.getTime())) ? d.toISOString() : new Date().toISOString();
             } catch { orderDate = new Date().toISOString(); }
-            // Validar total como número
-            const total = Number(o.total || o.valor_total || 0) || 0;
+
+            // Valores financeiros (API retorna strings)
+            const subtotal = parseNum(o.subtotal);
+            const discount = parseNum(o.desconto_total || o.desconto);
+            const shipping = parseNum(o.valor_frete);
+            const total = parseNum(o.total || o.valor_total) || (subtotal - discount + shipping);
+
             return {
-              tenant_id: tenantId, client_id: ph ? cm.get(ph) || null : null,
-              external_id: String(o.id), order_number: o.codigo || String(o.id),
-              status: os, payment_status: o.status_pago ? 'paid' : 'pending',
-              payment_method: o.forma_pagamento || null,
+              tenant_id: tenantId,
+              client_id: ph ? cm.get(ph) || null : null,
+              external_id: String(o.id),
+              order_number: o.codigo || String(o.id),
+              status: orderStatus,
+              payment_status: paymentStatus,
+              payment_method: paymentMethod,
+              subtotal,
+              discount,
+              shipping,
               total,
+              notes: o.observacoes || null,
+              coupon_code: o.cupom_info?.codigo || null,
               created_at: orderDate,
               metadata: {
+                // Cliente completo
                 cliente_nome: o.cliente?.nome || null,
-                cliente_telefone: o.cliente?.telefone || null,
+                cliente_telefone: rawPhone || null,
+                cliente_whatsapp: o.cliente?.whatsapp || null,
+                cliente_cpf_cnpj: o.cliente?.cpf_cnpj || null,
+                cliente_email: o.cliente?.email || null,
+                cliente_id_facilzap: o.cliente?.id || null,
+                // Itens detalhados com variação
                 total_items: totalItems,
-                itens: (o.itens || []).slice(0, 50).map((it: any) => ({
-                  nome: it.nome || '', quantidade: it.quantidade || 1,
-                  valor: Number(it.valor || it.preco_unitario || 0) || 0,
+                itens: items.slice(0, 50).map((it: any) => ({
+                  id: it.id || null,
+                  produto_id: it.produto_id || null,
+                  nome: it.nome || '',
+                  quantidade: parseNum(it.quantidade) || 1,
+                  valor: parseNum(it.valor || it.preco_unitario),
+                  preco_unitario: parseNum(it.preco_unitario || it.valor),
+                  variacao: it.variacao || null,
+                  imagem: it.imagem || null,
                 })),
+                // Pagamentos
+                pagamentos: o.pagamentos || [],
+                metodo_pagamento: o.metodo_pagamento || null,
+                // Entrega
+                forma_entrega: o.forma_entrega || null,
+                // Status detalhados (valores originais da API)
+                status_original: o.status || null,
+                status_pedido: o.status_pedido || null,
+                status_pago: o.status_pago || null,
+                status_em_separacao: o.status_em_separacao || null,
+                status_separado: o.status_separado || null,
+                status_despachado: o.status_despachado || null,
+                status_entregue: o.status_entregue || null,
+                // Extras
+                origem: o.origem || null,
+                vendedor: o.vendedor || null,
+                catalogo: o.catalogo || null,
+                taxa: parseNum(o.taxa),
+                desconto_sistema: parseNum(o.desconto_sistema),
+                cupom_info: o.cupom_info || null,
+                data_original: o.data || null,
               },
-              notes: JSON.stringify({ status_pedido: o.status_pedido, status_pago: o.status_pago, status_entregue: o.status_entregue, data: o.data }),
               synced_at: new Date().toISOString(),
             };
           });
+
           // Deduplicar por external_id
           const seenOrders = new Set<string>();
           const uniqueData = data.filter((o: any) => {
