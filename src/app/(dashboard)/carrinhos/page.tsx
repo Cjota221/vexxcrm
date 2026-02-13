@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   ShoppingCart,
   Bell,
@@ -9,14 +9,56 @@ import {
   Settings,
   AlertTriangle,
   Webhook,
+  CheckCircle,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
 
+const STORAGE_KEY = 'vexx-cart-config';
+
+interface CartConfig {
+  waitTime: number;
+  maxMessages: number;
+  recoveryMessage: string;
+}
+
+const DEFAULT_CONFIG: CartConfig = {
+  waitTime: 30,
+  maxMessages: 3,
+  recoveryMessage: '',
+};
+
 export default function CarrinhosAbandonadosPage() {
-  const [webhookUrl, setWebhookUrl] = useState('');
+  const [config, setConfig] = useState<CartConfig>(DEFAULT_CONFIG);
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Carregar config salva do localStorage
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        setConfig({ ...DEFAULT_CONFIG, ...JSON.parse(stored) });
+      }
+    } catch {
+      // Ignorar erros de parse
+    }
+  }, []);
+
+  const handleSave = () => {
+    setSaving(true);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err) {
+      console.error('Erro ao salvar configurações:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -123,7 +165,8 @@ export default function CarrinhosAbandonadosPage() {
               <Input
                 type="number"
                 placeholder="30"
-                defaultValue="30"
+                value={config.waitTime}
+                onChange={(e) => setConfig(prev => ({ ...prev, waitTime: Number(e.target.value) || 30 }))}
               />
               <p className="text-xs text-txt-muted mt-1">
                 Tempo após o abandono para enviar a primeira mensagem
@@ -134,7 +177,8 @@ export default function CarrinhosAbandonadosPage() {
               <Input
                 type="number"
                 placeholder="3"
-                defaultValue="3"
+                value={config.maxMessages}
+                onChange={(e) => setConfig(prev => ({ ...prev, maxMessages: Number(e.target.value) || 3 }))}
               />
               <p className="text-xs text-txt-muted mt-1">
                 Limite de follow-ups por carrinho abandonado
@@ -147,17 +191,23 @@ export default function CarrinhosAbandonadosPage() {
             <textarea
               className="input min-h-24 resize-y"
               placeholder="Olá {{nome}}! 😊 Vi que você deixou alguns itens no carrinho. Posso te ajudar com algo? Os produtos ainda estão disponíveis e separados para você!"
-              defaultValue=""
+              value={config.recoveryMessage}
+              onChange={(e) => setConfig(prev => ({ ...prev, recoveryMessage: e.target.value }))}
             />
             <p className="text-xs text-txt-muted mt-1">
               Use {'{{nome}}'}, {'{{produtos}}'}, {'{{total}}'} como variáveis dinâmicas
             </p>
           </div>
 
-          <div className="flex gap-2 pt-2">
-            <Button variant="primary">
-              <Settings size={16} /> Salvar Configurações
+          <div className="flex items-center gap-3 pt-2">
+            <Button variant="primary" onClick={handleSave} disabled={saving}>
+              <Settings size={16} /> {saving ? 'Salvando...' : 'Salvar Configurações'}
             </Button>
+            {saved && (
+              <span className="flex items-center gap-1 text-sm text-green-600 font-medium animate-in fade-in">
+                <CheckCircle size={16} /> Configurações salvas com sucesso!
+              </span>
+            )}
           </div>
         </div>
       </Card>
