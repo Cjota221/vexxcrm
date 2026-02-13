@@ -34,6 +34,8 @@ interface KPIs {
 interface RFMOverviewProps {
   kpis: KPIs;
   totalCalculated: number;
+  totalClients: number;
+  coveragePct: number;
   lastCalculatedAt: string | null;
   events7d: number;
 }
@@ -42,7 +44,7 @@ interface RFMOverviewProps {
    COMPONENTE
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-export function RFMOverview({ kpis, totalCalculated, lastCalculatedAt, events7d }: RFMOverviewProps) {
+export function RFMOverview({ kpis, totalCalculated, totalClients, coveragePct, lastCalculatedAt, events7d }: RFMOverviewProps) {
   const cards = [
     {
       label: 'Clientes VIP',
@@ -138,7 +140,12 @@ export function RFMOverview({ kpis, totalCalculated, lastCalculatedAt, events7d 
             <div>
               <h3 className="text-base font-semibold text-txt-primary">Visão Geral da IA</h3>
               <p className="text-xs text-txt-muted">
-                {totalCalculated} clientes analisados
+                {totalCalculated} de {totalClients} clientes analisados ({coveragePct}%)
+                {totalClients - totalCalculated > 0 && (
+                  <span className="ml-1 text-orange-500">
+                    • {totalClients - totalCalculated} sem pedidos vinculados
+                  </span>
+                )}
                 {lastCalculatedAt && (
                   <span className="ml-2 inline-flex items-center gap-1">
                     <Clock size={10} />

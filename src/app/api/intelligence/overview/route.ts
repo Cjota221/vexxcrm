@@ -41,6 +41,7 @@ export async function GET(request: NextRequest) {
       eventsResult,
       predictionsResult,
       syncResult,
+      totalClientsResult,
     ] = await Promise.all([
       // Clientes com RFM calculado
       supabase
@@ -70,12 +71,19 @@ export async function GET(request: NextRequest) {
         .eq('tenant_id', tenant.id)
         .order('started_at', { ascending: false })
         .limit(5),
+
+      // Total de clientes do tenant (para cobertura)
+      supabase
+        .from('clients')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenant.id),
     ]);
 
     const clients = clientsResult.data || [];
     const events = eventsResult.data || [];
     const predictions = predictionsResult.data || [];
     const syncs = syncResult.data || [];
+    const totalClientsInTenant = totalClientsResult.count || 0;
 
     // Distribuição RFM
     const rfmDistribution: Record<string, number> = {};
@@ -129,6 +137,8 @@ export async function GET(request: NextRequest) {
       overview: {
         rfm: {
           total_calculated: totalClients,
+          total_clients: totalClientsInTenant,
+          coverage_pct: totalClientsInTenant > 0 ? parseFloat(((totalClients / totalClientsInTenant) * 100).toFixed(1)) : 0,
           distribution: rfmDistribution,
           last_calculated_at: lastCalculated,
         },

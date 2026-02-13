@@ -102,6 +102,10 @@ export default function IntelligencePage() {
   };
   const rfmDistribution = ov?.rfm?.distribution || {};
   const totalCalculated = ov?.rfm?.total_calculated || 0;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const totalClients = (ov?.rfm as any)?.total_clients || 0;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const coveragePct = (ov?.rfm as any)?.coverage_pct || 0;
   const lastCalculatedAt = ov?.rfm?.last_calculated_at || null;
   const events7d = ov?.events?.total_7d || 0;
 
@@ -188,6 +192,8 @@ export default function IntelligencePage() {
                 <RFMOverview
                   kpis={kpis}
                   totalCalculated={totalCalculated}
+                  totalClients={totalClients}
+                  coveragePct={coveragePct}
                   lastCalculatedAt={lastCalculatedAt}
                   events7d={events7d}
                 />
