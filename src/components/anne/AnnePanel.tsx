@@ -51,7 +51,19 @@ export function AnnePanel({ clientId, className }: AnnePanelProps) {
     setInput('');
 
     try {
-      const data = await sendMessage({ message: text, context: clientId ? { client_id: clientId } : undefined });
+      // Enviar histórico para a Anne ter contexto da conversa
+      const chatHistory = messages
+        .filter(m => m.role === 'user' || m.role === 'assistant')
+        .slice(-10) // Últimas 10 mensagens para não estourar tokens
+        .map(m => ({ role: m.role, content: m.content }));
+
+      const data = await sendMessage({
+        message: text,
+        context: {
+          ...(clientId ? { client_id: clientId } : {}),
+          chat_history: chatHistory,
+        },
+      });
       setMessages((prev) => [
         ...prev,
         {
