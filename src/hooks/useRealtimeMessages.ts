@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
+import { supabase } from '@/lib/supabase';
 import { useConnectionStore } from '@/store/connection';
 import { useChatsStore } from '@/store/chats';
 import type { NewMessageEvent, MessageStatusEvent, TypingIndicatorEvent, ConnectionUpdateEvent } from '@/types';
@@ -72,13 +73,30 @@ export function useRealtimeMessages() {
     [queryClient, setTyping]
   );
 
-  const connect = useCallback(() => {
+  const connect = useCallback(async () => {
     // Limpar conexão anterior
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
 
-    const eventSource = new EventSource('/api/sse');
+    // Obter token da sessão para autenticar SSE
+    let token = '';
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      token = session?.access_token || '';
+    } catch {
+      console.warn('⚠️ SSE: Não foi possível obter token');
+    }
+
+    if (!token) {
+      console.warn('⚠️ SSE: Sem token, adiando conexão...');
+      reconnectTimeoutRef.current = setTimeout(() => {
+        connect();
+      }, 3000);
+      return;
+    }
+
+    const eventSource = new EventSource(`/api/sse?token=${encodeURIComponent(token)}`);
     eventSourceRef.current = eventSource;
 
     eventSource.onopen = () => {
