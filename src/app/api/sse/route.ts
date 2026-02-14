@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { eventBus } from '@/lib/event-bus';
-import { createServerSupabaseClient } from '@/lib/supabase';
+import { createServerSupabaseClient, createAuthenticatedClient } from '@/lib/supabase';
 
 /**
  * GET /api/sse
@@ -19,13 +19,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
     }
 
-    // Validar token e obter tenant_id
-    const supabase = createServerSupabaseClient();
-    const { data: { user: authUser }, error } = await supabase.auth.getUser(token);
+    // Validar token usando anon key client (service client pode rejeitar tokens de usuário)
+    const supabaseAuth = createAuthenticatedClient(token);
+    const { data: { user: authUser }, error } = await supabaseAuth.auth.getUser();
 
     if (error || !authUser) {
       return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
     }
+
+    // Buscar tenant_id do profile usando service client (bypassa RLS)
+    const supabase = createServerSupabaseClient();
 
     // Buscar tenant_id do profile
     const { data: profile } = await supabase

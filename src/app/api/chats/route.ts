@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase';
+import { createServerSupabaseClient, createAuthenticatedClient } from '@/lib/supabase';
 
 /**
  * GET /api/chats
@@ -19,12 +19,15 @@ export async function GET(request: NextRequest) {
     }
 
     const token = authorization.replace('Bearer ', '');
-    const supabase = createServerSupabaseClient();
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    // Validar token usando anon key client
+    const supabaseAuth = createAuthenticatedClient(token);
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
     }
+
+    const supabase = createServerSupabaseClient();
 
     const { data: profile } = await supabase
       .from('profiles')
@@ -69,9 +72,9 @@ export async function GET(request: NextRequest) {
           tags,
           avatar_url,
           ltv,
-          ticket_medio,
-          total_pedidos,
-          ultima_compra
+          avg_ticket,
+          total_orders,
+          last_order_at
         )
       `)
       .eq('tenant_id', tenantId)
@@ -125,9 +128,9 @@ export async function GET(request: NextRequest) {
             tags: client.tags || [],
             avatar_url: client.avatar_url || null,
             ltv: client.ltv || 0,
-            ticket_medio: client.ticket_medio || 0,
-            total_pedidos: client.total_pedidos || 0,
-            ultima_compra: client.ultima_compra || null,
+            ticket_medio: client.avg_ticket || 0,
+            total_pedidos: client.total_orders || 0,
+            ultima_compra: client.last_order_at || null,
           },
           last_message: conv.last_message_text
             ? {

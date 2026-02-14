@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase';
+import { createServerSupabaseClient, createAuthenticatedClient } from '@/lib/supabase';
 
 /**
  * Resultado da autenticação de uma API route.
@@ -84,16 +84,16 @@ export async function getTenantFromRequest(
     throw new Error('Token não fornecido');
   }
 
-  const supabase = createServerSupabaseClient();
-
-  // Validar token
-  const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+  // Validar token usando anon key client (service client pode rejeitar tokens de usuário)
+  const supabaseAuth = createAuthenticatedClient(token);
+  const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
 
   if (authError || !user) {
     throw new Error('Token inválido ou expirado');
   }
 
-  // Buscar profile e tenant_id
+  // Buscar profile e tenant_id usando service client (bypassa RLS)
+  const supabase = createServerSupabaseClient();
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('id, tenant_id, full_name, email, role')

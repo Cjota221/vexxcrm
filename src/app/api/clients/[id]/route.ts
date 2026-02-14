@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase';
+import { createServerSupabaseClient, createAuthenticatedClient } from '@/lib/supabase';
 
 /**
  * GET /api/clients/[id]
@@ -16,10 +16,11 @@ export async function GET(
     }
 
     const token = authorization.replace('Bearer ', '');
+    const supabaseAuth = createAuthenticatedClient(token);
     const supabase = createServerSupabaseClient();
 
     // Verificar token e obter tenant_id
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
     }

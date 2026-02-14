@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase';
+import { createServerSupabaseClient, createAuthenticatedClient } from '@/lib/supabase';
 import { RFMEngine } from '@/lib/services/rfm-engine';
 import { createLearningLogger } from '@/lib/services/learning-logger';
 
@@ -23,10 +23,11 @@ export async function POST(request: NextRequest) {
     }
 
     const token = authHeader.replace('Bearer ', '');
+    const supabaseAuth = createAuthenticatedClient(token);
     const supabase = createServerSupabaseClient();
 
     // Validar usuário
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
     }
@@ -91,9 +92,10 @@ export async function GET(request: NextRequest) {
     }
 
     const token = authHeader.replace('Bearer ', '');
+    const supabaseAuth = createAuthenticatedClient(token);
     const supabase = createServerSupabaseClient();
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
     }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase';
+import { createServerSupabaseClient, createAuthenticatedClient } from '@/lib/supabase';
 
 /**
  * GET /api/auth/session
@@ -22,12 +22,13 @@ export async function GET(request: NextRequest) {
     const token = authorization.replace('Bearer ', '');
     console.log('🔑 API Session: Token extraído:', token.substring(0, 20) + '...');
     
+    const supabaseAuth = createAuthenticatedClient(token);
     const supabase = createServerSupabaseClient();
     console.log('🔑 API Session: Supabase client criado');
 
     // Verificar token
     console.log('🔑 API Session: Verificando token no Supabase...');
-    const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
+    const { data: { user: authUser }, error: authError } = await supabaseAuth.auth.getUser();
 
     if (authError || !authUser) {
       console.error('🔑 API Session: Erro de autenticação:', authError);

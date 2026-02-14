@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase';
+import { createServerSupabaseClient, createAuthenticatedClient } from '@/lib/supabase';
 
 /**
  * POST /api/auth/avatar
@@ -14,10 +14,11 @@ export async function POST(request: NextRequest) {
     }
 
     const token = authorization.replace('Bearer ', '');
+    const supabaseAuth = createAuthenticatedClient(token);
     const supabase = createServerSupabaseClient();
 
     // Verificar usuário
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
     }
@@ -129,9 +130,10 @@ export async function DELETE(request: NextRequest) {
     }
 
     const token = authorization.replace('Bearer ', '');
+    const supabaseAuth = createAuthenticatedClient(token);
     const supabase = createServerSupabaseClient();
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
     }

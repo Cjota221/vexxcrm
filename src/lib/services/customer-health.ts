@@ -344,9 +344,9 @@ export async function saveCustomerHealth(
       custom_fields: updatedFields,
       status: statusMap[health.classificacao.nivel],
       ltv: health.metricas.comportamentoCompra.valorTotalGasto,
-      ticket_medio: health.metricas.comportamentoCompra.ticketMedio,
-      total_pedidos: health.metricas.frequenciaCompra.totalPedidos,
-      ultima_compra: health.metricas.ultimaCompra,
+      avg_ticket: health.metricas.comportamentoCompra.ticketMedio,
+      total_orders: health.metricas.frequenciaCompra.totalPedidos,
+      last_order_at: health.metricas.ultimaCompra,
       updated_at: new Date().toISOString(),
     })
     .eq('id', clientId);
@@ -354,6 +354,7 @@ export async function saveCustomerHealth(
 
 /**
  * Executa varredura completa (Sentinela) em todos os clientes do tenant.
+ * Otimizado: busca todos os orders de uma vez e processa em memória.
  */
 export async function executeSentinelaFullScan(
   supabase: SupabaseClient,
@@ -401,16 +402,35 @@ export async function executeSentinelaFullScan(
     };
   }
 
-  const BATCH_SIZE = 10;
-  let processed = 0;
+  // ─── OTIMIZAÇÃO: Buscar TODOS os orders do tenant de uma vez ───
+  const { data: allOrders } = await supabase
+    .from('orders')
+    .select('id, client_id, total, status, created_at, metadata')
+    .eq('tenant_id', tenantId)
+    .order('created_at', { ascending: true });
 
-  // Processar em lotes
+  // Agrupar orders por client_id em memória
+  const ordersByClient = new Map<string, typeof allOrders>();
+  for (const order of (allOrders || [])) {
+    if (!order.client_id) continue;
+    if (!ordersByClient.has(order.client_id)) {
+      ordersByClient.set(order.client_id, []);
+    }
+    ordersByClient.get(order.client_id)!.push(order);
+  }
+
+  let processed = 0;
+  const BATCH_SIZE = 20;
+  const clientUpdates: Array<Record<string, unknown>> = [];
+
+  // Processar em lotes maiores (sem query individual por cliente)
   for (let i = 0; i < clients.length; i += BATCH_SIZE) {
     const batch = clients.slice(i, i + BATCH_SIZE);
     
-    const promises = batch.map(async (client) => {
+    for (const client of batch) {
       try {
-        const health = await calculateCustomerHealth(supabase, tenantId, client.id);
+        const clientOrders = ordersByClient.get(client.id) || [];
+        const health = calculateCustomerHealthFromOrders(client.id, clientOrders);
         
         // Verificar mudança de status
         const cf = client.custom_fields as Record<string, unknown> | null;
@@ -427,8 +447,28 @@ export async function executeSentinelaFullScan(
           });
         }
 
-        // Salvar
-        await saveCustomerHealth(supabase, client.id, health);
+        // Acumular updates para batch
+        const currentFields = (cf && typeof cf === 'object') ? cf : {};
+        const statusMap: Record<HealthClassification, string> = {
+          'VIP': 'vip', 'Ativo': 'ativo', 'Oportunidade': 'ativo', 'Risco': 'risco', 'Perdido': 'inativo',
+        };
+
+        clientUpdates.push({
+          id: client.id,
+          tenant_id: tenantId,
+          custom_fields: {
+            ...currentFields,
+            health_score: health.classificacao.score,
+            health_classification: health.classificacao.nivel,
+            health_data: health,
+          },
+          status: statusMap[health.classificacao.nivel],
+          ltv: health.metricas.comportamentoCompra.valorTotalGasto,
+          avg_ticket: health.metricas.comportamentoCompra.ticketMedio,
+          total_orders: health.metricas.frequenciaCompra.totalPedidos,
+          last_order_at: health.metricas.ultimaCompra,
+          updated_at: new Date().toISOString(),
+        });
         
         distribuicao[health.classificacao.nivel]++;
         processed++;
@@ -439,13 +479,17 @@ export async function executeSentinelaFullScan(
         erros.push(`Erro em ${client.name}: ${msg}`);
         processed++;
       }
-    });
+    }
+  }
 
-    await Promise.all(promises);
-
-    // Delay entre lotes para não sobrecarregar
-    if (i + BATCH_SIZE < clients.length) {
-      await new Promise(r => setTimeout(r, 200));
+  // ─── Batch upsert todos os updates de uma vez ───
+  for (let i = 0; i < clientUpdates.length; i += 100) {
+    const batch = clientUpdates.slice(i, i + 100);
+    const { error: upsertErr } = await supabase
+      .from('clients')
+      .upsert(batch, { onConflict: 'id' });
+    if (upsertErr) {
+      erros.push(`Erro batch update: ${upsertErr.message}`);
     }
   }
 
@@ -460,5 +504,127 @@ export async function executeSentinelaFullScan(
     mudancasStatus,
     tempoExecucao,
     erros,
+  };
+}
+
+/**
+ * Versão otimizada: calcula health a partir de orders já carregados em memória.
+ * Evita uma query por cliente — recebe o array de orders diretamente.
+ */
+function calculateCustomerHealthFromOrders(
+  clientId: string,
+  pedidos: Array<Record<string, unknown>>
+): CustomerHealth {
+  const agora = new Date();
+
+  const totalPedidos = pedidos.length;
+  const primeiraCompra = totalPedidos > 0 ? String(pedidos[0].created_at) : null;
+  const ultimaCompra = totalPedidos > 0 ? String(pedidos[totalPedidos - 1].created_at) : null;
+
+  const diasInatividade = ultimaCompra
+    ? Math.floor((agora.getTime() - new Date(ultimaCompra).getTime()) / (1000 * 60 * 60 * 24))
+    : 999;
+
+  const mesesComoCliente = primeiraCompra
+    ? Math.max(1, Math.floor((agora.getTime() - new Date(primeiraCompra).getTime()) / (1000 * 60 * 60 * 24 * 30)))
+    : 0;
+
+  const mediaComprasMes = mesesComoCliente > 0 ? totalPedidos / mesesComoCliente : 0;
+
+  const valorTotalGasto = pedidos.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+  const ticketMedio = totalPedidos > 0 ? valorTotalGasto / totalPedidos : 0;
+
+  // Produtos preferidos
+  const productCount: Record<string, { nome: string; quantidade: number }> = {};
+  for (const order of pedidos) {
+    const meta = typeof order.metadata === 'object' && order.metadata !== null ? order.metadata as Record<string, unknown> : {};
+    const items = Array.isArray(meta.itens) ? meta.itens : [];
+    for (const item of items) {
+      const it = item as Record<string, unknown>;
+      const nome = String(it.nome || it.name || 'Produto');
+      if (!productCount[nome]) productCount[nome] = { nome, quantidade: 0 };
+      productCount[nome].quantidade += Number(it.quantidade) || 1;
+    }
+  }
+
+  const produtosPreferidos: ProdutoPreferido[] = Object.values(productCount)
+    .sort((a, b) => b.quantidade - a.quantidade)
+    .slice(0, 3)
+    .map(p => ({
+      nome: p.nome,
+      quantidade: p.quantidade,
+      percentualCompras: totalPedidos > 0 ? Math.round((p.quantidade / totalPedidos) * 100) : 0,
+    }));
+
+  // Tendências (últimos 3 vs anteriores 3 meses)
+  const tresMesesAtras = new Date();
+  tresMesesAtras.setMonth(tresMesesAtras.getMonth() - 3);
+  const seisMesesAtras = new Date();
+  seisMesesAtras.setMonth(seisMesesAtras.getMonth() - 6);
+
+  const pedidosUlt3m = pedidos.filter(o => new Date(String(o.created_at)) >= tresMesesAtras);
+  const pedidosAnt3m = pedidos.filter(o => {
+    const d = new Date(String(o.created_at));
+    return d >= seisMesesAtras && d < tresMesesAtras;
+  });
+
+  const valorUlt3m = pedidosUlt3m.reduce((s, o) => s + (Number(o.total) || 0), 0);
+  const valorAnt3m = pedidosAnt3m.reduce((s, o) => s + (Number(o.total) || 0), 0);
+
+  const ticketUlt3m = pedidosUlt3m.length > 0 ? valorUlt3m / pedidosUlt3m.length : 0;
+  const ticketAnt3m = pedidosAnt3m.length > 0 ? valorAnt3m / pedidosAnt3m.length : 0;
+
+  const crescimentoFrequencia: TendenciaType =
+    pedidosUlt3m.length > pedidosAnt3m.length * 1.15 ? 'aumentando' :
+    pedidosUlt3m.length < pedidosAnt3m.length * 0.85 ? 'diminuindo' : 'estavel';
+
+  const crescimentoTicket: TendenciaType =
+    ticketUlt3m > ticketAnt3m * 1.15 ? 'aumentando' :
+    ticketUlt3m < ticketAnt3m * 0.85 ? 'diminuindo' : 'estavel';
+
+  const { score, nivel, razao, recomendacoes } = calculateScore({
+    totalPedidos,
+    diasInatividade,
+    mediaComprasMes,
+    ticketMedio,
+    valorTotalGasto,
+    crescimentoFrequencia,
+    crescimentoTicket,
+    pedidosUlt3m: pedidosUlt3m.length,
+  });
+
+  return {
+    clienteId: clientId,
+    metricas: {
+      diasInatividade,
+      ultimaCompra,
+      frequenciaCompra: {
+        mediaComprasMes: Math.round(mediaComprasMes * 100) / 100,
+        totalPedidos,
+        primeiraCompra,
+        mesesComoCliente,
+      },
+      comportamentoCompra: {
+        ticketMedio: Math.round(ticketMedio * 100) / 100,
+        valorTotalGasto: Math.round(valorTotalGasto * 100) / 100,
+        produtosPreferidos,
+        categoriasPreferidas: [],
+      },
+      tendencias: {
+        crescimentoFrequencia,
+        crescimentoTicket,
+        ultimosTresMeses: {
+          pedidos: pedidosUlt3m.length,
+          valorTotal: Math.round(valorUlt3m * 100) / 100,
+        },
+      },
+    },
+    classificacao: {
+      nivel,
+      score,
+      razao,
+      recomendacoes,
+    },
+    calculadoEm: new Date().toISOString(),
   };
 }

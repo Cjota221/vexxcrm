@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase';
+import { createServerSupabaseClient, createAuthenticatedClient } from '@/lib/supabase';
 import { SalesAssistant } from '@/lib/services/sales-assistant';
 
 async function getAuth(request: NextRequest) {
@@ -14,9 +14,10 @@ async function getAuth(request: NextRequest) {
   if (!authHeader) return null;
 
   const token = authHeader.replace('Bearer ', '');
+  const supabaseAuth = createAuthenticatedClient(token);
   const supabase = createServerSupabaseClient();
 
-  const { data: { user }, error } = await supabase.auth.getUser(token);
+  const { data: { user }, error } = await supabaseAuth.auth.getUser();
   if (error || !user) return null;
 
   const { data: profile } = await supabase
