@@ -152,10 +152,15 @@ export async function POST(request: NextRequest) {
       di.setDate(di.getDate() - 30); // Apenas últimos 30 dias para auto-sync
       const dis = di.toISOString().split('T')[0];
 
+      console.log(`[AutoSync] Buscando pedidos de ${dis} até ${df}...`);
       const { orders } = await fetchOrders(facilzapConfig, 1, 100, { data_inicial: dis, data_final: df });
+      console.log(`[AutoSync] Recebidos ${orders.length} pedidos da API`);
+      console.log(`[AutoSync] Recebidos ${orders.length} pedidos da API`);
       if (orders.length > 0) {
+        console.log(`[AutoSync] Processando pedidos...`);
         // Buscar clientes existentes para linkagem
         const { data: ec } = await supabaseAdmin.from('clients').select('id, phone_normalized, phone, name, email, custom_fields').eq('tenant_id', tenantId);
+        console.log(`[AutoSync] Clientes no banco: ${ec?.length || 0}`);
         const cm = new Map<string, string>();
         const fzIdMap = new Map<string, string>();
         const emailMap = new Map<string, string>();
@@ -173,6 +178,7 @@ export async function POST(request: NextRequest) {
           if (c.email) emailMap.set(c.email.toLowerCase().trim(), c.id);
         }
 
+        console.log(`[AutoSync] Mapeando pedidos para inserção...`);
         const data = orders.map((o: any) => {
           const rawPhone = o.cliente?.whatsapp_e164 || o.cliente?.whatsapp || o.cliente?.telefone || '';
           const ph = rawPhone.replace(/\D/g, '');
@@ -261,14 +267,22 @@ export async function POST(request: NextRequest) {
           return true;
         });
 
+        console.log(`[AutoSync] Inserindo ${uniqueData.length} pedidos únicos no banco...`);
+        console.log(`[AutoSync] Inserindo ${uniqueData.length} pedidos únicos no banco...`);
         const { error } = await supabaseAdmin.from('orders').upsert(uniqueData, { onConflict: 'tenant_id,external_id' });
         if (error) {
+          console.error(`[AutoSync] Erro no upsert de pedidos:`, error);
           const ids = uniqueData.map((o: any) => o.external_id);
           await supabaseAdmin.from('orders').delete().eq('tenant_id', tenantId).in('external_id', ids);
           const { error: ie } = await supabaseAdmin.from('orders').insert(uniqueData);
-          if (ie) results.errors.push('Pedidos: ' + ie.message);
-          else results.orders = uniqueData.length;
+          if (ie) {
+            console.error(`[AutoSync] Erro no insert de pedidos (fallback):`, ie);
+            results.errors.push(`Pedidos: ${ie.message} — Code: ${ie.code}, Details: ${ie.details}, Hint: ${ie.hint}`);
+          } else {
+            results.orders = uniqueData.length;
+          }
         } else {
+          console.log(`[AutoSync] ${uniqueData.length} pedidos salvos com sucesso`);
           results.orders = uniqueData.length;
         }
 
@@ -306,7 +320,9 @@ export async function POST(request: NextRequest) {
         }
       }
     } catch (e: any) {
-      results.errors.push('Pedidos: ' + e.message);
+      console.error('[AutoSync] Erro no processamento de pedidos:', e);
+      const errorDetails = `${e.message}${e.code ? ` [${e.code}]` : ''}${e.details ? ` — ${e.details}` : ''}`;
+      results.errors.push('Pedidos: ' + errorDetails);
     }
 
     const duration = Date.now() - startTime;
