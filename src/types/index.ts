@@ -338,6 +338,8 @@ export interface DashboardKPIs {
   total_paid?: number;
   total_delivered?: number;
   total_products?: number;
+  total_pieces_sold?: number;
+  paid_revenue?: number;
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

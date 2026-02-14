@@ -3,6 +3,29 @@ import { createServerSupabaseClient, createAuthenticatedClient } from '@/lib/sup
 import type { DashboardKPIs } from '@/types';
 
 /**
+ * Busca TODOS os pedidos paginando para contornar o limite de 1000 rows do Supabase.
+ */
+async function fetchAllOrders(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+) {
+  const PAGE_SIZE = 1000;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let all: any[] = [];
+  for (let page = 0; ; page++) {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('total, payment_status, status, metadata')
+      .eq('tenant_id', tenantId)
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+    if (error || !data || data.length === 0) break;
+    all = all.concat(data);
+    if (data.length < PAGE_SIZE) break;
+  }
+  return all;
+}
+
+/**
  * GET /api/dashboard
  * Retorna KPIs do dashboard.
  */
@@ -40,25 +63,38 @@ export async function GET(request: NextRequest) {
       { count: totalClients },
       { count: activeChats },
       { count: runningCampaigns },
-      { count: totalOrders },
-      { data: paidOrders },
       { data: newClientsMonth },
       { count: totalProducts },
-      { count: deliveredOrders },
+      allOrders,
     ] = await Promise.all([
       supabase.from('clients').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId),
       supabase.from('conversations').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('status', 'open'),
       supabase.from('campaigns').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('status', 'running'),
-      supabase.from('orders').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId),
-      supabase.from('orders').select('total').eq('tenant_id', tenantId).eq('payment_status', 'paid'),
       supabase.from('clients').select('created_at', { count: 'exact' }).eq('tenant_id', tenantId).gte('created_at', new Date(new Date().setDate(1)).toISOString()),
       supabase.from('products').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId),
-      supabase.from('orders').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('status', 'delivered'),
+      fetchAllOrders(supabase, tenantId),
     ]);
 
-    // Calcular métricas
-    const totalRevenue = paidOrders?.reduce((sum, order) => sum + (Number(order.total) || 0), 0) || 0;
-    const avgTicket = paidOrders && paidOrders.length > 0 ? totalRevenue / paidOrders.length : 0;
+    // Calcular métricas a partir de TODOS os pedidos (sem limite de 1000)
+    const totalOrders = allOrders.length;
+    const paidOrders = allOrders.filter(o => o.payment_status === 'paid');
+    const deliveredOrders = allOrders.filter(o => o.status === 'delivered');
+
+    const totalRevenue = allOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    const paidRevenue = paidOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    const avgTicket = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+    // Calcular total de peças vendidas (de metadata.itens)
+    let totalPieceSold = 0;
+    for (const order of allOrders) {
+      const meta = order.metadata as Record<string, unknown> | null;
+      if (meta && Array.isArray(meta.itens)) {
+        for (const item of meta.itens) {
+          const it = item as Record<string, unknown>;
+          totalPieceSold += Number(it.quantidade || it.quantity || 1);
+        }
+      }
+    }
 
     const kpis: DashboardKPIs = {
       total_clients: totalClients || 0,
@@ -70,9 +106,12 @@ export async function GET(request: NextRequest) {
       new_clients_month: newClientsMonth?.length || 0,
       response_time_avg: 0,
       // Extra fields
-      total_orders: totalOrders || 0,
-      total_paid: paidOrders?.length || 0,
-      total_delivered: deliveredOrders || 0,
+      total_orders: totalOrders,
+      total_paid: paidOrders.length,
+      total_delivered: deliveredOrders.length,
+      total_products: totalProducts || 0,
+      total_pieces_sold: totalPieceSold,
+      paid_revenue: paidRevenue,
     };
 
     return NextResponse.json(kpis);

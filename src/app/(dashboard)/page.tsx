@@ -14,6 +14,7 @@ import {
   Truck,
   CheckCircle,
   BarChart3,
+  ShoppingCart,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { api } from '@/lib/api';
@@ -78,11 +79,18 @@ export default function DashboardPage() {
       bg: 'bg-sky-50',
     },
     {
-      label: 'Receita Total',
+      label: 'Faturamento Total',
       value: formatCurrency(kpis?.total_revenue ?? 0),
       icon: <DollarSign size={22} />,
       color: 'text-emerald-600',
       bg: 'bg-emerald-50',
+    },
+    {
+      label: 'Faturamento Pago',
+      value: formatCurrency(kpis?.paid_revenue ?? 0),
+      icon: <TrendingUp size={22} />,
+      color: 'text-green-600',
+      bg: 'bg-green-50',
     },
     {
       label: 'Ticket Médio',
@@ -90,6 +98,13 @@ export default function DashboardPage() {
       icon: <Receipt size={22} />,
       color: 'text-amber-600',
       bg: 'bg-amber-50',
+    },
+    {
+      label: 'Peças Vendidas',
+      value: (kpis?.total_pieces_sold ?? 0).toLocaleString('pt-BR'),
+      icon: <ShoppingCart size={22} />,
+      color: 'text-purple-600',
+      bg: 'bg-purple-50',
     },
     {
       label: 'Novos Clientes (mês)',
@@ -114,8 +129,8 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-bold text-txt-primary">Dashboard</h1>
           <p className="text-sm text-txt-secondary mt-1">Visão geral do seu negócio</p>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {Array.from({ length: 8 }).map((_, i) => (
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        {Array.from({ length: 10 }).map((_, i) => (
             <div key={i} className="h-24 bg-surface-200 rounded-2xl animate-pulse" />
           ))}
         </div>
@@ -134,7 +149,7 @@ export default function DashboardPage() {
       </div>
 
       {/* KPI Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {kpiCards.map((kpi) => (
           <Card key={kpi.label} hover padding="md">
             <div className="space-y-3">
@@ -162,7 +177,7 @@ export default function DashboardPage() {
             <div>
               <h3 className="text-sm font-semibold text-txt-primary">Pedidos</h3>
               <p className="text-xs text-txt-secondary mt-0.5">
-                {kpis?.total_orders ?? 0} pedidos · {formatCurrency(kpis?.total_revenue ?? 0)} em receita
+                {kpis?.total_orders ?? 0} pedidos · {formatCurrency(kpis?.total_revenue ?? 0)} faturado · {(kpis?.total_pieces_sold ?? 0).toLocaleString('pt-BR')} peças
               </p>
             </div>
           </div>
