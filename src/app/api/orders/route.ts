@@ -51,6 +51,7 @@ export async function GET(request: NextRequest) {
     // Parse query params
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search');
+    const searchType = searchParams.get('search_type') || 'all'; // all, phone, cpf, email
     const status = searchParams.get('status');
     const client_id = searchParams.get('client_id');
     const page = parseInt(searchParams.get('page') || '1');
@@ -64,7 +65,21 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false });
 
     if (search) {
-      query = query.or(`order_number.ilike.%${search}%,external_id.ilike.%${search}%,metadata->>cliente_nome.ilike.%${search}%`);
+      if (searchType === 'phone') {
+        // Buscar por telefone no metadata
+        const cleanPhone = search.replace(/\D/g, '');
+        query = query.or(`metadata->>cliente_telefone.ilike.%${cleanPhone}%,metadata->>cliente_whatsapp.ilike.%${cleanPhone}%,metadata->>cliente_whatsapp_e164.ilike.%${cleanPhone}%`);
+      } else if (searchType === 'cpf') {
+        // Buscar por CPF no metadata
+        const cleanCpf = search.replace(/\D/g, '');
+        query = query.ilike('metadata->>cliente_cpf_cnpj', `%${cleanCpf}%`);
+      } else if (searchType === 'email') {
+        // Buscar por email no metadata
+        query = query.ilike('metadata->>cliente_email', `%${search}%`);
+      } else {
+        // Busca geral (padrão)
+        query = query.or(`order_number.ilike.%${search}%,external_id.ilike.%${search}%,metadata->>cliente_nome.ilike.%${search}%`);
+      }
     }
 
     if (status) {

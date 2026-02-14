@@ -117,6 +117,7 @@ export interface Client {
 export interface ClientFilters {
   search?: string;
   status?: ClientStatus | ClientStatus[];
+  has_orders?: boolean; // true = com pedidos, false = sem pedidos, undefined = todos
   tags?: string[];
   ltv_min?: number;
   ltv_max?: number;

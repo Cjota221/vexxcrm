@@ -15,6 +15,7 @@ export function useClients(filters?: ClientFilters) {
       const params: Record<string, string> = {};
       if (filters?.search) params.search = filters.search;
       if (filters?.status) params.status = Array.isArray(filters.status) ? filters.status.join(',') : filters.status;
+      if (filters?.has_orders !== undefined) params.has_orders = String(filters.has_orders);
       if (filters?.page) params.page = String(filters.page);
       if (filters?.per_page) params.per_page = String(filters.per_page);
       if (filters?.sort_by) params.sort_by = String(filters.sort_by);

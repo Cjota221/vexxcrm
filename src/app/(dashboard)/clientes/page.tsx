@@ -35,12 +35,14 @@ export default function ClientesPage() {
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ClientStatus | ''>('');
+  const [hasOrdersFilter, setHasOrdersFilter] = useState<'all' | 'with_orders' | 'without_orders'>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const perPage = 30;
 
   const { data, isLoading } = useClients({
     search: search || undefined,
     status: statusFilter || undefined,
+    has_orders: hasOrdersFilter === 'all' ? undefined : hasOrdersFilter === 'with_orders',
     page: currentPage,
     per_page: perPage,
   });
@@ -121,26 +123,40 @@ export default function ClientesPage() {
 
       {/* Filtros */}
       <Card>
-        <div className="p-4 flex flex-wrap items-center gap-3">
-          <div className="flex-1 min-w-[200px]">
-            <Input
-              placeholder="Buscar por nome, telefone ou e-mail..."
-              onChange={(e) => handleSearch(e.target.value)}
-            />
+        <div className="p-4 space-y-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex-1 min-w-50">
+              <Input
+                placeholder="Buscar por nome, telefone ou e-mail..."
+                onChange={(e) => handleSearch(e.target.value)}
+              />
+            </div>
+            <select
+              value={statusFilter}
+              onChange={(e) => { setStatusFilter(e.target.value as ClientStatus | ''); setCurrentPage(1); }}
+              className="input text-sm py-2 px-3 min-w-37.5"
+            >
+              <option value="">Todos os status</option>
+              {Object.entries(STATUS_MAP).map(([key, { label }]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
+            </select>
+            <select
+              value={hasOrdersFilter}
+              onChange={(e) => { 
+                setHasOrdersFilter(e.target.value as typeof hasOrdersFilter); 
+                setCurrentPage(1); 
+              }}
+              className="input text-sm py-2 px-3 min-w-37.5"
+            >
+              <option value="all">📊 Todos</option>
+              <option value="with_orders">✅ Com pedidos</option>
+              <option value="without_orders">❌ Sem pedidos</option>
+            </select>
+            <Button variant="ghost">
+              <Download size={16} /> Exportar
+            </Button>
           </div>
-          <select
-            value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value as ClientStatus | ''); setCurrentPage(1); }}
-            className="input text-sm py-2 px-3 min-w-[150px]"
-          >
-            <option value="">Todos os status</option>
-            {Object.entries(STATUS_MAP).map(([key, { label }]) => (
-              <option key={key} value={key}>{label}</option>
-            ))}
-          </select>
-          <Button variant="ghost">
-            <Download size={16} /> Exportar
-          </Button>
         </div>
       </Card>
 
@@ -228,7 +244,7 @@ export default function ClientesPage() {
             <p className="text-xs text-txt-secondary">
               Mostrando {((currentPage - 1) * perPage) + 1}–{Math.min(currentPage * perPage, total)} de {total} clientes
             </p>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-3">
               <button
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
@@ -236,6 +252,7 @@ export default function ClientesPage() {
               >
                 <ChevronLeft size={16} />
               </button>
+              
               {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                 let pageNum: number;
                 if (totalPages <= 5) {
@@ -261,6 +278,7 @@ export default function ClientesPage() {
                   </button>
                 );
               })}
+              
               <button
                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                 disabled={currentPage === totalPages}
@@ -268,6 +286,28 @@ export default function ClientesPage() {
               >
                 <ChevronRight size={16} />
               </button>
+
+              <div className="flex items-center gap-2 ml-2 pl-2 border-l border-surface-200">
+                <span className="text-xs text-txt-secondary whitespace-nowrap">
+                  Página
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  max={totalPages}
+                  value={currentPage}
+                  onChange={(e) => {
+                    const page = parseInt(e.target.value);
+                    if (page >= 1 && page <= totalPages) {
+                      setCurrentPage(page);
+                    }
+                  }}
+                  className="w-14 px-2 py-1 text-xs text-center border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-crm-primary/20"
+                />
+                <span className="text-xs text-txt-secondary whitespace-nowrap">
+                  de {totalPages}
+                </span>
+              </div>
             </div>
           </div>
         )}

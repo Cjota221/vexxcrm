@@ -47,12 +47,14 @@ const PAYMENT_STATUS_MAP: Record<string, { label: string; variant: 'success' | '
 export default function PedidosPage() {
   const router = useRouter();
   const [search, setSearch] = useState('');
+  const [searchType, setSearchType] = useState<'all' | 'phone' | 'cpf' | 'email'>('all');
   const [statusFilter, setStatusFilter] = useState<OrderStatus | ''>('');
   const [currentPage, setCurrentPage] = useState(1);
   const perPage = 30;
 
   const { data, isLoading } = useOrders({
     search: search || undefined,
+    search_type: searchType,
     status: statusFilter || undefined,
     page: currentPage,
     per_page: perPage,
@@ -147,23 +149,44 @@ export default function PedidosPage() {
 
       {/* Filtros */}
       <Card>
-        <div className="p-4 flex flex-wrap items-center gap-3">
-          <div className="flex-1 min-w-48">
-            <Input
-              placeholder="Buscar por nº pedido, cliente..."
-              onChange={(e) => handleSearch(e.target.value)}
-            />
+        <div className="p-4 space-y-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex-1 min-w-48">
+              <Input
+                placeholder={
+                  searchType === 'phone' ? 'Buscar por telefone...' :
+                  searchType === 'cpf' ? 'Buscar por CPF...' :
+                  searchType === 'email' ? 'Buscar por email...' :
+                  'Buscar por nº pedido, cliente...'
+                }
+                onChange={(e) => handleSearch(e.target.value)}
+              />
+            </div>
+            <select
+              value={searchType}
+              onChange={(e) => { 
+                setSearchType(e.target.value as typeof searchType); 
+                setSearch('');
+                setCurrentPage(1); 
+              }}
+              className="input text-sm py-2 px-3"
+            >
+              <option value="all">Todos os campos</option>
+              <option value="phone">📱 Telefone</option>
+              <option value="cpf">🆔 CPF</option>
+              <option value="email">📧 Email</option>
+            </select>
+            <select
+              value={statusFilter}
+              onChange={(e) => { setStatusFilter(e.target.value as OrderStatus | ''); setCurrentPage(1); }}
+              className="input text-sm py-2 px-3"
+            >
+              <option value="">Todos os status</option>
+              {Object.entries(STATUS_MAP).map(([key, { label }]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
+            </select>
           </div>
-          <select
-            value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value as OrderStatus | ''); setCurrentPage(1); }}
-            className="input text-sm py-2 px-3"
-          >
-            <option value="">Todos os status</option>
-            {Object.entries(STATUS_MAP).map(([key, { label }]) => (
-              <option key={key} value={key}>{label}</option>
-            ))}
-          </select>
         </div>
       </Card>
 
@@ -279,7 +302,7 @@ export default function PedidosPage() {
             <p className="text-xs text-txt-secondary">
               Mostrando {((currentPage - 1) * perPage) + 1}–{Math.min(currentPage * perPage, total)} de {total} pedidos
             </p>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-3">
               <button
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
@@ -287,6 +310,7 @@ export default function PedidosPage() {
               >
                 <ChevronLeft size={16} />
               </button>
+              
               {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                 let pageNum: number;
                 if (totalPages <= 5) {
@@ -312,6 +336,7 @@ export default function PedidosPage() {
                   </button>
                 );
               })}
+              
               <button
                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                 disabled={currentPage === totalPages}
@@ -319,6 +344,28 @@ export default function PedidosPage() {
               >
                 <ChevronRight size={16} />
               </button>
+
+              <div className="flex items-center gap-2 ml-2 pl-2 border-l border-surface-200">
+                <span className="text-xs text-txt-secondary whitespace-nowrap">
+                  Página
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  max={totalPages}
+                  value={currentPage}
+                  onChange={(e) => {
+                    const page = parseInt(e.target.value);
+                    if (page >= 1 && page <= totalPages) {
+                      setCurrentPage(page);
+                    }
+                  }}
+                  className="w-14 px-2 py-1 text-xs text-center border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-crm-primary/20"
+                />
+                <span className="text-xs text-txt-secondary whitespace-nowrap">
+                  de {totalPages}
+                </span>
+              </div>
             </div>
           </div>
         )}

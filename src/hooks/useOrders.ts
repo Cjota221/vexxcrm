@@ -6,6 +6,7 @@ import type { Order } from '@/types';
 
 interface UseOrdersParams {
   search?: string;
+  search_type?: 'all' | 'phone' | 'cpf' | 'email';
   status?: string;
   client_id?: string;
   page?: number;
@@ -26,6 +27,7 @@ export function useOrders(params?: UseOrdersParams): UseQueryResult<OrdersRespon
     queryFn: async () => {
       const searchParams = new URLSearchParams();
       if (params?.search) searchParams.set('search', params.search);
+      if (params?.search_type) searchParams.set('search_type', params.search_type);
       if (params?.status) searchParams.set('status', params.status);
       if (params?.client_id) searchParams.set('client_id', params.client_id);
       if (params?.page) searchParams.set('page', String(params.page));
