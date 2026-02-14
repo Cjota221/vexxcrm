@@ -51,15 +51,30 @@ async function request<T>(
       console.log(`✅ FacilZap Response: ${endpoint} (${duration}ms) - Status: ${response.status}`);
 
       if (!response.ok) {
+        const isServerError = response.status >= 500;
         const errorBody = await response.text().catch(() => '');
         let errorMessage = `HTTP ${response.status}`;
         try {
           const parsed = JSON.parse(errorBody);
           errorMessage = parsed.message || parsed.error || parsed.msg || errorMessage;
         } catch {
-          if (errorBody) errorMessage += `: ${errorBody.slice(0, 200)}`;
+          // Se é HTML (erro de servidor), mostrar mensagem amigável
+          if (errorBody.includes('<!DOCTYPE') || errorBody.includes('<html')) {
+            errorMessage = `HTTP ${response.status} — Servidor FacilZap temporariamente indisponível`;
+          } else if (errorBody) {
+            errorMessage += `: ${errorBody.slice(0, 150)}`;
+          }
         }
         console.error(`❌ FacilZap Error ${response.status}:`, errorMessage);
+
+        // Retry automático para erros de servidor (5xx) e 429 (rate limit)
+        if ((isServerError || response.status === 429) && attempt < retryAttempts) {
+          const delay = Math.min(2000 * Math.pow(2, attempt - 1), 15000);
+          console.log(`⏳ Servidor instável (${response.status}), retry em ${delay}ms...`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+
         throw new Error(errorMessage);
       }
 
@@ -70,8 +85,8 @@ async function request<T>(
       
       if (error.name === 'AbortError') {
         if (attempt < retryAttempts) {
-          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
-          console.log(`⏳ Retry em ${delay}ms...`);
+          const delay = Math.min(2000 * Math.pow(2, attempt - 1), 15000);
+          console.log(`⏳ Timeout, retry em ${delay}ms...`);
           await new Promise(r => setTimeout(r, delay));
           continue;
         }
@@ -80,8 +95,8 @@ async function request<T>(
 
       // Para outros erros, retry com backoff
       if (attempt < retryAttempts) {
-        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
-        console.log(`⏳ Retry em ${delay}ms...`);
+        const delay = Math.min(2000 * Math.pow(2, attempt - 1), 15000);
+        console.log(`⏳ Erro de rede, retry em ${delay}ms...`);
         await new Promise(r => setTimeout(r, delay));
         continue;
       }
