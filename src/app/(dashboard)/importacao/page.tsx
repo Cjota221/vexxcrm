@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { FileDropzone } from '@/components/import/FileDropzone';
 import { ColumnMapper } from '@/components/import/ColumnMapper';
 import { ImportProgress } from '@/components/import/ImportProgress';
@@ -59,6 +60,7 @@ const STEPS: { key: Step; label: string; icon: typeof Upload }[] = [
 
 export default function ImportacaoPage() {
   const { accessToken } = useAuthStore();
+  const queryClient = useQueryClient();
 
   // Wizard state
   const [step, setStep] = useState<Step>('upload');
@@ -171,6 +173,10 @@ export default function ImportacaoPage() {
       setStats(data.stats);
       setDetails(data.details || []);
       setStep('results');
+
+      // Invalidar cache para que o painel de clientes reflita as mudanças
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      queryClient.invalidateQueries({ queryKey: ['intelligence'] });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro ao processar importação';
       setError(msg);

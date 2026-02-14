@@ -22,6 +22,7 @@ const CRM_FIELDS = [
   { value: 'address_zip', label: 'CEP' },
   { value: 'ltv', label: 'LTV (Valor Total Gasto)' },
   { value: 'total_pedidos', label: 'Total de Pedidos' },
+  { value: 'avg_ticket', label: 'Ticket Médio' },
   { value: 'tags', label: 'Tags' },
   { value: 'notes', label: 'Observações / Notas' },
   { value: 'source', label: 'Origem' },

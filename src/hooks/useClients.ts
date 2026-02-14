@@ -33,7 +33,7 @@ export function useClients(filters?: ClientFilters) {
       }
       return { data: [], total: 0, page: 1, per_page: 20, total_pages: 1 };
     },
-    staleTime: 5 * 60 * 1000, // 5 minutos
+    staleTime: 60 * 1000, // 1 minuto
   });
 }
 

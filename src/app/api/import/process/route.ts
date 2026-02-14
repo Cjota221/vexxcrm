@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
       .select(selectFields.join(', '))
       .eq('tenant_id', tenantId) as { data: Record<string, unknown>[] | null };
 
-    // Indexar por CPF e telefone
+    // Indexar por CPF e telefone (múltiplas variações para máximo matching)
     const byCpf = new Map<string, Record<string, unknown>>();
     const byPhone = new Map<string, Record<string, unknown>>();
 
@@ -127,15 +127,38 @@ export async function POST(request: NextRequest) {
         const cpfClean = cpf.replace(/\D/g, '');
         if (cpfClean.length >= 11) byCpf.set(cpfClean, client);
       }
-      if (phoneNorm) {
-        byPhone.set(phoneNorm, client);
-      }
-      // Também indexar pela versão canônica
+
+      // Indexar por múltiplas variações de telefone para máximo matching
+      const phoneVariations = new Set<string>();
+
+      if (phoneNorm) phoneVariations.add(phoneNorm);
+
       if (phone) {
-        const canonical = PhoneNormalizer.canonical(phone);
-        if (canonical) byPhone.set(canonical, client);
+        const digits = phone.replace(/\D/g, '');
+        if (digits.length >= 10) {
+          phoneVariations.add(digits); // telefone bruto sem formatação
+          const canonical = PhoneNormalizer.canonical(phone);
+          if (canonical) phoneVariations.add(canonical); // sem 9º dígito
+
+          // Últimos 8 dígitos (número local sem DDD)
+          if (digits.length >= 8) {
+            phoneVariations.add(digits.slice(-8));
+          }
+          // Últimos 9 dígitos (número local com 9)
+          if (digits.length >= 9) {
+            phoneVariations.add(digits.slice(-9));
+          }
+        }
+      }
+
+      for (const variant of phoneVariations) {
+        if (!byPhone.has(variant)) {
+          byPhone.set(variant, client);
+        }
       }
     }
+
+    console.log(`📊 Índice: ${byCpf.size} CPFs, ${byPhone.size} variações de telefone para ${(existingClients || []).length} clientes`);
 
     // ─── 6. Processar cada linha ───
     const stats = {
@@ -232,11 +255,30 @@ async function processBatch(
         }
       }
 
-      // Prioridade 2: Telefone normalizado
+      // Prioridade 2: Telefone normalizado (múltiplas variações)
       if (!existingClient && mapped.phone) {
-        const canonical = PhoneNormalizer.canonical(String(mapped.phone));
+        const phoneStr = String(mapped.phone);
+        const digits = phoneStr.replace(/\D/g, '');
+        const canonical = PhoneNormalizer.canonical(phoneStr);
+
+        // Tentar canonical primeiro
         if (canonical) {
           existingClient = byPhone.get(canonical) as Record<string, unknown> | undefined;
+        }
+
+        // Tentar dígitos brutos
+        if (!existingClient && digits.length >= 10) {
+          existingClient = byPhone.get(digits) as Record<string, unknown> | undefined;
+        }
+
+        // Tentar últimos 8 dígitos (número local sem DDD)
+        if (!existingClient && digits.length >= 8) {
+          existingClient = byPhone.get(digits.slice(-8)) as Record<string, unknown> | undefined;
+        }
+
+        // Tentar últimos 9 dígitos (número local com 9)
+        if (!existingClient && digits.length >= 9) {
+          existingClient = byPhone.get(digits.slice(-9)) as Record<string, unknown> | undefined;
         }
       }
 
@@ -281,8 +323,8 @@ async function processBatch(
           phone_normalized: phoneNormalized,
           email: mapped.email || null,
           ltv: parseFloat(String(mapped.ltv || '0').replace(',', '.')) || 0,
-          total_orders: parseInt(String(mapped.total_pedidos || '0')) || 0,
-          avg_ticket: 0,
+          total_orders: parseInt(String(mapped.total_pedidos || mapped.total_orders || '0')) || 0,
+          avg_ticket: parseFloat(String(mapped.avg_ticket || mapped.ticket_medio || '0').replace(',', '.')) || 0,
           status: 'active',
           source: 'import',
           tags: mapped.tags ? parseTags(mapped.tags) : [],
@@ -305,10 +347,21 @@ async function processBatch(
           newClient.birthday = mapped.birthday ? parseDateField(mapped.birthday) : null;
         }
 
-        // Calcular avg_ticket
-        const ltv = (newClient.ltv as number) || 0;
+        // Calcular LTV se não foi fornecido mas temos orders + avg_ticket
+        let ltv = (newClient.ltv as number) || 0;
         const orders = (newClient.total_orders as number) || 0;
-        if (orders > 0) newClient.avg_ticket = parseFloat((ltv / orders).toFixed(2));
+        const avgTicket = (newClient.avg_ticket as number) || 0;
+
+        if (ltv === 0 && orders > 0 && avgTicket > 0) {
+          // Calcular LTV a partir de pedidos × ticket médio
+          ltv = parseFloat((orders * avgTicket).toFixed(2));
+          newClient.ltv = ltv;
+        }
+
+        // (Re)calcular avg_ticket se temos LTV e orders
+        if (orders > 0 && ltv > 0) {
+          newClient.avg_ticket = parseFloat((ltv / orders).toFixed(2));
+        }
 
         toInsert.push(newClient);
 
@@ -413,11 +466,17 @@ function buildMergeData(
 
   // ── SOMA de métricas ──
   const importedLtv = parseFloat(String(imported.ltv || '0').replace(',', '.')) || 0;
-  const importedOrders = parseInt(String(imported.total_pedidos || '0')) || 0;
+  const importedOrders = parseInt(String(imported.total_pedidos || imported.total_orders || '0')) || 0;
+  const importedAvgTicket = parseFloat(String(imported.avg_ticket || imported.ticket_medio || '0').replace(',', '.')) || 0;
 
-  if (importedLtv > 0) {
+  // Calcular LTV importado se não fornecido mas temos orders + avg_ticket
+  const effectiveImportedLtv = importedLtv > 0
+    ? importedLtv
+    : (importedOrders > 0 && importedAvgTicket > 0 ? importedOrders * importedAvgTicket : 0);
+
+  if (effectiveImportedLtv > 0) {
     const currentLtv = parseFloat(String(existing.ltv || '0')) || 0;
-    const newLtv = currentLtv + importedLtv;
+    const newLtv = currentLtv + effectiveImportedLtv;
     update.ltv = parseFloat(newLtv.toFixed(2));
 
     const currentOrders = parseInt(String(existing.total_orders || '0')) || 0;
