@@ -56,7 +56,14 @@ export async function POST(request: NextRequest) {
 
     const facilzapConfig = { token: tenantData.facilzap_token };
     const tenantId = profile.tenant_id;
-    const results = { products: 0, clients: 0, orders: 0, relinked: 0, errors: [] as string[] };
+    const results = { 
+      products: 0, 
+      clients: 0, 
+      orders: 0, 
+      relinked: 0, 
+      stats_updated: 0,
+      errors: [] as string[] 
+    };
 
     // ─── SYNC RÁPIDO: apenas página 1 de cada (dados mais recentes) ───
 

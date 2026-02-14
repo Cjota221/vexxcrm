@@ -31,15 +31,31 @@ const SEVERITY_CONFIG = {
   critical: { label: 'Crítico', variant: 'danger' as const },
 };
 
+interface HealthCheckData {
+  health_score: number;
+  health_status: 'excellent' | 'good' | 'warning' | 'critical';
+  summary: {
+    total_clients: number;
+    total_orders: number;
+    orphan_orders: number;
+    inconsistent_clients: number;
+  };
+  issues: {
+    orphans: { count: number; percentage?: number; severity: 'ok' | 'warning' | 'critical' };
+    inconsistencies: { count: number; percentage: number; severity: 'ok' | 'warning' | 'critical'; top_10: any[] };
+  };
+  recommendations: Array<{ priority: string; message: string }>;
+}
+
 export function SystemHealthCheck() {
   const [isRecalculating, setIsRecalculating] = useState(false);
 
   // Query health check
-  const { data: health, isLoading, refetch } = useQuery({
+  const { data: health, isLoading, refetch } = useQuery<HealthCheckData>({
     queryKey: ['system-health'],
-    queryFn: async () => {
+    queryFn: async (): Promise<HealthCheckData> => {
       const response = await api.get('/maintenance/health-check');
-      return response.data;
+      return response.data as HealthCheckData;
     },
     refetchInterval: 60000, // Atualiza a cada 1 minuto
   });
@@ -50,7 +66,7 @@ export function SystemHealthCheck() {
       const response = await api.post('/maintenance/recalc-stats');
       return response.data;
     },
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       alert(`✅ Sucesso! ${data.summary.clients_updated} clientes atualizados, ${data.summary.inconsistencies_found} inconsistências corrigidas.`);
       refetch();
     },
@@ -76,7 +92,7 @@ export function SystemHealthCheck() {
     return null;
   }
 
-  const statusConfig = HEALTH_STATUS_CONFIG[health.health_status];
+  const statusConfig = HEALTH_STATUS_CONFIG[health.health_status as keyof typeof HEALTH_STATUS_CONFIG];
   const StatusIcon = statusConfig.icon;
 
   return (

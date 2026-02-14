@@ -191,7 +191,11 @@ export async function GET(request: NextRequest) {
         },
       },
 
-      recommendations: []
+      recommendations: [] as Array<{
+        priority: 'high' | 'medium' | 'low';
+        action: string;
+        message: string;
+      }>
     };
 
     // Adicionar recomendações
