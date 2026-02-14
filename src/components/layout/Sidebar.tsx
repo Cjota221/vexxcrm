@@ -21,6 +21,7 @@ import {
   Brain,
   FileUp,
   Headset,
+  Database,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/store/ui';
@@ -43,6 +44,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Importação', href: '/importacao', icon: <FileUp size={20} /> },
   { label: 'Carrinhos', href: '/carrinhos', icon: <ShoppingCart size={20} /> },
   { label: 'Cupons', href: '/cupons', icon: <Ticket size={20} /> },
+  { label: 'Eng. Dados', href: '/engenharia-dados', icon: <Database size={20} /> },
   { label: 'Configurações', href: '/configuracoes', icon: <Settings size={20} /> },
 ];
 
