@@ -63,33 +63,81 @@ export async function POST(request: NextRequest) {
       raw: false,
     });
 
-    // ─── 4. Carregar clientes existentes (para matching) ───
+    // ─── 4. Detectar colunas disponíveis na tabela clients ───
+    const { data: sampleClient, error: schemaError } = await supabase
+      .from('clients')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .limit(1);
+
+    // Determinar quais colunas existem (evitar enviar campos inexistentes)
+    let availableColumns: Set<string>;
+    if (sampleClient && sampleClient.length > 0) {
+      availableColumns = new Set(Object.keys(sampleClient[0]));
+    } else if (!schemaError) {
+      // Tabela existe mas vazia — tentar inserção de teste rápido
+      availableColumns = new Set([
+        'id', 'tenant_id', 'name', 'phone', 'phone_normalized', 'email',
+        'ltv', 'total_orders', 'avg_ticket', 'status', 'source', 'tags',
+        'notes', 'address_street', 'address_number', 'address_complement',
+        'address_neighborhood', 'address_city', 'address_state', 'address_zip',
+        'custom_fields', 'created_at', 'updated_at',
+      ]);
+    } else {
+      // Fallback amplo
+      availableColumns = new Set([
+        'id', 'tenant_id', 'name', 'phone', 'phone_normalized', 'email',
+        'ltv', 'total_orders', 'avg_ticket', 'status', 'source', 'tags',
+        'notes', 'custom_fields',
+      ]);
+    }
+
+    const hasCpfColumn = availableColumns.has('cpf');
+    const hasBirthdayColumn = availableColumns.has('birthday');
+
+    console.log(`📋 Colunas detectadas: ${availableColumns.size} | cpf: ${hasCpfColumn} | birthday: ${hasBirthdayColumn}`);
+
+    // ─── 5. Carregar clientes existentes (para matching) ───
+    // Construir select dinâmico baseado nas colunas disponíveis
+    const selectFields = [
+      'id', 'name', 'phone', 'phone_normalized', 'email',
+      'ltv', 'total_orders', 'avg_ticket',
+      'address_street', 'address_number', 'address_complement',
+      'address_neighborhood', 'address_city', 'address_state', 'address_zip',
+      'notes', 'custom_fields', 'tags', 'status', 'source', 'created_at',
+    ];
+    if (hasCpfColumn) selectFields.push('cpf');
+    if (hasBirthdayColumn) selectFields.push('birthday');
+
     const { data: existingClients } = await supabase
       .from('clients')
-      .select('id, name, phone, phone_normalized, email, cpf, ltv, total_orders, avg_ticket, birthday, address_street, address_number, address_complement, address_neighborhood, address_city, address_state, address_zip, notes, custom_fields, tags, status, source, created_at')
-      .eq('tenant_id', tenantId);
+      .select(selectFields.join(', '))
+      .eq('tenant_id', tenantId) as { data: Record<string, unknown>[] | null };
 
     // Indexar por CPF e telefone
-    type ClientRow = NonNullable<typeof existingClients>[number];
-    const byCpf = new Map<string, ClientRow>();
-    const byPhone = new Map<string, ClientRow>();
+    const byCpf = new Map<string, Record<string, unknown>>();
+    const byPhone = new Map<string, Record<string, unknown>>();
 
     for (const client of existingClients || []) {
-      if (client.cpf) {
-        const cpfClean = client.cpf.replace(/\D/g, '');
+      const cpf = client.cpf as string | undefined;
+      const phoneNorm = client.phone_normalized as string | undefined;
+      const phone = client.phone as string | undefined;
+
+      if (cpf) {
+        const cpfClean = cpf.replace(/\D/g, '');
         if (cpfClean.length >= 11) byCpf.set(cpfClean, client);
       }
-      if (client.phone_normalized) {
-        byPhone.set(client.phone_normalized, client);
+      if (phoneNorm) {
+        byPhone.set(phoneNorm, client);
       }
       // Também indexar pela versão canônica
-      if (client.phone) {
-        const canonical = PhoneNormalizer.canonical(client.phone);
+      if (phone) {
+        const canonical = PhoneNormalizer.canonical(phone);
         if (canonical) byPhone.set(canonical, client);
       }
     }
 
-    // ─── 5. Processar cada linha ───
+    // ─── 6. Processar cada linha ───
     const stats = {
       total: rawData.length,
       merged: 0,
@@ -101,6 +149,7 @@ export async function POST(request: NextRequest) {
 
     const results: ImportRowResult[] = [];
     const BATCH_SIZE = 50;
+    const columnFlags = { hasCpfColumn, hasBirthdayColumn };
 
     for (let i = 0; i < rawData.length; i += BATCH_SIZE) {
       const batch = rawData.slice(i, i + BATCH_SIZE);
@@ -111,7 +160,8 @@ export async function POST(request: NextRequest) {
         mapping,
         byCpf,
         byPhone,
-        stats
+        stats,
+        columnFlags
       );
       results.push(...batchResults);
     }
@@ -149,7 +199,8 @@ async function processBatch(
   mapping: Record<string, string>,
   byCpf: Map<string, Record<string, unknown>>,
   byPhone: Map<string, Record<string, unknown>>,
-  stats: { total: number; merged: number; created: number; enriched: number; skipped: number; errors: number }
+  stats: { total: number; merged: number; created: number; enriched: number; skipped: number; errors: number },
+  columnFlags: { hasCpfColumn: boolean; hasBirthdayColumn: boolean }
 ): Promise<ImportRowResult[]> {
   const results: ImportRowResult[] = [];
   const toInsert: Record<string, unknown>[] = [];
@@ -191,7 +242,7 @@ async function processBatch(
 
       if (existingClient) {
         // ─── MERGE: Cliente já existe ───
-        const mergeData = buildMergeData(existingClient, mapped);
+        const mergeData = buildMergeData(existingClient, mapped, columnFlags);
 
         if (Object.keys(mergeData).length > 0) {
           toUpdate.push({ id: existingClient.id as string, data: mergeData });
@@ -229,8 +280,6 @@ async function processBatch(
           phone: phone ? PhoneNormalizer.normalize(phone) || phone : phoneNormalized,
           phone_normalized: phoneNormalized,
           email: mapped.email || null,
-          cpf: mapped.cpf ? String(mapped.cpf).replace(/\D/g, '') : null,
-          birthday: mapped.birthday ? parseDateField(mapped.birthday) : null,
           ltv: parseFloat(String(mapped.ltv || '0').replace(',', '.')) || 0,
           total_orders: parseInt(String(mapped.total_pedidos || '0')) || 0,
           avg_ticket: 0,
@@ -247,6 +296,14 @@ async function processBatch(
           address_zip: mapped.address_zip || null,
           custom_fields: {},
         };
+
+        // Só incluir cpf/birthday se as colunas existem no banco
+        if (columnFlags.hasCpfColumn) {
+          newClient.cpf = mapped.cpf ? String(mapped.cpf).replace(/\D/g, '') : null;
+        }
+        if (columnFlags.hasBirthdayColumn) {
+          newClient.birthday = mapped.birthday ? parseDateField(mapped.birthday) : null;
+        }
 
         // Calcular avg_ticket
         const ltv = (newClient.ltv as number) || 0;
@@ -292,7 +349,17 @@ async function processBatch(
 
     if (error) {
       console.error('❌ Import insert error:', error);
-      // Não falhar completamente — contar erros
+      // Reajustar stats — marcar as inserções como erros
+      const insertCount = toInsert.length;
+      stats.created -= insertCount;
+      stats.errors += insertCount;
+
+      // Adicionar detalhes do erro nos resultados
+      results.push({
+        row: 0,
+        action: 'error',
+        details: `Erro ao inserir ${insertCount} clientes: ${error.message}`,
+      });
     }
   }
 
@@ -338,7 +405,8 @@ function extractMappedFields(
  */
 function buildMergeData(
   existing: Record<string, unknown>,
-  imported: Record<string, unknown>
+  imported: Record<string, unknown>,
+  columnFlags: { hasCpfColumn: boolean; hasBirthdayColumn: boolean }
 ): Record<string, unknown> {
   const update: Record<string, unknown> = {};
   const now = new Date().toISOString();
@@ -369,11 +437,11 @@ function buildMergeData(
     update.email = imported.email;
   }
 
-  if (!existing.cpf && imported.cpf) {
+  if (!existing.cpf && imported.cpf && columnFlags.hasCpfColumn) {
     update.cpf = String(imported.cpf).replace(/\D/g, '');
   }
 
-  if (!existing.birthday && imported.birthday) {
+  if (!existing.birthday && imported.birthday && columnFlags.hasBirthdayColumn) {
     const parsed = parseDateField(imported.birthday);
     if (parsed) update.birthday = parsed;
   }
