@@ -20,6 +20,7 @@ import {
   Download,
   Brain,
   FileUp,
+  Headset,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/store/ui';
@@ -32,6 +33,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', href: '/', icon: <LayoutDashboard size={20} /> },
+  { label: 'Central', href: '/central', icon: <Headset size={20} /> },
   { label: 'Atendimento', href: '/atendimento', icon: <MessageCircle size={20} /> },
   { label: 'Clientes', href: '/clientes', icon: <Users size={20} /> },
   { label: 'Campanhas', href: '/campanhas', icon: <Megaphone size={20} /> },

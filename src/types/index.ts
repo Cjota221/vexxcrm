@@ -603,3 +603,99 @@ export interface SyncAuditLog {
   status: 'success' | 'partial' | 'error';
   created_at: string;
 }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   CONTACT CENTER
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+export interface Department {
+  id: string;
+  tenant_id: string;
+  name: string;
+  slug: string;
+  color: string;
+  is_active: boolean;
+}
+
+export interface Queue {
+  id: string;
+  tenant_id: string;
+  department_id: string | null;
+  name: string;
+  slug: string;
+  type: string;
+  priority_level: number;
+  distribution_mode: string;
+  auto_assign: boolean;
+  is_active: boolean;
+  accepting_new: boolean;
+  total_waiting?: number;
+}
+
+export interface QuickAction {
+  id: string;
+  tenant_id: string;
+  name: string;
+  slug: string;
+  icon: string;
+  type: string;
+  config: Record<string, unknown>;
+  is_active: boolean;
+  sort_order: number;
+}
+
+export interface AgentStatus {
+  is_online: boolean;
+  accepting_chats: boolean;
+  active_chats: number;
+  max_chats: number;
+  closed_today: number;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   SENTINELA ANNE v3
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+export type SentinelaAnalysisType =
+  | 'churn_risk'
+  | 'upsell_opportunity'
+  | 'reactivation'
+  | 'vip_care'
+  | 'seasonal_opportunity'
+  | 'cross_sell'
+  | 'win_back'
+  | 'new_customer_nurture';
+
+export type SentinelaAnalysisStatus = 'pending' | 'approved' | 'rejected' | 'executed' | 'expired';
+export type SentinelaUrgency = 'low' | 'medium' | 'high' | 'critical';
+
+export interface SentinelaAnalysisItem {
+  id: string;
+  tenant_id: string;
+  client_id: string;
+  client_name: string;
+  type: SentinelaAnalysisType;
+  urgency: SentinelaUrgency;
+  title: string;
+  description: string;
+  recommended_action: string;
+  action_payload: Record<string, unknown>;
+  confidence: number;
+  status: SentinelaAnalysisStatus;
+  approved_by: string | null;
+  approved_at: string | null;
+  executed_at: string | null;
+  feedback_score: number | null;
+  feedback_notes: string | null;
+  created_at: string;
+}
+
+export interface SentinelaStats {
+  total_analyses: number;
+  pending: number;
+  approved: number;
+  executed: number;
+  coupons_generated: number;
+  coupons_used: number;
+  conversion_rate: string;
+}
