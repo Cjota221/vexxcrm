@@ -171,11 +171,24 @@ export async function POST(request: NextRequest) {
         const parseNum = (v: any): number => { const n = parseFloat(String(v || '0').replace(',', '.')); return isNaN(n) ? 0 : n; };
         // Helper: FacilZap retorna status como "0"/"1", true/false, 0/1 ou "true"/"false"
         const isTruthy = (v: any): boolean => v === '1' || v === 1 || v === true || v === 'true' || v === 'sim';
+        
+        // Buscar período da query string (se fornecido) ou usar últimos 5 anos
         const df = new Date().toISOString().split('T')[0];
-        const di = new Date(); di.setFullYear(di.getFullYear() - 5);
+        const di = new Date(); 
+        di.setFullYear(di.getFullYear() - 5);
         const dis = di.toISOString().split('T')[0];
+        
+        console.log(`[Sync Orders] Página ${page}: Período ${dis} até ${df}`);
         const { orders, hasMore } = await fetchOrders(facilzapConfig, page, 100, { data_inicial: dis, data_final: df });
+        console.log(`[Sync Orders] Página ${page}: API retornou ${orders.length} pedidos, hasMore=${hasMore}`);
         results.hasMore.orders = hasMore;
+        
+        // ⚠️ Detectar possível limite da API FacilZap (1700 pedidos)
+        if (page === 18 && orders.length === 0) {
+          console.warn(`[Sync Orders] ⚠️ LIMITE DA API: Página 18 retornou 0 pedidos (total ~1700). API FacilZap pode ter limite de paginação.`);
+          results.errors.push('⚠️ Limite de 1700 pedidos atingido. Use "Engenharia de Dados > Sync Completo" para buscar períodos específicos.');
+        }
+        
         if (orders.length > 0) {
           const { data: ec } = await supabaseAdmin.from('clients').select('id, phone_normalized, phone, name, email, custom_fields').eq('tenant_id', tenantId);
           // Criar mapa de lookup com TODAS as variações → client_id
@@ -443,6 +456,14 @@ export async function POST(request: NextRequest) {
             seenOrders.add(o.external_id);
             return true;
           });
+          console.log(`[Sync Orders] Página ${page}: ${orders.length} recebidos da API → ${uniqueData.length} únicos após dedup`);
+          
+          // Contar pedidos sem cliente
+          const orphanCount = uniqueData.filter((o: any) => !o.client_id).length;
+          if (orphanCount > 0) {
+            console.log(`[Sync Orders] Página ${page}: ${orphanCount} pedidos sem client_id (órfãos)`);
+          }
+          
           const { error } = await supabaseAdmin.from('orders').upsert(uniqueData, { onConflict: 'tenant_id,external_id' });
           if (error && error.code === '42P10') {
             const ids = uniqueData.map((o: any) => o.external_id);

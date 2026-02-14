@@ -411,6 +411,8 @@ export async function fetchOrders(
   );
 
   const orders = Array.isArray(response?.data) ? response.data : [];
+  
+  console.log(`📋 fetchOrders page=${page}: API response.data.length=${orders.length}`);
 
   return {
     orders,
