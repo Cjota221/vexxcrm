@@ -9,7 +9,7 @@
 
 import { normalizeProducts, type NormalizedProduct } from '@/lib/facilzap-normalizer';
 
-interface FacilZapConfig {
+export interface FacilZapConfig {
   token: string;       // Token da loja
   storeUrl?: string;   // URL da loja (opcional, para geração de links)
 }

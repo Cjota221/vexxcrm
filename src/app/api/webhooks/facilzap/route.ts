@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { PhoneNormalizer } from '@/lib/phone-normalizer';
+import { mapClients, upsertClients } from '@/lib/facilzap/mapper';
+import { SyncLogger } from '@/lib/facilzap/sync-logger';
 
 /**
  * POST /api/webhooks/facilzap
@@ -75,6 +77,15 @@ export async function POST(request: NextRequest) {
       case 'produto.criado':
       case 'produto.atualizado':
         await handleProductEvent(supabase, tenantId, body);
+        break;
+
+      case 'client.created':
+      case 'client.updated':
+      case 'cliente.criado':
+      case 'cliente.atualizado':
+      case 'cliente_criado':
+      case 'cliente_atualizado':
+        await handleClientEvent(supabase, tenantId, body);
         break;
 
       default:
@@ -340,5 +351,49 @@ async function updateClientStats(
     }
   } catch (error: any) {
     console.error('[Webhook FacilZap] Erro ao atualizar stats:', error.message);
+  }
+}
+
+/**
+ * Processa evento de cliente (criação/atualização).
+ * Usa mapper.ts para normalização rigorosa + PhoneNormalizer.
+ * NUNCA duplica: upsert por tenant_id + phone_normalized.
+ */
+async function handleClientEvent(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+  body: any
+) {
+  const clientRaw = body.data || body.cliente || body.client || body;
+
+  if (!clientRaw) {
+    console.warn('[Webhook FacilZap] Cliente sem dados, ignorando');
+    return;
+  }
+
+  // Usar mapper para normalização rigorosa
+  const { valid, rejected } = mapClients([clientRaw], tenantId, 'webhook');
+
+  if (rejected.length > 0) {
+    console.warn('[Webhook FacilZap] Cliente rejeitado:', rejected[0].reason);
+    // Log no sync_audit_log
+    const logger = new SyncLogger(supabase, tenantId, 'webhook', 'webhook');
+    await logger.start({ event: body.event || body.tipo });
+    logger.addError(`Cliente rejeitado: ${rejected[0].reason}`);
+    await logger.finish('error');
+    return;
+  }
+
+  if (valid.length === 0) {
+    console.warn('[Webhook FacilZap] Nenhum cliente válido no payload');
+    return;
+  }
+
+  const result = await upsertClients(supabase, valid);
+
+  if (result.failed > 0) {
+    console.error('[Webhook FacilZap] Erros ao salvar cliente:', result.errors);
+  } else {
+    console.log(`[Webhook FacilZap] Cliente ${valid[0].name} (${valid[0].phone}) salvo via webhook`);
   }
 }
