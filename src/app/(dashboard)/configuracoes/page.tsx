@@ -228,7 +228,7 @@ function FacilZapSettings({ config }: { config?: TenantConfig }) {
       // ETAPA 1: Sincronizar PRODUTOS (múltiplas páginas)
       let page = 1;
       let hasMore = true;
-      while (hasMore && page <= 10) {
+      while (hasMore && page <= 50) { // Aumentado de 10 para 50 páginas (5.000 produtos max)
         setSyncProgress(`📦 Sincronizando produtos... (página ${page})`);
         const res = await fetch('/api/facilzap/sync', {
           method: 'POST',
@@ -246,7 +246,7 @@ function FacilZapSettings({ config }: { config?: TenantConfig }) {
       // ETAPA 2: Sincronizar CLIENTES (múltiplas páginas)
       page = 1;
       hasMore = true;
-      while (hasMore && page <= 15) {
+      while (hasMore && page <= 100) { // Aumentado de 15 para 100 páginas (10.000 clientes max)
         setSyncProgress(`👥 Sincronizando clientes... (página ${page})`);
         const res = await fetch('/api/facilzap/sync', {
           method: 'POST',
@@ -264,19 +264,35 @@ function FacilZapSettings({ config }: { config?: TenantConfig }) {
       // ETAPA 3: Sincronizar PEDIDOS (múltiplas páginas)
       page = 1;
       hasMore = true;
-      while (hasMore && page <= 20) {
+      while (hasMore && page <= 100) { // Aumentado de 20 para 100 páginas (10.000 pedidos max)
         setSyncProgress(`🛒 Sincronizando pedidos... (página ${page})`);
-        const res = await fetch('/api/facilzap/sync', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ entity: 'orders', page }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Erro ao sincronizar pedidos');
-        totals.orders += data.results?.orders || 0;
-        if (data.results?.errors?.length) totals.errors.push(...data.results.errors);
-        hasMore = data.results?.hasMore?.orders || false;
-        page++;
+        try {
+          const res = await fetch('/api/facilzap/sync', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ entity: 'orders', page }),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            console.error(`[Sync] Erro na página ${page} de pedidos:`, data.error);
+            totals.errors.push(`Página ${page}: ${data.error}`);
+            // Se erro de servidor, tentar próxima página (pode ser temporário)
+            if (res.status >= 500) {
+              page++;
+              continue;
+            }
+            throw new Error(data.error || 'Erro ao sincronizar pedidos');
+          }
+          totals.orders += data.results?.orders || 0;
+          if (data.results?.errors?.length) totals.errors.push(...data.results.errors);
+          hasMore = data.results?.hasMore?.orders || false;
+          console.log(`[Sync] Página ${page}: ${data.results?.orders || 0} pedidos (total: ${totals.orders})`);
+          page++;
+        } catch (err: any) {
+          console.error(`[Sync] Exceção na página ${page}:`, err);
+          totals.errors.push(`Página ${page}: ${err.message}`);
+          break; // Para o loop se houver exceção não recuperável
+        }
       }
 
       setSyncProgress('✅ Sincronização completa!');
