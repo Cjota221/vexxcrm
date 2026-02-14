@@ -96,9 +96,24 @@ export async function POST(request: NextRequest) {
         const { clients, hasMore } = await fetchClients(facilzapConfig, page, 100);
         results.hasMore.clients = hasMore;
         if (clients.length > 0) {
+          // 🔍 DEBUG: Ver o que vem da API de clientes (primeiros 2)
+          if (page === 1 && clients.length > 0) {
+            console.log(`[Sync Clients] Exemplo de cliente da API:`, JSON.stringify(clients[0], null, 2));
+          }
+          
           const mapped = clients.map((c: any) => {
             // Priorizar whatsapp_e164 (com DDI), depois whatsapp, telefone, celular
             const ph = (c.whatsapp_e164 || c.whatsapp || c.telefone || c.celular || '').replace(/\D/g, '');
+            
+            // 🔍 DEBUG: Ver problemas de telefone
+            if (page === 1 && clients.indexOf(c) < 3) {
+              console.log(`[Sync Client Debug] ${c.nome}:`);
+              console.log(`  - whatsapp raw: "${c.whatsapp}"`);
+              console.log(`  - telefone raw: "${c.telefone}"`);
+              console.log(`  - ph limpo: "${ph}"`);
+              console.log(`  - canonical: "${ph ? PhoneNormalizer.canonical(ph) : 'N/A'}"`);
+            }
+            
             if (!ph) return null;
 
             // Normalizar telefone com PhoneNormalizer para matching confiável
