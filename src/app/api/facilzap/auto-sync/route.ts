@@ -360,8 +360,57 @@ export async function POST(request: NextRequest) {
       results.errors.push('Pedidos: ' + errorDetails);
     }
 
+    // ========================================
+    // RECALCULAR STATS (após pedidos)
+    // ========================================
+    if (results.orders > 0 || results.relinked > 0) {
+      try {
+        console.log('[Auto-Sync] 🔄 Recalculando stats dos clientes...');
+        
+        const { data: orders } = await supabaseAdmin
+          .from('orders')
+          .select('client_id, total, created_at')
+          .eq('tenant_id', tenantId)
+          .not('client_id', 'is', null);
+
+        const clientStats = new Map<string, { total: number; count: number; last: string }>();
+        
+        for (const order of orders || []) {
+          if (!order.client_id) continue;
+          const existing = clientStats.get(order.client_id) || { total: 0, count: 0, last: '' };
+          existing.total += Number(order.total) || 0;
+          existing.count += 1;
+          if (!existing.last || order.created_at > existing.last) {
+            existing.last = order.created_at;
+          }
+          clientStats.set(order.client_id, existing);
+        }
+
+        const updates = Array.from(clientStats.entries()).map(([clientId, stats]) => ({
+          id: clientId,
+          tenant_id: tenantId,
+          total_orders: stats.count,
+          ltv: Math.round(stats.total * 100) / 100,
+          avg_ticket: stats.count > 0 ? Math.round((stats.total / stats.count) * 100) / 100 : 0,
+          last_order_at: stats.last || null,
+        }));
+
+        let statsUpdated = 0;
+        for (let i = 0; i < updates.length; i += 100) {
+          const batch = updates.slice(i, i + 100);
+          await supabaseAdmin.from('clients').upsert(batch, { onConflict: 'id' });
+          statsUpdated += batch.length;
+        }
+
+        console.log(`[Auto-Sync] ✅ Stats recalculadas: ${statsUpdated} clientes`);
+        results.stats_updated = statsUpdated;
+      } catch (e: any) {
+        console.error('[Auto-Sync] Erro ao recalcular stats:', e.message);
+      }
+    }
+
     const duration = Date.now() - startTime;
-    console.log(`[Auto-Sync] Concluído em ${duration}ms: ${results.products}P ${results.clients}C ${results.orders}O (${results.relinked} revinculados)`);
+    console.log(`[Auto-Sync] Concluído em ${duration}ms: ${results.products}P ${results.clients}C ${results.orders}O (${results.relinked} revinculados, ${results.stats_updated || 0} stats atualizadas)`);
 
     return NextResponse.json({
       success: true,
