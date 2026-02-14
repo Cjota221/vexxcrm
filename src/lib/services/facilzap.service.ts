@@ -40,6 +40,7 @@ async function request<T>(
         signal: controller.signal,
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
           'Authorization': `Bearer ${config.token}`,
           ...options?.headers,
         },
