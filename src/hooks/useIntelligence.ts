@@ -463,3 +463,125 @@ export function useClientInsight(clientId: string | null) {
     staleTime: 2 * 60 * 1000,
   });
 }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   INTELLIGENCE V3 — Segment Clients & Seasonal Buyers
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+export interface SegmentClient {
+  id: string;
+  name: string;
+  phone: string;
+  email: string | null;
+  rfm_segment: string;
+  rfm_score: string | null;
+  rfm_recency: number | null;
+  rfm_frequency: number | null;
+  rfm_monetary: number | null;
+  churn_probability: number | null;
+  purchase_prob_30d: number | null;
+  ltv_projected_12m: number | null;
+  flag_auto_vip: boolean;
+  flag_churn_risk: boolean;
+  flag_needs_attention: boolean;
+  flag_upsell_ready: boolean;
+  total_orders: number | null;
+  avg_ticket: number | null;
+  total_spent: number | null;
+  last_order_at: string | null;
+  created_at: string;
+}
+
+interface SegmentClientsResponse {
+  success: boolean;
+  segment: string;
+  clients: SegmentClient[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    total_pages: number;
+  };
+  summary: {
+    total_clients: number;
+    total_spent: number;
+    avg_ticket: number;
+  };
+}
+
+/**
+ * Hook para listar clientes de um segmento RFM específico.
+ */
+export function useSegmentClients(segment: string | null, page = 1, search = '') {
+  return useQuery({
+    queryKey: ['intelligence', 'rfm', 'clients', segment, page, search],
+    queryFn: async () => {
+      if (!segment) return null;
+      const params: Record<string, string> = { segment, page: String(page), limit: '50' };
+      if (search) params.search = search;
+      const response = await api.get<SegmentClientsResponse>('/api/intelligence/rfm/clients', params);
+      if (response.error) throw new Error(response.error);
+      return response.data;
+    },
+    enabled: !!segment,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+export interface SeasonalBuyer {
+  client_id: string;
+  name: string;
+  phone: string;
+  email: string | null;
+  rfm_segment: string | null;
+  rfm_score: string | null;
+  is_vip: boolean;
+  is_at_risk: boolean;
+  seasonal_orders: number;
+  seasonal_spent: number;
+  seasonal_items: number;
+  seasonal_last_order: string;
+  total_orders: number;
+  total_spent: number;
+  avg_ticket: number;
+  last_order_at: string | null;
+}
+
+interface SeasonalBuyersResponse {
+  success: boolean;
+  event: string;
+  event_name: string;
+  year: number;
+  buyers: SeasonalBuyer[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    total_pages: number;
+  };
+  summary: {
+    total_buyers: number;
+    total_orders: number;
+    total_revenue: number;
+  };
+}
+
+/**
+ * Hook para listar compradores de um evento sazonal.
+ */
+export function useSeasonalBuyers(eventSlug: string | null, year?: number, page = 1) {
+  return useQuery({
+    queryKey: ['intelligence', 'seasonal', 'buyers', eventSlug, year, page],
+    queryFn: async () => {
+      if (!eventSlug) return null;
+      const params: Record<string, string> = { event: eventSlug, page: String(page), limit: '50' };
+      if (year) params.year = String(year);
+      const response = await api.get<SeasonalBuyersResponse>('/api/intelligence/seasonal/buyers', params);
+      if (response.error) throw new Error(response.error);
+      return response.data;
+    },
+    enabled: !!eventSlug,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
