@@ -15,6 +15,7 @@ import { PhoneNormalizer } from '@/lib/phone-normalizer';
  */
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
+  console.log('[AutoSync] 🔄 v2.1 - CPF+Nome matching enabled');
   try {
     const token = request.headers.get('Authorization')?.replace('Bearer ', '');
     if (!token) {
