@@ -51,9 +51,16 @@ async function request<T>(
       console.log(`✅ FacilZap Response: ${endpoint} (${duration}ms) - Status: ${response.status}`);
 
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ message: 'Erro desconhecido' }));
-        console.error(`❌ FacilZap Error ${response.status}:`, error);
-        throw new Error(error.message || `HTTP ${response.status}`);
+        const errorBody = await response.text().catch(() => '');
+        let errorMessage = `HTTP ${response.status}`;
+        try {
+          const parsed = JSON.parse(errorBody);
+          errorMessage = parsed.message || parsed.error || parsed.msg || errorMessage;
+        } catch {
+          if (errorBody) errorMessage += `: ${errorBody.slice(0, 200)}`;
+        }
+        console.error(`❌ FacilZap Error ${response.status}:`, errorMessage);
+        throw new Error(errorMessage);
       }
 
       return response.json();
@@ -114,11 +121,12 @@ export async function fetchProducts(
     `/produtos?page=${page}&length=${length}`
   );
 
-  const normalized = normalizeProducts(response.data as never[]);
+  const rawData = Array.isArray(response?.data) ? response.data : [];
+  const normalized = normalizeProducts(rawData as never[]);
 
   return {
     products: normalized,
-    hasMore: response.data.length > 0, // Se retornou itens, pode ter mais páginas
+    hasMore: rawData.length > 0,
   };
 }
 
@@ -229,9 +237,11 @@ export async function fetchClients(
     `/clientes?page=${page}&length=${length}`
   );
 
+  const clients = Array.isArray(response?.data) ? response.data : [];
+
   return {
-    clients: response.data,
-    hasMore: response.data.length > 0,
+    clients,
+    hasMore: clients.length > 0,
   };
 }
 
@@ -384,9 +394,11 @@ export async function fetchOrders(
     `/pedidos?${params.toString()}`
   );
 
+  const orders = Array.isArray(response?.data) ? response.data : [];
+
   return {
-    orders: response.data,
-    hasMore: response.data.length > 0,
+    orders,
+    hasMore: orders.length > 0,
   };
 }
 
