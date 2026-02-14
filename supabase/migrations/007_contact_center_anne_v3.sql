@@ -423,18 +423,35 @@ ALTER TABLE sentinela_rules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sentinela_learning_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sentinela_coupons ENABLE ROW LEVEL SECURITY;
 
--- Policies
+-- Policies (DROP antes para idempotência)
+DROP POLICY IF EXISTS "departments_tenant" ON departments;
 CREATE POLICY "departments_tenant" ON departments FOR ALL USING (tenant_id = public.get_tenant_id());
+
+DROP POLICY IF EXISTS "queues_tenant" ON queues;
 CREATE POLICY "queues_tenant" ON queues FOR ALL USING (tenant_id = public.get_tenant_id());
+
+DROP POLICY IF EXISTS "agent_queues_tenant" ON agent_queues;
 CREATE POLICY "agent_queues_tenant" ON agent_queues FOR ALL USING (tenant_id = public.get_tenant_id());
+
+DROP POLICY IF EXISTS "quick_actions_tenant" ON quick_actions;
 CREATE POLICY "quick_actions_tenant" ON quick_actions FOR ALL USING (tenant_id = public.get_tenant_id());
+
+DROP POLICY IF EXISTS "scheduled_messages_tenant" ON scheduled_messages;
 CREATE POLICY "scheduled_messages_tenant" ON scheduled_messages FOR ALL USING (tenant_id = public.get_tenant_id());
+
+DROP POLICY IF EXISTS "sentinela_analyses_tenant" ON sentinela_analyses;
 CREATE POLICY "sentinela_analyses_tenant" ON sentinela_analyses FOR ALL USING (tenant_id = public.get_tenant_id());
+
+DROP POLICY IF EXISTS "sentinela_rules_tenant" ON sentinela_rules;
 CREATE POLICY "sentinela_rules_tenant" ON sentinela_rules FOR ALL USING (tenant_id = public.get_tenant_id());
+
+DROP POLICY IF EXISTS "sentinela_learning_tenant" ON sentinela_learning_log;
 CREATE POLICY "sentinela_learning_tenant" ON sentinela_learning_log FOR ALL USING (tenant_id = public.get_tenant_id());
+
+DROP POLICY IF EXISTS "sentinela_coupons_tenant" ON sentinela_coupons;
 CREATE POLICY "sentinela_coupons_tenant" ON sentinela_coupons FOR ALL USING (tenant_id = public.get_tenant_id());
 
--- Triggers updated_at
+-- Triggers updated_at (DROP + CREATE para idempotência)
 DO $$
 DECLARE
   tbl TEXT;
@@ -445,7 +462,11 @@ BEGIN
   ])
   LOOP
     EXECUTE format(
-      'CREATE OR REPLACE TRIGGER trg_%s_updated_at
+      'DROP TRIGGER IF EXISTS trg_%s_updated_at ON %I',
+      tbl, tbl
+    );
+    EXECUTE format(
+      'CREATE TRIGGER trg_%s_updated_at
        BEFORE UPDATE ON %I
        FOR EACH ROW EXECUTE FUNCTION update_updated_at()',
       tbl, tbl
