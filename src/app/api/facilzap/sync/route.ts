@@ -191,11 +191,15 @@ export async function POST(request: NextRequest) {
         
         if (orders.length > 0) {
           const { data: ec } = await supabaseAdmin.from('clients').select('id, phone_normalized, phone, name, email, custom_fields').eq('tenant_id', tenantId);
+          console.log(`[Sync Orders] Página ${page}: ${ec?.length || 0} clientes no banco para matching`);
+          
           // Criar mapa de lookup com TODAS as variações → client_id
           const cm = new Map<string, string>();
           const fzIdMap = new Map<string, string>();
           const emailMap = new Map<string, string>();
           const nameMap = new Map<string, string>();
+          const cpfMap = new Map<string, string>(); // ← NOVO: map por CPF
+          
           for (const c of (ec || [])) {
             // Telefone (todas variações)
             for (const raw of [c.phone_normalized, c.phone]) {
@@ -210,11 +214,19 @@ export async function POST(request: NextRequest) {
             // FacilZap ID
             const fzId = (c.custom_fields as any)?.facilzap_id;
             if (fzId) fzIdMap.set(String(fzId), c.id);
+            // CPF/CNPJ
+            const cpf = (c.custom_fields as any)?.cpf || (c.custom_fields as any)?.cpf_cnpj;
+            if (cpf) {
+              const cleanCpf = String(cpf).replace(/\D/g, '');
+              if (cleanCpf) cpfMap.set(cleanCpf, c.id);
+            }
             // Email
             if (c.email) emailMap.set(c.email.toLowerCase().trim(), c.id);
             // Nome
             if (c.name && c.name !== 'Sem nome') nameMap.set(c.name.toLowerCase().trim(), c.id);
           }
+          
+          console.log(`[Sync Orders] Maps criados: ${cm.size} telefones, ${fzIdMap.size} facilzap_ids, ${cpfMap.size} CPFs, ${emailMap.size} emails, ${nameMap.size} nomes`);
 
           // Buscar produtos do tenant para cross-reference de imagens (SKU -> image_url)
           const { data: existingProducts } = await supabaseAdmin
@@ -235,6 +247,15 @@ export async function POST(request: NextRequest) {
           }
 
           const data = orders.map((o: any) => {
+            // 🔍 DEBUG: Log detalhado para pedidos específicos
+            const debugOrderIds = ['5252227', '3035791']; // IDs para debug
+            const isDebugOrder = debugOrderIds.includes(String(o.id));
+            
+            if (isDebugOrder) {
+              console.log(`\n🔍 [DEBUG] Pedido #${o.id} (${o.codigo || 'sem código'}):`);
+              console.log(`  - Cliente API:`, JSON.stringify(o.cliente, null, 2));
+            }
+            
             // Telefone do cliente: prioriza whatsapp_e164, whatsapp, telefone
             // API FacilZap retorna whatsapp sem DDI (ex: "31998573334")
             // e whatsapp_e164 com DDI (ex: "+5531998573334")
@@ -243,26 +264,58 @@ export async function POST(request: NextRequest) {
               || o.cliente?.telefone 
               || '';
             const ph = rawPhone.replace(/\D/g, '');
+            
+            if (isDebugOrder) {
+              console.log(`  - Telefone raw:`, rawPhone);
+              console.log(`  - Telefone limpo:`, ph);
+              console.log(`  - Telefone canonical:`, ph ? PhoneNormalizer.canonical(ph) : 'N/A');
+            }
 
             // Tentar encontrar client_id por várias estratégias
             let clientId: string | null = null;
+            let matchStrategy = 'nenhuma';
+            
             if (ph && ph.length >= 8) {
               clientId = cm.get(ph)
                 || cm.get(PhoneNormalizer.canonical(ph))
                 || cm.get(PhoneNormalizer.normalize(ph))
                 || null;
+              if (clientId) matchStrategy = 'telefone';
             }
             // Fallback: FacilZap ID do cliente
             if (!clientId && o.cliente?.id) {
               clientId = fzIdMap.get(String(o.cliente.id)) || null;
+              if (clientId) matchStrategy = 'facilzap_id';
+            }
+            // Fallback: CPF/CNPJ
+            if (!clientId && o.cliente?.cpf_cnpj) {
+              const cleanCpf = String(o.cliente.cpf_cnpj).replace(/\D/g, '');
+              if (cleanCpf) {
+                clientId = cpfMap.get(cleanCpf) || null;
+                if (clientId) matchStrategy = 'cpf';
+              }
             }
             // Fallback: Email
             if (!clientId && o.cliente?.email) {
               clientId = emailMap.get(o.cliente.email.toLowerCase().trim()) || null;
+              if (clientId) matchStrategy = 'email';
             }
             // Fallback: Nome (match exato)
             if (!clientId && o.cliente?.nome && o.cliente.nome !== 'Sem nome') {
               clientId = nameMap.get(o.cliente.nome.toLowerCase().trim()) || null;
+              if (clientId) matchStrategy = 'nome';
+            }
+            
+            if (isDebugOrder) {
+              console.log(`  - Match strategy: ${matchStrategy}`);
+              console.log(`  - Client ID encontrado:`, clientId || 'NULL (órfão)');
+              if (!clientId) {
+                console.log(`  ⚠️ ÓRFÃO! Dados disponíveis para match:`);
+                console.log(`     • FacilZap ID: ${o.cliente?.id || 'N/A'}`);
+                console.log(`     • Nome: ${o.cliente?.nome || 'N/A'}`);
+                console.log(`     • Email: ${o.cliente?.email || 'N/A'}`);
+                console.log(`     • CPF: ${o.cliente?.cpf_cnpj || 'N/A'}`);
+              }
             }
 
             // Status do pedido baseado nos campos booleanos (strings "0"/"1")
