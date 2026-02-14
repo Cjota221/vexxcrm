@@ -122,7 +122,11 @@ export async function POST(request: NextRequest) {
             status: clientStatus,
             address_city: c.cidade || null,
             address_state: c.estado || c.uf || null,
-            custom_fields: { facilzap_id: c.id || null, source: 'auto-sync' },
+            custom_fields: { 
+              facilzap_id: c.id || null, 
+              cpf_cnpj: c.cpf_cnpj || null,
+              source: 'auto-sync' 
+            },
           };
         }).filter(Boolean);
 
@@ -163,7 +167,10 @@ export async function POST(request: NextRequest) {
         console.log(`[AutoSync] Clientes no banco: ${ec?.length || 0}`);
         const cm = new Map<string, string>();
         const fzIdMap = new Map<string, string>();
+        const cpfMap = new Map<string, string>();
         const emailMap = new Map<string, string>();
+        const nameMap = new Map<string, string>();
+        
         for (const c of (ec || [])) {
           for (const raw of [c.phone_normalized, c.phone]) {
             if (!raw) continue;
@@ -175,8 +182,16 @@ export async function POST(request: NextRequest) {
           }
           const fzId = (c.custom_fields as any)?.facilzap_id;
           if (fzId) fzIdMap.set(String(fzId), c.id);
+          const cpf = (c.custom_fields as any)?.cpf || (c.custom_fields as any)?.cpf_cnpj;
+          if (cpf) {
+            const cleanCpf = String(cpf).replace(/\D/g, '');
+            if (cleanCpf) cpfMap.set(cleanCpf, c.id);
+          }
           if (c.email) emailMap.set(c.email.toLowerCase().trim(), c.id);
+          if (c.name && c.name !== 'Sem nome') nameMap.set(c.name.toLowerCase().trim(), c.id);
         }
+        
+        console.log(`[AutoSync] Maps: ${cm.size} phones, ${fzIdMap.size} fz_ids, ${cpfMap.size} cpfs, ${emailMap.size} emails, ${nameMap.size} names`);
 
         console.log(`[AutoSync] Mapeando pedidos para inserção...`);
         const data = orders.map((o: any) => {
@@ -184,11 +199,27 @@ export async function POST(request: NextRequest) {
           const ph = rawPhone.replace(/\D/g, '');
 
           let clientId: string | null = null;
+          // 1. Telefone
           if (ph && ph.length >= 8) {
             clientId = cm.get(ph) || cm.get(PhoneNormalizer.canonical(ph)) || null;
           }
-          if (!clientId && o.cliente?.id) clientId = fzIdMap.get(String(o.cliente.id)) || null;
-          if (!clientId && o.cliente?.email) clientId = emailMap.get(o.cliente.email.toLowerCase().trim()) || null;
+          // 2. FacilZap ID
+          if (!clientId && o.cliente?.id) {
+            clientId = fzIdMap.get(String(o.cliente.id)) || null;
+          }
+          // 3. CPF/CNPJ
+          if (!clientId && o.cliente?.cpf_cnpj) {
+            const cleanCpf = String(o.cliente.cpf_cnpj).replace(/\D/g, '');
+            if (cleanCpf) clientId = cpfMap.get(cleanCpf) || null;
+          }
+          // 4. Email
+          if (!clientId && o.cliente?.email) {
+            clientId = emailMap.get(o.cliente.email.toLowerCase().trim()) || null;
+          }
+          // 5. Nome
+          if (!clientId && o.cliente?.nome && o.cliente.nome !== 'Sem nome') {
+            clientId = nameMap.get(o.cliente.nome.toLowerCase().trim()) || null;
+          }
 
           let orderStatus = 'pending';
           if (isTruthy(o.status_entregue)) orderStatus = 'delivered';
@@ -266,8 +297,11 @@ export async function POST(request: NextRequest) {
           seenOrders.add(o.external_id);
           return true;
         });
+        
+        // Contar órfãos
+        const orphanCount = uniqueData.filter((o: any) => !o.client_id).length;
+        console.log(`[AutoSync] ${uniqueData.length} pedidos únicos: ${uniqueData.length - orphanCount} vinculados, ${orphanCount} órfãos (${Math.round(orphanCount/uniqueData.length*100)}%)`);
 
-        console.log(`[AutoSync] Inserindo ${uniqueData.length} pedidos únicos no banco...`);
         console.log(`[AutoSync] Inserindo ${uniqueData.length} pedidos únicos no banco...`);
         const { error } = await supabaseAdmin.from('orders').upsert(uniqueData, { onConflict: 'tenant_id,external_id' });
         if (error) {
