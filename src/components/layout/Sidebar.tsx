@@ -9,19 +9,12 @@ import {
   Megaphone,
   ShoppingBag,
   Package,
-  ShoppingCart,
   Settings,
   LayoutDashboard,
   ChevronLeft,
   ChevronRight,
-  RefreshCw,
-  Save,
-  Download,
   Brain,
-  FileUp,
   Headset,
-  Database,
-  Wrench,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/store/ui';
@@ -35,28 +28,17 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', href: '/', icon: <LayoutDashboard size={20} /> },
   { label: 'Central', href: '/central', icon: <Headset size={20} /> },
-  { label: 'Atendimento', href: '/atendimento', icon: <MessageCircle size={20} /> },
   { label: 'Clientes', href: '/clientes', icon: <Users size={20} /> },
-  { label: 'Campanhas', href: '/campanhas', icon: <Megaphone size={20} /> },
-  { label: 'Produtos', href: '/produtos', icon: <ShoppingBag size={20} /> },
   { label: 'Pedidos', href: '/pedidos', icon: <Package size={20} /> },
+  { label: 'Produtos', href: '/produtos', icon: <ShoppingBag size={20} /> },
+  { label: 'Campanhas', href: '/campanhas', icon: <Megaphone size={20} /> },
   { label: 'Inteligência', href: '/intelligence', icon: <Brain size={20} /> },
-  { label: 'Importação', href: '/importacao', icon: <FileUp size={20} /> },
-  { label: 'Carrinhos', href: '/carrinhos', icon: <ShoppingCart size={20} /> },
-  { label: 'Eng. Dados', href: '/engenharia-dados', icon: <Database size={20} /> },
-  { label: 'Manutenção', href: '/manutencao', icon: <Wrench size={20} /> },
   { label: 'Configurações', href: '/configuracoes', icon: <Settings size={20} /> },
-];
-
-const SYSTEM_ITEMS: NavItem[] = [
-  { label: 'Sincronizar', href: '#sync', icon: <RefreshCw size={20} /> },
-  { label: 'Salvar', href: '#save', icon: <Save size={20} /> },
-  { label: 'Baixar', href: '#download', icon: <Download size={20} /> },
 ];
 
 /**
  * Sidebar de navegação principal.
- * Full-height com flexbox vertical: Logo → Menu → flex-grow → Sistema → Versão.
+ * Full-height com flexbox vertical: Logo → Menu → flex-grow → Versão.
  */
 export function Sidebar() {
   const pathname = usePathname();
@@ -126,30 +108,6 @@ export function Sidebar() {
                 </Link>
               );
             })}
-          </div>
-
-          {/* Itens de sistema (na base do menu) */}
-          <div className="mt-4">
-            {sidebarExpanded && (
-              <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-txt-muted">
-                Sistema
-              </p>
-            )}
-            <div className="flex flex-col gap-1">
-              {SYSTEM_ITEMS.map((item) => (
-                <button
-                  key={item.label}
-                  className={cn(
-                    'flex items-center gap-3 px-3 py-3.5 rounded-xl text-sm font-medium transition-all duration-200 w-full',
-                    'text-txt-secondary hover:bg-slate-50 hover:text-txt-primary'
-                  )}
-                  title={!sidebarExpanded ? item.label : undefined}
-                >
-                  <span className="shrink-0 text-txt-muted">{item.icon}</span>
-                  {sidebarExpanded && <span>{item.label}</span>}
-                </button>
-              ))}
-            </div>
           </div>
         </div>
       </nav>
