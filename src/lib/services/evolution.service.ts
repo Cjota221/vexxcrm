@@ -1,20 +1,153 @@
 /**
- * Evolution API Service — Comunicação com a API Evolution (WhatsApp Business).
+ * Evolution API Service — SaaS Multi-Tenant Orchestrator.
  * 
- * Todas as funções recebem `apiUrl` e `apiKey` como parâmetros (SaaS multi-tenant).
- * Não lê variáveis de ambiente globais.
+ * Modelo SaaS: A GLOBAL_API_KEY e EVOLUTION_API_URL ficam APENAS no servidor.
+ * Cada tenant recebe uma instância isolada (vexx-{tenantId}).
+ * O lojista nunca vê credenciais da Evolution API.
+ * 
+ * Funções recebem EvolutionAPIConfig OU usam getGlobalConfig() + instanceName.
  */
 
-interface EvolutionAPIConfig {
-  apiUrl: string;      // Ex: https://evolution.vps.com
-  apiKey: string;      // Global API Key
-  instanceName: string; // Nome da instância do tenant
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TIPOS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export interface EvolutionAPIConfig {
+  apiUrl: string;
+  apiKey: string;
+  instanceName: string;
+}
+
+export interface InstanceProvisionResult {
+  instanceName: string;
+  status: 'created' | 'exists';
+  qrCode?: string;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// CONFIG GLOBAL (protegida no servidor)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Retorna as credenciais globais da Evolution API.
+ * NUNCA expostas ao client-side.
+ */
+export function getGlobalConfig(): { apiUrl: string; apiKey: string } {
+  const apiUrl = process.env.EVOLUTION_API_URL;
+  const apiKey = process.env.EVOLUTION_GLOBAL_KEY || process.env.EVOLUTION_API_KEY;
+
+  if (!apiUrl || !apiKey) {
+    throw new Error(
+      'Evolution API não configurada no servidor. ' +
+      'Defina EVOLUTION_API_URL e EVOLUTION_GLOBAL_KEY no .env'
+    );
+  }
+
+  return { apiUrl: apiUrl.replace(/\/$/, ''), apiKey };
 }
 
 /**
- * Cria uma nova instância WhatsApp para o tenant.
- * 
- * @param config - Configuração da Evolution API
+ * Gera o nome determinístico da instância para um tenant.
+ * Formato: vexx-{primeiros 12 chars do tenantId}
+ */
+export function getInstanceName(tenantId: string): string {
+  return `vexx-${tenantId.replace(/-/g, '').slice(0, 12)}`;
+}
+
+/**
+ * Monta o EvolutionAPIConfig completo para um tenant.
+ */
+export function getTenantEvolutionConfig(tenantId: string): EvolutionAPIConfig {
+  const { apiUrl, apiKey } = getGlobalConfig();
+  return { apiUrl, apiKey, instanceName: getInstanceName(tenantId) };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ORQUESTRADOR DE INSTÂNCIAS (SaaS Connect)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Provisiona ou recupera instância para um tenant.
+ * Se não existe, cria. Se existe, retorna status.
+ * Também configura webhook automaticamente.
+ */
+export async function provisionInstance(
+  tenantId: string,
+  webhookBaseUrl: string
+): Promise<InstanceProvisionResult> {
+  const config = getTenantEvolutionConfig(tenantId);
+  const { instanceName } = config;
+
+  // 1. Verificar se instância já existe
+  let status = 'close';
+  let instanceExists = false;
+  try {
+    status = await getInstanceStatus(config);
+    instanceExists = true;
+  } catch {
+    // Instância não existe, criar
+  }
+
+  // 2. Se já está conectada, retornar
+  if (status === 'open') {
+    return { instanceName, status: 'exists' };
+  }
+
+  // 3. Criar instância (ou recriar se desconectada)
+  const qrCode = await createInstance(config);
+
+  // 4. Configurar webhook apontando para nosso backend
+  if (!instanceExists) {
+    try {
+      await setInstanceWebhook(config, webhookBaseUrl, tenantId);
+    } catch (err) {
+      console.warn(`[Evolution] Erro ao configurar webhook para ${instanceName}:`, err);
+    }
+  }
+
+  return { instanceName, status: 'created', qrCode };
+}
+
+/**
+ * Configura o webhook da instância para apontar para nosso backend.
+ */
+async function setInstanceWebhook(
+  config: EvolutionAPIConfig,
+  webhookBaseUrl: string,
+  tenantId: string
+): Promise<void> {
+  const webhookUrl = `${webhookBaseUrl}/api/webhooks/evolution?tenant_id=${tenantId}`;
+
+  const response = await fetch(`${config.apiUrl}/webhook/set/${config.instanceName}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': config.apiKey,
+    },
+    body: JSON.stringify({
+      url: webhookUrl,
+      webhook_by_events: false,
+      webhook_base64: true,
+      events: [
+        'messages.upsert',
+        'messages.update',
+        'connection.update',
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    console.warn('[Evolution] Webhook set error:', err);
+  }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// CRUD DE INSTÂNCIAS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Cria uma nova instância WhatsApp.
  * @returns QR Code base64 para autenticação
  */
 export async function createInstance(config: EvolutionAPIConfig): Promise<string> {
@@ -32,7 +165,7 @@ export async function createInstance(config: EvolutionAPIConfig): Promise<string
   });
 
   if (!response.ok) {
-    const error = await response.json();
+    const error = await response.json().catch(() => ({}));
     throw new Error(error.message || 'Erro ao criar instância');
   }
 
@@ -42,8 +175,6 @@ export async function createInstance(config: EvolutionAPIConfig): Promise<string
 
 /**
  * Busca o status da conexão de uma instância.
- * 
- * @param config - Configuração da Evolution API
  * @returns Status: 'open' | 'close' | 'connecting'
  */
 export async function getInstanceStatus(config: EvolutionAPIConfig): Promise<string> {
@@ -63,83 +194,7 @@ export async function getInstanceStatus(config: EvolutionAPIConfig): Promise<str
 }
 
 /**
- * Envia mensagem de texto via WhatsApp.
- * 
- * @param config - Configuração da Evolution API
- * @param to - Número de destino (formato: 5562999998888)
- * @param text - Conteúdo da mensagem
- * @returns ID da mensagem enviada
- */
-export async function sendTextMessage(
-  config: EvolutionAPIConfig,
-  to: string,
-  text: string
-): Promise<string> {
-  const response = await fetch(`${config.apiUrl}/message/sendText/${config.instanceName}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': config.apiKey,
-    },
-    body: JSON.stringify({
-      number: to,
-      text,
-    }),
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || 'Erro ao enviar mensagem');
-  }
-
-  const data = await response.json();
-  return data.key?.id || '';
-}
-
-/**
- * Envia mensagem com mídia (imagem, vídeo, áudio, documento).
- * 
- * @param config - Configuração da Evolution API
- * @param to - Número de destino
- * @param mediaUrl - URL pública da mídia
- * @param caption - Legenda (opcional)
- * @param mediaType - Tipo: 'image' | 'video' | 'audio' | 'document'
- */
-export async function sendMediaMessage(
-  config: EvolutionAPIConfig,
-  to: string,
-  mediaUrl: string,
-  caption?: string,
-  mediaType: 'image' | 'video' | 'audio' | 'document' = 'image'
-): Promise<string> {
-  const endpoint = `${config.apiUrl}/message/send${mediaType.charAt(0).toUpperCase() + mediaType.slice(1)}/${config.instanceName}`;
-
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': config.apiKey,
-    },
-    body: JSON.stringify({
-      number: to,
-      mediaUrl,
-      caption,
-    }),
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || 'Erro ao enviar mídia');
-  }
-
-  const data = await response.json();
-  return data.key?.id || '';
-}
-
-/**
  * Deleta uma instância WhatsApp.
- * 
- * @param config - Configuração da Evolution API
  */
 export async function deleteInstance(config: EvolutionAPIConfig): Promise<void> {
   const response = await fetch(`${config.apiUrl}/instance/delete/${config.instanceName}`, {
@@ -156,8 +211,6 @@ export async function deleteInstance(config: EvolutionAPIConfig): Promise<void> 
 
 /**
  * Logout da instância (desconecta do WhatsApp).
- * 
- * @param config - Configuração da Evolution API
  */
 export async function logoutInstance(config: EvolutionAPIConfig): Promise<void> {
   const response = await fetch(`${config.apiUrl}/instance/logout/${config.instanceName}`, {
@@ -169,5 +222,119 @@ export async function logoutInstance(config: EvolutionAPIConfig): Promise<void> 
 
   if (!response.ok) {
     throw new Error('Erro ao fazer logout');
+  }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ENVIO DE MENSAGENS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Envia mensagem de texto via WhatsApp.
+ */
+export async function sendTextMessage(
+  config: EvolutionAPIConfig,
+  to: string,
+  text: string
+): Promise<string> {
+  const response = await fetch(`${config.apiUrl}/message/sendText/${config.instanceName}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': config.apiKey,
+    },
+    body: JSON.stringify({ number: to, text }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.message || 'Erro ao enviar mensagem');
+  }
+
+  const data = await response.json();
+  return data.key?.id || '';
+}
+
+/**
+ * Envia mensagem com mídia (imagem, vídeo, áudio, documento).
+ */
+export async function sendMediaMessage(
+  config: EvolutionAPIConfig,
+  to: string,
+  mediaUrl: string,
+  caption?: string,
+  mediaType: 'image' | 'video' | 'audio' | 'document' = 'image'
+): Promise<string> {
+  const typeCapitalized = mediaType.charAt(0).toUpperCase() + mediaType.slice(1);
+  const endpoint = `${config.apiUrl}/message/send${typeCapitalized}/${config.instanceName}`;
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': config.apiKey,
+    },
+    body: JSON.stringify({ number: to, mediaUrl, caption }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.message || 'Erro ao enviar mídia');
+  }
+
+  const data = await response.json();
+  return data.key?.id || '';
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ENCAMINHAMENTO DE MÍDIA PARA n8n
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export interface MediaForwardPayload {
+  tenantId: string;
+  messageId: string;
+  clientId: string;
+  mediaType: 'audio' | 'image' | 'video' | 'document';
+  mediaUrl: string;
+  mimetype?: string;
+  caption?: string;
+  senderPhone?: string;
+  senderName?: string;
+  timestamp: string;
+}
+
+/**
+ * Encaminha mídia recebida para o webhook do n8n para processamento
+ * (transcrição de áudio, visão computacional de imagens, etc).
+ */
+export async function forwardMediaToN8n(payload: MediaForwardPayload): Promise<void> {
+  const n8nWebhookUrl = process.env.N8N_MEDIA_WEBHOOK_URL;
+  if (!n8nWebhookUrl) {
+    console.log('[n8n] N8N_MEDIA_WEBHOOK_URL não configurada, ignorando transbordo de mídia');
+    return;
+  }
+
+  try {
+    const response = await fetch(n8nWebhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(process.env.N8N_WEBHOOK_SECRET
+          ? { 'x-webhook-secret': process.env.N8N_WEBHOOK_SECRET }
+          : {}),
+      },
+      body: JSON.stringify({
+        ...payload,
+        callbackUrl: `${process.env.NEXT_PUBLIC_APP_URL || ''}/api/anne/media-callback`,
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn('[n8n] Erro ao encaminhar mídia:', response.status);
+    } else {
+      console.log(`[n8n] Mídia ${payload.mediaType} encaminhada para processamento`);
+    }
+  } catch (err) {
+    console.warn('[n8n] Falha ao encaminhar mídia:', err);
   }
 }

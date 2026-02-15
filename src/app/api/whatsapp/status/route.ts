@@ -1,65 +1,55 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getTenantFromRequest, getTenantConfig } from '@/lib/auth-helpers';
-import { getInstanceStatus } from '@/lib/services/evolution.service';
+import { getTenantFromRequest } from '@/lib/auth-helpers';
+import { getTenantEvolutionConfig, getInstanceStatus, getGlobalConfig } from '@/lib/services/evolution.service';
 
 /**
  * GET /api/whatsapp/status
  * 
- * Retorna status da conexão WhatsApp do tenant.
- * Status possíveis: 'open' (conectado), 'close' (desconectado), 'connecting' (conectando)
+ * SaaS Status — Retorna status da conexão WhatsApp do tenant.
+ * Usa credenciais globais do servidor, sem expor ao client.
  */
 export async function GET(request: NextRequest) {
   try {
     const { tenantId } = await getTenantFromRequest(request);
-    const tenant = await getTenantConfig(tenantId);
 
-    // Se não tem instância configurada
-    if (!tenant.evolution_instance) {
+    // Verificar se Evolution API está configurada no servidor
+    try {
+      getGlobalConfig();
+    } catch {
       return NextResponse.json({
         success: true,
         status: 'close',
-        message: 'WhatsApp não configurado',
+        message: 'WhatsApp não disponível',
       });
     }
 
-    // Se não tem credenciais da Evolution API
-    if (!tenant.evolution_api_url || !tenant.evolution_api_key) {
-      return NextResponse.json({
-        success: true,
-        status: 'close',
-        message: 'Evolution API não configurada',
-      });
-    }
-
-    const config = {
-      apiUrl: tenant.evolution_api_url,
-      apiKey: tenant.evolution_api_key,
-      instanceName: tenant.evolution_instance,
-    };
+    const config = getTenantEvolutionConfig(tenantId);
 
     // Consultar status real na Evolution API
-    const status = await getInstanceStatus(config);
+    let status = 'close';
+    try {
+      status = await getInstanceStatus(config);
+    } catch {
+      // Instância não existe ainda
+    }
 
     return NextResponse.json({
       success: true,
       status,
-      instanceName: tenant.evolution_instance,
-      message: status === 'open' 
-        ? 'WhatsApp conectado' 
-        : status === 'connecting' 
-        ? 'Aguardando conexão' 
-        : 'WhatsApp desconectado',
+      instanceName: config.instanceName,
+      message: status === 'open'
+        ? 'WhatsApp conectado'
+        : status === 'connecting'
+          ? 'Aguardando conexão'
+          : 'WhatsApp desconectado',
     });
-
-  } catch (error: any) {
-    console.error('[Status] Erro:', error);
-    
-    // Se deu erro, provavelmente está desconectado
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Erro ao verificar status';
+    console.error('[Status] Erro:', message);
     return NextResponse.json({
       success: true,
       status: 'close',
       message: 'Erro ao verificar status',
-      error: error.message,
     });
   }
 }

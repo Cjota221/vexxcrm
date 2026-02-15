@@ -1,58 +1,51 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getTenantFromRequest, getTenantConfig } from '@/lib/auth-helpers';
-import { createInstance, getInstanceStatus } from '@/lib/services/evolution.service';
+import { getTenantFromRequest } from '@/lib/auth-helpers';
+import {
+  provisionInstance,
+  getTenantEvolutionConfig,
+  getInstanceStatus,
+  logoutInstance,
+  getInstanceName,
+} from '@/lib/services/evolution.service';
 import { createServerSupabaseClient } from '@/lib/supabase';
 
 /**
  * POST /api/whatsapp/connect
  * 
- * Conecta WhatsApp do tenant via Evolution API.
+ * SaaS Connect — Proxy seguro de QR Code.
+ * 
  * Fluxo:
- * 1. Verifica se tenant já tem instância configurada
- * 2. Se não tem, cria nova instância na Evolution API
- * 3. Retorna QR Code em base64 para escaneamento
- * 4. Atualiza dados do tenant no Supabase
+ * 1. Autentica o lojista (tenant_id via JWT)
+ * 2. Provisiona instância automaticamente (vexx-{tenantId})
+ * 3. Configura webhook apontando para nosso backend
+ * 4. Retorna APENAS o QR Code base64 (sem expor credenciais)
+ * 5. Salva instanceName no tenant
+ * 
+ * O lojista NUNCA vê a GLOBAL_API_KEY ou a URL da Evolution API.
  */
 export async function POST(request: NextRequest) {
   try {
-    // 1. Autenticação
     const { tenantId } = await getTenantFromRequest(request);
-    const tenant = await getTenantConfig(tenantId);
-
-    if (!tenant.evolution_api_url || !tenant.evolution_api_key) {
-      return NextResponse.json(
-        { error: 'Evolution API não configurada' },
-        { status: 400 }
-      );
-    }
-
     const supabase = createServerSupabaseClient();
+    const instanceName = getInstanceName(tenantId);
 
-    // 2. Verificar se já existe instância
-    let instanceName = tenant.evolution_instance;
+    // Detectar URL base para webhook
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin;
 
-    if (!instanceName) {
-      // Gerar nome único para a instância
-      instanceName = `tenant-${tenantId.slice(0, 8)}-${Date.now()}`;
-    }
+    // Provisionar instância (cria se não existe, retorna QR se desconectada)
+    const result = await provisionInstance(tenantId, appUrl);
 
-    const config = {
-      apiUrl: tenant.evolution_api_url,
-      apiKey: tenant.evolution_api_key,
-      instanceName,
-    };
+    // Salvar instanceName no tenant (idempotente)
+    await supabase
+      .from('tenants')
+      .update({
+        evolution_instance: instanceName,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', tenantId);
 
-    // 3. Verificar status atual da instância
-    let status = 'close';
-    try {
-      status = await getInstanceStatus(config);
-    } catch (error) {
-      // Instância não existe, será criada
-      console.log(`[Connect] Instância não existe, criando: ${instanceName}`);
-    }
-
-    // 4. Se status já está 'open', retornar sucesso
-    if (status === 'open') {
+    // Se já estava conectada
+    if (result.status === 'exists') {
       return NextResponse.json({
         success: true,
         status: 'open',
@@ -61,35 +54,18 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 5. Criar ou reconectar instância
-    const qrCodeBase64 = await createInstance(config);
-
-    // 6. Salvar instanceName no tenant (se era novo)
-    if (tenant.evolution_instance !== instanceName) {
-      await supabase
-        .from('tenants')
-        .update({ 
-          evolution_instance: instanceName,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', tenantId);
-    }
-
-    // 7. Retornar QR Code
+    // Retornar QR Code para escaneamento
     return NextResponse.json({
       success: true,
       status: 'connecting',
-      qrCode: qrCodeBase64, // QR Code em base64
+      qrCode: result.qrCode,
       instanceName,
       message: 'Escaneie o QR Code no WhatsApp',
     });
-
-  } catch (error: any) {
-    console.error('[Connect] Erro:', error);
-    return NextResponse.json(
-      { error: error.message || 'Erro ao conectar WhatsApp' },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Erro ao conectar WhatsApp';
+    console.error('[Connect] Erro:', message);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -97,26 +73,27 @@ export async function POST(request: NextRequest) {
  * DELETE /api/whatsapp/connect
  * 
  * Desconecta WhatsApp (logout da instância).
+ * Usa credenciais globais — lojista não precisa saber nada.
  */
 export async function DELETE(request: NextRequest) {
   try {
     const { tenantId } = await getTenantFromRequest(request);
-    const tenant = await getTenantConfig(tenantId);
+    const config = getTenantEvolutionConfig(tenantId);
 
-    if (!tenant.evolution_instance) {
-      return NextResponse.json(
-        { error: 'WhatsApp não conectado' },
-        { status: 400 }
-      );
+    // Verificar se está conectada antes de desconectar
+    let status = 'close';
+    try {
+      status = await getInstanceStatus(config);
+    } catch {
+      // Instância não existe
     }
 
-    const { logoutInstance } = await import('@/lib/services/evolution.service');
-    
-    const config = {
-      apiUrl: tenant.evolution_api_url!,
-      apiKey: tenant.evolution_api_key!,
-      instanceName: tenant.evolution_instance,
-    };
+    if (status === 'close') {
+      return NextResponse.json({
+        success: true,
+        message: 'WhatsApp já estava desconectado',
+      });
+    }
 
     await logoutInstance(config);
 
@@ -124,13 +101,10 @@ export async function DELETE(request: NextRequest) {
       success: true,
       message: 'WhatsApp desconectado',
     });
-
-  } catch (error: any) {
-    console.error('[Disconnect] Erro:', error);
-    return NextResponse.json(
-      { error: error.message || 'Erro ao desconectar' },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Erro ao desconectar';
+    console.error('[Disconnect] Erro:', message);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 

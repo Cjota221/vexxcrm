@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getTenantFromRequest, getTenantConfig } from '@/lib/auth-helpers';
-import { sendTextMessage, sendMediaMessage } from '@/lib/services/evolution.service';
+import { getTenantFromRequest } from '@/lib/auth-helpers';
+import { sendTextMessage, sendMediaMessage, getTenantEvolutionConfig } from '@/lib/services/evolution.service';
 import { PhoneNormalizer } from '@/lib/phone-normalizer';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limiter';
@@ -8,8 +8,8 @@ import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limiter';
 /**
  * POST /api/whatsapp/send
  * 
- * Envia mensagem via WhatsApp (Evolution API).
- * Body: { to: string, content: string, type?: 'text' | 'image' | 'video', mediaUrl?: string }
+ * SaaS Send — Envia mensagem via WhatsApp usando credenciais globais.
+ * Isolamento: config montada a partir do tenantId, impossível acessar instância de outro.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -24,14 +24,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const tenant = await getTenantConfig(tenantId);
-
-    if (!tenant.evolution_instance || !tenant.evolution_api_url || !tenant.evolution_api_key) {
-      return NextResponse.json(
-        { error: 'WhatsApp não configurado' },
-        { status: 400 }
-      );
-    }
+    // Config montada a partir do tenantId (credenciais globais + instanceName isolado)
+    const config = getTenantEvolutionConfig(tenantId);
 
     const body = await request.json();
     const { to, content, type = 'text', mediaUrl, caption } = body;
@@ -42,12 +36,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-
-    const config = {
-      apiUrl: tenant.evolution_api_url,
-      apiKey: tenant.evolution_api_key,
-      instanceName: tenant.evolution_instance,
-    };
 
     // Normalizar telefone (adicionar DDI se necessário)
     const phoneNormalized = PhoneNormalizer.canonical(to);

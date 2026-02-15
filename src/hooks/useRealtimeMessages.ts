@@ -63,6 +63,26 @@ export function useRealtimeMessages() {
                   ? 'connecting'
                   : 'disconnected'
             );
+            // Invalidar config para refletir novo status
+            queryClient.invalidateQueries({ queryKey: ['tenant-config'] });
+            queryClient.invalidateQueries({ queryKey: ['whatsapp-status'] });
+            break;
+          }
+
+          case 'media_transcription': {
+            // IA processou áudio/imagem — recarregar mensagens
+            const payload = data as { client_id: string; message_id: string };
+            queryClient.invalidateQueries({
+              queryKey: ['messages', payload.client_id],
+            });
+            break;
+          }
+
+          case 'anne_notification': {
+            // Notificação da Anne (ex: boas-vindas ao conectar)
+            const payload = data as { message: string; type: string };
+            console.log(`[Anne] ${payload.type}: ${payload.message}`);
+            // O componente de notificações pode ouvir este event
             break;
           }
         }

@@ -88,11 +88,29 @@ export async function GET(request: NextRequest) {
           } catch { /* connection closed */ }
         };
 
+        // Listener: media_transcription (IA processou áudio/imagem)
+        const onMediaTranscription = (data: unknown) => {
+          try {
+            const event = `data: ${JSON.stringify({ type: 'media_transcription', data, timestamp: new Date().toISOString() })}\n\n`;
+            controller.enqueue(encoder.encode(event));
+          } catch { /* connection closed */ }
+        };
+
+        // Listener: anne_notification (boas-vindas, alertas)
+        const onAnneNotification = (data: unknown) => {
+          try {
+            const event = `data: ${JSON.stringify({ type: 'anne_notification', data, timestamp: new Date().toISOString() })}\n\n`;
+            controller.enqueue(encoder.encode(event));
+          } catch { /* connection closed */ }
+        };
+
         // Registrar listeners
         eventBus.onTenant('new_message', tenantId, onNewMessage);
         eventBus.onTenant('message_status', tenantId, onMessageStatus);
         eventBus.onTenant('typing_indicator', tenantId, onTyping);
         eventBus.onTenant('connection_update', tenantId, onConnection);
+        eventBus.onTenant('media_transcription', tenantId, onMediaTranscription);
+        eventBus.onTenant('anne_notification', tenantId, onAnneNotification);
 
         // Cleanup ao desconectar
         request.signal.addEventListener('abort', () => {
@@ -101,6 +119,8 @@ export async function GET(request: NextRequest) {
           eventBus.offTenant('message_status', tenantId, onMessageStatus);
           eventBus.offTenant('typing_indicator', tenantId, onTyping);
           eventBus.offTenant('connection_update', tenantId, onConnection);
+          eventBus.offTenant('media_transcription', tenantId, onMediaTranscription);
+          eventBus.offTenant('anne_notification', tenantId, onAnneNotification);
           try { controller.close(); } catch { /* already closed */ }
         });
 

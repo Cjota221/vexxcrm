@@ -165,24 +165,91 @@ function IntegrationsTab({ config }: { config?: TenantConfig }) {
 
 function WhatsAppSettings({ config }: { config?: TenantConfig }) {
   const evolution = config?.evolution;
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [qrCode, setQrCode] = useState<string | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const { accessToken } = useAuthStore();
+  const queryClient = useQueryClient();
+
+  const handleConnect = async () => {
+    setIsConnecting(true); setConnectionError(null); setQrCode(null);
+    try {
+      const res = await fetch('/api/whatsapp/connect', {
+        method: 'POST',
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erro ao conectar');
+      if (data.status === 'connecting' && data.qrCode) {
+        setQrCode(data.qrCode);
+      } else if (data.status === 'open') {
+        queryClient.invalidateQueries({ queryKey: ['tenant-config'] });
+        queryClient.invalidateQueries({ queryKey: ['whatsapp-status'] });
+      }
+    } catch (err: unknown) {
+      setConnectionError(err instanceof Error ? err.message : 'Erro ao conectar');
+    } finally { setIsConnecting(false); }
+  };
+
+  const handleDisconnect = async () => {
+    try {
+      await fetch('/api/whatsapp/connect', {
+        method: 'DELETE',
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+      });
+      setQrCode(null);
+      queryClient.invalidateQueries({ queryKey: ['tenant-config'] });
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-status'] });
+    } catch { /* silent */ }
+  };
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle><Wifi size={16} /> Evolution API (WhatsApp)</CardTitle>
-        {evolution?.status && (
-          <Badge variant={evolution.status === 'open' ? 'success' : 'danger'}>
-            {evolution.status === 'open' ? 'Conectado' : 'Desconectado'}
-          </Badge>
-        )}
+        <CardTitle><Wifi size={16} /> WhatsApp</CardTitle>
+        <Badge variant={evolution?.status === 'open' ? 'success' : 'neutral'}>
+          {evolution?.status === 'open' ? 'Conectado' : 'Desconectado'}
+        </Badge>
       </CardHeader>
       <div className="px-6 pb-6 space-y-4">
-        <Input label="URL do servidor" placeholder="https://api.evolution.com" defaultValue={evolution?.url || ''} />
-        <Input label="API Key" type="password" placeholder="••••••••" defaultValue={evolution?.api_key || ''} />
-        <Input label="Nome da instância" placeholder="vexx-crm" defaultValue={evolution?.instance_name || ''} />
-        <div className="flex gap-2 pt-2">
-          <Button variant="primary"><Save size={16} /> Salvar</Button>
-          <Button variant="secondary"><RefreshCw size={16} /> Reconectar</Button>
-        </div>
+        {evolution?.status === 'open' ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+              <CheckCircle size={24} className="text-emerald-500" />
+              <div>
+                <p className="text-sm font-semibold text-emerald-700">WhatsApp Ativo</p>
+                <p className="text-xs text-emerald-600 mt-0.5">Monitorando mensagens em tempo real</p>
+              </div>
+            </div>
+            <Button variant="ghost" onClick={handleDisconnect} className="text-red-600 hover:bg-red-50">
+              <AlertCircle size={14} /> Desconectar
+            </Button>
+          </div>
+        ) : qrCode ? (
+          <div className="space-y-3 text-center">
+            <p className="text-sm text-txt-secondary">Escaneie o QR Code com seu WhatsApp</p>
+            <div className="inline-block p-4 bg-white rounded-xl border shadow-sm">
+              <img src={qrCode.startsWith('data:') ? qrCode : `data:image/png;base64,${qrCode}`} alt="QR Code" className="w-56 h-56" />
+            </div>
+            <p className="text-xs text-txt-muted">Abra o WhatsApp {'>'} Menu {'>'} Aparelhos conectados {'>'} Conectar aparelho</p>
+            <Button variant="secondary" onClick={handleConnect}>
+              <RefreshCw size={14} /> Gerar novo QR Code
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-txt-secondary">Conecte seu WhatsApp para receber e enviar mensagens diretamente pelo CRM.</p>
+            {connectionError && (
+              <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl">
+                <AlertCircle size={14} className="text-red-500 shrink-0" />
+                <p className="text-xs text-red-600">{connectionError}</p>
+              </div>
+            )}
+            <Button variant="primary" onClick={handleConnect} disabled={isConnecting}>
+              <Wifi size={14} /> {isConnecting ? 'Gerando QR Code...' : 'Conectar WhatsApp'}
+            </Button>
+          </div>
+        )}
       </div>
     </Card>
   );
