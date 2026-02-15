@@ -16,6 +16,7 @@ export interface TenantConfigFacilzap {
   token: string;
   site_url?: string;
   enabled: boolean;
+  has_token?: boolean; // Indica se token existe (key mascarada no GET)
 }
 
 export interface TenantConfigEvolution {
@@ -23,6 +24,7 @@ export interface TenantConfigEvolution {
   api_key: string;
   instance_name: string;
   status?: 'open' | 'close' | 'connecting';
+  has_key?: boolean; // Indica se API key existe (key mascarada no GET)
 }
 
 export interface TenantConfigOpenAI {
@@ -32,6 +34,7 @@ export interface TenantConfigOpenAI {
   system_prompt?: string;
   provider?: string;  // openai, anthropic, google, groq, deepseek, custom
   base_url?: string;  // URL base customizada para provedores alternativos
+  has_key?: boolean; // Indica se API key existe (key mascarada no GET)
 }
 
 export interface TenantPreferences {

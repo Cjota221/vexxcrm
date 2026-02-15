@@ -27,7 +27,10 @@ import {
 import { SyncLogger, isSyncRunning } from '@/lib/facilzap/sync-logger';
 import { PhoneNormalizer } from '@/lib/phone-normalizer';
 
-const CRON_SECRET = process.env.CRON_SECRET || process.env.SUPABASE_SERVICE_KEY || '';
+const CRON_SECRET = process.env.CRON_SECRET || process.env.SUPABASE_SERVICE_KEY;
+if (!CRON_SECRET) {
+  console.error('❌ CRON_SECRET não configurado! Cron sync desabilitado.');
+}
 const MAX_PAGES = 10; // Máximo de páginas por execução
 const DAYS_BACK = 7;  // Buscar pedidos dos últimos 7 dias
 
@@ -50,7 +53,7 @@ async function handleSync(request: NextRequest) {
   const authHeader = request.headers.get('authorization')?.replace('Bearer ', '') || '';
   const cronKey = request.headers.get('x-cron-secret') || '';
 
-  if (CRON_SECRET && authHeader !== CRON_SECRET && cronKey !== CRON_SECRET) {
+  if (!CRON_SECRET || (authHeader !== CRON_SECRET && cronKey !== CRON_SECRET)) {
     return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
   }
 

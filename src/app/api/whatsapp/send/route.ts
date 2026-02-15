@@ -3,6 +3,7 @@ import { getTenantFromRequest, getTenantConfig } from '@/lib/auth-helpers';
 import { sendTextMessage, sendMediaMessage } from '@/lib/services/evolution.service';
 import { PhoneNormalizer } from '@/lib/phone-normalizer';
 import { createServerSupabaseClient } from '@/lib/supabase';
+import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limiter';
 
 /**
  * POST /api/whatsapp/send
@@ -13,6 +14,16 @@ import { createServerSupabaseClient } from '@/lib/supabase';
 export async function POST(request: NextRequest) {
   try {
     const { tenantId } = await getTenantFromRequest(request);
+
+    // Rate limiting por tenant
+    const rl = checkRateLimit(`whatsapp-send:${tenantId}`, RATE_LIMITS.WHATSAPP_SEND);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Muitas mensagens enviadas. Aguarde um momento.' },
+        { status: 429 }
+      );
+    }
+
     const tenant = await getTenantConfig(tenantId);
 
     if (!tenant.evolution_instance || !tenant.evolution_api_url || !tenant.evolution_api_key) {

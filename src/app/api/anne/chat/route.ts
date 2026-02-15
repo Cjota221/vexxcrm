@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createAuthenticatedClient } from '@/lib/supabase';
 import { chat } from '@/lib/services/anne.service';
+import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limiter';
 
 /**
  * POST /api/anne/chat
@@ -34,10 +35,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Perfil não encontrado' }, { status: 404 });
     }
 
+    // ── Rate limiting ──────────────────────────
+    const rl = checkRateLimit(`anne-chat:${profile.tenant_id}`, RATE_LIMITS.ANNE_CHAT);
+    if (!rl.allowed) {
+      return NextResponse.json({
+        data: {
+          reply: '⚠️ Muitas mensagens em pouco tempo. Aguarde alguns segundos e tente novamente.',
+          actions: [],
+        },
+      });
+    }
+
     // ── Buscar config do tenant ────────────────
     const { data: tenant } = await supabase
       .from('tenants')
-      .select('openai_api_key, name')
+      .select('openai_api_key, openai_model, name')
       .eq('id', profile.tenant_id)
       .single();
 
@@ -149,10 +161,13 @@ Se dados do cliente forem fornecidos no contexto, estruture sua resposta assim:
     const systemPrompt = defaultPrompt;
 
     // ── Chamar IA ──────────────────────────────
+    // Usar modelo configurado pelo tenant ou fallback
+    const aiModel = tenant.openai_model || 'gpt-4o-mini';
+
     const response = await chat(
       {
         apiKey: tenant.openai_api_key,
-        model: 'gpt-4o-mini',
+        model: aiModel,
         systemPrompt,
         maxTokens: 500,
       },

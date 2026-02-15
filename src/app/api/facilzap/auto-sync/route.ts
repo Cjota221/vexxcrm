@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { fetchProducts, fetchOrders, fetchClients } from '@/lib/services/facilzap.service';
 import { PhoneNormalizer } from '@/lib/phone-normalizer';
+import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limiter';
 
 /**
  * POST /api/facilzap/auto-sync
@@ -52,6 +53,15 @@ export async function POST(request: NextRequest) {
 
     if (!tenantData?.facilzap_token) {
       return NextResponse.json({ error: 'Token FacilZap nao configurado' }, { status: 400 });
+    }
+
+    // ── Rate limiting: evitar syncs simultâneos ──
+    const rl = checkRateLimit(`auto-sync:${profile.tenant_id}`, RATE_LIMITS.AUTO_SYNC);
+    if (!rl.allowed) {
+      return NextResponse.json({ 
+        message: 'Sync já em andamento, aguarde', 
+        skipped: true 
+      });
     }
 
     const facilzapConfig = { token: tenantData.facilzap_token };

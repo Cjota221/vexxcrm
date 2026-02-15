@@ -124,7 +124,8 @@ function WhatsAppSettings({ config }: { config?: TenantConfig }) {
 
 function FacilZapSettings({ config }: { config?: TenantConfig }) {
   const { updateConfig, isUpdating } = useTenantConfig();
-  const [token, setToken] = useState(config?.facilzap?.token || '');
+  // Não preencher com valor mascarado — iniciar vazio, mostrar placeholder se configurado
+  const [token, setToken] = useState('');
   const [siteUrl, setSiteUrl] = useState(config?.facilzap?.site_url || '');
   const [isSyncing, setIsSyncing] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
@@ -144,14 +145,19 @@ function FacilZapSettings({ config }: { config?: TenantConfig }) {
 
   const handleSave = async () => {
     try {
-      await updateConfig({
+      const update: Record<string, unknown> = {
         facilzap: {
-          enabled: !!token,
-          token,
           site_url: siteUrl,
-        },
-      });
+        } as Record<string, unknown>,
+      };
+      // Só enviar token se o usuário digitou um novo (não sobrescrever com vazio)
+      if (token.trim()) {
+        (update.facilzap as Record<string, unknown>).enabled = true;
+        (update.facilzap as Record<string, unknown>).token = token.trim();
+      }
+      await updateConfig(update);
       alert('✅ Configurações do FacilZap salvas com sucesso!');
+      setToken(''); // Limpar input após salvar
     } catch (error) {
       alert('❌ Erro ao salvar: ' + (error as Error).message);
     }
@@ -203,7 +209,7 @@ function FacilZapSettings({ config }: { config?: TenantConfig }) {
   };
 
   const handleSync = async () => {
-    if (!config?.facilzap?.token) {
+    if (!config?.facilzap?.has_token && !config?.facilzap?.enabled) {
       alert('⚠️ Configure e salve o token do FacilZap primeiro!');
       return;
     }
@@ -445,24 +451,30 @@ function AnneSettings({ config }: { config?: TenantConfig }) {
   const { updateConfig, isUpdating } = useTenantConfig();
   const openai = config?.openai;
   const [provider, setProvider] = useState(openai?.provider || 'openai');
-  const [apiKey, setApiKey] = useState(openai?.api_key || '');
+  // Não preencher com valor mascarado — iniciar vazio
+  const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState(openai?.base_url || '');
   const [model, setModel] = useState(openai?.model || 'gpt-4o');
   const [systemPrompt, setSystemPrompt] = useState(openai?.system_prompt || '');
 
   const handleSave = async () => {
     try {
-      await updateConfig({
+      const update: Record<string, unknown> = {
         openai: {
-          enabled: !!apiKey,
-          api_key: apiKey,
           model,
           system_prompt: systemPrompt,
           provider,
           base_url: baseUrl,
-        },
-      });
+        } as Record<string, unknown>,
+      };
+      // Só enviar api_key se o usuário digitou uma nova
+      if (apiKey.trim()) {
+        (update.openai as Record<string, unknown>).enabled = true;
+        (update.openai as Record<string, unknown>).api_key = apiKey.trim();
+      }
+      await updateConfig(update);
       alert('✅ Configurações da IA salvas com sucesso!');
+      setApiKey(''); // Limpar input após salvar
     } catch (error) {
       alert('❌ Erro ao salvar: ' + (error as Error).message);
     }

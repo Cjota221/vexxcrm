@@ -44,16 +44,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Fallback: tentar identificar pelo tenant_id ou store_id no body
-    if (!tenantId && (body.tenant_id || body.store_id)) {
-      const storeId = body.tenant_id || body.store_id;
-      const { data: tenant } = await supabase
-        .from('tenants')
-        .select('id')
-        .eq('id', storeId)
-        .single();
-      if (tenant) tenantId = tenant.id;
-    }
+    // SECURITY: Não usar body.tenant_id/body.store_id como fallback
+    // Isso permitiria injeção cross-tenant via payload malicioso
 
     if (!tenantId) {
       console.warn('[Webhook FacilZap] Tenant não identificado');

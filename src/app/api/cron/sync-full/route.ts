@@ -35,7 +35,10 @@ import {
 import { SyncLogger, isSyncRunning } from '@/lib/facilzap/sync-logger';
 import { runQuickChecksum } from '@/lib/facilzap/checksum';
 
-const CRON_SECRET = process.env.CRON_SECRET || process.env.SUPABASE_SERVICE_KEY || '';
+const CRON_SECRET = process.env.CRON_SECRET || process.env.SUPABASE_SERVICE_KEY;
+if (!CRON_SECRET) {
+  console.error('❌ CRON_SECRET não configurado! Cron full-sync desabilitado.');
+}
 
 export async function POST(request: NextRequest) {
   return handleFullSync(request);
@@ -52,7 +55,7 @@ async function handleFullSync(request: NextRequest) {
   const authHeader = request.headers.get('authorization')?.replace('Bearer ', '') || '';
   const cronKey = request.headers.get('x-cron-secret') || '';
 
-  if (CRON_SECRET && authHeader !== CRON_SECRET && cronKey !== CRON_SECRET) {
+  if (!CRON_SECRET || (authHeader !== CRON_SECRET && cronKey !== CRON_SECRET)) {
     return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
   }
 

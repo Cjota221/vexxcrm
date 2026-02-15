@@ -12,12 +12,19 @@ import type { EvolutionWebhookPayload } from '@/types';
  */
 export async function POST(request: NextRequest) {
   try {
-    // 1. Validar origem (opcional: HMAC signature)
-    const allowedIPs = process.env.EVOLUTION_ALLOWED_IPS?.split(',').filter(Boolean) || [];
-    const clientIP = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '';
-
-    if (allowedIPs.length > 0 && !allowedIPs.includes(clientIP)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    // 1. Validar origem — API key ou IP whitelist
+    const webhookSecret = process.env.EVOLUTION_WEBHOOK_SECRET;
+    const apiKeyHeader = request.headers.get('x-webhook-secret') || request.headers.get('apikey') || '';
+    
+    // Se EVOLUTION_WEBHOOK_SECRET configurado, exigir match
+    if (webhookSecret && apiKeyHeader !== webhookSecret) {
+      const allowedIPs = process.env.EVOLUTION_ALLOWED_IPS?.split(',').filter(Boolean) || [];
+      const clientIP = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '';
+      
+      if (allowedIPs.length === 0 || !allowedIPs.includes(clientIP)) {
+        console.warn(`[Webhook Evolution] Acesso negado - IP: ${clientIP}, apikey: ${apiKeyHeader ? 'presente' : 'ausente'}`);
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
     }
 
     const payload: EvolutionWebhookPayload = await request.json();
@@ -85,9 +92,15 @@ async function handleNewMessage(
 
   // Resolver @lid se necessário
   if (remoteJid.includes('@lid')) {
-    // TODO: Implementar resolução de @lid via Evolution API
-    console.warn(`[Webhook] JID @lid detectado: ${remoteJid}`);
-    return;
+    // @lid são IDs internos do WhatsApp Business — salvar com ID como referência
+    console.warn(`[Webhook] JID @lid detectado: ${remoteJid}, salvando com ID de referência`);
+    // Usar o ID numérico como telefone temporário para não perder a mensagem
+    phone = remoteJid.replace('@lid', '');
+    // Se o phone extraído não parece um número de telefone válido, ignorar
+    if (phone.length < 8 || phone.length > 15) {
+      console.warn(`[Webhook] @lid com ID inválido (${phone}), descartando`);
+      return;
+    }
   }
 
   // Normalizar telefone
