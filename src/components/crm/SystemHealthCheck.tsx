@@ -51,13 +51,15 @@ export function SystemHealthCheck() {
   const [isRecalculating, setIsRecalculating] = useState(false);
 
   // Query health check
-  const { data: health, isLoading, refetch } = useQuery<HealthCheckData>({
+  const { data: health, isLoading, error, refetch } = useQuery<HealthCheckData>({
     queryKey: ['system-health'],
     queryFn: async (): Promise<HealthCheckData> => {
       const response = await api.get('/maintenance/health-check');
       return response.data as HealthCheckData;
     },
     refetchInterval: 60000, // Atualiza a cada 1 minuto
+    retry: 3,
+    retryDelay: 1000,
   });
 
   // Mutation para recalcular stats
@@ -82,6 +84,30 @@ export function SystemHealthCheck() {
           <div className="flex items-center gap-3">
             <RefreshCw className="animate-spin" size={20} />
             <span>Verificando saúde do sistema...</span>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card>
+        <div className="p-6">
+          <div className="text-center space-y-4">
+            <AlertCircle size={48} className="mx-auto text-yellow-500" />
+            <div>
+              <h3 className="text-lg font-bold text-txt-primary mb-2">
+                Funcionalidade em Deploy
+              </h3>
+              <p className="text-sm text-txt-secondary mb-4">
+                O sistema de health check está sendo implantado. Aguarde alguns minutos e recarregue a página.
+              </p>
+              <Button onClick={() => refetch()} variant="ghost">
+                <RefreshCw size={16} />
+                Tentar Novamente
+              </Button>
+            </div>
           </div>
         </div>
       </Card>
