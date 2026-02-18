@@ -35,38 +35,26 @@ export async function GET(
       client = directClient;
     }
 
-    // Estratégia 2: Buscar pela conversation_id e pegar o telefone
+    // Estratégia 2: Buscar pela conversation_id e pegar o client_id
     if (!client) {
       const { data: conversation } = await supabase
         .from('conversations')
-        .select('id, contact_phone, contact_name')
+        .select('id, client_id, client:clients!conversations_client_id_fkey(id, name, phone, phone_normalized)')
         .eq('id', id)
         .eq('tenant_id', tenantId)
         .maybeSingle();
 
-      if (conversation?.contact_phone) {
-        const phoneCanonical = PhoneNormalizer.canonical(conversation.contact_phone);
-        
-        // Buscar cliente pelo telefone canônico
-        const { data: phoneClient } = await supabase
+      if (conversation?.client) {
+        // Buscar cliente completo
+        const { data: fullClient } = await supabase
           .from('clients')
           .select('*')
+          .eq('id', conversation.client_id)
           .eq('tenant_id', tenantId)
-          .eq('phone_canonical', phoneCanonical)
-          .maybeSingle();
-
-        if (phoneClient) {
-          client = phoneClient;
-        } else {
-          // Cliente não existe na base, criar um "virtual" com dados da conversa
-          client = {
-            id: null,
-            name: conversation.contact_name || 'Visitante',
-            phone: conversation.contact_phone,
-            phone_canonical: phoneCanonical,
-            status: 'novo',
-            is_virtual: true, // Flag para indicar que não está na base
-          };
+          .single();
+        
+        if (fullClient) {
+          client = fullClient;
         }
       }
     }

@@ -296,6 +296,8 @@ async function syncOneChatFull(
   if (existingConv) {
     conversationId = existingConv.id;
   } else {
+    // NOTA: A tabela conversations NÃO tem contact_name nem contact_phone
+    // Esses dados ficam no client vinculado
     const { data: newConv, error: convErr } = await supabase
       .from('conversations')
       .insert({
@@ -303,8 +305,6 @@ async function syncOneChatFull(
         client_id: client.id,
         channel: 'whatsapp',
         status: 'open',
-        contact_phone: phoneDisplay,
-        contact_name: pushName,
       })
       .select('id')
       .single();

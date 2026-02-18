@@ -604,8 +604,6 @@ async function triggerHistoricalSync(
             client_id: client.id, 
             channel: 'whatsapp', 
             status: 'open',
-            contact_phone: phoneDisplay,
-            contact_name: pushName,
           })
           .select('id')
           .single();
