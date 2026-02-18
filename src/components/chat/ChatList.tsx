@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import { useState, useMemo, useRef, useCallback, useEffect, memo } from 'react';
 import { Search, Filter, Loader2, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatRelativeTime, truncate, getInitials, getAvatarColor } from '@/lib/utils';
 import { useChatsStore } from '@/store/chats';
 import { useInfiniteChats, useRefreshChats } from '@/hooks/useChats';
+import { useDebounce } from '@/hooks/useDebounce';
 import type { Chat, ChatFilter } from '@/types';
 
 const FILTERS: { label: string; value: ChatFilter }[] = [
@@ -26,6 +27,9 @@ export function ChatList() {
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const refreshChats = useRefreshChats();
 
+  // Debounce de 300ms no search para evitar API calls a cada keystroke
+  const debouncedSearch = useDebounce(searchQuery, 300);
+
   const {
     data,
     isLoading,
@@ -33,7 +37,7 @@ export function ChatList() {
     hasNextPage,
     fetchNextPage,
     refetch,
-  } = useInfiniteChats(activeFilter, searchQuery);
+  } = useInfiniteChats(activeFilter, debouncedSearch);
 
   // Flatten all pages into single array
   const chats = useMemo(() => {
@@ -173,9 +177,10 @@ export function ChatList() {
 }
 
 /**
- * Item individual da lista de chat (memoizado para performance)
+ * Item individual da lista de chat (memoizado para performance).
+ * Re-renderiza apenas quando chat, seleção ou callback mudam.
  */
-function ChatListItem({ chat, isSelected, onSelect }: {
+const ChatListItem = memo(function ChatListItem({ chat, isSelected, onSelect }: {
   chat: Chat;
   isSelected: boolean;
   onSelect: () => void;
@@ -234,4 +239,4 @@ function ChatListItem({ chat, isSelected, onSelect }: {
       </div>
     </button>
   );
-}
+});

@@ -53,15 +53,15 @@ export async function getTenantFromRequest(
 ): Promise<AuthenticatedRequest> {
   // 1. Tentar obter do header (injetado pelo middleware)
   const tenantIdFromHeader = request.headers.get('x-tenant-id');
+  const userIdFromHeader = request.headers.get('x-user-id');
   
-  if (tenantIdFromHeader) {
-    // Middleware já validou — apenas retornar
-    // Buscar profile completo
+  if (tenantIdFromHeader && userIdFromHeader) {
+    // Middleware já validou — buscar profile pelo user_id (seguro para multi-user tenants)
     const supabase = createServerSupabaseClient();
     const { data: profile, error } = await supabase
       .from('profiles')
       .select('id, tenant_id, full_name, email, role')
-      .eq('tenant_id', tenantIdFromHeader)
+      .eq('id', userIdFromHeader)
       .single();
 
     if (error || !profile) {

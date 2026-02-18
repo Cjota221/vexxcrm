@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient, createAuthenticatedClient } from '@/lib/supabase';
+import { createServerSupabaseClient } from '@/lib/supabase';
+import { getTenantFromRequest } from '@/lib/auth-helpers';
 
 /**
  * GET /api/chats
@@ -15,34 +16,10 @@ import { createServerSupabaseClient, createAuthenticatedClient } from '@/lib/sup
  */
 export async function GET(request: NextRequest) {
   try {
-    // 1. Autenticação
-    const authorization = request.headers.get('Authorization');
-    if (!authorization) {
-      return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
-    }
-
-    const token = authorization.replace('Bearer ', '');
-
-    // Validar token usando anon key client
-    const supabaseAuth = createAuthenticatedClient(token);
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
-    }
+    // 1. Autenticação via helper (usa x-tenant-id/x-user-id do middleware)
+    const { tenantId, userId } = await getTenantFromRequest(request);
 
     const supabase = createServerSupabaseClient();
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('tenant_id')
-      .eq('id', user.id)
-      .single();
-
-    if (!profile?.tenant_id) {
-      return NextResponse.json({ error: 'Tenant não encontrado' }, { status: 403 });
-    }
-
-    const tenantId = profile.tenant_id;
 
     // 2. Parâmetros de paginação e filtro
     const { searchParams } = new URL(request.url);
@@ -95,7 +72,7 @@ export async function GET(request: NextRequest) {
         query = query.eq('status', 'waiting');
         break;
       case 'mine':
-        query = query.eq('assigned_to', user.id);
+        query = query.eq('assigned_to', userId);
         break;
       case 'archived':
         query = query.eq('status', 'archived');
@@ -187,12 +164,14 @@ export async function GET(request: NextRequest) {
           is_muted: (conv.is_muted as boolean) || false,
           assigned_to: (conv.assigned_to as string) || undefined,
           updated_at: (conv.updated_at as string) || (conv.created_at as string) || '',
+          // Campo usado para cursor de paginação
+          _cursor: (conv.last_message_at as string) || (conv.updated_at as string) || '',
         };
       });
 
-    // 10. Calcular nextCursor
+    // 10. Calcular nextCursor usando last_message_at (campo usado na query .lt())
     const lastItem = chats[chats.length - 1];
-    const nextCursor = hasMore && lastItem?.updated_at ? lastItem.updated_at : null;
+    const nextCursor = hasMore && lastItem?._cursor ? lastItem._cursor : null;
 
     return NextResponse.json({
       data: chats,

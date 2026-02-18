@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient, createAuthenticatedClient } from '@/lib/supabase';
+import { createServerSupabaseClient } from '@/lib/supabase';
+import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { PhoneNormalizer } from '@/lib/phone-normalizer';
 
 /**
@@ -8,32 +9,8 @@ import { PhoneNormalizer } from '@/lib/phone-normalizer';
  */
 export async function GET(request: NextRequest) {
   try {
-    const authorization = request.headers.get('Authorization');
-    if (!authorization) {
-      return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
-    }
-
-    const token = authorization.replace('Bearer ', '');
-    const supabaseAuth = createAuthenticatedClient(token);
+    const { tenantId } = await getTenantFromRequest(request);
     const supabase = createServerSupabaseClient();
-
-    // Verificar token e obter tenant_id
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
-    }
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('tenant_id')
-      .eq('id', user.id)
-      .single();
-
-    if (!profile?.tenant_id) {
-      return NextResponse.json({ error: 'Tenant não encontrado' }, { status: 403 });
-    }
-
-    const tenantId = profile.tenant_id;
 
     // Parâmetros de busca
     const { searchParams } = new URL(request.url);
@@ -97,30 +74,8 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const authorization = request.headers.get('Authorization');
-    if (!authorization) {
-      return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
-    }
-
-    const token = authorization.replace('Bearer ', '');
-    const supabaseAuth = createAuthenticatedClient(token);
+    const { tenantId } = await getTenantFromRequest(request);
     const supabase = createServerSupabaseClient();
-
-    // Verificar token e obter tenant_id
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
-    }
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('tenant_id')
-      .eq('id', user.id)
-      .single();
-
-    if (!profile?.tenant_id) {
-      return NextResponse.json({ error: 'Tenant não encontrado' }, { status: 403 });
-    }
 
     const body = await request.json();
 
@@ -131,7 +86,7 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase
       .from('clients')
       .insert({
-        tenant_id: profile.tenant_id,
+        tenant_id: tenantId,
         full_name: body.full_name,
         phone,
         email: body.email || null,

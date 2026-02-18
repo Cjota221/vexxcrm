@@ -170,6 +170,8 @@ export interface Chat {
   is_muted: boolean;
   assigned_to?: string;
   updated_at: string;
+  /** Campo interno para paginação cursor-based (não exibido na UI) */
+  _cursor?: string;
 }
 
 export type ChatFilter = 'all' | 'unread' | 'waiting' | 'mine' | 'archived';

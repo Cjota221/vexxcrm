@@ -18,6 +18,8 @@ export function useRealtimeMessages() {
   const queryClient = useQueryClient();
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const MAX_RECONNECT_ATTEMPTS = 15;
   const { setSSEStatus } = useConnectionStore();
   const { setTyping } = useChatsStore();
 
@@ -121,6 +123,7 @@ export function useRealtimeMessages() {
 
     eventSource.onopen = () => {
       setSSEStatus('connected');
+      reconnectAttemptsRef.current = 0; // Reset backoff ao conectar com sucesso
     };
 
     eventSource.onmessage = handleEvent;
@@ -129,10 +132,26 @@ export function useRealtimeMessages() {
       setSSEStatus('disconnected');
       eventSource.close();
 
-      // Reconectar após 5 segundos
-      reconnectTimeoutRef.current = setTimeout(() => {
-        connect();
-      }, 5000);
+      // Backoff exponencial: 1s, 2s, 4s, 8s, 16s, 30s (cap)
+      if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+        const baseDelay = Math.min(
+          1000 * Math.pow(2, reconnectAttemptsRef.current),
+          30_000
+        );
+        // Jitter ±20% para evitar thundering herd
+        const jitter = baseDelay * 0.2 * (Math.random() - 0.5);
+        const delay = Math.round(baseDelay + jitter);
+
+        console.log(`[SSE] Reconectando em ${delay}ms (tentativa ${reconnectAttemptsRef.current + 1}/${MAX_RECONNECT_ATTEMPTS})`);
+        reconnectAttemptsRef.current++;
+
+        reconnectTimeoutRef.current = setTimeout(() => {
+          connect();
+        }, delay);
+      } else {
+        console.warn('[SSE] Máximo de tentativas atingido. Recarregue a página.');
+        setSSEStatus('disconnected');
+      }
     };
   }, [handleEvent, setSSEStatus]);
 

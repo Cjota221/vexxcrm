@@ -61,9 +61,10 @@ export async function middleware(request: NextRequest) {
         );
       }
 
-      // Injetar tenant_id no header para uso nas API routes
+      // Injetar tenant_id e user_id nos headers para uso nas API routes
       const requestHeaders = new Headers(request.headers);
       requestHeaders.set('x-tenant-id', profile.tenant_id);
+      requestHeaders.set('x-user-id', user.id);
 
       return NextResponse.next({
         request: {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient, createAuthenticatedClient } from '@/lib/supabase';
+import { createServerSupabaseClient } from '@/lib/supabase';
+import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { chat } from '@/lib/services/anne.service';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limiter';
 
@@ -13,30 +14,12 @@ import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limiter';
 export async function POST(request: NextRequest) {
   try {
     // ── Auth ────────────────────────────────────
-    const token = request.headers.get('Authorization')?.replace('Bearer ', '');
-    if (!token) {
-      return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
-    }
-
-    const supabaseAuth = createAuthenticatedClient(token);
+    // Usar helper consolidado (middleware injeta x-tenant-id/x-user-id)
+    const { tenantId, profile } = await getTenantFromRequest(request);
     const supabase = createServerSupabaseClient();
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
-    }
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('tenant_id')
-      .eq('id', user.id)
-      .single();
-
-    if (!profile) {
-      return NextResponse.json({ error: 'Perfil não encontrado' }, { status: 404 });
-    }
 
     // ── Rate limiting ──────────────────────────
-    const rl = checkRateLimit(`anne-chat:${profile.tenant_id}`, RATE_LIMITS.ANNE_CHAT);
+  const rl = checkRateLimit(`anne-chat:${tenantId}`, RATE_LIMITS.ANNE_CHAT);
     if (!rl.allowed) {
       return NextResponse.json({
         data: {
