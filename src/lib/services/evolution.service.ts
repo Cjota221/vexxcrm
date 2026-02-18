@@ -497,6 +497,135 @@ export interface MediaForwardPayload {
   timestamp: string;
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// DOWNLOAD DE MÍDIA → SUPABASE STORAGE
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const MIME_TO_EXT: Record<string, string> = {
+  'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp',
+  'video/mp4': 'mp4', 'video/webm': 'webm', 'video/3gpp': '3gp',
+  'audio/ogg': 'ogg', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/ogg; codecs=opus': 'ogg',
+  'application/pdf': 'pdf', 'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.ms-excel': 'xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'image/sticker': 'webp',
+};
+
+/**
+ * Baixa mídia via Evolution API (getBase64FromMediaMessage) e faz upload
+ * para o Supabase Storage. Retorna a URL pública permanente.
+ *
+ * Fluxo:
+ * 1. Chama Evolution API para obter base64 da mídia (ela descriptografa)
+ * 2. Converte base64 → Buffer
+ * 3. Upload para bucket 'media' no Supabase Storage
+ * 4. Retorna URL pública permanente
+ *
+ * @param config - Config da Evolution API do tenant
+ * @param messageKey - key da mensagem (id, remoteJid, fromMe)
+ * @param message - objeto message da Evolution API
+ * @param tenantId - ID do tenant para namespace no storage
+ * @param mimetype - MIME type da mídia (ex: image/jpeg)
+ * @returns URL permanente do Supabase Storage ou null se falhar
+ */
+export async function downloadMediaToStorage(
+  config: EvolutionAPIConfig,
+  messageKey: { id: string; remoteJid: string; fromMe: boolean },
+  message: Record<string, unknown>,
+  tenantId: string,
+  mimetype?: string
+): Promise<string | null> {
+  try {
+    // 1. Verificar se já temos base64 no payload (webhook com webhook_base64: true)
+    let base64Data: string | null = null;
+
+    const mediaTypes = ['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage', 'stickerMessage'];
+    for (const mt of mediaTypes) {
+      const msgObj = message[mt] as Record<string, unknown> | undefined;
+      if (msgObj?.base64) {
+        base64Data = msgObj.base64 as string;
+        if (!mimetype) mimetype = msgObj.mimetype as string;
+        break;
+      }
+    }
+
+    // 2. Se não temos base64 no payload, buscar via Evolution API
+    if (!base64Data) {
+      const response = await fetch(
+        `${config.apiUrl}/chat/getBase64FromMediaMessage/${config.instanceName}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': config.apiKey,
+          },
+          body: JSON.stringify({
+            message: { key: messageKey, message },
+            convertToMp4: false,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        console.warn(`[Media] Evolution getBase64 falhou: HTTP ${response.status}`);
+        return null;
+      }
+
+      const data = await safeJson(response, 'getBase64FromMediaMessage');
+      base64Data = data.base64 || null;
+      if (!mimetype && data.mimetype) mimetype = data.mimetype;
+    }
+
+    if (!base64Data) {
+      console.warn('[Media] Nenhum base64 obtido para mídia');
+      return null;
+    }
+
+    // 3. Remover prefixo data:xxx;base64, se presente
+    const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, '');
+    const buffer = Buffer.from(cleanBase64, 'base64');
+
+    // Limitar a 25MB para não sobrecarregar storage
+    if (buffer.length > 25 * 1024 * 1024) {
+      console.warn(`[Media] Arquivo muito grande (${(buffer.length / 1024 / 1024).toFixed(1)}MB), ignorando`);
+      return null;
+    }
+
+    // 4. Determinar extensão
+    const ext = (mimetype && MIME_TO_EXT[mimetype]) || 'bin';
+    const fileName = `${tenantId}/${Date.now()}-${messageKey.id.slice(-8)}.${ext}`;
+
+    // 5. Upload para Supabase Storage
+    const { createServerSupabaseClient } = await import('@/lib/supabase');
+    const supabase = createServerSupabaseClient();
+
+    const { data: uploadData, error: uploadErr } = await supabase.storage
+      .from('media')
+      .upload(fileName, buffer, {
+        contentType: mimetype || 'application/octet-stream',
+        cacheControl: '31536000', // 1 ano
+        upsert: false,
+      });
+
+    if (uploadErr) {
+      console.warn('[Media] Erro no upload Storage:', uploadErr.message);
+      return null;
+    }
+
+    // 6. Gerar URL pública permanente
+    const { data: publicUrlData } = supabase.storage
+      .from('media')
+      .getPublicUrl(uploadData.path);
+
+    console.log(`[Media] Mídia salva: ${publicUrlData.publicUrl.substring(0, 60)}...`);
+    return publicUrlData.publicUrl;
+  } catch (err) {
+    console.warn('[Media] Erro ao baixar/upload mídia:', err);
+    return null;
+  }
+}
+
 /**
  * Encaminha mídia recebida para o webhook do n8n para processamento
  * (transcrição de áudio, visão computacional de imagens, etc).

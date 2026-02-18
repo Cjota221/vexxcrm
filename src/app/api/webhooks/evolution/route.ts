@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { PhoneNormalizer } from '@/lib/phone-normalizer';
 import { eventBus } from '@/lib/event-bus';
-import { forwardMediaToN8n, getTenantEvolutionConfig, sendTextMessage, fetchChats, fetchMessages } from '@/lib/services/evolution.service';
+import { forwardMediaToN8n, getTenantEvolutionConfig, sendTextMessage, fetchChats, fetchMessages, downloadMediaToStorage } from '@/lib/services/evolution.service';
 import type { EvolutionWebhookPayload } from '@/types';
 
 /**
@@ -227,10 +227,37 @@ async function handleNewMessage(
     mimetype = messageContent.documentMessage.mimetype;
   }
 
-  // Se temos um directPath mas não URL completa, construir URL da Evolution
-  if (mediaUrl && !mediaUrl.startsWith('http')) {
-    const config = getTenantEvolutionConfig(tenantId);
-    mediaUrl = `${config.apiUrl}${mediaUrl}`;
+  // ━━━ DOWNLOAD DE MÍDIA PARA STORAGE PERMANENTE ━━━
+  // URLs do WhatsApp (mmg.whatsapp.net) expiram e retornam 403.
+  // Baixamos via Evolution API e salvamos no Supabase Storage.
+  if (mediaUrl && ['image', 'video', 'audio', 'document', 'sticker'].includes(type)) {
+    try {
+      const config = getTenantEvolutionConfig(tenantId);
+      const permanentUrl = await downloadMediaToStorage(
+        config,
+        { id: messageId, remoteJid, fromMe },
+        messageContent as Record<string, unknown>,
+        tenantId,
+        mimetype
+      );
+
+      if (permanentUrl) {
+        mediaUrl = permanentUrl;
+      } else {
+        // Fallback: manter URL original (pode expirar)
+        if (mediaUrl && !mediaUrl.startsWith('http')) {
+          const config2 = getTenantEvolutionConfig(tenantId);
+          mediaUrl = `${config2.apiUrl}${mediaUrl}`;
+        }
+      }
+    } catch (err) {
+      console.warn('[Webhook] Falha no download de mídia, mantendo URL original:', err);
+      // Fallback: manter URL original
+      if (mediaUrl && !mediaUrl.startsWith('http')) {
+        const config3 = getTenantEvolutionConfig(tenantId);
+        mediaUrl = `${config3.apiUrl}${mediaUrl}`;
+      }
+    }
   }
 
   // Salvar mensagem (alinhado com schema SQL)
