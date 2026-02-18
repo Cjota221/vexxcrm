@@ -37,6 +37,7 @@ import { ImportProgress } from '@/components/import/ImportProgress';
 import { ImportResults } from '@/components/import/ImportResults';
 import { SystemHealthCheck } from '@/components/crm/SystemHealthCheck';
 import { useAuthStore } from '@/store/auth';
+import { useQuery } from '@tanstack/react-query';
 import type { TenantConfig } from '@/types';
 
 type SettingsTab = 'profile' | 'integrations' | 'data' | 'maintenance';
@@ -164,12 +165,29 @@ function IntegrationsTab({ config }: { config?: TenantConfig }) {
 }
 
 function WhatsAppSettings({ config }: { config?: TenantConfig }) {
-  const evolution = config?.evolution;
   const [isConnecting, setIsConnecting] = useState(false);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const { accessToken } = useAuthStore();
   const queryClient = useQueryClient();
+
+  // Polling real do status via Evolution API (não depende do config do Supabase)
+  const { data: whatsappStatus } = useQuery({
+    queryKey: ['whatsapp-status'],
+    queryFn: async () => {
+      const res = await fetch('/api/whatsapp/status', {
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+      });
+      if (!res.ok) return { status: 'close' };
+      const data = await res.json();
+      return data;
+    },
+    refetchInterval: 15_000, // Polling a cada 15s
+    staleTime: 10_000,
+    enabled: !!accessToken,
+  });
+
+  const isConnected = whatsappStatus?.status === 'open';
 
   const handleConnect = async () => {
     setIsConnecting(true); setConnectionError(null); setQrCode(null);
@@ -207,18 +225,23 @@ function WhatsAppSettings({ config }: { config?: TenantConfig }) {
     <Card>
       <CardHeader>
         <CardTitle><Wifi size={16} /> WhatsApp</CardTitle>
-        <Badge variant={evolution?.status === 'open' ? 'success' : 'neutral'}>
-          {evolution?.status === 'open' ? 'Conectado' : 'Desconectado'}
+        <Badge variant={isConnected ? 'success' : 'neutral'}>
+          {isConnected ? 'Conectado' : 'Desconectado'}
         </Badge>
       </CardHeader>
       <div className="px-6 pb-6 space-y-4">
-        {evolution?.status === 'open' ? (
+        {isConnected ? (
           <div className="space-y-3">
             <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
               <CheckCircle size={24} className="text-emerald-500" />
               <div>
                 <p className="text-sm font-semibold text-emerald-700">WhatsApp Ativo</p>
-                <p className="text-xs text-emerald-600 mt-0.5">Monitorando mensagens em tempo real</p>
+                <p className="text-xs text-emerald-600 mt-0.5">
+                  Monitorando mensagens em tempo real
+                  {whatsappStatus?.instanceName && (
+                    <span className="ml-1 opacity-60">· {whatsappStatus.instanceName}</span>
+                  )}
+                </p>
               </div>
             </div>
             <Button variant="ghost" onClick={handleDisconnect} className="text-red-600 hover:bg-red-50">

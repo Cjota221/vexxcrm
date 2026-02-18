@@ -9,9 +9,12 @@ import {
   Circle,
   Wifi,
   WifiOff,
+  Smartphone,
 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { useQueues, useAgentStats, usePullConversation } from '@/hooks/useContactCenter';
+import { useAuthStore } from '@/store/auth';
 
 /**
  * Painel de Filas e Status do Agente.
@@ -22,6 +25,24 @@ export function QueuePanel() {
   const { data: agentStats } = useAgentStats();
   const pullMutation = usePullConversation();
   const [expanded, setExpanded] = useState(true);
+  const { accessToken } = useAuthStore();
+
+  // Polling real do status WhatsApp via Evolution API
+  const { data: whatsappStatus } = useQuery({
+    queryKey: ['whatsapp-status'],
+    queryFn: async () => {
+      const res = await fetch('/api/whatsapp/status', {
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+      });
+      if (!res.ok) return { status: 'close' };
+      return res.json();
+    },
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+    enabled: !!accessToken,
+  });
+
+  const isWhatsAppConnected = whatsappStatus?.status === 'open';
 
   const canPull = agentStats
     ? agentStats.accepting_chats && agentStats.active_chats < agentStats.max_chats
@@ -31,6 +52,23 @@ export function QueuePanel() {
 
   return (
     <div className="bg-white rounded-xl border border-surface-200 overflow-hidden">
+      {/* WhatsApp connection status */}
+      <div className={cn(
+        'px-4 py-2 flex items-center gap-2 text-xs font-medium border-b border-surface-200',
+        isWhatsAppConnected 
+          ? 'bg-emerald-50 text-emerald-700' 
+          : 'bg-amber-50 text-amber-700'
+      )}>
+        <Smartphone size={13} />
+        <span>
+          WhatsApp {isWhatsAppConnected ? 'Conectado' : 'Desconectado'}
+        </span>
+        <span className={cn(
+          'w-2 h-2 rounded-full ml-auto',
+          isWhatsAppConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+        )} />
+      </div>
+
       {/* Agent status header */}
       <div className="px-4 py-3 border-b border-surface-200 flex items-center justify-between">
         <div className="flex items-center gap-2">
