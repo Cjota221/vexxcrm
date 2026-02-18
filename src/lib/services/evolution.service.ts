@@ -156,14 +156,17 @@ async function setInstanceWebhook(
       'apikey': config.apiKey,
     },
     body: JSON.stringify({
-      url: webhookUrl,
-      webhook_by_events: false,
-      webhook_base64: true,
-      events: [
-        'messages.upsert',
-        'messages.update',
-        'connection.update',
-      ],
+      webhook: {
+        url: webhookUrl,
+        enabled: true,
+        webhook_by_events: false,
+        webhook_base64: true,
+        events: [
+          'MESSAGES_UPSERT',
+          'MESSAGES_UPDATE',
+          'CONNECTION_UPDATE',
+        ],
+      },
     }),
   });
 
