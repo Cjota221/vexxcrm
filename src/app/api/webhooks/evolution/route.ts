@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { PhoneNormalizer } from '@/lib/phone-normalizer';
 import { eventBus } from '@/lib/event-bus';
-import { forwardMediaToN8n, getTenantEvolutionConfig, sendTextMessage } from '@/lib/services/evolution.service';
+import { forwardMediaToN8n, getTenantEvolutionConfig, sendTextMessage, fetchChats, fetchMessages } from '@/lib/services/evolution.service';
 import type { EvolutionWebhookPayload } from '@/types';
 
 /**
@@ -392,5 +392,158 @@ async function handleConnectionUpdate(
     } catch (err) {
       console.warn('[Webhook] Erro ao enviar boas-vindas:', err);
     }
+
+    // ━━━ SYNC AUTOMÁTICO DE HISTÓRICO ━━━
+    // Dispara em background para não bloquear o webhook response
+    triggerHistoricalSync(supabase, tenantId).catch((err) =>
+      console.warn('[Webhook] Erro no sync automático:', err)
+    );
   }
+}
+
+/**
+ * Sync automático leve: sincroniza os 30 chats mais recentes com até 50 mensagens cada.
+ * Roda em background quando a conexão é estabelecida.
+ */
+async function triggerHistoricalSync(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string
+) {
+  console.log(`[Sync Auto] Iniciando sync histórico para tenant ${tenantId}...`);
+
+  const config = getTenantEvolutionConfig(tenantId);
+
+  // Buscar chats mais recentes
+  const chats = await fetchChats(config);
+  const recentChats = chats
+    .sort((a, b) => (b.lastMessage?.messageTimestamp || 0) - (a.lastMessage?.messageTimestamp || 0))
+    .slice(0, 30); // Top 30 mais recentes
+
+  let totalMessages = 0;
+  let totalClients = 0;
+
+  for (const chat of recentChats) {
+    try {
+      const phone = chat.remoteJid.replace('@s.whatsapp.net', '');
+      const phoneNormalized = PhoneNormalizer.canonical(phone);
+      const phoneDisplay = PhoneNormalizer.normalize(phone);
+      const pushName = chat.pushName || chat.lastMessage?.pushName || phoneDisplay;
+
+      // Upsert cliente
+      const { data: client } = await supabase
+        .from('clients')
+        .upsert(
+          { tenant_id: tenantId, phone: phoneDisplay, phone_normalized: phoneNormalized, name: pushName },
+          { onConflict: 'tenant_id,phone_normalized', ignoreDuplicates: false }
+        )
+        .select('id')
+        .single();
+
+      if (!client) continue;
+      totalClients++;
+
+      // Buscar ou criar conversa
+      let convId: string;
+      const { data: conv } = await supabase
+        .from('conversations')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('client_id', client.id)
+        .eq('channel', 'whatsapp')
+        .single();
+
+      if (conv) {
+        convId = conv.id;
+      } else {
+        const { data: newConv } = await supabase
+          .from('conversations')
+          .insert({ tenant_id: tenantId, client_id: client.id, channel: 'whatsapp', status: 'open' })
+          .select('id')
+          .single();
+        if (!newConv) continue;
+        convId = newConv.id;
+      }
+
+      // Buscar últimas 50 mensagens
+      const batch = await fetchMessages(config, chat.remoteJid, 1, 50);
+      if (batch.records.length === 0) continue;
+
+      // Dedup
+      const extIds = batch.records.map((m) => m.key.id).filter(Boolean);
+      const { data: existing } = await supabase
+        .from('messages')
+        .select('external_id')
+        .eq('tenant_id', tenantId)
+        .eq('conversation_id', convId)
+        .in('external_id', extIds);
+
+      const existSet = new Set((existing || []).map((e) => e.external_id));
+      const newMsgs = batch.records.filter((m) => m.key.id && !existSet.has(m.key.id));
+
+      if (newMsgs.length === 0) continue;
+
+      // Preparar e inserir
+      const rows = newMsgs.map((m) => {
+        const mc = m.message || {};
+        const text =
+          (mc.conversation as string) ||
+          (mc.extendedTextMessage as Record<string, unknown>)?.text ||
+          (mc.imageMessage as Record<string, unknown>)?.caption ||
+          (mc.videoMessage as Record<string, unknown>)?.caption ||
+          '';
+
+        let type = 'text';
+        if (mc.imageMessage) type = 'image';
+        else if (mc.videoMessage) type = 'video';
+        else if (mc.audioMessage) type = 'audio';
+        else if (mc.documentMessage) type = 'document';
+        else if (mc.stickerMessage) type = 'sticker';
+
+        return {
+          tenant_id: tenantId,
+          conversation_id: convId,
+          client_id: client.id,
+          external_id: m.key.id,
+          direction: m.key.fromMe ? 'outbound' : 'inbound',
+          sender_name: m.key.fromMe ? 'Atendente' : (m.pushName || phoneDisplay),
+          sender_phone: m.key.fromMe ? null : phone,
+          content: text,
+          type,
+          status: m.key.fromMe ? 'sent' : 'delivered',
+          created_at: m.messageTimestamp
+            ? new Date(m.messageTimestamp * 1000).toISOString()
+            : new Date().toISOString(),
+        };
+      });
+
+      const { error: insErr } = await supabase.from('messages').insert(rows);
+      if (!insErr) {
+        totalMessages += rows.length;
+
+        // Atualizar last_message na conversa
+        const lastRow = rows[rows.length - 1];
+        await supabase
+          .from('conversations')
+          .update({
+            last_message_text: lastRow.content || `📎 ${lastRow.type}`,
+            last_message_at: lastRow.created_at,
+            last_message_type: lastRow.type,
+            message_count: rows.length,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', convId)
+          .eq('tenant_id', tenantId);
+      }
+    } catch (err) {
+      console.warn(`[Sync Auto] Erro no chat ${chat.remoteJid}:`, err);
+    }
+  }
+
+  console.log(`[Sync Auto] Concluído: ${totalClients} clientes, ${totalMessages} mensagens sincronizadas`);
+
+  // Notificar UI
+  eventBus.emitToTenant('sync_complete', tenantId, {
+    clients: totalClients,
+    messages: totalMessages,
+  });
 }

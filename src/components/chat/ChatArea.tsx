@@ -1,21 +1,35 @@
 'use client';
 
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useMemo } from 'react';
 import { MessageCircle } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { useMessages, useSendMessage } from '@/hooks/useWhatsApp';
 import { useChatsStore } from '@/store/chats';
 import { MessageBubble } from './MessageBubble';
 import { MessageInput } from './MessageInput';
 import { getInitials, getAvatarColor } from '@/lib/utils';
+import type { Chat } from '@/types';
 
 /**
  * Área principal do chat — mensagens + input.
  */
 export function ChatArea() {
-  const { selectedChatId } = useChatsStore();
+  const { selectedChatId, activeFilter } = useChatsStore();
   const { data: messages = [], isLoading } = useMessages(selectedChatId);
   const { mutate: sendMessage, isPending: isSending } = useSendMessage();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Acessar chats do cache do React Query para pegar dados do cliente selecionado
+  const { data: chats = [] } = useQuery<Chat[]>({
+    queryKey: ['chats', activeFilter],
+    enabled: false, // Não refetch — usa cache do ChatList
+  });
+
+  // Encontrar o chat selecionado para exibir nome e enviar para telefone correto
+  const selectedChat = useMemo(
+    () => chats.find((c) => c.client.id === selectedChatId),
+    [chats, selectedChatId]
+  );
 
   // Auto scroll
   useEffect(() => {
@@ -23,9 +37,9 @@ export function ChatArea() {
   }, [messages]);
 
   const handleSend = (content: string) => {
-    if (!selectedChatId) return;
+    if (!selectedChatId || !selectedChat) return;
     sendMessage({
-      to: selectedChatId, // Telefone do cliente (será normalizado pela API)
+      to: selectedChat.client.phone, // Telefone real do cliente (não UUID)
       content,
       type: 'text',
     });
@@ -54,13 +68,17 @@ export function ChatArea() {
       <div className="h-16 bg-wa-bg-panel border-b border-wa-border flex items-center px-4 gap-3">
         <div
           className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-semibold"
-          style={{ backgroundColor: getAvatarColor(selectedChatId) }}
+          style={{ backgroundColor: getAvatarColor(selectedChat?.client.name || selectedChatId || '') }}
         >
-          {getInitials(selectedChatId)}
+          {getInitials(selectedChat?.client.name || '?')}
         </div>
         <div>
-          <p className="text-sm font-medium text-wa-text-primary">Cliente</p>
-          <p className="text-xs text-wa-text-secondary">Online</p>
+          <p className="text-sm font-medium text-wa-text-primary">
+            {selectedChat?.client.name || 'Cliente'}
+          </p>
+          <p className="text-xs text-wa-text-secondary">
+            {selectedChat?.client.phone || ''}
+          </p>
         </div>
       </div>
 

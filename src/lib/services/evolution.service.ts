@@ -324,6 +324,101 @@ export async function sendMediaMessage(
 // ENCAMINHAMENTO DE MÍDIA PARA n8n
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// BUSCA DE DADOS (para Sync Histórico)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export interface EvolutionChat {
+  id: string | null;
+  remoteJid: string;
+  pushName: string | null;
+  profilePicUrl: string | null;
+  unreadCount: number;
+  lastMessage?: {
+    key: { id: string; fromMe: boolean; remoteJid: string };
+    message: Record<string, unknown>;
+    messageTimestamp: number;
+    pushName: string;
+    messageType: string;
+  };
+}
+
+export interface EvolutionMessage {
+  id: string;
+  key: { id: string; fromMe: boolean; remoteJid: string };
+  pushName: string;
+  messageType: string;
+  message: Record<string, unknown>;
+  messageTimestamp: number;
+  source: string;
+  contextInfo: unknown;
+}
+
+/**
+ * Busca todos os chats da instância na Evolution API.
+ * Retorna apenas chats individuais (exclui grupos e broadcast).
+ */
+export async function fetchChats(config: EvolutionAPIConfig): Promise<EvolutionChat[]> {
+  const response = await fetch(`${config.apiUrl}/chat/findChats/${config.instanceName}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': config.apiKey,
+    },
+    body: JSON.stringify({}),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Erro ao buscar chats: ${response.status}`);
+  }
+
+  const data: EvolutionChat[] = await response.json();
+
+  // Filtrar apenas chats individuais (@s.whatsapp.net), excluir grupos e broadcast
+  return data.filter(
+    (c) =>
+      c.remoteJid.includes('@s.whatsapp.net') &&
+      c.remoteJid !== '0@s.whatsapp.net'
+  );
+}
+
+/**
+ * Busca mensagens de um chat específico na Evolution API (com paginação).
+ * @param jid - remoteJid do chat (ex: '5521999999999@s.whatsapp.net')
+ * @param page - Número da página (1-based)
+ * @param offset - Itens por página (max 100)
+ */
+export async function fetchMessages(
+  config: EvolutionAPIConfig,
+  jid: string,
+  page = 1,
+  offset = 100
+): Promise<{ total: number; pages: number; records: EvolutionMessage[] }> {
+  const response = await fetch(`${config.apiUrl}/chat/findMessages/${config.instanceName}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': config.apiKey,
+    },
+    body: JSON.stringify({
+      where: { key: { remoteJid: jid } },
+      page,
+      offset,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Erro ao buscar mensagens: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return {
+    total: data.messages?.total || 0,
+    pages: data.messages?.pages || 0,
+    records: data.messages?.records || [],
+  };
+}
+
 export interface MediaForwardPayload {
   tenantId: string;
   messageId: string;

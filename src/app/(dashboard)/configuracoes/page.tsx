@@ -168,6 +168,8 @@ function WhatsAppSettings({ config }: { config?: TenantConfig }) {
   const [isConnecting, setIsConnecting] = useState(false);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
   const { accessToken } = useAuthStore();
   const queryClient = useQueryClient();
 
@@ -221,6 +223,31 @@ function WhatsAppSettings({ config }: { config?: TenantConfig }) {
     } catch { /* silent */ }
   };
 
+  const handleSync = async () => {
+    setIsSyncing(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch('/api/whatsapp/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+        body: JSON.stringify({ maxChats: 50, maxMessagesPerChat: 100 }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erro ao sincronizar');
+      setSyncResult(
+        `✅ ${data.data.chats_synced} chats, ${data.data.messages_synced} mensagens, ${data.data.clients_created} novos clientes`
+      );
+      queryClient.invalidateQueries({ queryKey: ['chats'] });
+    } catch (err: unknown) {
+      setSyncResult(`❌ ${err instanceof Error ? err.message : 'Erro'}`);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -247,6 +274,18 @@ function WhatsAppSettings({ config }: { config?: TenantConfig }) {
             <Button variant="ghost" onClick={handleDisconnect} className="text-red-600 hover:bg-red-50">
               <AlertCircle size={14} /> Desconectar
             </Button>
+            <div className="border-t pt-3 space-y-2">
+              <Button variant="secondary" onClick={handleSync} disabled={isSyncing} className="w-full">
+                <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
+                {isSyncing ? 'Sincronizando...' : 'Sincronizar Histórico'}
+              </Button>
+              <p className="text-[11px] text-txt-muted">
+                Importa conversas e mensagens existentes do WhatsApp para o CRM.
+              </p>
+              {syncResult && (
+                <p className="text-xs mt-1 p-2 rounded-lg bg-slate-50 border">{syncResult}</p>
+              )}
+            </div>
           </div>
         ) : qrCode ? (
           <div className="space-y-3 text-center">

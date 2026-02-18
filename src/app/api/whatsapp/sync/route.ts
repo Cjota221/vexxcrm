@@ -1,0 +1,316 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { getTenantFromRequest } from '@/lib/auth-helpers';
+import { createServerSupabaseClient } from '@/lib/supabase';
+import { PhoneNormalizer } from '@/lib/phone-normalizer';
+import {
+  getTenantEvolutionConfig,
+  fetchChats,
+  fetchMessages,
+  type EvolutionChat,
+  type EvolutionMessage,
+} from '@/lib/services/evolution.service';
+import { eventBus } from '@/lib/event-bus';
+
+/**
+ * POST /api/whatsapp/sync
+ *
+ * Sincronização histórica: puxa chats e mensagens da Evolution API
+ * e salva no Supabase com dedup por external_id.
+ *
+ * Body (opcional):
+ *   - maxChats: número máximo de chats para sincronizar (default: 50)
+ *   - maxMessagesPerChat: mensagens por chat (default: 100)
+ *   - fullSync: sincronizar TODOS os chats (default: false)
+ */
+export async function POST(request: NextRequest) {
+  try {
+    const { tenantId } = await getTenantFromRequest(request);
+    const supabase = createServerSupabaseClient();
+
+    // Parâmetros
+    let maxChats = 50;
+    let maxMessagesPerChat = 100;
+
+    try {
+      const body = await request.json();
+      maxChats = Math.min(body.maxChats || 50, 500);
+      maxMessagesPerChat = Math.min(body.maxMessagesPerChat || 100, 500);
+      if (body.fullSync) maxChats = 9999;
+    } catch {
+      // Body vazio — usar defaults
+    }
+
+    const config = getTenantEvolutionConfig(tenantId);
+
+    // 1. Buscar chats da Evolution API
+    console.log(`[Sync] Iniciando sync para tenant ${tenantId}`);
+    let chats: EvolutionChat[];
+    try {
+      chats = await fetchChats(config);
+    } catch (err) {
+      console.error('[Sync] Erro ao buscar chats:', err);
+      return NextResponse.json(
+        { error: 'Erro ao buscar chats da Evolution API. Verifique a conexão.' },
+        { status: 502 }
+      );
+    }
+
+    console.log(`[Sync] ${chats.length} chats encontrados, processando até ${maxChats}`);
+
+    // Ordenar por atividade recente e limitar
+    chats.sort((a, b) => {
+      const tA = a.lastMessage?.messageTimestamp || 0;
+      const tB = b.lastMessage?.messageTimestamp || 0;
+      return tB - tA; // mais recentes primeiro
+    });
+    chats = chats.slice(0, maxChats);
+
+    let totalClients = 0;
+    let totalConversations = 0;
+    let totalMessages = 0;
+    let errors = 0;
+
+    // 2. Processar cada chat
+    for (const chat of chats) {
+      try {
+        const result = await syncOneChat(supabase, tenantId, config, chat, maxMessagesPerChat);
+        totalClients += result.clientCreated ? 1 : 0;
+        totalConversations += result.conversationCreated ? 1 : 0;
+        totalMessages += result.messagesInserted;
+      } catch (err) {
+        errors++;
+        console.error(`[Sync] Erro no chat ${chat.remoteJid}:`, err);
+      }
+    }
+
+    console.log(`[Sync] Concluído: ${totalClients} clientes, ${totalConversations} conversas, ${totalMessages} mensagens, ${errors} erros`);
+
+    // Emitir evento SSE para atualizar UI
+    eventBus.emitToTenant('sync_complete', tenantId, {
+      clients: totalClients,
+      conversations: totalConversations,
+      messages: totalMessages,
+      errors,
+    });
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        chats_found: chats.length + errors,
+        chats_synced: chats.length,
+        clients_created: totalClients,
+        conversations_created: totalConversations,
+        messages_synced: totalMessages,
+        errors,
+      },
+    });
+  } catch (error: any) {
+    console.error('[Sync] Erro:', error);
+
+    if (error.message?.includes('Não autorizado') || error.message?.includes('Token')) {
+      return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+    }
+
+    return NextResponse.json(
+      { error: error.message || 'Erro interno' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * Sincroniza um chat individual: cliente → conversa → mensagens.
+ */
+async function syncOneChat(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+  config: ReturnType<typeof getTenantEvolutionConfig>,
+  chat: EvolutionChat,
+  maxMessages: number
+): Promise<{ clientCreated: boolean; conversationCreated: boolean; messagesInserted: number }> {
+  const jid = chat.remoteJid;
+  const phone = jid.replace('@s.whatsapp.net', '');
+  const phoneNormalized = PhoneNormalizer.canonical(phone);
+  const phoneDisplay = PhoneNormalizer.normalize(phone);
+  const pushName = chat.pushName || chat.lastMessage?.pushName || phoneDisplay;
+
+  // 1. Upsert cliente
+  const { data: client, error: clientErr } = await supabase
+    .from('clients')
+    .upsert(
+      {
+        tenant_id: tenantId,
+        phone: phoneDisplay,
+        phone_normalized: phoneNormalized,
+        name: pushName,
+      },
+      {
+        onConflict: 'tenant_id,phone_normalized',
+        ignoreDuplicates: false,
+      }
+    )
+    .select('id, created_at')
+    .single();
+
+  if (clientErr || !client) {
+    throw new Error(`Erro ao upsert cliente ${phone}: ${clientErr?.message}`);
+  }
+
+  // Detectar se cliente foi criado agora (created_at nos últimos 5 segundos)
+  const clientCreated = (Date.now() - new Date(client.created_at).getTime()) < 5000;
+
+  // 2. Buscar ou criar conversa
+  let conversationCreated = false;
+  const { data: existingConv } = await supabase
+    .from('conversations')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('client_id', client.id)
+    .eq('channel', 'whatsapp')
+    .single();
+
+  let conversationId: string;
+  if (existingConv) {
+    conversationId = existingConv.id;
+  } else {
+    const { data: newConv, error: convErr } = await supabase
+      .from('conversations')
+      .insert({
+        tenant_id: tenantId,
+        client_id: client.id,
+        channel: 'whatsapp',
+        status: 'open',
+      })
+      .select('id')
+      .single();
+
+    if (convErr || !newConv) {
+      throw new Error(`Erro ao criar conversa: ${convErr?.message}`);
+    }
+
+    conversationId = newConv.id;
+    conversationCreated = true;
+  }
+
+  // 3. Buscar mensagens da Evolution API (com paginação)
+  let allMessages: EvolutionMessage[] = [];
+  let page = 1;
+  const offset = 100;
+
+  while (allMessages.length < maxMessages) {
+    const batch = await fetchMessages(config, jid, page, offset);
+    allMessages = allMessages.concat(batch.records);
+
+    if (page >= batch.pages || allMessages.length >= maxMessages) break;
+    page++;
+  }
+
+  allMessages = allMessages.slice(0, maxMessages);
+
+  if (allMessages.length === 0) {
+    return { clientCreated, conversationCreated, messagesInserted: 0 };
+  }
+
+  // 4. Buscar external_ids já existentes para dedup
+  const externalIds = allMessages.map((m) => m.key.id).filter(Boolean);
+  const { data: existingMsgs } = await supabase
+    .from('messages')
+    .select('external_id')
+    .eq('tenant_id', tenantId)
+    .eq('conversation_id', conversationId)
+    .in('external_id', externalIds);
+
+  const existingSet = new Set((existingMsgs || []).map((m) => m.external_id));
+
+  // 5. Filtrar mensagens novas
+  const newMessages = allMessages.filter(
+    (m) => m.key.id && !existingSet.has(m.key.id)
+  );
+
+  if (newMessages.length === 0) {
+    return { clientCreated, conversationCreated, messagesInserted: 0 };
+  }
+
+  // 6. Inserir mensagens em batch
+  const rows = newMessages.map((m) => {
+    // Extrair conteúdo
+    const msgContent = m.message || {};
+    const text =
+      (msgContent.conversation as string) ||
+      (msgContent.extendedTextMessage as Record<string, unknown>)?.text ||
+      (msgContent.imageMessage as Record<string, unknown>)?.caption ||
+      (msgContent.videoMessage as Record<string, unknown>)?.caption ||
+      '';
+
+    // Detectar tipo
+    let type = 'text';
+    if (msgContent.imageMessage) type = 'image';
+    else if (msgContent.videoMessage) type = 'video';
+    else if (msgContent.audioMessage) type = 'audio';
+    else if (msgContent.documentMessage) type = 'document';
+    else if (msgContent.stickerMessage) type = 'sticker';
+
+    // Extrair URL de mídia
+    let mediaUrl: string | null = null;
+    let mimetype: string | null = null;
+    const mediaObj = (msgContent.imageMessage ||
+      msgContent.videoMessage ||
+      msgContent.audioMessage ||
+      msgContent.documentMessage) as Record<string, unknown> | undefined;
+    if (mediaObj) {
+      mediaUrl = (mediaObj.url as string) || null;
+      mimetype = (mediaObj.mimetype as string) || null;
+    }
+
+    return {
+      tenant_id: tenantId,
+      conversation_id: conversationId,
+      client_id: client.id,
+      external_id: m.key.id,
+      direction: m.key.fromMe ? 'outbound' : 'inbound',
+      sender_name: m.key.fromMe ? 'Atendente' : (m.pushName || phoneDisplay),
+      sender_phone: m.key.fromMe ? null : phone,
+      content: text,
+      type,
+      media_url: mediaUrl,
+      media_mime_type: mimetype,
+      status: m.key.fromMe ? 'sent' : 'delivered',
+      created_at: m.messageTimestamp
+        ? new Date(m.messageTimestamp * 1000).toISOString()
+        : new Date().toISOString(),
+    };
+  });
+
+  // Inserir em batches de 50 para evitar payload muito grande
+  let messagesInserted = 0;
+  for (let i = 0; i < rows.length; i += 50) {
+    const batch = rows.slice(i, i + 50);
+    const { error: insertErr } = await supabase
+      .from('messages')
+      .insert(batch);
+
+    if (insertErr) {
+      console.error(`[Sync] Erro ao inserir batch ${i}-${i + batch.length}:`, insertErr.message);
+    } else {
+      messagesInserted += batch.length;
+    }
+  }
+
+  // 7. Atualizar last_message na conversa (desnormalizado)
+  const lastMsg = rows[rows.length - 1]; // rows já estão ordenadas cronologicamente
+  if (lastMsg) {
+    await supabase
+      .from('conversations')
+      .update({
+        last_message_text: lastMsg.content || `📎 ${lastMsg.type}`,
+        last_message_at: lastMsg.created_at,
+        last_message_type: lastMsg.type,
+        message_count: messagesInserted,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', conversationId)
+      .eq('tenant_id', tenantId);
+  }
+
+  return { clientCreated, conversationCreated, messagesInserted };
+}
