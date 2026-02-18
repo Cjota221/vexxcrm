@@ -171,7 +171,8 @@ export async function PATCH(
 
     if (name?.trim()) {
       updates.name = name.trim();
-      // Marcar que este nome foi editado manualmente — sync não vai sobrescrever
+      // name_manual: gravado apenas se a migration 011 foi aplicada.
+      // Se a coluna não existir, o update falhará — capturamos e retentamos sem ela.
       updates.name_manual = name.trim();
     }
     if (email !== undefined) {
@@ -182,13 +183,27 @@ export async function PATCH(
     }
 
     // Garantir que o cliente pertence ao tenant (segurança RLS)
-    const { data: updated, error } = await supabase
+    let { data: updated, error } = await supabase
       .from('clients')
       .update(updates)
       .eq('id', id)
       .eq('tenant_id', tenantId)
-      .select('id, name, name_manual, email, tags, phone, updated_at')
+      .select('id, name, email, tags, phone, updated_at')
       .single();
+
+    // Fallback: se falhou por causa de name_manual inexistente, tentar sem ela
+    if (error && error.message?.includes('name_manual')) {
+      const { name_manual: _dropped, ...updatesWithoutManual } = updates as any;
+      const retry = await supabase
+        .from('clients')
+        .update(updatesWithoutManual)
+        .eq('id', id)
+        .eq('tenant_id', tenantId)
+        .select('id, name, email, tags, phone, updated_at')
+        .single();
+      updated = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
       console.error('[PATCH /api/clients] Erro ao atualizar:', error);

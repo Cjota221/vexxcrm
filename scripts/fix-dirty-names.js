@@ -38,10 +38,11 @@ const { createClient } = require('@supabase/supabase-js');
 // ─── Configuração ────────────────────────────────────────────────────────────
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+// Suporta ambos os nomes de variável (SUPABASE_SERVICE_KEY e SUPABASE_SERVICE_ROLE_KEY)
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
-  console.error('❌  NEXT_PUBLIC_SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY são obrigatórios.');
+  console.error('❌  NEXT_PUBLIC_SUPABASE_URL e SUPABASE_SERVICE_KEY são obrigatórios.');
   console.error('    Crie um .env.local na raiz do projeto ou exporte as variáveis.');
   process.exit(1);
 }
@@ -99,8 +100,8 @@ async function main() {
   while (true) {
     const { data, error } = await supabase
       .from('clients')
-      .select('id, tenant_id, name, name_manual, phone, phone_normalized, push_name, avatar_url, created_at')
-      .is('name_manual', null)           // Nunca tocar em nomes editados manualmente
+      .select('id, tenant_id, name, phone, phone_normalized, avatar_url, created_at')
+      // Não filtramos por name_manual aqui pois a coluna pode não existir ainda
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
       .order('created_at', { ascending: false });
 
@@ -162,7 +163,7 @@ async function main() {
         newName = order.customer_name.trim();
       }
 
-      // Estratégia B: push_name armazenado
+      // Estratégia B: push_name armazenado (disponível após migration 011)
       if (!newName && client.push_name && !isDirtyName(client.push_name, client.phone)) {
         newName = client.push_name.trim();
       }

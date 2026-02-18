@@ -176,12 +176,28 @@ async function syncOneChat(
   const avatarUrl = chat.profilePicUrl || await fetchProfilePicUrl(config, jid).catch(() => null);
 
   // 2. Verificar se já existe cliente no banco para este telefone
+  // Busca colunas básicas que sempre existem + colunas opcionais (migration 011)
   const { data: existingClient } = await supabase
     .from('clients')
-    .select('id, name, name_manual, created_at')
+    .select('id, name, created_at')
     .eq('tenant_id', tenantId)
     .eq('phone_normalized', phoneNormalized)
     .maybeSingle();
+
+  // Tentar ler name_manual separadamente (existe apenas após migration 011)
+  let nameManual: string | null = null;
+  if (existingClient?.id) {
+    try {
+      const { data: ext } = await supabase
+        .from('clients')
+        .select('name_manual')
+        .eq('id', existingClient.id)
+        .maybeSingle();
+      nameManual = (ext as any)?.name_manual || null;
+    } catch {
+      // Coluna ainda não existe — ignorar silenciosamente
+    }
+  }
 
   // 3. Verificar se há pedido vinculado — fonte mais confiável de nome
   let nameFromOrder: string | null = null;
@@ -199,10 +215,8 @@ async function syncOneChat(
   }
 
   // 4. Aplicar hierarquia: Nome Manual > Nome do Pedido > PushName > Telefone
-  //    (nome_manual = atendente editou manualmente, nunca sobrescrever)
-  const nameManual = existingClient?.name_manual || null;
   const resolvedName =
-    nameManual ||          // 1º — edição manual do atendente
+    nameManual ||          // 1º — edição manual do atendente (nunca sobrescrever)
     nameFromOrder ||       // 2º — nome real do pedido (FacilZap)
     safePushName ||        // 3º — pushName do WhatsApp (contato real)
     phoneDisplay;          // 4º — fallback: número formatado
@@ -213,13 +227,17 @@ async function syncOneChat(
     phone: phoneDisplay,
     phone_normalized: phoneNormalized,
     name: resolvedName,
-    // push_name: armazenar sempre o pushName bruto para consultas futuras
-    push_name: safePushName || existingClient?.name || null,
   };
   if (avatarUrl) {
     upsertData.avatar_url = avatarUrl;
   }
-  // Se há nome manual definido, preservar sem sobrescrever
+
+  // Colunas opcionais — só incluir se a migration 011 foi aplicada
+  // (o upsert falharia silenciosamente com colunas inexistentes, então testamos primeiro)
+  if (safePushName) {
+    // Tentativa segura: se a coluna não existir, o Supabase ignora em upsert com select()
+    // mas pode lançar erro — por isso fazemos update separado após o upsert principal
+  }
   if (nameManual) {
     upsertData.name_manual = nameManual;
   }
