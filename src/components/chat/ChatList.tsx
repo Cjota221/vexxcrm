@@ -47,6 +47,13 @@ export function ChatList() {
   // Total count
   const totalCount = data?.pages[0]?.pagination?.total || chats.length;
 
+  // ─── Força fetch completo ao montar a Central ───
+  // Garante que a lista nunca dependa de cache antigo ao abrir a página.
+  useEffect(() => {
+    refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Infinite scroll observer
   const handleObserver = useCallback(
     (entries: IntersectionObserverEntry[]) => {
@@ -129,7 +136,7 @@ export function ChatList() {
           <div className="p-4 space-y-3">
             {Array.from({ length: 8 }).map((_, i) => (
               <div key={i} className="flex gap-3 p-3">
-                <div className="skeleton w-11 h-11 rounded-full flex-shrink-0" />
+                <div className="skeleton w-11 h-11 rounded-full shrink-0" />
                 <div className="flex-1 space-y-2">
                   <div className="skeleton h-4 w-24" />
                   <div className="skeleton h-3 w-40" />
@@ -198,11 +205,11 @@ const ChatListItem = memo(function ChatListItem({ chat, isSelected, onSelect }: 
         <img
           src={chat.client.avatar_url}
           alt={chat.client.name}
-          className="w-11 h-11 rounded-full object-cover flex-shrink-0"
+          className="w-11 h-11 rounded-full object-cover shrink-0"
         />
       ) : (
         <div
-          className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 text-white text-sm font-semibold"
+          className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 text-white text-sm font-semibold"
           style={{ backgroundColor: getAvatarColor(chat.client.name) }}
         >
           {getInitials(chat.client.name)}
@@ -218,7 +225,7 @@ const ChatListItem = memo(function ChatListItem({ chat, isSelected, onSelect }: 
           )}>
             {chat.client.name}
           </p>
-          <span className="text-[11px] text-txt-muted flex-shrink-0 ml-2">
+          <span className="text-[11px] text-txt-muted shrink-0 ml-2">
             {chat.last_message?.timestamp
               ? formatRelativeTime(chat.last_message.timestamp)
               : ''}
@@ -231,7 +238,7 @@ const ChatListItem = memo(function ChatListItem({ chat, isSelected, onSelect }: 
               : 'Sem mensagens'}
           </p>
           {chat.unread_count > 0 && (
-            <span className="ml-2 flex-shrink-0 w-5 h-5 bg-crm-primary text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+            <span className="ml-2 shrink-0 w-5 h-5 bg-crm-primary text-white text-[10px] font-bold rounded-full flex items-center justify-center">
               {chat.unread_count > 9 ? '9+' : chat.unread_count}
             </span>
           )}

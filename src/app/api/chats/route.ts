@@ -61,7 +61,10 @@ export async function GET(request: NextRequest) {
         )
       `, { count: 'exact' })
       .eq('tenant_id', tenantId)
-      .order('last_message_at', { ascending: false, nullsFirst: false });
+      // Ordenar por last_message_at desc; conversas sem mensagem ficam por último
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      // Ordenação secundária por updated_at para desempate
+      .order('updated_at', { ascending: false });
 
     // 4. Aplicar filtros
     switch (filter) {
@@ -79,14 +82,18 @@ export async function GET(request: NextRequest) {
         break;
       case 'all':
       default:
-        // Excluir arquivados por padrão
+        // Mostrar todas as conversas EXCETO arquivadas.
+        // Inclui explicitamente: open, waiting, resolved, etc.
         query = query.neq('status', 'archived');
         break;
     }
 
-    // 5. Paginação cursor-based (performance para milhares de registros)
+    // 5. Paginação cursor-based.
+    // O cursor é o last_message_at do último item da página anterior.
+    // Conversas com last_message_at = null usam updated_at como fallback.
     if (cursor) {
-      query = query.lt('last_message_at', cursor);
+      // Busca itens mais antigos que o cursor (ou sem last_message_at)
+      query = query.or(`last_message_at.lt.${cursor},last_message_at.is.null`);
     }
 
     // 6. Limitar resultados + 1 para detectar hasMore
@@ -98,6 +105,9 @@ export async function GET(request: NextRequest) {
       console.error('❌ Chats API error:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    // Log de diagnóstico — tenant_id e total de registros antes de filtrar por search
+    console.log(`[/api/chats] tenant=${tenantId} filter=${filter} raw_count=${count} rows=${conversations?.length ?? 0}`);
 
     // 7. Detectar se há mais páginas
     const hasMore = (conversations?.length || 0) > limit;
@@ -164,8 +174,8 @@ export async function GET(request: NextRequest) {
           is_muted: (conv.is_muted as boolean) || false,
           assigned_to: (conv.assigned_to as string) || undefined,
           updated_at: (conv.updated_at as string) || (conv.created_at as string) || '',
-          // Campo usado para cursor de paginação
-          _cursor: (conv.last_message_at as string) || (conv.updated_at as string) || '',
+          // Cursor usa last_message_at; fallback para updated_at em chats sem mensagem
+          _cursor: (conv.last_message_at as string) || (conv.updated_at as string) || (conv.created_at as string) || '',
         };
       });
 
