@@ -1,8 +1,8 @@
 'use client';
 
-import { useRef, useEffect, useMemo } from 'react';
+import { useRef, useEffect, useMemo, useState, useCallback } from 'react';
 import { MessageCircle } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMessages, useSendMessage } from '@/hooks/useWhatsApp';
 import { useChatsStore } from '@/store/chats';
 import { MessageBubble } from './MessageBubble';
@@ -45,6 +45,46 @@ export function ChatArea() {
     });
   };
 
+  const handleSendMedia = useCallback(async (file: File, caption: string) => {
+    if (!selectedChatId || !selectedChat) return;
+
+    try {
+      // 1. Upload para Supabase Storage
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Erro no upload');
+      }
+
+      const { url, mimeType } = await res.json();
+
+      // 2. Determinar tipo de mídia
+      let mediaType = 'document';
+      if (mimeType.startsWith('image/')) mediaType = 'image';
+      else if (mimeType.startsWith('video/')) mediaType = 'video';
+      else if (mimeType.startsWith('audio/')) mediaType = 'audio';
+
+      // 3. Enviar via WhatsApp
+      sendMessage({
+        to: selectedChat.client.phone,
+        content: caption || file.name,
+        type: mediaType,
+        mediaUrl: url,
+        caption: caption || undefined,
+      });
+    } catch (err) {
+      console.error('[ChatArea] Erro ao enviar mídia:', err);
+      alert('Erro ao enviar arquivo. Tente novamente.');
+    }
+  }, [selectedChatId, selectedChat, sendMessage]);
+
   // Estado vazio — nenhum chat selecionado
   if (!selectedChatId) {
     return (
@@ -66,12 +106,20 @@ export function ChatArea() {
     <div className="flex-1 flex flex-col h-full">
       {/* Chat header */}
       <div className="h-16 bg-wa-bg-panel border-b border-wa-border flex items-center px-4 gap-3">
-        <div
-          className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-semibold"
-          style={{ backgroundColor: getAvatarColor(selectedChat?.client.name || selectedChatId || '') }}
-        >
-          {getInitials(selectedChat?.client.name || '?')}
-        </div>
+        {selectedChat?.client.avatar_url ? (
+          <img
+            src={selectedChat.client.avatar_url}
+            alt={selectedChat.client.name}
+            className="w-10 h-10 rounded-full object-cover"
+          />
+        ) : (
+          <div
+            className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-semibold"
+            style={{ backgroundColor: getAvatarColor(selectedChat?.client.name || selectedChatId || '') }}
+          >
+            {getInitials(selectedChat?.client.name || '?')}
+          </div>
+        )}
         <div>
           <p className="text-sm font-medium text-wa-text-primary">
             {selectedChat?.client.name || 'Cliente'}
@@ -105,7 +153,7 @@ export function ChatArea() {
       </div>
 
       {/* Message input */}
-      <MessageInput onSend={handleSend} isLoading={isSending} />
+      <MessageInput onSend={handleSend} onSendMedia={handleSendMedia} isLoading={isSending} />
     </div>
   );
 }

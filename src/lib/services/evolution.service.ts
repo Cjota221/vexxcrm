@@ -419,6 +419,37 @@ export async function fetchMessages(
   };
 }
 
+/**
+ * Busca URL da foto de perfil de um contato WhatsApp.
+ * @param jid - remoteJid (ex: '5521999999999@s.whatsapp.net')
+ * @returns URL da foto ou null se não disponível
+ */
+export async function fetchProfilePicUrl(
+  config: EvolutionAPIConfig,
+  jid: string
+): Promise<string | null> {
+  try {
+    const response = await fetch(
+      `${config.apiUrl}/chat/fetchProfilePictureUrl/${config.instanceName}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': config.apiKey,
+        },
+        body: JSON.stringify({ number: jid.replace('@s.whatsapp.net', '') }),
+      }
+    );
+
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    return data.profilePictureUrl || data.profilePicUrl || data.picture || null;
+  } catch {
+    return null;
+  }
+}
+
 export interface MediaForwardPayload {
   tenantId: string;
   messageId: string;

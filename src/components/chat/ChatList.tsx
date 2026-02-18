@@ -112,12 +112,20 @@ export function ChatList() {
               )}
             >
               {/* Avatar */}
-              <div
-                className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 text-white text-sm font-semibold"
-                style={{ backgroundColor: getAvatarColor(chat.client.name) }}
-              >
-                {getInitials(chat.client.name)}
-              </div>
+              {chat.client.avatar_url ? (
+                <img
+                  src={chat.client.avatar_url}
+                  alt={chat.client.name}
+                  className="w-11 h-11 rounded-full object-cover flex-shrink-0"
+                />
+              ) : (
+                <div
+                  className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 text-white text-sm font-semibold"
+                  style={{ backgroundColor: getAvatarColor(chat.client.name) }}
+                >
+                  {getInitials(chat.client.name)}
+                </div>
+              )}
 
               {/* Content */}
               <div className="flex-1 min-w-0">

@@ -1,21 +1,45 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Paperclip, Smile, Mic } from 'lucide-react';
+import { Send, Paperclip, Smile, Mic, X, Image, FileText, Video, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface MessageInputProps {
   onSend: (content: string) => void;
+  onSendMedia?: (file: File, caption: string) => void;
   isLoading?: boolean;
   disabled?: boolean;
 }
 
+const ACCEPTED_TYPES: Record<string, string> = {
+  'image/jpeg': 'image',
+  'image/png': 'image',
+  'image/gif': 'image',
+  'image/webp': 'image',
+  'video/mp4': 'video',
+  'video/webm': 'video',
+  'audio/mpeg': 'audio',
+  'audio/ogg': 'audio',
+  'audio/wav': 'audio',
+  'application/pdf': 'document',
+  'application/msword': 'document',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'document',
+  'application/vnd.ms-excel': 'document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'document',
+};
+
+const MAX_FILE_SIZE = 16 * 1024 * 1024; // 16MB
+
 /**
- * Input de mensagem com auto-resize estilo WhatsApp.
+ * Input de mensagem com auto-resize estilo WhatsApp + envio de mídia.
  */
-export function MessageInput({ onSend, isLoading, disabled }: MessageInputProps) {
+export function MessageInput({ onSend, onSendMedia, isLoading, disabled }: MessageInputProps) {
   const [text, setText] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [filePreview, setFilePreview] = useState<string | null>(null);
+  const [caption, setCaption] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Auto resize
   useEffect(() => {
@@ -24,6 +48,13 @@ export function MessageInput({ onSend, isLoading, disabled }: MessageInputProps)
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
     }
   }, [text]);
+
+  // Cleanup file preview URL
+  useEffect(() => {
+    return () => {
+      if (filePreview) URL.revokeObjectURL(filePreview);
+    };
+  }, [filePreview]);
 
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
@@ -35,13 +66,126 @@ export function MessageInput({ onSend, isLoading, disabled }: MessageInputProps)
     }
   }, [text, onSend, isLoading, disabled]);
 
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > MAX_FILE_SIZE) {
+      alert('Arquivo muito grande. Máximo 16MB.');
+      return;
+    }
+
+    const mediaType = ACCEPTED_TYPES[file.type];
+    if (!mediaType) {
+      alert('Tipo de arquivo não suportado. Envie imagens, vídeos, áudios ou documentos.');
+      return;
+    }
+
+    setSelectedFile(file);
+    setCaption('');
+
+    // Gerar preview para imagens
+    if (mediaType === 'image') {
+      setFilePreview(URL.createObjectURL(file));
+    } else {
+      setFilePreview(null);
+    }
+
+    // Limpar input
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, []);
+
+  const handleSendMedia = useCallback(() => {
+    if (!selectedFile || isLoading || disabled) return;
+    if (onSendMedia) {
+      onSendMedia(selectedFile, caption);
+    }
+    setSelectedFile(null);
+    setFilePreview(null);
+    setCaption('');
+  }, [selectedFile, caption, onSendMedia, isLoading, disabled]);
+
+  const handleCancelFile = useCallback(() => {
+    setSelectedFile(null);
+    setFilePreview(null);
+    setCaption('');
+  }, []);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Enter sem shift = enviar
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      if (selectedFile) {
+        handleSendMedia();
+      } else {
+        handleSend();
+      }
     }
   };
+
+  // File attachment preview mode
+  if (selectedFile) {
+    const mediaType = ACCEPTED_TYPES[selectedFile.type] || 'document';
+    const TypeIcon = mediaType === 'image' ? Image : mediaType === 'video' ? Video : FileText;
+
+    return (
+      <div className="bg-wa-bg-panel border-t border-wa-border px-4 py-3 space-y-3">
+        {/* Preview */}
+        <div className="flex items-start gap-3 bg-wa-bg-input rounded-xl p-3">
+          {filePreview ? (
+            <img
+              src={filePreview}
+              alt="Preview"
+              className="w-20 h-20 rounded-lg object-cover shrink-0"
+            />
+          ) : (
+            <div className="w-16 h-16 rounded-lg bg-wa-bg-hover flex items-center justify-center shrink-0">
+              <TypeIcon size={24} className="text-wa-text-secondary" />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm text-wa-text-primary font-medium truncate">
+              {selectedFile.name}
+            </p>
+            <p className="text-xs text-wa-text-secondary">
+              {(selectedFile.size / 1024).toFixed(0)} KB · {mediaType}
+            </p>
+          </div>
+          <button
+            onClick={handleCancelFile}
+            className="p-1.5 text-wa-text-secondary hover:text-red-500 transition-colors rounded-full hover:bg-wa-bg-hover shrink-0"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Caption + Send */}
+        <div className="flex items-end gap-2">
+          <div className="flex-1 bg-wa-bg-input rounded-xl px-4 py-2">
+            <input
+              type="text"
+              value={caption}
+              onChange={(e) => setCaption(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Adicione uma legenda..."
+              className="w-full bg-transparent text-sm text-wa-text-primary placeholder:text-wa-text-secondary outline-none"
+              autoFocus
+            />
+          </div>
+          <button
+            onClick={handleSendMedia}
+            disabled={isLoading || disabled}
+            className={cn(
+              'p-2.5 rounded-full transition-colors',
+              'bg-wa-accent-green text-white hover:opacity-90',
+              (isLoading || disabled) && 'opacity-50 cursor-not-allowed'
+            )}
+          >
+            {isLoading ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-wa-bg-panel border-t border-wa-border px-4 py-3">
@@ -52,9 +196,19 @@ export function MessageInput({ onSend, isLoading, disabled }: MessageInputProps)
         </button>
 
         {/* Attach */}
-        <button className="p-2 text-wa-text-secondary hover:text-wa-text-primary transition-colors rounded-full hover:bg-wa-bg-hover">
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="p-2 text-wa-text-secondary hover:text-wa-text-primary transition-colors rounded-full hover:bg-wa-bg-hover"
+        >
           <Paperclip size={22} />
         </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          onChange={handleFileSelect}
+          accept={Object.keys(ACCEPTED_TYPES).join(',')}
+          className="hidden"
+        />
 
         {/* Input */}
         <div className="flex-1 bg-wa-bg-input rounded-xl px-4 py-2">

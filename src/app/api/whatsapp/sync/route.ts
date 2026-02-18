@@ -6,6 +6,7 @@ import {
   getTenantEvolutionConfig,
   fetchChats,
   fetchMessages,
+  fetchProfilePicUrl,
   type EvolutionChat,
   type EvolutionMessage,
 } from '@/lib/services/evolution.service';
@@ -134,21 +135,26 @@ async function syncOneChat(
   const phoneDisplay = PhoneNormalizer.normalize(phone);
   const pushName = chat.pushName || chat.lastMessage?.pushName || phoneDisplay;
 
-  // 1. Upsert cliente
+  // 1. Buscar foto de perfil (não-bloqueante — usa profilePicUrl do chat se disponível)
+  const avatarUrl = chat.profilePicUrl || await fetchProfilePicUrl(config, jid).catch(() => null);
+
+  // 2. Upsert cliente (com avatar se disponível)
+  const upsertData: Record<string, unknown> = {
+    tenant_id: tenantId,
+    phone: phoneDisplay,
+    phone_normalized: phoneNormalized,
+    name: pushName,
+  };
+  if (avatarUrl) {
+    upsertData.avatar_url = avatarUrl;
+  }
+
   const { data: client, error: clientErr } = await supabase
     .from('clients')
-    .upsert(
-      {
-        tenant_id: tenantId,
-        phone: phoneDisplay,
-        phone_normalized: phoneNormalized,
-        name: pushName,
-      },
-      {
-        onConflict: 'tenant_id,phone_normalized',
-        ignoreDuplicates: false,
-      }
-    )
+    .upsert(upsertData, {
+      onConflict: 'tenant_id,phone_normalized',
+      ignoreDuplicates: false,
+    })
     .select('id, created_at')
     .single();
 
