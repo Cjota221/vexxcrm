@@ -1,12 +1,11 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { Search, Filter } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import { Search, Filter, Loader2, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatRelativeTime, truncate, getInitials, getAvatarColor } from '@/lib/utils';
-import { api } from '@/lib/api';
 import { useChatsStore } from '@/store/chats';
+import { useInfiniteChats, useRefreshChats } from '@/hooks/useChats';
 import type { Chat, ChatFilter } from '@/types';
 
 const FILTERS: { label: string; value: ChatFilter }[] = [
@@ -18,37 +17,76 @@ const FILTERS: { label: string; value: ChatFilter }[] = [
 ];
 
 /**
- * Lista de conversas (sidebar esquerda do atendimento).
+ * Lista de conversas com infinite scroll.
+ * Carrega 25 por vez para suportar milhares de chats sem travar.
  */
 export function ChatList() {
   const { selectedChatId, selectChat, activeFilter, setFilter, searchQuery, setSearchQuery } = useChatsStore();
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const refreshChats = useRefreshChats();
 
-  const { data: chats = [], isLoading } = useQuery({
-    queryKey: ['chats', activeFilter],
-    queryFn: async () => {
-      const response = await api.get<Chat[]>('/api/chats', { filter: activeFilter });
-      if (response.error) throw new Error(response.error);
-      return response.data;
+  const {
+    data,
+    isLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+  } = useInfiniteChats(activeFilter, searchQuery);
+
+  // Flatten all pages into single array
+  const chats = useMemo(() => {
+    return data?.pages.flatMap(page => page.data) ?? [];
+  }, [data]);
+
+  // Total count
+  const totalCount = data?.pages[0]?.pagination?.total || chats.length;
+
+  // Infinite scroll observer
+  const handleObserver = useCallback(
+    (entries: IntersectionObserverEntry[]) => {
+      const [entry] = entries;
+      if (entry.isIntersecting && hasNextPage && !isFetchingNextPage) {
+        fetchNextPage();
+      }
     },
-    staleTime: 30_000,
-  });
+    [hasNextPage, isFetchingNextPage, fetchNextPage]
+  );
 
-  // Filtrar por busca local
-  const filteredChats = useMemo(() => {
-    if (!searchQuery.trim()) return chats;
-    const q = searchQuery.toLowerCase();
-    return chats.filter(
-      (chat) =>
-        chat.client.name.toLowerCase().includes(q) ||
-        chat.client.phone.includes(q)
-    );
-  }, [chats, searchQuery]);
+  useEffect(() => {
+    observerRef.current = new IntersectionObserver(handleObserver, {
+      root: null,
+      rootMargin: '100px',
+      threshold: 0,
+    });
+
+    if (loadMoreRef.current) {
+      observerRef.current.observe(loadMoreRef.current);
+    }
+
+    return () => observerRef.current?.disconnect();
+  }, [handleObserver]);
 
   return (
-    <div className="w-80 border-r border-surface-border flex flex-col bg-white h-full">
+    <div className="flex flex-col bg-white h-full">
       {/* Header */}
-      <div className="p-4 border-b border-surface-border space-y-3">
-        <h2 className="text-lg font-semibold text-txt-primary">Conversas</h2>
+      <div className="p-4 border-b border-surface-border space-y-3 shrink-0">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-txt-primary">Conversas</h2>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-txt-muted">
+              {totalCount > 0 ? `${totalCount} total` : ''}
+            </span>
+            <button
+              onClick={() => refetch()}
+              className="p-1.5 rounded-lg hover:bg-surface-100 text-txt-secondary transition-colors"
+              title="Atualizar lista"
+            >
+              <RefreshCw size={14} />
+            </button>
+          </div>
+        </div>
 
         {/* Search */}
         <div className="relative">
@@ -58,7 +96,7 @@ export function ChatList() {
             placeholder="Buscar conversa..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="input pl-9 py-2 text-sm bg-surface-bg"
+            className="input pl-9 py-2 text-sm bg-surface-bg w-full"
           />
         </div>
 
@@ -81,7 +119,7 @@ export function ChatList() {
         </div>
       </div>
 
-      {/* Chat list */}
+      {/* Chat list with infinite scroll */}
       <div className="flex-1 overflow-y-auto">
         {isLoading ? (
           <div className="p-4 space-y-3">
@@ -95,70 +133,105 @@ export function ChatList() {
               </div>
             ))}
           </div>
-        ) : filteredChats.length === 0 ? (
+        ) : chats.length === 0 ? (
           <div className="p-8 text-center">
             <p className="text-sm text-txt-muted">Nenhuma conversa encontrada</p>
+            <button
+              onClick={() => refetch()}
+              className="mt-3 text-xs text-crm-primary hover:underline"
+            >
+              Recarregar
+            </button>
           </div>
         ) : (
-          filteredChats.map((chat) => (
-            <button
-              key={chat.id}
-              onClick={() => selectChat(chat.client.id)}
-              className={cn(
-                'w-full flex items-center gap-3 px-4 py-3 text-left transition-colors border-b border-surface-border/50',
-                selectedChatId === chat.client.id
-                  ? 'bg-crm-primary/5'
-                  : 'hover:bg-slate-50'
-              )}
-            >
-              {/* Avatar */}
-              {chat.client.avatar_url ? (
-                <img
-                  src={chat.client.avatar_url}
-                  alt={chat.client.name}
-                  className="w-11 h-11 rounded-full object-cover flex-shrink-0"
-                />
-              ) : (
-                <div
-                  className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 text-white text-sm font-semibold"
-                  style={{ backgroundColor: getAvatarColor(chat.client.name) }}
-                >
-                  {getInitials(chat.client.name)}
-                </div>
-              )}
+          <>
+            {chats.map((chat) => (
+              <ChatListItem
+                key={chat.id}
+                chat={chat}
+                isSelected={selectedChatId === chat.client.id}
+                onSelect={() => selectChat(chat.client.id)}
+              />
+            ))}
 
-              {/* Content */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between">
-                  <p className={cn(
-                    'text-sm truncate',
-                    chat.unread_count > 0 ? 'font-semibold text-txt-primary' : 'font-medium text-txt-primary'
-                  )}>
-                    {chat.client.name}
-                  </p>
-                  <span className="text-[11px] text-txt-muted flex-shrink-0 ml-2">
-                    {chat.last_message?.timestamp
-                      ? formatRelativeTime(chat.last_message.timestamp)
-                      : ''}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between mt-0.5">
-                  <p className="text-xs text-txt-secondary truncate">
-                    {chat.last_message
-                      ? truncate(chat.last_message.content || '📷 Mídia', 40)
-                      : 'Sem mensagens'}
-                  </p>
-                  {chat.unread_count > 0 && (
-                    <span className="ml-2 flex-shrink-0 w-5 h-5 bg-crm-primary text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                      {chat.unread_count > 9 ? '9+' : chat.unread_count}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </button>
-          ))
+            {/* Infinite scroll trigger */}
+            <div ref={loadMoreRef} className="h-8 flex items-center justify-center">
+              {isFetchingNextPage && (
+                <Loader2 size={16} className="animate-spin text-crm-primary" />
+              )}
+              {!hasNextPage && chats.length > 0 && (
+                <span className="text-xs text-txt-muted py-4">
+                  Fim da lista
+                </span>
+              )}
+            </div>
+          </>
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Item individual da lista de chat (memoizado para performance)
+ */
+function ChatListItem({ chat, isSelected, onSelect }: {
+  chat: Chat;
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      onClick={onSelect}
+      className={cn(
+        'w-full flex items-center gap-3 px-4 py-3 text-left transition-colors border-b border-surface-border/50',
+        isSelected ? 'bg-crm-primary/5' : 'hover:bg-slate-50'
+      )}
+    >
+      {/* Avatar */}
+      {chat.client.avatar_url ? (
+        <img
+          src={chat.client.avatar_url}
+          alt={chat.client.name}
+          className="w-11 h-11 rounded-full object-cover flex-shrink-0"
+        />
+      ) : (
+        <div
+          className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 text-white text-sm font-semibold"
+          style={{ backgroundColor: getAvatarColor(chat.client.name) }}
+        >
+          {getInitials(chat.client.name)}
+        </div>
+      )}
+
+      {/* Content */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between">
+          <p className={cn(
+            'text-sm truncate',
+            chat.unread_count > 0 ? 'font-semibold text-txt-primary' : 'font-medium text-txt-primary'
+          )}>
+            {chat.client.name}
+          </p>
+          <span className="text-[11px] text-txt-muted flex-shrink-0 ml-2">
+            {chat.last_message?.timestamp
+              ? formatRelativeTime(chat.last_message.timestamp)
+              : ''}
+          </span>
+        </div>
+        <div className="flex items-center justify-between mt-0.5">
+          <p className="text-xs text-txt-secondary truncate">
+            {chat.last_message
+              ? truncate(chat.last_message.content || '📷 Mídia', 40)
+              : 'Sem mensagens'}
+          </p>
+          {chat.unread_count > 0 && (
+            <span className="ml-2 flex-shrink-0 w-5 h-5 bg-crm-primary text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+              {chat.unread_count > 9 ? '9+' : chat.unread_count}
+            </span>
+          )}
+        </div>
+      </div>
+    </button>
   );
 }

@@ -36,6 +36,7 @@ import { ColumnMapper } from '@/components/import/ColumnMapper';
 import { ImportProgress } from '@/components/import/ImportProgress';
 import { ImportResults } from '@/components/import/ImportResults';
 import { SystemHealthCheck } from '@/components/crm/SystemHealthCheck';
+import { BulkSyncPanel } from '@/components/settings/BulkSyncPanel';
 import { useAuthStore } from '@/store/auth';
 import { useQuery } from '@tanstack/react-query';
 import type { TenantConfig } from '@/types';
@@ -421,6 +422,7 @@ function AnneSettings({ config }: { config?: TenantConfig }) {
 function DataManagementTab({ config }: { config?: TenantConfig }) {
   return (
     <div className="space-y-6">
+      <BulkSyncPanel />
       <SyncStatusCard config={config} />
       <ImportCard />
       <DataEngineeringCard />

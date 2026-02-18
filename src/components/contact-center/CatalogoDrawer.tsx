@@ -32,16 +32,29 @@ export function CatalogoDrawer({ open, onClose }: CatalogoDrawerProps) {
 
   const sendMutation = useSendProductToChat();
 
-  const { data: products = [], isLoading } = useQuery<Product[]>({
+  // A API retorna { data: Product[], total, page, ... }
+  interface ProductsResponse {
+    data: Product[];
+    total: number;
+    page: number;
+    per_page: number;
+    total_pages: number;
+  }
+
+  const { data: productsResponse, isLoading, isError, error: queryError } = useQuery<ProductsResponse>({
     queryKey: ['products', 'catalog'],
     queryFn: async () => {
-      const res = await api.get<Product[]>('/api/products');
+      const res = await api.get<ProductsResponse>('/api/products?per_page=200');
       if (res.error) throw new Error(res.error);
+      if (!res.data) throw new Error('Nenhum dado retornado');
       return res.data;
     },
     enabled: open,
     staleTime: 60_000,
   });
+
+  // Extrair array de produtos da resposta paginada
+  const products = productsResponse?.data || [];
 
   const filtered = useMemo(() => {
     if (!search.trim()) return products;
@@ -113,6 +126,12 @@ export function CatalogoDrawer({ open, onClose }: CatalogoDrawerProps) {
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 size={20} className="animate-spin text-crm-primary" />
+          </div>
+        ) : isError ? (
+          <div className="px-4 py-8 text-center">
+            <Package size={28} className="text-red-300 mx-auto mb-2" />
+            <p className="text-xs text-red-500">Erro ao carregar produtos</p>
+            <p className="text-[10px] text-txt-muted mt-1">{queryError?.message}</p>
           </div>
         ) : filtered.length === 0 ? (
           <div className="px-4 py-8 text-center">

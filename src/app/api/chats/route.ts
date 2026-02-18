@@ -4,11 +4,14 @@ import { createServerSupabaseClient, createAuthenticatedClient } from '@/lib/sup
 /**
  * GET /api/chats
  *
- * Lista conversas (chats) do tenant com filtros.
+ * Lista conversas (chats) do tenant com filtros e paginação.
  * Retorna conversations + client info + última mensagem.
  *
  * Query params:
  *   - filter: 'all' | 'unread' | 'waiting' | 'mine' | 'archived'
+ *   - cursor: ISO timestamp para paginação (last_message_at do último item)
+ *   - limit: quantidade por página (default: 25, max: 100)
+ *   - search: busca por nome/telefone do cliente
  */
 export async function GET(request: NextRequest) {
   try {
@@ -41,9 +44,12 @@ export async function GET(request: NextRequest) {
 
     const tenantId = profile.tenant_id;
 
-    // 2. Parâmetros
+    // 2. Parâmetros de paginação e filtro
     const { searchParams } = new URL(request.url);
     const filter = searchParams.get('filter') || 'all';
+    const cursor = searchParams.get('cursor'); // ISO timestamp
+    const limit = Math.min(parseInt(searchParams.get('limit') || '25'), 100);
+    const search = searchParams.get('search')?.trim();
 
     // 3. Query conversations com join em clients
     let query = supabase
@@ -76,7 +82,7 @@ export async function GET(request: NextRequest) {
           total_orders,
           last_order_at
         )
-      `)
+      `, { count: 'exact' })
       .eq('tenant_id', tenantId)
       .order('last_message_at', { ascending: false, nullsFirst: false });
 
@@ -101,26 +107,54 @@ export async function GET(request: NextRequest) {
         break;
     }
 
-    // Limitar a 100 conversas mais recentes
-    query = query.limit(100);
+    // 5. Paginação cursor-based (performance para milhares de registros)
+    if (cursor) {
+      query = query.lt('last_message_at', cursor);
+    }
 
-    const { data: conversations, error } = await query;
+    // 6. Limitar resultados + 1 para detectar hasMore
+    query = query.limit(limit + 1);
+
+    const { data: conversations, error, count } = await query;
 
     if (error) {
       console.error('❌ Chats API error:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // 5. Transformar no formato esperado pelo ChatList (interface Chat)
-    const chats = (conversations || [])
+    // 7. Detectar se há mais páginas
+    const hasMore = (conversations?.length || 0) > limit;
+    const items = hasMore ? conversations?.slice(0, limit) : conversations;
+
+    // 8. Filtrar por busca se especificado (client-side search for now)
+    let filteredItems = items || [];
+    if (search) {
+      const searchLower = search.toLowerCase();
+      filteredItems = filteredItems.filter((conv: Record<string, unknown>) => {
+        const client = conv.client as Record<string, unknown> | null;
+        if (!client) return false;
+        const name = ((client.name as string) || '').toLowerCase();
+        const phone = ((client.phone as string) || '').toLowerCase();
+        return name.includes(searchLower) || phone.includes(searchLower);
+      });
+    }
+
+    // 9. Transformar no formato esperado pelo ChatList (interface Chat)
+    const chats = filteredItems
       .filter((conv: Record<string, unknown>) => conv.client) // Ignorar conversas sem cliente
       .map((conv: Record<string, unknown>) => {
         const client = conv.client as Record<string, unknown>;
+        
+        // Determinar nome real: priorizar nome do cliente vinculado a pedidos, depois pushName
+        const displayName = client.name && client.name !== 'Desconhecido' && client.name !== phoneToDisplay(client.phone as string)
+          ? client.name
+          : client.name || 'Desconhecido';
+        
         return {
           id: conv.id,
           client: {
             id: client.id,
-            name: client.name || 'Desconhecido',
+            name: displayName as string,
             phone: client.phone || '',
             phone_normalized: client.phone_normalized || '',
             email: client.email || '',
@@ -156,7 +190,19 @@ export async function GET(request: NextRequest) {
         };
       });
 
-    return NextResponse.json({ data: chats });
+    // 10. Calcular nextCursor
+    const lastItem = chats[chats.length - 1];
+    const nextCursor = hasMore && lastItem?.updated_at ? lastItem.updated_at : null;
+
+    return NextResponse.json({
+      data: chats,
+      pagination: {
+        total: count || 0,
+        limit,
+        hasMore,
+        nextCursor,
+      },
+    });
   } catch (error) {
     console.error('❌ Chats API error:', error);
     return NextResponse.json(
@@ -164,4 +210,12 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+/**
+ * Formata telefone para exibição
+ */
+function phoneToDisplay(phone: string | null | undefined): string {
+  if (!phone) return '';
+  return phone.replace(/\D/g, '');
 }
