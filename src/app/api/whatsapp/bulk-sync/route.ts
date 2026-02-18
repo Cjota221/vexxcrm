@@ -18,11 +18,14 @@ import { eventBus } from '@/lib/event-bus';
  * Pagina TODOS os chats e TODAS as mensagens de cada chat.
  *
  * Body:
- *   - batchSize: chats por batch (default: 50, max: 200)
- *   - messagesPerChat: mensagens por chat (default: 200, max: 1000)
+ *   - batchSize: chats por batch (default: 10, max: 25)
+ *   - messagesPerChat: mensagens por chat (default: 50, max: 200)
  *   - startFrom: índice para continuar sync interrompido
  */
 export async function POST(request: NextRequest) {
+  const startTime = Date.now();
+  const MAX_EXECUTION_TIME = 8000; // 8s max (margem para 10s do Netlify)
+  
   try {
     const { tenantId } = await getTenantFromRequest(request);
     const supabase = createServerSupabaseClient();
@@ -49,9 +52,18 @@ export async function POST(request: NextRequest) {
     try {
       allChats = await fetchChats(config);
     } catch (err) {
-      console.error('[BulkSync] Erro ao buscar chats:', err);
+      const errMsg = err instanceof Error ? err.message : 'Erro desconhecido';
+      console.error('[BulkSync] Erro ao buscar chats:', errMsg);
       return NextResponse.json(
-        { error: 'Erro ao buscar chats da Evolution API. Verifique a conexão.' },
+        { error: `Erro ao buscar chats: ${errMsg}` },
+        { status: 502 }
+      );
+    }
+
+    if (!Array.isArray(allChats)) {
+      console.error('[BulkSync] Resposta inválida da Evolution API:', typeof allChats);
+      return NextResponse.json(
+        { error: 'Resposta inválida da Evolution API. Verifique se o WhatsApp está conectado.' },
         { status: 502 }
       );
     }
@@ -74,71 +86,77 @@ export async function POST(request: NextRequest) {
     let conversationsCreated = 0;
     let messagesInserted = 0;
     let errors = 0;
+    let processedCount = 0;
+    let timedOut = false;
 
-    // 2. Processar batch com concorrência controlada
-    const CONCURRENCY = 5; // Menos concorrência = menos pressão na VPS
-    for (let i = 0; i < chatsBatch.length; i += CONCURRENCY) {
-      const chunk = chatsBatch.slice(i, i + CONCURRENCY);
-
-      const results = await Promise.allSettled(
-        chunk.map(chat => syncOneChatFull(supabase, tenantId, config, chat, messagesPerChat))
-      );
-
-      for (const result of results) {
-        if (result.status === 'fulfilled') {
-          clientsCreated += result.value.clientCreated ? 1 : 0;
-          conversationsCreated += result.value.conversationCreated ? 1 : 0;
-          messagesInserted += result.value.messagesInserted;
-        } else {
-          errors++;
-          console.error('[BulkSync] Erro em chat:', result.reason);
-        }
+    // 2. Processar batch com verificação de tempo
+    for (const chat of chatsBatch) {
+      // Verificar tempo de execução
+      if (Date.now() - startTime > MAX_EXECUTION_TIME) {
+        console.log(`[BulkSync] Timeout preventivo após ${processedCount} chats`);
+        timedOut = true;
+        break;
+      }
+      
+      try {
+        const result = await syncOneChatFull(supabase, tenantId, config, chat, messagesPerChat);
+        clientsCreated += result.clientCreated ? 1 : 0;
+        conversationsCreated += result.conversationCreated ? 1 : 0;
+        messagesInserted += result.messagesInserted;
+        processedCount++;
+      } catch (err) {
+        errors++;
+        console.error('[BulkSync] Erro em chat:', err);
       }
 
       // Emitir progresso via SSE
-      const currentProgress = startFrom + i + chunk.length;
       eventBus.emitToTenant('sync_progress', tenantId, {
-        current: currentProgress,
+        current: startFrom + processedCount,
         total: totalChats,
-        percent: Math.round((currentProgress / totalChats) * 100),
+        percent: Math.round(((startFrom + processedCount) / totalChats) * 100),
         clients: clientsCreated,
         messages: messagesInserted,
       });
     }
 
     // 3. Retornar resultado com próximo cursor
-    const hasMore = remaining > 0;
-    const nextStartFrom = hasMore ? startFrom + batchSize : null;
+    const actualProcessed = timedOut ? processedCount : chatsBatch.length;
+    const hasMore = (startFrom + actualProcessed) < totalChats;
+    const nextStartFrom = hasMore ? startFrom + actualProcessed : null;
 
-    console.log(`[BulkSync] Batch concluído: ${clientsCreated} clientes, ${conversationsCreated} conversas, ${messagesInserted} mensagens, ${errors} erros`);
+    const duration = Date.now() - startTime;
+    console.log(`[BulkSync] Batch concluído em ${duration}ms: ${clientsCreated} clientes, ${conversationsCreated} conversas, ${messagesInserted} mensagens, ${errors} erros`);
 
     return NextResponse.json({
       success: true,
       data: {
         total_chats: totalChats,
-        batch_processed: chatsBatch.length,
+        batch_processed: actualProcessed,
         clients_created: clientsCreated,
         conversations_created: conversationsCreated,
         messages_synced: messagesInserted,
         errors,
         has_more: hasMore,
         next_start_from: nextStartFrom,
+        timed_out: timedOut,
+        duration_ms: duration,
         progress: {
-          current: startFrom + chatsBatch.length,
+          current: startFrom + actualProcessed,
           total: totalChats,
-          percent: Math.round(((startFrom + chatsBatch.length) / totalChats) * 100),
+          percent: Math.round(((startFrom + actualProcessed) / totalChats) * 100),
         },
       },
     });
-  } catch (error: any) {
-    console.error('[BulkSync] Erro:', error);
+  } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : 'Erro interno';
+    console.error('[BulkSync] Erro:', errMsg);
 
-    if (error.message?.includes('Não autorizado') || error.message?.includes('Token')) {
+    if (errMsg.includes('Não autorizado') || errMsg.includes('Token')) {
       return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
     }
 
     return NextResponse.json(
-      { error: error.message || 'Erro interno' },
+      { error: errMsg },
       { status: 500 }
     );
   }
