@@ -19,24 +19,29 @@ import { eventBus } from '@/lib/event-bus';
  * e salva no Supabase com dedup por external_id.
  *
  * Body (opcional):
- *   - maxChats: número máximo de chats para sincronizar (default: 50)
- *   - maxMessagesPerChat: mensagens por chat (default: 100)
+ *   - maxChats: número máximo de chats para sincronizar (default: 20)
+ *   - maxMessagesPerChat: mensagens por chat (default: 50)
  *   - fullSync: sincronizar TODOS os chats (default: false)
+ * 
+ * NOTA: Netlify tem timeout de 10s. Valores reduzidos para evitar 504.
  */
 export async function POST(request: NextRequest) {
+  const startTime = Date.now();
+  const MAX_EXECUTION_TIME = 8000; // 8s max (margem para 10s do Netlify)
+  
   try {
     const { tenantId } = await getTenantFromRequest(request);
     const supabase = createServerSupabaseClient();
 
-    // Parâmetros
-    let maxChats = 50;
-    let maxMessagesPerChat = 100;
+    // Parâmetros (valores menores para evitar timeout)
+    let maxChats = 20;
+    let maxMessagesPerChat = 50;
 
     try {
       const body = await request.json();
-      maxChats = Math.min(body.maxChats || 50, 500);
-      maxMessagesPerChat = Math.min(body.maxMessagesPerChat || 100, 500);
-      if (body.fullSync) maxChats = 9999;
+      maxChats = Math.min(body.maxChats || 20, 100);
+      maxMessagesPerChat = Math.min(body.maxMessagesPerChat || 50, 200);
+      if (body.fullSync) maxChats = 100;
     } catch {
       // Body vazio — usar defaults
     }
@@ -70,21 +75,32 @@ export async function POST(request: NextRequest) {
     let totalConversations = 0;
     let totalMessages = 0;
     let errors = 0;
+    let processedChats = 0;
+    let timedOut = false;
 
-    // 2. Processar cada chat
+    // 2. Processar cada chat (com verificação de tempo)
     for (const chat of chats) {
+      // Verificar tempo de execução
+      if (Date.now() - startTime > MAX_EXECUTION_TIME) {
+        console.log(`[Sync] Timeout preventivo após ${processedChats} chats`);
+        timedOut = true;
+        break;
+      }
+      
       try {
         const result = await syncOneChat(supabase, tenantId, config, chat, maxMessagesPerChat);
         totalClients += result.clientCreated ? 1 : 0;
         totalConversations += result.conversationCreated ? 1 : 0;
         totalMessages += result.messagesInserted;
+        processedChats++;
       } catch (err) {
         errors++;
         console.error(`[Sync] Erro no chat ${chat.remoteJid}:`, err);
       }
     }
 
-    console.log(`[Sync] Concluído: ${totalClients} clientes, ${totalConversations} conversas, ${totalMessages} mensagens, ${errors} erros`);
+    const duration = Date.now() - startTime;
+    console.log(`[Sync] Concluído em ${duration}ms: ${totalClients} clientes, ${totalConversations} conversas, ${totalMessages} mensagens, ${errors} erros`);
 
     // Emitir evento SSE para atualizar UI
     eventBus.emitToTenant('sync_complete', tenantId, {
@@ -97,12 +113,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
-        chats_found: chats.length + errors,
-        chats_synced: chats.length,
+        chats_found: chats.length,
+        chats_synced: processedChats,
         clients_created: totalClients,
         conversations_created: totalConversations,
         messages_synced: totalMessages,
         errors,
+        timed_out: timedOut,
+        duration_ms: duration,
       },
     });
   } catch (error: any) {
