@@ -115,6 +115,8 @@ export async function POST(request: NextRequest) {
     let timedOut = false;
 
     // 2. Processar batch com verificação de tempo
+    const errorDetails: string[] = [];
+    
     for (const chat of chatsBatch) {
       // Verificar tempo de execução
       if (Date.now() - startTime > MAX_EXECUTION_TIME) {
@@ -131,7 +133,14 @@ export async function POST(request: NextRequest) {
         processedCount++;
       } catch (err) {
         errors++;
-        console.error('[BulkSync] Erro em chat:', err);
+        const errMsg = err instanceof Error ? err.message : 'Erro desconhecido';
+        console.error(`[BulkSync] Erro em chat ${chat.remoteJid}:`, errMsg);
+        // Guardar primeiros 10 erros para debug
+        if (errorDetails.length < 10) {
+          errorDetails.push(`${chat.remoteJid}: ${errMsg}`);
+        }
+        // NÃO interromper — continuar com próximo chat
+        processedCount++;
       }
 
       // Emitir progresso via SSE
@@ -151,6 +160,9 @@ export async function POST(request: NextRequest) {
 
     const duration = Date.now() - startTime;
     console.log(`[BulkSync] Batch concluído em ${duration}ms: ${clientsCreated} clientes, ${conversationsCreated} conversas, ${messagesInserted} mensagens, ${errors} erros`);
+    if (errorDetails.length > 0) {
+      console.log(`[BulkSync] Primeiros erros:`, errorDetails);
+    }
 
     return NextResponse.json({
       success: true,
@@ -161,6 +173,7 @@ export async function POST(request: NextRequest) {
         conversations_created: conversationsCreated,
         messages_synced: messagesInserted,
         errors,
+        error_samples: errorDetails, // Amostras de erros para debug
         has_more: hasMore,
         next_start_from: nextStartFrom,
         timed_out: timedOut,
@@ -216,8 +229,12 @@ async function syncOneChatFull(
   const phoneDisplay = PhoneNormalizer.normalize(phone);
   const pushName = chat.pushName || chat.lastMessage?.pushName || phoneDisplay;
 
-  // 1. Upsert cliente
-  const { data: client, error: clientErr } = await supabase
+  // 1. Upsert cliente (com retry em caso de race condition)
+  let client: { id: string; created_at: string } | null = null;
+  let clientCreated = false;
+  
+  // Primeiro tenta upsert
+  const { data: upsertClient, error: clientErr } = await supabase
     .from('clients')
     .upsert({
       tenant_id: tenantId,
@@ -232,14 +249,28 @@ async function syncOneChatFull(
     .select('id, created_at')
     .single();
 
-  if (clientErr || !client) {
-    throw new Error(`Erro ao upsert cliente ${phone}: ${clientErr?.message}`);
+  if (clientErr) {
+    // Se falhou (ex: race condition), tentar buscar existente
+    const { data: existingClient } = await supabase
+      .from('clients')
+      .select('id, created_at')
+      .eq('tenant_id', tenantId)
+      .eq('phone_normalized', phoneNormalized)
+      .single();
+    
+    if (!existingClient) {
+      throw new Error(`Erro ao upsert cliente ${phone}: ${clientErr.message}`);
+    }
+    client = existingClient;
+  } else {
+    client = upsertClient;
+    clientCreated = (Date.now() - new Date(client.created_at).getTime()) < 5000;
   }
 
-  const clientCreated = (Date.now() - new Date(client.created_at).getTime()) < 5000;
-
-  // 2. Buscar ou criar conversa
+  // 2. Buscar ou criar conversa (com retry em caso de race condition)
   let conversationCreated = false;
+  let conversationId: string;
+  
   const { data: existingConv } = await supabase
     .from('conversations')
     .select('id')
@@ -248,7 +279,6 @@ async function syncOneChatFull(
     .eq('channel', 'whatsapp')
     .maybeSingle();
 
-  let conversationId: string;
   if (existingConv) {
     conversationId = existingConv.id;
   } else {
@@ -265,12 +295,24 @@ async function syncOneChatFull(
       .select('id')
       .single();
 
-    if (convErr || !newConv) {
-      throw new Error(`Erro ao criar conversa: ${convErr?.message}`);
+    if (convErr) {
+      // Race condition — outra request pode ter criado. Buscar novamente.
+      const { data: retryConv } = await supabase
+        .from('conversations')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('client_id', client.id)
+        .eq('channel', 'whatsapp')
+        .single();
+      
+      if (!retryConv) {
+        throw new Error(`Erro ao criar conversa: ${convErr.message}`);
+      }
+      conversationId = retryConv.id;
+    } else {
+      conversationId = newConv.id;
+      conversationCreated = true;
     }
-
-    conversationId = newConv.id;
-    conversationCreated = true;
   }
 
   // 3. Buscar mensagens com PAGINAÇÃO COMPLETA
