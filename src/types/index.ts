@@ -381,11 +381,11 @@ export interface EvolutionWebhookPayload {
     message?: {
       conversation?: string;
       extendedTextMessage?: { text: string };
-      imageMessage?: { url?: string; caption?: string; mimetype?: string };
-      videoMessage?: { url?: string; caption?: string; mimetype?: string };
-      audioMessage?: { url?: string; mimetype?: string; ptt?: boolean };
-      documentMessage?: { url?: string; fileName?: string; mimetype?: string };
-      stickerMessage?: { url?: string };
+      imageMessage?: { url?: string; directPath?: string; caption?: string; mimetype?: string; base64?: string };
+      videoMessage?: { url?: string; directPath?: string; caption?: string; mimetype?: string };
+      audioMessage?: { url?: string; directPath?: string; mimetype?: string; ptt?: boolean };
+      documentMessage?: { url?: string; directPath?: string; fileName?: string; mimetype?: string };
+      stickerMessage?: { url?: string; directPath?: string };
     };
     messageTimestamp?: number;
     status?: string;

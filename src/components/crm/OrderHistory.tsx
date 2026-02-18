@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Package, Truck, CheckCircle, XCircle, Clock, CreditCard, ChevronDown, ChevronUp, ExternalLink, Image as ImageIcon } from 'lucide-react';
+import { Package, Truck, CheckCircle, XCircle, Clock, CreditCard, ChevronDown, ChevronUp, ExternalLink, Image as ImageIcon, MapPin } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency, formatDate, displayOrderNumber } from '@/lib/utils';
 
@@ -165,6 +165,36 @@ export function OrderHistory({ orders, isLoading }: OrderHistoryProps) {
                         </div>
                       )}
                     </div>
+
+                    {/* Endereço de entrega (extraído do metadata) */}
+                    {(() => {
+                      const addr = meta.endereco || meta.address || meta.shipping_address || meta.entrega;
+                      if (!addr) return null;
+                      const city = addr.cidade || addr.city || '';
+                      const state = addr.uf || addr.estado || addr.state || '';
+                      const street = addr.rua || addr.logradouro || addr.street || '';
+                      const neighborhood = addr.bairro || addr.neighborhood || '';
+                      if (!city && !state && !street) return null;
+                      return (
+                        <div className="mt-2 pt-2 border-t border-surface-200">
+                          <p className="text-[10px] text-txt-muted flex items-center gap-1 mb-0.5">
+                            <MapPin size={10} /> Entrega
+                          </p>
+                          {street && (
+                            <p className="text-[10px] text-txt-secondary">
+                              {[street, addr.numero || addr.number, addr.complemento || addr.complement].filter(Boolean).join(', ')}
+                            </p>
+                          )}
+                          {neighborhood && (
+                            <p className="text-[10px] text-txt-secondary">{neighborhood}</p>
+                          )}
+                          <p className="text-[10px] text-txt-secondary">
+                            {[city, state].filter(Boolean).join(' - ')}
+                            {(addr.cep || addr.zip) && ` · ${addr.cep || addr.zip}`}
+                          </p>
+                        </div>
+                      );
+                    })()}
                   </div>
                 ) : (
                   <div className="p-3 text-center">

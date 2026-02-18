@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   X,
   User,
@@ -15,6 +15,8 @@ import {
   Loader2,
   Plus,
   Trash2,
+  MapPin,
+  RefreshCw,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useChatsStore } from '@/store/chats';
@@ -48,13 +50,37 @@ interface ClientNote {
 
 /**
  * Sidebar CRM — exibe dados REAIS do cliente selecionado, pedidos e notas.
+ * Auto-abre ao selecionar chat e recarrega dados em tempo real.
  */
 export function CRMSidebar() {
   const { selectedChatId } = useChatsStore();
   const { crmSidebarOpen, setCrmSidebarOpen } = useUIStore();
   const [activeTab, setActiveTab] = useState<Tab>('client');
+  const queryClient = useQueryClient();
+  const prevChatRef = useRef<string | null>(null);
 
-  const { data: clientData, isLoading: isLoadingClient } = useQuery({
+  // Auto-abrir sidebar e resetar tab quando um chat é selecionado
+  useEffect(() => {
+    if (selectedChatId && selectedChatId !== prevChatRef.current) {
+      setCrmSidebarOpen(true);
+      setActiveTab('client');
+
+      // Invalidar cache do cliente anterior para garantir dados frescos
+      if (prevChatRef.current) {
+        queryClient.removeQueries({ queryKey: ['client', prevChatRef.current] });
+        queryClient.removeQueries({ queryKey: ['client-notes', prevChatRef.current] });
+      }
+
+      prevChatRef.current = selectedChatId;
+    }
+  }, [selectedChatId, setCrmSidebarOpen, queryClient]);
+
+  const {
+    data: clientData,
+    isLoading: isLoadingClient,
+    refetch: refetchClient,
+    isFetching: isFetchingClient,
+  } = useQuery({
     queryKey: ['client', selectedChatId],
     queryFn: async () => {
       if (!selectedChatId) return null;
@@ -65,6 +91,8 @@ export function CRMSidebar() {
     },
     enabled: !!selectedChatId && crmSidebarOpen,
     staleTime: 30_000,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 
   const { data: notesData, isLoading: isLoadingNotes } = useQuery({
@@ -96,13 +124,27 @@ export function CRMSidebar() {
   return (
     <aside className="w-80 bg-white border-l border-surface-200 flex flex-col h-full overflow-hidden">
       <div className="h-16 flex items-center justify-between px-4 border-b border-surface-200 shrink-0">
-        <h3 className="text-sm font-semibold text-txt-primary">Painel CRM</h3>
-        <button
-          onClick={() => setCrmSidebarOpen(false)}
-          className="p-1.5 rounded-lg text-txt-secondary hover:text-txt-primary hover:bg-surface-100 transition-colors"
-        >
-          <X size={18} />
-        </button>
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-txt-primary">Painel CRM</h3>
+          {isFetchingClient && (
+            <Loader2 size={12} className="animate-spin text-crm-primary" />
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => refetchClient()}
+            title="Recarregar dados"
+            className="p-1.5 rounded-lg text-txt-secondary hover:text-txt-primary hover:bg-surface-100 transition-colors"
+          >
+            <RefreshCw size={14} />
+          </button>
+          <button
+            onClick={() => setCrmSidebarOpen(false)}
+            className="p-1.5 rounded-lg text-txt-secondary hover:text-txt-primary hover:bg-surface-100 transition-colors"
+          >
+            <X size={18} />
+          </button>
+        </div>
       </div>
 
       <div className="flex border-b border-surface-200 shrink-0">
@@ -176,6 +218,49 @@ function ClientTab({ client, status, orders }: {
 }) {
   const c = client;
   const isVirtual = c.is_virtual === true;
+
+  // Extrair endereço: prioridade = dados do cliente, fallback = metadata do último pedido
+  const address = useMemo(() => {
+    // 1. Endereço do cliente diretamente
+    if (c.address_city || c.address_state || c.address_street) {
+      return {
+        street: c.address_street,
+        number: c.address_number,
+        complement: c.address_complement,
+        neighborhood: c.address_neighborhood,
+        city: c.address_city,
+        state: c.address_state,
+        zip: c.address_zip,
+        source: 'cadastro',
+      };
+    }
+
+    // 2. Fallback: extrair do metadata do último pedido
+    if (orders.length > 0) {
+      for (const order of orders) {
+        const raw = (order as any).metadata;
+        const meta = typeof raw === 'string'
+          ? (() => { try { return JSON.parse(raw); } catch { return {}; } })()
+          : (raw || {});
+
+        const addr = meta.endereco || meta.address || meta.shipping_address || meta.entrega;
+        if (addr && (addr.cidade || addr.city || addr.uf || addr.state)) {
+          return {
+            street: addr.rua || addr.logradouro || addr.street || '',
+            number: addr.numero || addr.number || '',
+            complement: addr.complemento || addr.complement || '',
+            neighborhood: addr.bairro || addr.neighborhood || '',
+            city: addr.cidade || addr.city || '',
+            state: addr.uf || addr.estado || addr.state || '',
+            zip: addr.cep || addr.zip || addr.zipcode || '',
+            source: 'pedido',
+          };
+        }
+      }
+    }
+
+    return null;
+  }, [c, orders]);
   
   return (
     <div className="space-y-4">
@@ -259,15 +344,25 @@ function ClientTab({ client, status, orders }: {
         </p>
       </div>
 
-      {(c.address_city || c.address_state) && (
+      {address && (
         <div className="border-t border-surface-100 pt-3">
-          <p className="text-[10px] text-txt-muted uppercase tracking-wider font-medium mb-1">Endere\u00e7o</p>
+          <div className="flex items-center gap-1.5 mb-1">
+            <MapPin size={11} className="text-txt-muted" />
+            <p className="text-[10px] text-txt-muted uppercase tracking-wider font-medium">
+              Endereço {address.source === 'pedido' && '(do pedido)'}
+            </p>
+          </div>
+          {(address.street || address.number) && (
+            <p className="text-xs text-txt-secondary">
+              {[address.street, address.number, address.complement].filter(Boolean).join(', ')}
+            </p>
+          )}
+          {address.neighborhood && (
+            <p className="text-xs text-txt-secondary">{address.neighborhood}</p>
+          )}
           <p className="text-xs text-txt-secondary">
-            {[c.address_street, c.address_number, c.address_complement].filter(Boolean).join(', ')}
-          </p>
-          <p className="text-xs text-txt-secondary">
-            {[c.address_city, c.address_state].filter(Boolean).join(' - ')}
-            {c.address_zip && ` \u00b7 ${c.address_zip}`}
+            {[address.city, address.state].filter(Boolean).join(' - ')}
+            {address.zip && ` · ${address.zip}`}
           </p>
         </div>
       )}

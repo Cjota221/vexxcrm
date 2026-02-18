@@ -8,28 +8,65 @@ import { useChatsStore } from '@/store/chats';
 import { MessageBubble } from './MessageBubble';
 import { MessageInput } from './MessageInput';
 import { getInitials, getAvatarColor } from '@/lib/utils';
+import { api } from '@/lib/api';
 import type { Chat } from '@/types';
 
 /**
  * Área principal do chat — mensagens + input.
+ * Resolve identidade do cliente via API + cache.
  */
 export function ChatArea() {
   const { selectedChatId, activeFilter } = useChatsStore();
   const { data: messages = [], isLoading } = useMessages(selectedChatId);
   const { mutate: sendMessage, isPending: isSending } = useSendMessage();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const queryClient = useQueryClient();
 
-  // Acessar chats do cache do React Query para pegar dados do cliente selecionado
-  const { data: chats = [] } = useQuery<Chat[]>({
-    queryKey: ['chats', activeFilter],
-    enabled: false, // Não refetch — usa cache do ChatList
+  // Buscar dados do cliente selecionado via API (resolve por ID, telefone ou conversa)
+  const { data: clientInfo } = useQuery({
+    queryKey: ['client-info', selectedChatId],
+    queryFn: async () => {
+      if (!selectedChatId) return null;
+      const res = await api.get(`/api/clients/${selectedChatId}`);
+      if (res.error) return null;
+      const raw = res.data as any;
+      return raw?.data || raw || null;
+    },
+    enabled: !!selectedChatId,
+    staleTime: 60_000,
   });
 
-  // Encontrar o chat selecionado para exibir nome e enviar para telefone correto
-  const selectedChat = useMemo(
-    () => chats.find((c) => c.client.id === selectedChatId),
-    [chats, selectedChatId]
-  );
+  // Tentar achar o chat no cache das infinite queries (para phone)
+  const cachedChat = useMemo(() => {
+    if (!selectedChatId) return null;
+
+    // Tentar no cache de chats infinitos
+    const cacheEntries = queryClient.getQueriesData<any>({ queryKey: ['chats'] });
+    for (const [, data] of cacheEntries) {
+      if (data?.pages) {
+        for (const page of data.pages) {
+          const found = page?.data?.find((c: Chat) => c.client?.id === selectedChatId);
+          if (found) return found;
+        }
+      }
+      if (Array.isArray(data)) {
+        const found = data.find((c: Chat) => c.client?.id === selectedChatId);
+        if (found) return found;
+      }
+    }
+    return null;
+  }, [selectedChatId, queryClient]);
+
+  // Montar dados do cliente: prioridade clientInfo (API) > cachedChat > fallback
+  const clientData = useMemo(() => {
+    const c = clientInfo || cachedChat?.client;
+    if (!c) return null;
+    return {
+      name: c.name || c.contact_name || 'Cliente',
+      phone: c.phone || c.phone_normalized || '',
+      avatar_url: c.avatar_url || null,
+    };
+  }, [clientInfo, cachedChat]);
 
   // Auto scroll
   useEffect(() => {
@@ -37,16 +74,16 @@ export function ChatArea() {
   }, [messages]);
 
   const handleSend = (content: string) => {
-    if (!selectedChatId || !selectedChat) return;
+    if (!selectedChatId || !clientData) return;
     sendMessage({
-      to: selectedChat.client.phone, // Telefone real do cliente (não UUID)
+      to: clientData.phone,
       content,
       type: 'text',
     });
   };
 
   const handleSendMedia = useCallback(async (file: File, caption: string) => {
-    if (!selectedChatId || !selectedChat) return;
+    if (!selectedChatId || !clientData) return;
 
     try {
       // 1. Upload para Supabase Storage
@@ -73,7 +110,7 @@ export function ChatArea() {
 
       // 3. Enviar via WhatsApp
       sendMessage({
-        to: selectedChat.client.phone,
+        to: clientData.phone,
         content: caption || file.name,
         type: mediaType,
         mediaUrl: url,
@@ -83,7 +120,7 @@ export function ChatArea() {
       console.error('[ChatArea] Erro ao enviar mídia:', err);
       alert('Erro ao enviar arquivo. Tente novamente.');
     }
-  }, [selectedChatId, selectedChat, sendMessage]);
+  }, [selectedChatId, clientData, sendMessage]);
 
   // Estado vazio — nenhum chat selecionado
   if (!selectedChatId) {
@@ -106,26 +143,26 @@ export function ChatArea() {
     <div className="flex-1 flex flex-col h-full">
       {/* Chat header */}
       <div className="h-16 bg-wa-bg-panel border-b border-wa-border flex items-center px-4 gap-3">
-        {selectedChat?.client.avatar_url ? (
+        {clientData?.avatar_url ? (
           <img
-            src={selectedChat.client.avatar_url}
-            alt={selectedChat.client.name}
+            src={clientData.avatar_url}
+            alt={clientData.name}
             className="w-10 h-10 rounded-full object-cover"
           />
         ) : (
           <div
             className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-semibold"
-            style={{ backgroundColor: getAvatarColor(selectedChat?.client.name || selectedChatId || '') }}
+            style={{ backgroundColor: getAvatarColor(clientData?.name || selectedChatId || '') }}
           >
-            {getInitials(selectedChat?.client.name || '?')}
+            {getInitials(clientData?.name || '?')}
           </div>
         )}
         <div>
           <p className="text-sm font-medium text-wa-text-primary">
-            {selectedChat?.client.name || 'Cliente'}
+            {clientData?.name || 'Cliente'}
           </p>
           <p className="text-xs text-wa-text-secondary">
-            {selectedChat?.client.phone || ''}
+            {clientData?.phone || ''}
           </p>
         </div>
       </div>

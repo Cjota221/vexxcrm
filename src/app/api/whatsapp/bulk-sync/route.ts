@@ -14,30 +14,28 @@ import { eventBus } from '@/lib/event-bus';
 /**
  * POST /api/whatsapp/bulk-sync
  *
- * Sincronização de massa para milhares de chats.
- * Processa em batches para não travar o servidor.
+ * Sincronização AGRESSIVA para importar até 24 mil mensagens.
+ * Pagina TODOS os chats e TODAS as mensagens de cada chat.
  *
  * Body:
- *   - batchSize: chats por batch (default: 100, max: 500)
- *   - messagesPerChat: mensagens por chat (default: 50, max: 200)
+ *   - batchSize: chats por batch (default: 50, max: 200)
+ *   - messagesPerChat: mensagens por chat (default: 200, max: 1000)
  *   - startFrom: índice para continuar sync interrompido
- *
- * Retorna progresso para UI mostrar barra de loading.
  */
 export async function POST(request: NextRequest) {
   try {
-    const { tenantId, userId } = await getTenantFromRequest(request);
+    const { tenantId } = await getTenantFromRequest(request);
     const supabase = createServerSupabaseClient();
 
     // Parâmetros
-    let batchSize = 100;
-    let messagesPerChat = 50;
+    let batchSize = 50;
+    let messagesPerChat = 200;
     let startFrom = 0;
 
     try {
       const body = await request.json();
-      batchSize = Math.min(body.batchSize || 100, 500);
-      messagesPerChat = Math.min(body.messagesPerChat || 50, 200);
+      batchSize = Math.min(body.batchSize || 50, 200);
+      messagesPerChat = Math.min(body.messagesPerChat || 200, 1000);
       startFrom = body.startFrom || 0;
     } catch {
       // Body vazio — usar defaults
@@ -70,7 +68,6 @@ export async function POST(request: NextRequest) {
     // Pegar batch atual
     const chatsBatch = allChats.slice(startFrom, startFrom + batchSize);
     const totalChats = allChats.length;
-    const processed = startFrom;
     const remaining = Math.max(0, totalChats - startFrom - chatsBatch.length);
 
     let clientsCreated = 0;
@@ -78,13 +75,13 @@ export async function POST(request: NextRequest) {
     let messagesInserted = 0;
     let errors = 0;
 
-    // 2. Processar batch em paralelo (com limite de concorrência)
-    const CONCURRENCY = 10;
+    // 2. Processar batch com concorrência controlada
+    const CONCURRENCY = 5; // Menos concorrência = menos pressão na VPS
     for (let i = 0; i < chatsBatch.length; i += CONCURRENCY) {
       const chunk = chatsBatch.slice(i, i + CONCURRENCY);
-      
+
       const results = await Promise.allSettled(
-        chunk.map(chat => syncOneChat(supabase, tenantId, config, chat, messagesPerChat))
+        chunk.map(chat => syncOneChatFull(supabase, tenantId, config, chat, messagesPerChat))
       );
 
       for (const result of results) {
@@ -99,7 +96,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Emitir progresso via SSE
-      const currentProgress = processed + i + chunk.length;
+      const currentProgress = startFrom + i + chunk.length;
       eventBus.emitToTenant('sync_progress', tenantId, {
         current: currentProgress,
         total: totalChats,
@@ -148,10 +145,10 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * Sincroniza um chat individual.
- * Versão otimizada para bulk sync (menos queries, mais batch inserts).
+ * Sincroniza UM chat completo — paginando TODAS as mensagens.
+ * Diferente da versão anterior, não para na page 1.
  */
-async function syncOneChat(
+async function syncOneChatFull(
   supabase: ReturnType<typeof createServerSupabaseClient>,
   tenantId: string,
   config: ReturnType<typeof getTenantEvolutionConfig>,
@@ -159,14 +156,14 @@ async function syncOneChat(
   maxMessages: number
 ): Promise<{ clientCreated: boolean; conversationCreated: boolean; messagesInserted: number }> {
   const jid = chat.remoteJid;
-  
+
   // Ignorar grupos e broadcasts
   if (jid.includes('@g.us') || jid.includes('@broadcast')) {
     return { clientCreated: false, conversationCreated: false, messagesInserted: 0 };
   }
 
   const phone = jid.replace('@s.whatsapp.net', '').replace('@lid', '');
-  
+
   // Validar telefone
   if (phone.length < 8 || phone.length > 15) {
     return { clientCreated: false, conversationCreated: false, messagesInserted: 0 };
@@ -206,7 +203,7 @@ async function syncOneChat(
     .eq('tenant_id', tenantId)
     .eq('client_id', client.id)
     .eq('channel', 'whatsapp')
-    .single();
+    .maybeSingle();
 
   let conversationId: string;
   if (existingConv) {
@@ -219,6 +216,8 @@ async function syncOneChat(
         client_id: client.id,
         channel: 'whatsapp',
         status: 'open',
+        contact_phone: phoneDisplay,
+        contact_name: pushName,
       })
       .select('id')
       .single();
@@ -231,105 +230,145 @@ async function syncOneChat(
     conversationCreated = true;
   }
 
-  // 3. Buscar mensagens da Evolution API
-  let allMessages: EvolutionMessage[] = [];
-  try {
-    const batch = await fetchMessages(config, jid, 1, maxMessages);
-    allMessages = batch.records.slice(0, maxMessages);
-  } catch (err) {
-    // Se falhar ao buscar mensagens, continuar (cliente/conversa já criados)
-    console.warn(`[BulkSync] Erro ao buscar mensagens de ${jid}:`, err);
-    return { clientCreated, conversationCreated, messagesInserted: 0 };
-  }
+  // 3. Buscar mensagens com PAGINAÇÃO COMPLETA
+  let totalInserted = 0;
+  let page = 1;
+  const PAGE_SIZE = 100;
+  let hasMorePages = true;
 
-  if (allMessages.length === 0) {
-    return { clientCreated, conversationCreated, messagesInserted: 0 };
-  }
+  while (hasMorePages && totalInserted < maxMessages) {
+    try {
+      const batch = await fetchMessages(config, jid, page, PAGE_SIZE);
 
-  // 4. Dedup por external_id
-  const externalIds = allMessages.map((m) => m.key.id).filter(Boolean);
-  const { data: existingMsgs } = await supabase
-    .from('messages')
-    .select('external_id')
-    .eq('tenant_id', tenantId)
-    .eq('conversation_id', conversationId)
-    .in('external_id', externalIds);
+      if (batch.records.length === 0) {
+        hasMorePages = false;
+        break;
+      }
 
-  const existingSet = new Set((existingMsgs || []).map((m) => m.external_id));
-  const newMessages = allMessages.filter((m) => m.key.id && !existingSet.has(m.key.id));
+      // Dedup por external_id
+      const externalIds = batch.records.map(m => m.key.id).filter(Boolean);
+      const { data: existingMsgs } = await supabase
+        .from('messages')
+        .select('external_id')
+        .eq('tenant_id', tenantId)
+        .eq('conversation_id', conversationId)
+        .in('external_id', externalIds);
 
-  if (newMessages.length === 0) {
-    return { clientCreated, conversationCreated, messagesInserted: 0 };
-  }
+      const existingSet = new Set((existingMsgs || []).map(m => m.external_id));
+      const newMessages = batch.records.filter(m => m.key.id && !existingSet.has(m.key.id));
 
-  // 5. Preparar rows para insert
-  const rows = newMessages.map((m) => {
-    const msgContent = m.message || {};
-    const text =
-      (msgContent.conversation as string) ||
-      (msgContent.extendedTextMessage as Record<string, unknown>)?.text ||
-      (msgContent.imageMessage as Record<string, unknown>)?.caption ||
-      (msgContent.videoMessage as Record<string, unknown>)?.caption ||
-      '';
+      if (newMessages.length > 0) {
+        // Preparar rows
+        const rows = newMessages.map(m => mapEvolutionMessage(m, tenantId, conversationId, client.id, phone, phoneDisplay));
 
-    let type = 'text';
-    if (msgContent.imageMessage) type = 'image';
-    else if (msgContent.videoMessage) type = 'video';
-    else if (msgContent.audioMessage) type = 'audio';
-    else if (msgContent.documentMessage) type = 'document';
-    else if (msgContent.stickerMessage) type = 'sticker';
+        // Inserir em batch (máx 100 por insert do Supabase)
+        const { error: insertErr } = await supabase.from('messages').insert(rows);
+        if (!insertErr) {
+          totalInserted += rows.length;
+        } else {
+          console.warn(`[BulkSync] Erro insert page ${page} de ${jid}:`, insertErr.message);
+        }
+      }
 
-    let mediaUrl: string | null = null;
-    const mediaObj = (msgContent.imageMessage ||
-      msgContent.videoMessage ||
-      msgContent.audioMessage ||
-      msgContent.documentMessage) as Record<string, unknown> | undefined;
-    if (mediaObj) {
-      mediaUrl = (mediaObj.url as string) || null;
+      // Avançar página
+      hasMorePages = page < batch.pages;
+      page++;
+    } catch (err) {
+      console.warn(`[BulkSync] Erro page ${page} de ${jid}:`, err);
+      break; // Parar paginação deste chat se der erro
     }
-
-    return {
-      tenant_id: tenantId,
-      conversation_id: conversationId,
-      client_id: client.id,
-      external_id: m.key.id,
-      direction: m.key.fromMe ? 'outbound' : 'inbound',
-      sender_name: m.key.fromMe ? 'Atendente' : (m.pushName || phoneDisplay),
-      sender_phone: m.key.fromMe ? null : phone,
-      content: text,
-      type,
-      media_url: mediaUrl,
-      status: m.key.fromMe ? 'sent' : 'delivered',
-      created_at: m.messageTimestamp
-        ? new Date(m.messageTimestamp * 1000).toISOString()
-        : new Date().toISOString(),
-    };
-  });
-
-  // 6. Inserir em batch
-  let messagesInserted = 0;
-  const { error: insertErr } = await supabase.from('messages').insert(rows);
-
-  if (insertErr) {
-    console.error(`[BulkSync] Erro ao inserir mensagens:`, insertErr.message);
-  } else {
-    messagesInserted = rows.length;
   }
 
-  // 7. Atualizar last_message na conversa
-  const lastMsg = rows[rows.length - 1];
-  if (lastMsg) {
-    await supabase
-      .from('conversations')
-      .update({
-        last_message_text: lastMsg.content || `📎 ${lastMsg.type}`,
-        last_message_at: lastMsg.created_at,
-        last_message_type: lastMsg.type,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', conversationId)
-      .eq('tenant_id', tenantId);
+  // 4. Atualizar metadados da conversa
+  if (totalInserted > 0) {
+    // Buscar última mensagem para atualizar a conversa
+    const { data: lastMsg } = await supabase
+      .from('messages')
+      .select('content, type, created_at, direction')
+      .eq('tenant_id', tenantId)
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (lastMsg) {
+      // Contar mensagens não lidas
+      const { count: unreadCount } = await supabase
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId)
+        .eq('conversation_id', conversationId)
+        .eq('direction', 'inbound')
+        .neq('status', 'read');
+
+      await supabase
+        .from('conversations')
+        .update({
+          last_message_text: lastMsg.content || `📎 ${lastMsg.type}`,
+          last_message_at: lastMsg.created_at,
+          last_message_type: lastMsg.type,
+          unread_count: unreadCount || 0,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', conversationId)
+        .eq('tenant_id', tenantId);
+    }
   }
 
-  return { clientCreated, conversationCreated, messagesInserted };
+  return { clientCreated, conversationCreated, messagesInserted: totalInserted };
+}
+
+/**
+ * Mapeia uma mensagem da Evolution API para o formato do Supabase.
+ */
+function mapEvolutionMessage(
+  m: EvolutionMessage,
+  tenantId: string,
+  conversationId: string,
+  clientId: string,
+  phone: string,
+  phoneDisplay: string
+) {
+  const mc = m.message || {};
+  const text =
+    (mc.conversation as string) ||
+    (mc.extendedTextMessage as Record<string, unknown>)?.text ||
+    (mc.imageMessage as Record<string, unknown>)?.caption ||
+    (mc.videoMessage as Record<string, unknown>)?.caption ||
+    '';
+
+  let type = 'text';
+  if (mc.imageMessage) type = 'image';
+  else if (mc.videoMessage) type = 'video';
+  else if (mc.audioMessage) type = 'audio';
+  else if (mc.documentMessage) type = 'document';
+  else if (mc.stickerMessage) type = 'sticker';
+
+  // Extrair media_url corretamente
+  let mediaUrl: string | null = null;
+  let mediaMime: string | null = null;
+  const mediaObj = (mc.imageMessage || mc.videoMessage || mc.audioMessage || mc.documentMessage) as Record<string, unknown> | undefined;
+  if (mediaObj) {
+    // Evolution pode retornar url ou directPath
+    mediaUrl = (mediaObj.url as string) || (mediaObj.directPath as string) || null;
+    mediaMime = (mediaObj.mimetype as string) || null;
+  }
+
+  return {
+    tenant_id: tenantId,
+    conversation_id: conversationId,
+    client_id: clientId,
+    external_id: m.key.id,
+    direction: m.key.fromMe ? 'outbound' : 'inbound',
+    sender_name: m.key.fromMe ? 'Atendente' : (m.pushName || phoneDisplay),
+    sender_phone: m.key.fromMe ? null : phone,
+    content: text,
+    type,
+    media_url: mediaUrl,
+    media_mime_type: mediaMime,
+    status: m.key.fromMe ? 'sent' : 'delivered',
+    created_at: m.messageTimestamp
+      ? new Date(m.messageTimestamp * 1000).toISOString()
+      : new Date().toISOString(),
+  };
 }

@@ -214,17 +214,23 @@ async function handleNewMessage(
   let mediaUrl: string | undefined;
   let mimetype: string | undefined;
   if (messageContent.imageMessage) {
-    mediaUrl = messageContent.imageMessage.url;
+    mediaUrl = messageContent.imageMessage.url || messageContent.imageMessage.directPath;
     mimetype = messageContent.imageMessage.mimetype;
   } else if (messageContent.videoMessage) {
-    mediaUrl = messageContent.videoMessage.url;
+    mediaUrl = messageContent.videoMessage.url || messageContent.videoMessage.directPath;
     mimetype = messageContent.videoMessage.mimetype;
   } else if (messageContent.audioMessage) {
-    mediaUrl = messageContent.audioMessage.url;
+    mediaUrl = messageContent.audioMessage.url || messageContent.audioMessage.directPath;
     mimetype = messageContent.audioMessage.mimetype;
   } else if (messageContent.documentMessage) {
-    mediaUrl = messageContent.documentMessage.url;
+    mediaUrl = messageContent.documentMessage.url || messageContent.documentMessage.directPath;
     mimetype = messageContent.documentMessage.mimetype;
+  }
+
+  // Se temos um directPath mas não URL completa, construir URL da Evolution
+  if (mediaUrl && !mediaUrl.startsWith('http')) {
+    const config = getTenantEvolutionConfig(tenantId);
+    mediaUrl = `${config.apiUrl}${mediaUrl}`;
   }
 
   // Salvar mensagem (alinhado com schema SQL)
@@ -241,6 +247,7 @@ async function handleNewMessage(
       content: text,
       type,
       media_url: mediaUrl || null,
+      media_mime_type: mimetype || null,
       status: fromMe ? 'sent' : 'delivered',
       created_at: data.messageTimestamp
         ? new Date(data.messageTimestamp * 1000).toISOString()
@@ -398,11 +405,103 @@ async function handleConnectionUpdate(
     triggerHistoricalSync(supabase, tenantId).catch((err) =>
       console.warn('[Webhook] Erro no sync automático:', err)
     );
+
+    // ━━━ VERIFICAR E RECONFIGURAR WEBHOOK ━━━
+    ensureWebhookConfig(tenantId).catch((err) =>
+      console.warn('[Webhook] Erro ao verificar webhook config:', err)
+    );
   }
 }
 
 /**
- * Sync automático leve: sincroniza os 30 chats mais recentes com até 50 mensagens cada.
+ * Verifica se o webhook está configurado corretamente e reconfigura se necessário.
+ * Garante que MESSAGES_UPSERT está na lista de eventos.
+ */
+async function ensureWebhookConfig(tenantId: string) {
+  const config = getTenantEvolutionConfig(tenantId);
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL || '';
+  
+  if (!appUrl) {
+    console.warn('[Webhook] NEXT_PUBLIC_APP_URL não configurada, impossível verificar webhook');
+    return;
+  }
+
+  try {
+    // Buscar configuração atual do webhook
+    const response = await fetch(`${config.apiUrl}/webhook/find/${config.instanceName}`, {
+      method: 'GET',
+      headers: { 'apikey': config.apiKey },
+    });
+
+    if (!response.ok) {
+      console.warn('[Webhook] Não foi possível buscar config do webhook, reconfigurando...');
+      await reconfigureWebhook(config, appUrl, tenantId);
+      return;
+    }
+
+    const webhookData = await response.json();
+    const currentUrl = webhookData?.url || webhookData?.webhook?.url || '';
+    const currentEvents = webhookData?.events || webhookData?.webhook?.events || [];
+    const isEnabled = webhookData?.enabled !== false && webhookData?.webhook?.enabled !== false;
+
+    // Verificar se MESSAGES_UPSERT está nos eventos
+    const hasMessagesUpsert = currentEvents.includes('MESSAGES_UPSERT');
+    const hasCorrectUrl = currentUrl.includes('/api/webhooks/evolution');
+
+    if (!hasMessagesUpsert || !hasCorrectUrl || !isEnabled) {
+      console.log(`[Webhook] Config incorreta: url=${hasCorrectUrl}, MESSAGES_UPSERT=${hasMessagesUpsert}, enabled=${isEnabled}. Reconfigurando...`);
+      await reconfigureWebhook(config, appUrl, tenantId);
+    } else {
+      console.log('[Webhook] Config OK — MESSAGES_UPSERT ativo');
+    }
+  } catch (err) {
+    console.warn('[Webhook] Erro ao verificar webhook, reconfigurando:', err);
+    await reconfigureWebhook(config, appUrl, tenantId);
+  }
+}
+
+/**
+ * Reconfigura o webhook da instância com todas as opções necessárias.
+ */
+async function reconfigureWebhook(
+  config: ReturnType<typeof getTenantEvolutionConfig>,
+  appUrl: string,
+  tenantId: string
+) {
+  const webhookUrl = `${appUrl}/api/webhooks/evolution?tenant_id=${tenantId}`;
+
+  const response = await fetch(`${config.apiUrl}/webhook/set/${config.instanceName}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': config.apiKey,
+    },
+    body: JSON.stringify({
+      webhook: {
+        url: webhookUrl,
+        enabled: true,
+        webhook_by_events: false,
+        webhook_base64: true,
+        events: [
+          'MESSAGES_UPSERT',
+          'MESSAGES_UPDATE',
+          'CONNECTION_UPDATE',
+          'CONTACTS_UPDATE',
+        ],
+      },
+    }),
+  });
+
+  if (response.ok) {
+    console.log(`[Webhook] Reconfigurado com sucesso: ${webhookUrl}`);
+  } else {
+    const err = await response.text().catch(() => 'unknown');
+    console.error(`[Webhook] Erro ao reconfigurar: ${err}`);
+  }
+}
+
+/**
+ * Sync automático agressivo: sincroniza os 100 chats mais recentes com paginação completa.
  * Roda em background quando a conexão é estabelecida.
  */
 async function triggerHistoricalSync(
@@ -417,7 +516,7 @@ async function triggerHistoricalSync(
   const chats = await fetchChats(config);
   const recentChats = chats
     .sort((a, b) => (b.lastMessage?.messageTimestamp || 0) - (a.lastMessage?.messageTimestamp || 0))
-    .slice(0, 30); // Top 30 mais recentes
+    .slice(0, 100); // Top 100 mais recentes
 
   let totalMessages = 0;
   let totalClients = 0;
@@ -425,6 +524,8 @@ async function triggerHistoricalSync(
   for (const chat of recentChats) {
     try {
       const phone = chat.remoteJid.replace('@s.whatsapp.net', '');
+      if (phone.length < 8 || phone.length > 15) continue;
+      
       const phoneNormalized = PhoneNormalizer.canonical(phone);
       const phoneDisplay = PhoneNormalizer.normalize(phone);
       const pushName = chat.pushName || chat.lastMessage?.pushName || phoneDisplay;
@@ -433,7 +534,13 @@ async function triggerHistoricalSync(
       const { data: client } = await supabase
         .from('clients')
         .upsert(
-          { tenant_id: tenantId, phone: phoneDisplay, phone_normalized: phoneNormalized, name: pushName },
+          { 
+            tenant_id: tenantId, 
+            phone: phoneDisplay, 
+            phone_normalized: phoneNormalized, 
+            name: pushName,
+            avatar_url: chat.profilePicUrl || null,
+          },
           { onConflict: 'tenant_id,phone_normalized', ignoreDuplicates: false }
         )
         .select('id')
@@ -450,89 +557,138 @@ async function triggerHistoricalSync(
         .eq('tenant_id', tenantId)
         .eq('client_id', client.id)
         .eq('channel', 'whatsapp')
-        .single();
+        .maybeSingle();
 
       if (conv) {
         convId = conv.id;
       } else {
         const { data: newConv } = await supabase
           .from('conversations')
-          .insert({ tenant_id: tenantId, client_id: client.id, channel: 'whatsapp', status: 'open' })
+          .insert({ 
+            tenant_id: tenantId, 
+            client_id: client.id, 
+            channel: 'whatsapp', 
+            status: 'open',
+            contact_phone: phoneDisplay,
+            contact_name: pushName,
+          })
           .select('id')
           .single();
         if (!newConv) continue;
         convId = newConv.id;
       }
 
-      // Buscar últimas 50 mensagens
-      const batch = await fetchMessages(config, chat.remoteJid, 1, 50);
-      if (batch.records.length === 0) continue;
+      // Buscar mensagens com PAGINAÇÃO (até 200 por chat)
+      let page = 1;
+      let chatMsgsInserted = 0;
+      const PAGE_SIZE = 100;
+      const MAX_PER_CHAT = 200;
 
-      // Dedup
-      const extIds = batch.records.map((m) => m.key.id).filter(Boolean);
-      const { data: existing } = await supabase
-        .from('messages')
-        .select('external_id')
-        .eq('tenant_id', tenantId)
-        .eq('conversation_id', convId)
-        .in('external_id', extIds);
+      while (chatMsgsInserted < MAX_PER_CHAT) {
+        const batch = await fetchMessages(config, chat.remoteJid, page, PAGE_SIZE);
+        if (batch.records.length === 0) break;
 
-      const existSet = new Set((existing || []).map((e) => e.external_id));
-      const newMsgs = batch.records.filter((m) => m.key.id && !existSet.has(m.key.id));
+        // Dedup
+        const extIds = batch.records.map((m) => m.key.id).filter(Boolean);
+        const { data: existing } = await supabase
+          .from('messages')
+          .select('external_id')
+          .eq('tenant_id', tenantId)
+          .eq('conversation_id', convId)
+          .in('external_id', extIds);
 
-      if (newMsgs.length === 0) continue;
+        const existSet = new Set((existing || []).map((e) => e.external_id));
+        const newMsgs = batch.records.filter((m) => m.key.id && !existSet.has(m.key.id));
 
-      // Preparar e inserir
-      const rows = newMsgs.map((m) => {
-        const mc = m.message || {};
-        const text =
-          (mc.conversation as string) ||
-          (mc.extendedTextMessage as Record<string, unknown>)?.text ||
-          (mc.imageMessage as Record<string, unknown>)?.caption ||
-          (mc.videoMessage as Record<string, unknown>)?.caption ||
-          '';
+        if (newMsgs.length > 0) {
+          const rows = newMsgs.map((m) => {
+            const mc = m.message || {};
+            const text =
+              (mc.conversation as string) ||
+              (mc.extendedTextMessage as Record<string, unknown>)?.text ||
+              (mc.imageMessage as Record<string, unknown>)?.caption ||
+              (mc.videoMessage as Record<string, unknown>)?.caption ||
+              '';
 
-        let type = 'text';
-        if (mc.imageMessage) type = 'image';
-        else if (mc.videoMessage) type = 'video';
-        else if (mc.audioMessage) type = 'audio';
-        else if (mc.documentMessage) type = 'document';
-        else if (mc.stickerMessage) type = 'sticker';
+            let type = 'text';
+            if (mc.imageMessage) type = 'image';
+            else if (mc.videoMessage) type = 'video';
+            else if (mc.audioMessage) type = 'audio';
+            else if (mc.documentMessage) type = 'document';
+            else if (mc.stickerMessage) type = 'sticker';
 
-        return {
-          tenant_id: tenantId,
-          conversation_id: convId,
-          client_id: client.id,
-          external_id: m.key.id,
-          direction: m.key.fromMe ? 'outbound' : 'inbound',
-          sender_name: m.key.fromMe ? 'Atendente' : (m.pushName || phoneDisplay),
-          sender_phone: m.key.fromMe ? null : phone,
-          content: text,
-          type,
-          status: m.key.fromMe ? 'sent' : 'delivered',
-          created_at: m.messageTimestamp
-            ? new Date(m.messageTimestamp * 1000).toISOString()
-            : new Date().toISOString(),
-        };
-      });
+            // Extrair media_url
+            let mediaUrl: string | null = null;
+            let mediaMime: string | null = null;
+            const mediaObj = (mc.imageMessage || mc.videoMessage || mc.audioMessage || mc.documentMessage) as Record<string, unknown> | undefined;
+            if (mediaObj) {
+              mediaUrl = (mediaObj.url as string) || (mediaObj.directPath as string) || null;
+              mediaMime = (mediaObj.mimetype as string) || null;
+            }
 
-      const { error: insErr } = await supabase.from('messages').insert(rows);
-      if (!insErr) {
-        totalMessages += rows.length;
+            return {
+              tenant_id: tenantId,
+              conversation_id: convId,
+              client_id: client.id,
+              external_id: m.key.id,
+              direction: m.key.fromMe ? 'outbound' : 'inbound',
+              sender_name: m.key.fromMe ? 'Atendente' : (m.pushName || phoneDisplay),
+              sender_phone: m.key.fromMe ? null : phone,
+              content: text,
+              type,
+              media_url: mediaUrl,
+              media_mime_type: mediaMime,
+              status: m.key.fromMe ? 'sent' : 'delivered',
+              created_at: m.messageTimestamp
+                ? new Date(m.messageTimestamp * 1000).toISOString()
+                : new Date().toISOString(),
+            };
+          });
 
-        // Atualizar last_message na conversa
-        const lastRow = rows[rows.length - 1];
-        await supabase
-          .from('conversations')
-          .update({
-            last_message_text: lastRow.content || `📎 ${lastRow.type}`,
-            last_message_at: lastRow.created_at,
-            last_message_type: lastRow.type,
-            message_count: rows.length,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', convId)
-          .eq('tenant_id', tenantId);
+          const { error: insErr } = await supabase.from('messages').insert(rows);
+          if (!insErr) {
+            chatMsgsInserted += rows.length;
+            totalMessages += rows.length;
+          }
+        }
+
+        // Avançar página se houver mais
+        if (page >= batch.pages) break;
+        page++;
+      }
+
+      // Atualizar last_message na conversa
+      if (chatMsgsInserted > 0) {
+        const { data: lastMsg } = await supabase
+          .from('messages')
+          .select('content, type, created_at')
+          .eq('tenant_id', tenantId)
+          .eq('conversation_id', convId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (lastMsg) {
+          const { count: unreadCount } = await supabase
+            .from('messages')
+            .select('id', { count: 'exact', head: true })
+            .eq('tenant_id', tenantId)
+            .eq('conversation_id', convId)
+            .eq('direction', 'inbound')
+            .neq('status', 'read');
+
+          await supabase
+            .from('conversations')
+            .update({
+              last_message_text: lastMsg.content || `📎 ${lastMsg.type}`,
+              last_message_at: lastMsg.created_at,
+              last_message_type: lastMsg.type,
+              unread_count: unreadCount || 0,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', convId)
+            .eq('tenant_id', tenantId);
+        }
       }
     } catch (err) {
       console.warn(`[Sync Auto] Erro no chat ${chat.remoteJid}:`, err);

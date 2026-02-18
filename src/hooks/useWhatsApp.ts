@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useCallback } from 'react';
+import { useMutation, useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { useConnectionStore } from '@/store/connection';
 import { api } from '@/lib/api';
 import type { Message } from '@/types';
@@ -111,15 +111,20 @@ export function useWhatsAppConnection() {
 
 /**
  * Hook para buscar mensagens de um chat.
+ * Extrai o array de `data` corretamente — API retorna { data: Message[] }.
  */
 export function useMessages(clientId: string | null) {
   return useQuery({
     queryKey: ['messages', clientId],
     queryFn: async () => {
       if (!clientId) return [];
-      const response = await api.get<Message[]>(`/api/messages/${clientId}`);
+      const response = await api.get<{ data: Message[] } | Message[]>(`/api/messages/${clientId}`);
       if (response.error) throw new Error(response.error);
-      return response.data;
+      // API retorna { data: Message[] } — extrair o array
+      const raw = response.data as any;
+      if (Array.isArray(raw)) return raw as Message[];
+      if (raw?.data && Array.isArray(raw.data)) return raw.data as Message[];
+      return [];
     },
     enabled: !!clientId,
     staleTime: Infinity, // SSE cuida das atualizações
