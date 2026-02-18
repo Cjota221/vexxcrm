@@ -15,11 +15,11 @@ import type { Message } from '@/types';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { clientId: string } }
+  { params }: { params: Promise<{ clientId: string }> }
 ) {
   try {
     const { tenantId } = await getTenantFromRequest(request);
-    const { clientId } = params;
+    const { clientId } = await params;
 
     if (!clientId) {
       return NextResponse.json(
