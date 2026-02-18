@@ -138,6 +138,37 @@ export async function POST(request: NextRequest) {
 }
 
 /**
+ * Faz download da foto de perfil e salva permanentemente no Supabase Storage.
+ * Retorna URL permanente (Storage) ou URL original como fallback.
+ */
+async function cacheProfilePic(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+  clientId: string,
+  picUrl: string
+): Promise<string> {
+  try {
+    const res = await fetch(picUrl, { redirect: 'follow' });
+    if (!res.ok) return picUrl;
+
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const contentType = res.headers.get('content-type') || 'image/jpeg';
+    const ext = contentType.includes('png') ? 'png' : 'jpg';
+    const path = `${tenantId}/clients/${clientId}.${ext}`;
+
+    await supabase.storage.from('avatars').upload(path, buffer, {
+      contentType,
+      upsert: true,
+    });
+
+    const { data: pub } = supabase.storage.from('avatars').getPublicUrl(path);
+    return pub.publicUrl || picUrl;
+  } catch {
+    return picUrl; // fallback: URL temporária do WhatsApp
+  }
+}
+
+/**
  * Sincroniza um chat individual: cliente → conversa → mensagens.
  */
 async function syncOneChat(
@@ -172,19 +203,29 @@ async function syncOneChat(
   );
   const safePushName = isInstanceName ? '' : rawPushName.trim();
 
-  // 1. Buscar foto de perfil (não-bloqueante)
-  const avatarUrl = chat.profilePicUrl || await fetchProfilePicUrl(config, jid).catch(() => null);
-
-  // 2. Verificar se já existe cliente no banco para este telefone
+  // 1. Verificar se já existe cliente no banco para este telefone
   // Busca colunas básicas que sempre existem + colunas opcionais (migration 011)
   const { data: existingClient } = await supabase
     .from('clients')
-    .select('id, name, created_at')
+    .select('id, name, avatar_url, created_at')
     .eq('tenant_id', tenantId)
     .eq('phone_normalized', phoneNormalized)
     .maybeSingle();
 
-  // Tentar ler name_manual separadamente (existe apenas após migration 011)
+  // 1a. Buscar foto de perfil — só se o cliente ainda não tiver uma (não-bloqueante)
+  let avatarUrl: string | null = existingClient?.avatar_url || null;
+  if (!avatarUrl) {
+    const rawPic = chat.profilePicUrl || await fetchProfilePicUrl(config, jid).catch(() => null);
+    if (rawPic) {
+      // Usar ID existente ou gerar placeholder para cache
+      const clientIdForCache = existingClient?.id || crypto.randomUUID();
+      avatarUrl = await cacheProfilePic(supabase, tenantId, clientIdForCache, rawPic);
+    }
+  }
+
+  // 2. Verificar pedidos vinculados ao cliente
+
+  // 2a. Tentar ler name_manual separadamente (existe apenas após migration 011)
   let nameManual: string | null = null;
   if (existingClient?.id) {
     try {
@@ -199,7 +240,7 @@ async function syncOneChat(
     }
   }
 
-  // 3. Verificar se há pedido vinculado — fonte mais confiável de nome
+  // 2b. Verificar se há pedido vinculado — fonte mais confiável de nome
   let nameFromOrder: string | null = null;
   if (existingClient?.id) {
     const { data: order } = await supabase
@@ -214,14 +255,14 @@ async function syncOneChat(
     nameFromOrder = order?.customer_name || null;
   }
 
-  // 4. Aplicar hierarquia: Nome Manual > Nome do Pedido > PushName > Telefone
+  // 3. Aplicar hierarquia: Nome Manual > Nome do Pedido > PushName > Telefone
   const resolvedName =
     nameManual ||          // 1º — edição manual do atendente (nunca sobrescrever)
     nameFromOrder ||       // 2º — nome real do pedido (FacilZap)
     safePushName ||        // 3º — pushName do WhatsApp (contato real)
     phoneDisplay;          // 4º — fallback: número formatado
 
-  // 2. Upsert cliente com nome resolvido
+  // 4. Upsert cliente com nome resolvido
   const upsertData: Record<string, unknown> = {
     tenant_id: tenantId,
     phone: phoneDisplay,
