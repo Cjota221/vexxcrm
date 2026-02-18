@@ -93,19 +93,50 @@ export async function provisionInstance(
     return { instanceName, status: 'exists' };
   }
 
-  // 3. Criar instância (ou recriar se desconectada)
-  const qrCode = await createInstance(config);
-
-  // 4. Configurar webhook apontando para nosso backend
-  if (!instanceExists) {
+  // 3. Se existe mas está desconectada, tentar reconectar (buscar QR novo)
+  if (instanceExists && status !== 'open') {
     try {
-      await setInstanceWebhook(config, webhookBaseUrl, tenantId);
+      const qrCode = await reconnectInstance(config);
+      if (qrCode) {
+        return { instanceName, status: 'created', qrCode };
+      }
     } catch (err) {
-      console.warn(`[Evolution] Erro ao configurar webhook para ${instanceName}:`, err);
+      console.warn(`[Evolution] Reconexão falhou, deletando e recriando:`, err);
+      // Se falhar, deletar e recriar
+      try { await deleteInstance(config); } catch { /* ignore */ }
     }
   }
 
+  // 4. Criar instância nova
+  const qrCode = await createInstance(config);
+
+  // 5. Configurar webhook apontando para nosso backend
+  try {
+    await setInstanceWebhook(config, webhookBaseUrl, tenantId);
+  } catch (err) {
+    console.warn(`[Evolution] Erro ao configurar webhook para ${instanceName}:`, err);
+  }
+
   return { instanceName, status: 'created', qrCode };
+}
+
+/**
+ * Reconecta uma instância existente e retorna novo QR Code.
+ */
+async function reconnectInstance(config: EvolutionAPIConfig): Promise<string | null> {
+  const response = await fetch(`${config.apiUrl}/instance/connect/${config.instanceName}`, {
+    method: 'GET',
+    headers: {
+      'apikey': config.apiKey,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error('Erro ao reconectar instância');
+  }
+
+  const data = await response.json();
+  return data.base64 || data.qrcode?.base64 || null;
 }
 
 /**

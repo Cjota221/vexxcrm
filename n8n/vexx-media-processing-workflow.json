@@ -1,0 +1,319 @@
+{
+  "name": "VEXX CRM - Processamento de Mídia (Áudio + Imagem)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "media-process",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "id": "webhook-receiver",
+      "name": "Webhook Receber Mídia",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [220, 300],
+      "webhookId": "media-process"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "audio-check",
+              "leftValue": "={{ $json.mediaType }}",
+              "rightValue": "audio",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "switch-media-type",
+      "name": "É Áudio?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.mediaUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-audio",
+      "name": "Download Áudio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 200]
+    },
+    {
+      "parameters": {
+        "resource": "audio",
+        "operation": "transcribe",
+        "options": {
+          "language": "pt",
+          "responseFormat": "verbose_json"
+        }
+      },
+      "id": "whisper-transcribe",
+      "name": "OpenAI Whisper",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.4,
+      "position": [940, 200],
+      "credentials": {
+        "openAiApi": {
+          "id": "CONFIGURAR",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Webhook Receber Mídia').item.json.callbackUrl }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messageId\": \"{{ $('Webhook Receber Mídia').item.json.messageId }}\",\n  \"tenantId\": \"{{ $('Webhook Receber Mídia').item.json.tenantId }}\",\n  \"clientId\": \"{{ $('Webhook Receber Mídia').item.json.clientId }}\",\n  \"mediaType\": \"audio\",\n  \"transcription\": \"{{ $json.text }}\",\n  \"confidence\": 0.95,\n  \"language\": \"{{ $json.language || 'pt' }}\"\n}",
+        "options": {
+          "timeout": 15000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-webhook-secret",
+              "value": "={{ $('Webhook Receber Mídia').item.json['x-webhook-secret'] || '' }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "id": "callback-audio",
+      "name": "Callback VEXX (Áudio)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1180, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.mediaUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-image",
+      "name": "Download Imagem",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 440]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "operation": "message",
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Analise esta imagem enviada por um cliente de e-commerce via WhatsApp. Responda em português brasileiro (pt-BR) com:\n\n1. **Descrição**: O que há na imagem em 1-2 frases\n2. **Contexto**: Se é um produto, reclamação, comprovante de pagamento, etc.\n3. **Labels**: Lista de tags relevantes separadas por vírgula\n\nSeja objetivo e útil para um atendente de loja.",
+              "role": "user"
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 500
+        }
+      },
+      "id": "gpt-vision",
+      "name": "GPT-4o Vision",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.4,
+      "position": [940, 440],
+      "credentials": {
+        "openAiApi": {
+          "id": "CONFIGURAR",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extrair labels do texto de resposta do GPT\nconst gptResponse = $input.first().json.message?.content || $input.first().json.text || '';\n\n// Tentar extrair labels da seção 'Labels:'\nlet labels = [];\nconst labelsMatch = gptResponse.match(/Labels?:\\s*(.+)/i);\nif (labelsMatch) {\n  labels = labelsMatch[1].split(',').map(l => l.trim()).filter(Boolean);\n}\n\n// Extrair descrição (tudo antes de 'Contexto:' ou primeiras 2 frases)\nlet description = gptResponse;\nconst descMatch = gptResponse.match(/Descrição:\\s*(.+?)(?=\\n|Contexto:|Labels?:)/is);\nif (descMatch) {\n  description = descMatch[1].trim();\n}\n\nreturn [{\n  json: {\n    description: description,\n    labels: labels,\n    fullResponse: gptResponse\n  }\n}];"
+      },
+      "id": "parse-vision",
+      "name": "Parsear Resposta Vision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1180, 440]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Webhook Receber Mídia').item.json.callbackUrl }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messageId\": \"{{ $('Webhook Receber Mídia').item.json.messageId }}\",\n  \"tenantId\": \"{{ $('Webhook Receber Mídia').item.json.tenantId }}\",\n  \"clientId\": \"{{ $('Webhook Receber Mídia').item.json.clientId }}\",\n  \"mediaType\": \"image\",\n  \"description\": {{ JSON.stringify($json.description) }},\n  \"labels\": {{ JSON.stringify($json.labels) }}\n}",
+        "options": {
+          "timeout": 15000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-webhook-secret",
+              "value": "={{ $('Webhook Receber Mídia').item.json['x-webhook-secret'] || '' }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "id": "callback-image",
+      "name": "Callback VEXX (Imagem)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1420, 440]
+    },
+    {
+      "parameters": {},
+      "id": "noop-end",
+      "name": "Fim - Mídia Ignorada",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [700, 600]
+    }
+  ],
+  "connections": {
+    "Webhook Receber Mídia": {
+      "main": [
+        [
+          {
+            "node": "É Áudio?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É Áudio?": {
+      "main": [
+        [
+          {
+            "node": "Download Áudio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Download Imagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Áudio": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Whisper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Whisper": {
+      "main": [
+        [
+          {
+            "node": "Callback VEXX (Áudio)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Imagem": {
+      "main": [
+        [
+          {
+            "node": "GPT-4o Vision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GPT-4o Vision": {
+      "main": [
+        [
+          {
+            "node": "Parsear Resposta Vision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Resposta Vision": {
+      "main": [
+        [
+          {
+            "node": "Callback VEXX (Imagem)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "VEXX CRM"
+    },
+    {
+      "name": "WhatsApp"
+    },
+    {
+      "name": "IA"
+    }
+  ],
+  "triggerCount": 1,
+  "pinData": {}
+}
