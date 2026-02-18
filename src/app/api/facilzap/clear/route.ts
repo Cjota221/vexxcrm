@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { createServerSupabaseClient } from '@/lib/supabase';
+import { authenticateAdmin } from '@/lib/auth-admin';
 
 /**
  * POST /api/facilzap/clear
@@ -16,38 +15,15 @@ import { createServerSupabaseClient } from '@/lib/supabase';
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
   try {
-    const token = request.headers.get('Authorization')?.replace('Bearer ', '');
-    if (!token) {
-      return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
-    }
+    // Autenticação centralizada (usa headers do middleware)
+    const auth = await authenticateAdmin(request);
+    if (auth instanceof NextResponse) return auth;
+    
+    const { supabase: supabaseAdmin, tenantId } = auth;
 
     let body: { entities?: string[] } = {};
     try { body = await request.json(); } catch { body = {}; }
 
-    const supabaseAdmin = createServerSupabaseClient();
-    const supabaseAuth = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { global: { headers: { Authorization: 'Bearer ' + token } } }
-    );
-
-    // Validar usuário
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
-    }
-
-    const { data: profile } = await supabaseAdmin
-      .from('profiles')
-      .select('tenant_id')
-      .eq('id', user.id)
-      .single();
-
-    if (!profile) {
-      return NextResponse.json({ error: 'Usuário não encontrado' }, { status: 404 });
-    }
-
-    const tenantId = profile.tenant_id;
     const entities = body.entities || ['products', 'clients', 'orders'];
     const results = {
       products_deleted: 0,

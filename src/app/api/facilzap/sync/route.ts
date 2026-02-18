@@ -1,41 +1,28 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { createServerSupabaseClient } from '@/lib/supabase';
+import { authenticateAdmin } from '@/lib/auth-admin';
 import { fetchProducts, fetchClients, fetchOrders } from '@/lib/services/facilzap.service';
 import { PhoneNormalizer } from '@/lib/phone-normalizer';
 
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
   try {
-    const token = request.headers.get('Authorization')?.replace('Bearer ', '');
-    if (!token) {
-      return NextResponse.json({ error: 'Nao autorizado' }, { status: 401 });
+    // Autenticação centralizada (usa headers do middleware)
+    const auth = await authenticateAdmin(request);
+    if (auth instanceof NextResponse) return auth;
+    
+    const { supabase: supabaseAdmin, tenantId, facilzapToken } = auth;
+    
+    if (!facilzapToken) {
+      return NextResponse.json({ error: 'Token FacilZap nao configurado', needsConfig: true }, { status: 400 });
     }
+    
     let body: { entity?: string; page?: number } = {};
     try { body = await request.json(); } catch { body = {}; }
     const entity = body.entity || 'all';
     const page = body.page || 1;
     console.log('[SYNC] entity=' + entity + ' page=' + page);
-    const supabaseAdmin = createServerSupabaseClient();
-    const supabaseAuth = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { global: { headers: { Authorization: 'Bearer ' + token } } }
-    );
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Token invalido' }, { status: 401 });
-    }
-    const { data: profile } = await supabaseAdmin.from('profiles').select('tenant_id').eq('id', user.id).single();
-    if (!profile) {
-      return NextResponse.json({ error: 'Usuario nao encontrado' }, { status: 404 });
-    }
-    const { data: tenantData } = await supabaseAdmin.from('tenants').select('facilzap_token').eq('id', profile.tenant_id).single();
-    if (!tenantData?.facilzap_token) {
-      return NextResponse.json({ error: 'Token FacilZap nao configurado', needsConfig: true }, { status: 400 });
-    }
-    const facilzapConfig = { token: tenantData.facilzap_token, storeUrl: '' };
-    const tenantId = profile.tenant_id;
+    
+    const facilzapConfig = { token: facilzapToken, storeUrl: '' };
     const results = { products: 0, clients: 0, orders: 0, errors: [] as string[], hasMore: { products: false, clients: false, orders: false } };
 
     // PRODUTOS - Captura completa de todos os campos da API FacilZap

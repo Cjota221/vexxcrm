@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { createServerSupabaseClient } from '@/lib/supabase';
+import { authenticateAdmin } from '@/lib/auth-admin';
 import { fetchProducts, fetchOrders, fetchClients } from '@/lib/services/facilzap.service';
 import { PhoneNormalizer } from '@/lib/phone-normalizer';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limiter';
@@ -18,45 +17,18 @@ export async function POST(request: NextRequest) {
   const startTime = Date.now();
   console.log('[AutoSync] 🔄 v2.1 - CPF+Nome matching enabled');
   try {
-    const token = request.headers.get('Authorization')?.replace('Bearer ', '');
-    if (!token) {
-      return NextResponse.json({ error: 'Nao autorizado' }, { status: 401 });
-    }
+    // Autenticação centralizada (usa headers do middleware)
+    const auth = await authenticateAdmin(request);
+    if (auth instanceof NextResponse) return auth;
+    
+    const { supabase: supabaseAdmin, tenantId, facilzapToken } = auth;
 
-    const supabaseAdmin = createServerSupabaseClient();
-    const supabaseAuth = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { global: { headers: { Authorization: 'Bearer ' + token } } }
-    );
-
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Token invalido' }, { status: 401 });
-    }
-
-    const { data: profile } = await supabaseAdmin
-      .from('profiles')
-      .select('tenant_id')
-      .eq('id', user.id)
-      .single();
-
-    if (!profile) {
-      return NextResponse.json({ error: 'Perfil nao encontrado' }, { status: 404 });
-    }
-
-    const { data: tenantData } = await supabaseAdmin
-      .from('tenants')
-      .select('facilzap_token')
-      .eq('id', profile.tenant_id)
-      .single();
-
-    if (!tenantData?.facilzap_token) {
+    if (!facilzapToken) {
       return NextResponse.json({ error: 'Token FacilZap nao configurado' }, { status: 400 });
     }
 
     // ── Rate limiting: evitar syncs simultâneos ──
-    const rl = checkRateLimit(`auto-sync:${profile.tenant_id}`, RATE_LIMITS.AUTO_SYNC);
+    const rl = checkRateLimit(`auto-sync:${tenantId}`, RATE_LIMITS.AUTO_SYNC);
     if (!rl.allowed) {
       return NextResponse.json({ 
         message: 'Sync já em andamento, aguarde', 
@@ -64,8 +36,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const facilzapConfig = { token: tenantData.facilzap_token };
-    const tenantId = profile.tenant_id;
+    const facilzapConfig = { token: facilzapToken };
     const results = { 
       products: 0, 
       clients: 0, 
