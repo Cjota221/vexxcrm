@@ -35,14 +35,17 @@ export async function GET(
     const limit = Math.min(parseInt(searchParams.get('limit') || '100'), 500);
     const before = searchParams.get('before');
 
-    // 1. Buscar a conversa deste cliente
-    const { data: conversation } = await supabase
+    // 1. Buscar a conversa deste cliente (suporta múltiplas conversas — pega a mais recente)
+    const { data: conversations } = await supabase
       .from('conversations')
       .select('id')
       .eq('tenant_id', tenantId)
       .eq('client_id', clientId)
       .eq('channel', 'whatsapp')
-      .single();
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .limit(1);
+
+    const conversation = conversations?.[0] || null;
 
     if (!conversation) {
       // Sem conversa ainda — retornar array vazio (não é erro)

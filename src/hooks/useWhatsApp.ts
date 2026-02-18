@@ -127,8 +127,9 @@ export function useMessages(clientId: string | null) {
       return [];
     },
     enabled: !!clientId,
-    staleTime: Infinity, // SSE cuida das atualizações
+    staleTime: 30_000, // Revalidar a cada 30s (SSE também cuida das atualizações em tempo real)
     refetchOnWindowFocus: false,
+    refetchOnMount: true,
   });
 }
 

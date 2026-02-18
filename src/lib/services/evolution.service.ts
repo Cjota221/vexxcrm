@@ -63,6 +63,38 @@ export function getTenantEvolutionConfig(tenantId: string): EvolutionAPIConfig {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SAFE JSON HELPER
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Faz parsing seguro de response JSON.
+ * Se a Evolution API retornar HTML (Cloudflare, nginx 502, etc.),
+ * lança erro legível ao invés de "Unexpected token '<'".
+ */
+async function safeJson<T = any>(response: Response, context = 'Evolution API'): Promise<T> {
+  const contentType = response.headers.get('content-type') || '';
+  const text = await response.text();
+
+  if (!contentType.includes('application/json') && !text.trim().startsWith('{') && !text.trim().startsWith('[')) {
+    const preview = text.substring(0, 150).replace(/\n/g, ' ');
+    throw new Error(
+      `${context} retornou resposta não-JSON (HTTP ${response.status}). ` +
+      `Content-Type: ${contentType || 'vazio'}. Preview: "${preview}"`
+    );
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    const preview = text.substring(0, 150).replace(/\n/g, ' ');
+    throw new Error(
+      `${context} retornou JSON inválido (HTTP ${response.status}). ` +
+      `Preview: "${preview}"`
+    );
+  }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ORQUESTRADOR DE INSTÂNCIAS (SaaS Connect)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -135,7 +167,7 @@ async function reconnectInstance(config: EvolutionAPIConfig): Promise<string | n
     throw new Error('Erro ao reconectar instância');
   }
 
-  const data = await response.json();
+  const data = await safeJson(response, 'Reconectar instância');
   return data.base64 || data.qrcode?.base64 || null;
 }
 
@@ -171,7 +203,7 @@ async function setInstanceWebhook(
   });
 
   if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
+    const err = await safeJson(response, 'Webhook set').catch(() => ({}));
     console.warn('[Evolution] Webhook set error:', err);
   }
 }
@@ -199,11 +231,11 @@ export async function createInstance(config: EvolutionAPIConfig): Promise<string
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
+    const error = await safeJson(response, 'Criar instância').catch(() => ({}));
     throw new Error(error.message || 'Erro ao criar instância');
   }
 
-  const data = await response.json();
+  const data = await safeJson(response, 'Criar instância');
   return data.qrcode?.base64 || '';
 }
 
@@ -223,7 +255,7 @@ export async function getInstanceStatus(config: EvolutionAPIConfig): Promise<str
     throw new Error('Erro ao buscar status da instância');
   }
 
-  const data = await response.json();
+  const data = await safeJson(response, 'Status da instância');
   return data.instance?.state || 'close';
 }
 
@@ -281,11 +313,11 @@ export async function sendTextMessage(
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
+    const error = await safeJson(response, 'Enviar texto').catch(() => ({}));
     throw new Error(error.message || 'Erro ao enviar mensagem');
   }
 
-  const data = await response.json();
+  const data = await safeJson(response, 'Enviar texto');
   return data.key?.id || '';
 }
 
@@ -312,11 +344,11 @@ export async function sendMediaMessage(
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
+    const error = await safeJson(response, 'Enviar mídia').catch(() => ({}));
     throw new Error(error.message || 'Erro ao enviar mídia');
   }
 
-  const data = await response.json();
+  const data = await safeJson(response, 'Enviar mídia');
   return data.key?.id || '';
 }
 
@@ -369,10 +401,11 @@ export async function fetchChats(config: EvolutionAPIConfig): Promise<EvolutionC
   });
 
   if (!response.ok) {
-    throw new Error(`Erro ao buscar chats: ${response.status}`);
+    const text = await response.text().catch(() => '');
+    throw new Error(`Erro ao buscar chats: HTTP ${response.status}. ${text.substring(0, 100)}`);
   }
 
-  const data: EvolutionChat[] = await response.json();
+  const data: EvolutionChat[] = await safeJson(response, 'Buscar chats');
 
   // Filtrar apenas chats individuais (@s.whatsapp.net), excluir grupos e broadcast
   return data.filter(
@@ -408,10 +441,11 @@ export async function fetchMessages(
   });
 
   if (!response.ok) {
-    throw new Error(`Erro ao buscar mensagens: ${response.status}`);
+    const text = await response.text().catch(() => '');
+    throw new Error(`Erro ao buscar mensagens: HTTP ${response.status}. ${text.substring(0, 100)}`);
   }
 
-  const data = await response.json();
+  const data = await safeJson(response, 'Buscar mensagens');
   return {
     total: data.messages?.total || 0,
     pages: data.messages?.pages || 0,
@@ -443,7 +477,7 @@ export async function fetchProfilePicUrl(
 
     if (!response.ok) return null;
 
-    const data = await response.json();
+    const data = await safeJson(response, 'Foto de perfil');
     return data.profilePictureUrl || data.profilePicUrl || data.picture || null;
   } catch {
     return null;

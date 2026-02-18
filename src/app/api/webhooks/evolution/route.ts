@@ -439,7 +439,15 @@ async function ensureWebhookConfig(tenantId: string) {
       return;
     }
 
-    const webhookData = await response.json();
+    const webhookText = await response.text();
+    let webhookData: any;
+    try {
+      webhookData = JSON.parse(webhookText);
+    } catch {
+      console.warn('[Webhook] Resposta não-JSON do webhook/find, reconfigurando...');
+      await reconfigureWebhook(config, appUrl, tenantId);
+      return;
+    }
     const currentUrl = webhookData?.url || webhookData?.webhook?.url || '';
     const currentEvents = webhookData?.events || webhookData?.webhook?.events || [];
     const isEnabled = webhookData?.enabled !== false && webhookData?.webhook?.enabled !== false;
