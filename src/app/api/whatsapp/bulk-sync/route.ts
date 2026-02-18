@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     const config = getTenantEvolutionConfig(tenantId);
 
     // 1. Buscar TODOS os chats da Evolution API
-    console.log(`[BulkSync] Iniciando sync de massa para tenant ${tenantId}`);
+    console.log(`[BulkSync] Iniciando sync de massa para tenant ${tenantId}, instância: ${config.instanceName}`);
     let allChats: EvolutionChat[];
     try {
       allChats = await fetchChats(config);
@@ -60,12 +60,37 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!Array.isArray(allChats)) {
-      console.error('[BulkSync] Resposta inválida da Evolution API:', typeof allChats);
+    if (!allChats) {
+      console.error('[BulkSync] fetchChats retornou null/undefined');
       return NextResponse.json(
-        { error: 'Resposta inválida da Evolution API. Verifique se o WhatsApp está conectado.' },
+        { error: 'Evolution API retornou resposta vazia. Verifique se a instância WhatsApp está conectada.' },
         { status: 502 }
       );
+    }
+
+    if (!Array.isArray(allChats)) {
+      console.error('[BulkSync] Resposta inválida da Evolution API:', typeof allChats, JSON.stringify(allChats).substring(0, 200));
+      return NextResponse.json(
+        { error: `Resposta inesperada da Evolution API (tipo: ${typeof allChats}). Verifique se o WhatsApp está conectado.` },
+        { status: 502 }
+      );
+    }
+
+    if (allChats.length === 0) {
+      console.log('[BulkSync] Nenhum chat encontrado na instância');
+      return NextResponse.json({
+        success: true,
+        data: {
+          progress: { current: 0, total: 0, percentage: 100 },
+          clients_created: 0,
+          conversations_created: 0,
+          messages_synced: 0,
+          errors: 0,
+          has_more: false,
+          next_start_from: 0,
+          message: 'Nenhum chat encontrado. Certifique-se de que há conversas no WhatsApp conectado.',
+        },
+      });
     }
 
     console.log(`[BulkSync] ${allChats.length} chats encontrados na Evolution API`);

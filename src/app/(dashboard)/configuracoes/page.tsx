@@ -482,10 +482,10 @@ function SyncStatusCard({ config }: { config?: TenantConfig }) {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) { alert('Sessão expirada.'); return; }
-      const headers = { 'Content-Type': 'application/json', Authorization: `Bearer \${session.access_token}` };
+      const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` };
       let page = 1; let hasMore = true;
       while (hasMore && page <= 50) {
-        setSyncProgress(`Sincronizando produtos... (página \${page})`);
+        setSyncProgress(`Sincronizando produtos... (página ${page})`);
         const res = await fetch('/api/facilzap/sync', { method: 'POST', headers, body: JSON.stringify({ entity: 'products', page }) });
         const data = await res.json(); if (!res.ok) throw new Error(data.error);
         totals.products += data.results?.products || 0;
@@ -494,7 +494,7 @@ function SyncStatusCard({ config }: { config?: TenantConfig }) {
       }
       page = 1; hasMore = true;
       while (hasMore && page <= 100) {
-        setSyncProgress(`Sincronizando clientes... (página \${page})`);
+        setSyncProgress(`Sincronizando clientes... (página ${page})`);
         const res = await fetch('/api/facilzap/sync', { method: 'POST', headers, body: JSON.stringify({ entity: 'clients', page }) });
         const data = await res.json(); if (!res.ok) throw new Error(data.error);
         totals.clients += data.results?.clients || 0;
@@ -503,15 +503,15 @@ function SyncStatusCard({ config }: { config?: TenantConfig }) {
       }
       page = 1; hasMore = true;
       while (hasMore && page <= 100) {
-        setSyncProgress(`Sincronizando pedidos... (página \${page})`);
+        setSyncProgress(`Sincronizando pedidos... (página ${page})`);
         try {
           const res = await fetch('/api/facilzap/sync', { method: 'POST', headers, body: JSON.stringify({ entity: 'orders', page }) });
           const data = await res.json();
-          if (!res.ok) { totals.errors.push(`Página \${page}: \${data.error}`); if (res.status >= 500) { page++; continue; } throw new Error(data.error); }
+          if (!res.ok) { totals.errors.push(`Página ${page}: ${data.error}`); if (res.status >= 500) { page++; continue; } throw new Error(data.error); }
           totals.orders += data.results?.orders || 0;
           if (data.results?.errors?.length) totals.errors.push(...data.results.errors);
           hasMore = data.results?.hasMore?.orders || false; page++;
-        } catch (err: unknown) { const msg = err instanceof Error ? err.message : 'Erro'; totals.errors.push(`Página \${page}: \${msg}`); break; }
+        } catch (err: unknown) { const msg = err instanceof Error ? err.message : 'Erro'; totals.errors.push(`Página ${page}: ${msg}`); break; }
       }
       setSyncProgress('Sincronização completa!'); setSyncResults(totals); fetchLastSync();
     } catch (error) { setSyncProgress(''); alert('Erro: ' + (error as Error).message); }

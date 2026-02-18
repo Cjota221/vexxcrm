@@ -67,9 +67,18 @@ export function BulkSyncPanel() {
           throw new Error(response.error);
         }
 
-        const data = response.data?.data;
-        if (!data) {
-          throw new Error('Resposta inválida da API');
+        // A API retorna { success, data: {...} }
+        const responseData = response.data as any;
+        const data = responseData?.data || responseData;
+        
+        if (!data || typeof data !== 'object') {
+          console.error('Resposta da API:', responseData);
+          throw new Error('Resposta inválida da API. Verifique se o WhatsApp está conectado.');
+        }
+
+        // Se há mensagem de erro ou aviso na resposta
+        if (data.message && data.clients_created === 0 && data.messages_synced === 0) {
+          throw new Error(data.message);
         }
 
         // Atualizar progresso
