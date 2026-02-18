@@ -10,6 +10,10 @@
   NODE_VERSION = "20"
   NPM_FLAGS = "--legacy-peer-deps"
 
+# Aumentar timeout das funções serverless (padrão é 10s, máx 26s no plano grátis)
+[functions]
+  external_node_modules = ["@supabase/supabase-js"]
+
 # Redirects and rewrites — NÃO interceptar rotas de API
 # O plugin @netlify/plugin-nextjs gerencia todas as rotas do Next.js automaticamente
 

@@ -58,7 +58,7 @@ export function BulkSyncPanel() {
     try {
       while (hasMore) {
         const response = await api.post<BulkSyncResponse>('/api/whatsapp/bulk-sync', {
-          batchSize: 100,
+          batchSize: 10,
           messagesPerChat: 50,
           startFrom,
         });

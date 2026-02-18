@@ -27,15 +27,15 @@ export async function POST(request: NextRequest) {
     const { tenantId } = await getTenantFromRequest(request);
     const supabase = createServerSupabaseClient();
 
-    // Parâmetros
-    let batchSize = 50;
-    let messagesPerChat = 200;
+    // Parâmetros — defaults pequenos para caber no timeout do Netlify (~10s)
+    let batchSize = 10;
+    let messagesPerChat = 50;
     let startFrom = 0;
 
     try {
       const body = await request.json();
-      batchSize = Math.min(body.batchSize || 50, 200);
-      messagesPerChat = Math.min(body.messagesPerChat || 200, 1000);
+      batchSize = Math.min(body.batchSize || 10, 25); // Max 25 chats por batch
+      messagesPerChat = Math.min(body.messagesPerChat || 50, 200);
       startFrom = body.startFrom || 0;
     } catch {
       // Body vazio — usar defaults

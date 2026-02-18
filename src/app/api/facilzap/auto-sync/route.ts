@@ -177,12 +177,9 @@ export async function POST(request: NextRequest) {
       console.log(`[AutoSync] Buscando pedidos de ${dis} até ${df}...`);
       const { orders } = await fetchOrders(facilzapConfig, 1, 100, { data_inicial: dis, data_final: df });
       console.log(`[AutoSync] Recebidos ${orders.length} pedidos da API`);
-      console.log(`[AutoSync] Recebidos ${orders.length} pedidos da API`);
       if (orders.length > 0) {
-        console.log(`[AutoSync] Processando pedidos...`);
         // Buscar clientes existentes para linkagem
         const { data: ec } = await supabaseAdmin.from('clients').select('id, phone_normalized, phone, name, email, custom_fields').eq('tenant_id', tenantId);
-        console.log(`[AutoSync] Clientes no banco: ${ec?.length || 0}`);
         const cm = new Map<string, string>();
         const fzIdMap = new Map<string, string>();
         const cpfMap = new Map<string, string>();
@@ -347,7 +344,7 @@ export async function POST(request: NextRequest) {
               .eq('tenant_id', tenantId)
               .is('client_id', null)
               .order('created_at', { ascending: false })
-              .limit(100);
+              .limit(50);
 
             let relinked = 0;
             for (const order of (orphans || [])) {
