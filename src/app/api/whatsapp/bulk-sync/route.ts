@@ -225,46 +225,60 @@ async function syncOneChatFull(
     return { clientCreated: false, conversationCreated: false, messagesInserted: 0 };
   }
 
-  const phoneNormalized = PhoneNormalizer.canonical(phone);
-  const phoneDisplay = PhoneNormalizer.normalize(phone);
+  // Gerar TODAS as variações do telefone para matching flexível
+  const phoneWithNine = PhoneNormalizer.normalize(phone);  // COM 9º dígito: 5562999998888
+  const phoneWithoutNine = PhoneNormalizer.canonical(phone); // SEM 9º dígito: 556299998888
+  const phoneDisplay = phoneWithNine;
   const pushName = chat.pushName || chat.lastMessage?.pushName || phoneDisplay;
 
-  // 1. Upsert cliente (com retry em caso de race condition)
+  // 1. Buscar cliente existente por QUALQUER variação do telefone
   let client: { id: string; created_at: string } | null = null;
   let clientCreated = false;
   
-  // Primeiro tenta upsert
-  const { data: upsertClient, error: clientErr } = await supabase
+  // Primeiro, tentar encontrar por phone_normalized (ambas variações)
+  const { data: existingClient } = await supabase
     .from('clients')
-    .upsert({
-      tenant_id: tenantId,
-      phone: phoneDisplay,
-      phone_normalized: phoneNormalized,
-      name: pushName,
-      avatar_url: chat.profilePicUrl || null,
-    }, {
-      onConflict: 'tenant_id,phone_normalized',
-      ignoreDuplicates: false,
-    })
     .select('id, created_at')
-    .single();
+    .eq('tenant_id', tenantId)
+    .or(`phone_normalized.eq.${phoneWithNine},phone_normalized.eq.${phoneWithoutNine},phone.eq.${phoneWithNine},phone.eq.${phoneWithoutNine}`)
+    .limit(1)
+    .maybeSingle();
 
-  if (clientErr) {
-    // Se falhou (ex: race condition), tentar buscar existente
-    const { data: existingClient } = await supabase
-      .from('clients')
-      .select('id, created_at')
-      .eq('tenant_id', tenantId)
-      .eq('phone_normalized', phoneNormalized)
-      .single();
-    
-    if (!existingClient) {
-      throw new Error(`Erro ao upsert cliente ${phone}: ${clientErr.message}`);
-    }
+  if (existingClient) {
     client = existingClient;
   } else {
-    client = upsertClient;
-    clientCreated = (Date.now() - new Date(client.created_at).getTime()) < 5000;
+    // Não existe: criar novo com formato normalizado (COM 9)
+    const { data: newClient, error: clientErr } = await supabase
+      .from('clients')
+      .insert({
+        tenant_id: tenantId,
+        phone: phoneDisplay,
+        phone_normalized: phoneWithNine, // Usar COM 9 para novos
+        name: pushName,
+        avatar_url: chat.profilePicUrl || null,
+        source: 'whatsapp',
+      })
+      .select('id, created_at')
+      .single();
+
+    if (clientErr) {
+      // Race condition — buscar novamente
+      const { data: retryClient } = await supabase
+        .from('clients')
+        .select('id, created_at')
+        .eq('tenant_id', tenantId)
+        .or(`phone_normalized.eq.${phoneWithNine},phone_normalized.eq.${phoneWithoutNine}`)
+        .limit(1)
+        .single();
+      
+      if (!retryClient) {
+        throw new Error(`Erro ao criar cliente ${phone}: ${clientErr.message}`);
+      }
+      client = retryClient;
+    } else {
+      client = newClient;
+      clientCreated = true;
+    }
   }
 
   // 2. Buscar ou criar conversa (com retry em caso de race condition)
