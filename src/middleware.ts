@@ -22,7 +22,8 @@ export async function middleware(request: NextRequest) {
                      pathname.startsWith('/forgot-password');
   
   const isPublicApiRoute = pathname.startsWith('/api/auth') || 
-                           pathname.startsWith('/api/webhooks');
+                           pathname.startsWith('/api/webhooks') ||
+                           pathname.startsWith('/api/sse');
 
   // ─── PROTEÇÃO APENAS DE ROTAS DE API (não rotas de página) ───
   if (pathname.startsWith('/api') && !isPublicApiRoute) {
