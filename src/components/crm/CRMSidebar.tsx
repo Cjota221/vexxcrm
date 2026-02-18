@@ -175,8 +175,18 @@ function ClientTab({ client, status, orders }: {
   orders: Order[];
 }) {
   const c = client;
+  const isVirtual = c.is_virtual === true;
+  
   return (
     <div className="space-y-4">
+      {/* Aviso de cliente virtual (sem cadastro) */}
+      {isVirtual && (
+        <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
+          <p className="text-xs text-amber-700 font-medium">👤 Contato sem cadastro</p>
+          <p className="text-[10px] text-amber-600 mt-0.5">Sincronize o FacilZap para vincular este contato a um cliente existente.</p>
+        </div>
+      )}
+      
       <div className="flex items-start gap-3">
         {c.avatar_url ? (
           <img src={c.avatar_url} alt={c.name} className="w-14 h-14 rounded-full object-cover shrink-0 border-2 border-surface-200" />
@@ -189,9 +199,10 @@ function ClientTab({ client, status, orders }: {
           </div>
         )}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h3 className="text-sm font-semibold text-txt-primary truncate">{c.name || 'Sem nome'}</h3>
             <Badge variant={status.variant}>{status.label}</Badge>
+            {isVirtual && <Badge variant="warning">Visitante</Badge>}
           </div>
           <div className="mt-1 space-y-0.5">
             <p className="text-xs text-txt-secondary flex items-center gap-1">
