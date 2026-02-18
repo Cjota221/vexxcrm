@@ -17,6 +17,8 @@ import {
   Trash2,
   MapPin,
   RefreshCw,
+  Pencil,
+  Check,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useChatsStore } from '@/store/chats';
@@ -184,7 +186,16 @@ export function CRMSidebar() {
         ) : (
           <>
             {activeTab === 'client' && (
-              <ClientTab client={client} status={status} orders={orders} />
+              <ClientTab
+                client={client}
+                status={status}
+                orders={orders}
+                clientId={selectedChatId!}
+                onNameSaved={() => {
+                  queryClient.invalidateQueries({ queryKey: ['client', selectedChatId] });
+                  queryClient.invalidateQueries({ queryKey: ['chats'] });
+                }}
+              />
             )}
             {activeTab === 'orders' && (
               <OrderHistory orders={orders} isLoading={isLoadingClient} />
@@ -211,13 +222,48 @@ export function CRMSidebar() {
   );
 }
 
-function ClientTab({ client, status, orders }: {
+function ClientTab({ client, status, orders, clientId, onNameSaved }: {
   client: any;
   status: { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'neutral' };
   orders: Order[];
+  clientId: string;
+  onNameSaved: () => void;
 }) {
   const c = client;
   const isVirtual = c.is_virtual === true;
+
+  // Estado de edição inline do nome
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+  const [savingName, setSavingName] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  const startEdit = () => {
+    setNameInput(c.name || '');
+    setEditingName(true);
+    setTimeout(() => nameInputRef.current?.focus(), 50);
+  };
+
+  const cancelEdit = () => {
+    setEditingName(false);
+    setNameInput('');
+  };
+
+  const saveName = async () => {
+    const trimmed = nameInput.trim();
+    if (!trimmed || trimmed === c.name) { cancelEdit(); return; }
+    setSavingName(true);
+    try {
+      const response = await api.patch(`/api/clients/${clientId}`, { name: trimmed });
+      if (response.error) throw new Error(response.error);
+      onNameSaved();
+      setEditingName(false);
+    } catch (err) {
+      console.error('[CRMSidebar] Erro ao salvar nome:', err);
+    } finally {
+      setSavingName(false);
+    }
+  };
 
   // Extrair endereço: prioridade = dados do cliente, fallback = metadata do último pedido
   const address = useMemo(() => {
@@ -285,13 +331,57 @@ function ClientTab({ client, status, orders }: {
         )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="text-sm font-semibold text-txt-primary truncate">{c.name || 'Sem nome'}</h3>
-            <Badge variant={status.variant}>{status.label}</Badge>
-            {isVirtual && <Badge variant="warning">Visitante</Badge>}
+            {editingName ? (
+              <div className="flex items-center gap-1.5 w-full">
+                <input
+                  ref={nameInputRef}
+                  value={nameInput}
+                  onChange={(e) => setNameInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') saveName();
+                    if (e.key === 'Escape') cancelEdit();
+                  }}
+                  className="flex-1 min-w-0 px-2 py-1 text-sm border border-crm-primary rounded-lg focus:outline-none focus:ring-2 focus:ring-crm-primary/30"
+                  placeholder="Nome do contato..."
+                  disabled={savingName}
+                />
+                <button
+                  onClick={saveName}
+                  disabled={savingName || !nameInput.trim()}
+                  className="p-1.5 rounded-lg bg-crm-primary text-white hover:bg-crm-primary/90 disabled:opacity-50 transition-colors"
+                  title="Salvar (Enter)"
+                >
+                  {savingName ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                </button>
+                <button
+                  onClick={cancelEdit}
+                  className="p-1.5 rounded-lg text-txt-secondary hover:bg-surface-100 transition-colors"
+                  title="Cancelar (Esc)"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ) : (
+              <>
+                <h3 className="text-sm font-semibold text-txt-primary truncate">{c.name || 'Sem nome'}</h3>
+                <button
+                  onClick={startEdit}
+                  className="p-1 rounded hover:bg-surface-100 text-txt-muted hover:text-crm-primary transition-colors"
+                  title="Editar nome do contato"
+                >
+                  <Pencil size={12} />
+                </button>
+                <Badge variant={status.variant}>{status.label}</Badge>
+                {isVirtual && <Badge variant="warning">Visitante</Badge>}
+                {c.name_manual && (
+                  <span className="text-[10px] text-crm-primary font-medium" title="Nome editado manualmente">✎ manual</span>
+                )}
+              </>
+            )}
           </div>
           <div className="mt-1 space-y-0.5">
             <p className="text-xs text-txt-secondary flex items-center gap-1">
-              <Phone size={11} /> {c.phone || c.phone_normalized || '\u2014'}
+              <Phone size={11} /> {c.phone || c.phone_normalized || '—'}
             </p>
             {c.email && (
               <p className="text-xs text-txt-secondary flex items-center gap-1 truncate">

@@ -132,10 +132,12 @@ export async function GET(request: NextRequest) {
       .map((conv: Record<string, unknown>) => {
         const client = conv.client as Record<string, unknown>;
         
-        // Determinar nome real: priorizar nome do cliente vinculado a pedidos, depois pushName
-        const displayName = client.name && client.name !== 'Desconhecido' && client.name !== phoneToDisplay(client.phone as string)
-          ? client.name
-          : client.name || 'Desconhecido';
+        // Identidade Progressiva: priorizar nome real sobre qualquer fallback genérico.
+        // A coluna 'name' já vem com a hierarquia aplicada pelo motor de sync,
+        // mas protegemos aqui contra valores vazio/nulo retornando o telefone.
+        const rawName = (client.name as string) || '';
+        const phone = (client.phone as string) || (client.phone_normalized as string) || '';
+        const displayName = rawName.trim() !== '' ? rawName.trim() : phone || 'Desconhecido';
         
         return {
           id: conv.id,

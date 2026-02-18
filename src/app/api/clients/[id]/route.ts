@@ -133,3 +133,78 @@ export async function GET(
     );
   }
 }
+
+/**
+ * PATCH /api/clients/[id]
+ *
+ * Edição manual de dados do cliente pelo atendente.
+ * Campos aceitos: name (obrigatório), email, tags.
+ *
+ * Ao editar o nome, o campo name_manual é gravado, garantindo que
+ * sincronizações futuras não sobrescrevam a escolha do atendente.
+ */
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { tenantId } = await getTenantFromRequest(request);
+    const supabase = createServerSupabaseClient();
+    const { id } = await params;
+
+    const body = await request.json();
+    const { name, email, tags } = body as {
+      name?: string;
+      email?: string;
+      tags?: string[];
+    };
+
+    if (!name?.trim() && email === undefined && tags === undefined) {
+      return NextResponse.json(
+        { error: 'Nenhum campo para atualizar foi fornecido' },
+        { status: 400 }
+      );
+    }
+
+    // Montar apenas os campos que vieram na requisição
+    const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+
+    if (name?.trim()) {
+      updates.name = name.trim();
+      // Marcar que este nome foi editado manualmente — sync não vai sobrescrever
+      updates.name_manual = name.trim();
+    }
+    if (email !== undefined) {
+      updates.email = email?.trim() || null;
+    }
+    if (tags !== undefined) {
+      updates.tags = tags;
+    }
+
+    // Garantir que o cliente pertence ao tenant (segurança RLS)
+    const { data: updated, error } = await supabase
+      .from('clients')
+      .update(updates)
+      .eq('id', id)
+      .eq('tenant_id', tenantId)
+      .select('id, name, name_manual, email, tags, phone, updated_at')
+      .single();
+
+    if (error) {
+      console.error('[PATCH /api/clients] Erro ao atualizar:', error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    if (!updated) {
+      return NextResponse.json({ error: 'Cliente não encontrado' }, { status: 404 });
+    }
+
+    return NextResponse.json({ data: updated });
+  } catch (error: any) {
+    console.error('[PATCH /api/clients] Erro:', error);
+    return NextResponse.json(
+      { error: 'Erro interno', details: error.message },
+      { status: 500 }
+    );
+  }
+}

@@ -151,20 +151,77 @@ async function syncOneChat(
   const phone = jid.replace('@s.whatsapp.net', '');
   const phoneNormalized = PhoneNormalizer.canonical(phone);
   const phoneDisplay = PhoneNormalizer.normalize(phone);
-  const pushName = chat.pushName || chat.lastMessage?.pushName || phoneDisplay;
 
-  // 1. Buscar foto de perfil (não-bloqueante — usa profilePicUrl do chat se disponível)
+  // ─── Hierarquia de Identidade Progressiva ────────────────────────────────
+  // Candidatos de nome vindos da Evolution API
+  const rawPushName = chat.pushName || chat.lastMessage?.pushName || '';
+
+  // Heurística: rejeitar pushName se for igual ao nome da instância/número.
+  // O nome da instância (ex: "Cjota Rasteirinhas") não é o nome do contato —
+  // ele aparece em mensagens enviadas PELA instância (fromMe=true).
+  // Sinais de que é um nome de instância e não do contato:
+  //   1. Idêntico ao campo instanceName da config da Evolution
+  //   2. É apenas dígitos (é o próprio número)
+  //   3. Vazio
+  const instanceName = config.instanceName || '';
+  const isInstanceName = (
+    !rawPushName ||
+    rawPushName.trim() === '' ||
+    rawPushName === instanceName ||
+    /^\d+$/.test(rawPushName.replace(/\D/g, '')) && rawPushName.replace(/\D/g, '').length >= 8
+  );
+  const safePushName = isInstanceName ? '' : rawPushName.trim();
+
+  // 1. Buscar foto de perfil (não-bloqueante)
   const avatarUrl = chat.profilePicUrl || await fetchProfilePicUrl(config, jid).catch(() => null);
 
-  // 2. Upsert cliente (com avatar se disponível)
+  // 2. Verificar se já existe cliente no banco para este telefone
+  const { data: existingClient } = await supabase
+    .from('clients')
+    .select('id, name, name_manual, created_at')
+    .eq('tenant_id', tenantId)
+    .eq('phone_normalized', phoneNormalized)
+    .maybeSingle();
+
+  // 3. Verificar se há pedido vinculado — fonte mais confiável de nome
+  let nameFromOrder: string | null = null;
+  if (existingClient?.id) {
+    const { data: order } = await supabase
+      .from('orders')
+      .select('customer_name')
+      .eq('tenant_id', tenantId)
+      .eq('client_id', existingClient.id)
+      .not('customer_name', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    nameFromOrder = order?.customer_name || null;
+  }
+
+  // 4. Aplicar hierarquia: Nome Manual > Nome do Pedido > PushName > Telefone
+  //    (nome_manual = atendente editou manualmente, nunca sobrescrever)
+  const nameManual = existingClient?.name_manual || null;
+  const resolvedName =
+    nameManual ||          // 1º — edição manual do atendente
+    nameFromOrder ||       // 2º — nome real do pedido (FacilZap)
+    safePushName ||        // 3º — pushName do WhatsApp (contato real)
+    phoneDisplay;          // 4º — fallback: número formatado
+
+  // 2. Upsert cliente com nome resolvido
   const upsertData: Record<string, unknown> = {
     tenant_id: tenantId,
     phone: phoneDisplay,
     phone_normalized: phoneNormalized,
-    name: pushName,
+    name: resolvedName,
+    // push_name: armazenar sempre o pushName bruto para consultas futuras
+    push_name: safePushName || existingClient?.name || null,
   };
   if (avatarUrl) {
     upsertData.avatar_url = avatarUrl;
+  }
+  // Se há nome manual definido, preservar sem sobrescrever
+  if (nameManual) {
+    upsertData.name_manual = nameManual;
   }
 
   const { data: client, error: clientErr } = await supabase
