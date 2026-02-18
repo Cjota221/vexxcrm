@@ -190,7 +190,7 @@ export function CRMSidebar() {
                 client={client}
                 status={status}
                 orders={orders}
-                clientId={selectedChatId!}
+                clientId={client.id || selectedChatId!}
                 onNameSaved={() => {
                   queryClient.invalidateQueries({ queryKey: ['client', selectedChatId] });
                   queryClient.invalidateQueries({ queryKey: ['chats'] });
@@ -201,7 +201,7 @@ export function CRMSidebar() {
               <OrderHistory orders={orders} isLoading={isLoadingClient} />
             )}
             {activeTab === 'notes' && (
-              <NotesTab clientId={selectedChatId} notes={notes} isLoading={isLoadingNotes} />
+              <NotesTab clientId={client.id || selectedChatId} notes={notes} isLoading={isLoadingNotes} />
             )}
           </>
         )}
