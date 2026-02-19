@@ -199,25 +199,29 @@ export async function POST(request: NextRequest, { params }: { params: Params })
 
               const msgType = envioResult.primeiraMediaUrl ? envioResult.primeiroTipo : 'text';
 
-              // Upsert por external_id: evita duplicata se webhook chegar antes desta gravação
-              await supabase
-                .from('messages')
-                .upsert(
-                  {
-                    tenant_id: tenantId,
-                    conversation_id: convId,
-                    client_id: client.id,
-                    external_id: externalId,   // ← chave para dedup com o webhook
-                    direction: 'outbound',
-                    sender_name: 'Campanha',
-                    content: textoResumo,
-                    type: msgType,
-                    media_url: envioResult.primeiraMediaUrl || null,
-                    status: 'sent',
-                    created_at: new Date().toISOString(),
-                  },
-                  { onConflict: 'tenant_id,external_id', ignoreDuplicates: true }
-                );
+              const msgPayload = {
+                tenant_id: tenantId,
+                conversation_id: convId,
+                client_id: client.id,
+                external_id: externalId ?? undefined,
+                direction: 'outbound' as const,
+                sender_name: 'Campanha',
+                content: textoResumo,
+                type: msgType,
+                media_url: envioResult.primeiraMediaUrl || null,
+                status: 'sent',
+                created_at: new Date().toISOString(),
+              };
+
+              // Upsert apenas se temos external_id (evita duplicata com webhook).
+              // Se não temos ID (falha na Evolution API), inserir normalmente.
+              if (externalId) {
+                await supabase
+                  .from('messages')
+                  .upsert(msgPayload, { onConflict: 'tenant_id,external_id', ignoreDuplicates: true });
+              } else {
+                await supabase.from('messages').insert(msgPayload);
+              }
             }
           }
         } catch (upsertErr) {

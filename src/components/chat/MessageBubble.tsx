@@ -94,10 +94,10 @@ export function MessageBubble({ message }: MessageBubbleProps) {
     >
       <div
         className={cn(
-          'max-w-[65%] px-3 py-2 rounded-bubble relative',
+          'max-w-[65%] px-3 py-2 rounded-bubble relative shadow-sm',
           isFromMe
-            ? 'bg-wa-bubble-out text-white rounded-tr-sm'
-            : 'bg-wa-bubble-in text-wa-text-primary rounded-tl-sm'
+            ? 'bg-wa-bubble-out text-[#111b21] rounded-tr-sm'
+            : 'bg-wa-bubble-in text-[#111b21] rounded-tl-sm border border-gray-100'
         )}
       >
         {/* Media content — Imagem */}
@@ -228,8 +228,8 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
         {/* Text content */}
         {message.content && (
-          <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">
-            {message.content}
+          <p className="text-sm whitespace-pre-wrap break-words leading-relaxed text-[#111b21]">
+            {message.content.replace(/\\n/g, '\n')}
           </p>
         )}
 
@@ -238,10 +238,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           'flex items-center gap-1 mt-1',
           isFromMe ? 'justify-end' : 'justify-end'
         )}>
-          <span className={cn(
-            'text-[11px]',
-            isFromMe ? 'text-white/50' : 'text-wa-text-secondary'
-          )}>
+          <span className="text-[11px] text-[#667781]">
             {formatTime(message.timestamp)}
           </span>
           {statusIcon()}
