@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useEffect, useMemo, useState, useCallback } from 'react';
-import { MessageCircle } from 'lucide-react';
+import { MessageCircle, Loader2 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMessages, useSendMessage } from '@/hooks/useWhatsApp';
 import { useChatsStore } from '@/store/chats';
@@ -9,6 +9,7 @@ import { MessageBubble } from './MessageBubble';
 import { MessageInput } from './MessageInput';
 import { getInitials, getAvatarColor } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { supabase } from '@/lib/supabase';
 import type { Chat } from '@/types';
 
 /**
@@ -17,10 +18,49 @@ import type { Chat } from '@/types';
  */
 export function ChatArea() {
   const { selectedChatId, activeFilter } = useChatsStore();
-  const { data: messages = [], isLoading } = useMessages(selectedChatId);
+  const { data: messages = [], isLoading, isFetching, refetch } = useMessages(selectedChatId);
   const { mutate: sendMessage, isPending: isSending } = useSendMessage();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  // ── Supabase Realtime — fallback garantido para mensagens novas ──
+  // Assina a tabela `messages` filtrando pelo client_id selecionado.
+  // Isso garante que mesmo quando o SSE cai, as mensagens chegam.
+  useEffect(() => {
+    if (!selectedChatId) return;
+
+    const channel = supabase
+      .channel(`chat-messages-${selectedChatId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `client_id=eq.${selectedChatId}`,
+        },
+        () => {
+          // Nova mensagem detectada — invalidar e refetch imediato
+          setIsSyncing(true);
+          queryClient.invalidateQueries({ queryKey: ['messages', selectedChatId] });
+          queryClient.invalidateQueries({ queryKey: ['chats'] });
+          setTimeout(() => setIsSyncing(false), 1200);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [selectedChatId, queryClient]);
+
+  // Forçar refetch ao trocar de chat
+  useEffect(() => {
+    if (selectedChatId) {
+      refetch();
+    }
+  }, [selectedChatId, refetch]);
 
   // Buscar dados do cliente selecionado via API (resolve por ID, telefone ou conversa)
   const { data: clientInfo } = useQuery({
@@ -160,7 +200,7 @@ export function ChatArea() {
   return (
     <div className="flex-1 flex flex-col h-full">
       {/* Chat header */}
-      <div className="h-16 bg-wa-bg-panel border-b border-wa-border flex items-center px-4 gap-3">
+      <div className="h-14 bg-wa-bg-panel border-b border-wa-border flex items-center px-4 gap-3 shrink-0">
         {clientData?.avatar_url ? (
           <img
             src={clientData.avatar_url}
@@ -175,21 +215,29 @@ export function ChatArea() {
             {getInitials(clientData?.name || '?')}
           </div>
         )}
-        <div>
-          <p className="text-sm font-medium text-wa-text-primary">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-wa-text-primary truncate">
             {clientData?.name || 'Cliente'}
           </p>
-          <p className="text-xs text-wa-text-secondary">
+          <p className="text-xs text-wa-text-secondary truncate">
             {clientData?.phone || ''}
           </p>
         </div>
+        {/* Indicador de sincronização discreto */}
+        {(isSyncing || (isFetching && !isLoading)) && (
+          <div className="flex items-center gap-1.5 text-xs text-wa-text-secondary shrink-0">
+            <Loader2 size={12} className="animate-spin text-wa-accent-green" />
+            <span className="hidden sm:inline text-[10px]">sincronizando</span>
+          </div>
+        )}
       </div>
 
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto wa-chat-bg wa-scrollbar px-4 py-3">
         {isLoading ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="animate-spin-slow w-8 h-8 border-2 border-wa-accent-green border-t-transparent rounded-full" />
+          <div className="flex flex-col items-center justify-center h-full gap-3">
+            <Loader2 size={28} className="animate-spin text-wa-accent-green/60" />
+            <p className="text-xs text-wa-text-secondary">Carregando mensagens…</p>
           </div>
         ) : messages.length === 0 ? (
           <div className="flex items-center justify-center h-full">

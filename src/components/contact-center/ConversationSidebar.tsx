@@ -426,6 +426,17 @@ export function ConversationSidebar({
 
   const debouncedSearch = useDebounce(searchQuery, 300);
 
+  // Badge Anne — exibido no botão da sidebar
+  const { data: anneBadge } = useQuery({
+    queryKey: ['anne-badge'],
+    queryFn: async () => {
+      const res = await api.get<{ stats: { gatilhos_24h: number } }>('/api/v2/anne/log?dias=1');
+      return res.data?.stats?.gatilhos_24h ?? 0;
+    },
+    refetchInterval: 120_000,
+    staleTime: 60_000,
+  });
+
   const {
     data,
     isLoading,
@@ -497,17 +508,60 @@ export function ConversationSidebar({
       ref={sidebarRef}
       className="w-70 min-w-62.5 max-w-xs shrink-0 flex flex-col bg-white border-r border-gray-200 h-full overflow-hidden"
     >
-      {/* ── Action Bar ── */}
-      <ActionBar
-        anneEnabled={anneEnabled}
-        onAnneToggle={onAnneToggle}
-        onOpenCampaign={onOpenCampaign}
-        activePanel={activePanel}
-        onTogglePanel={togglePanel}
-        totalUnread={totalUnread}
-      />
+      {/* ── Barra de busca inline (topo da sidebar, sem header duplicado) ── */}
+      <div className="flex items-center gap-2 px-3 pt-3 pb-2 shrink-0 bg-white">
+        <div className="flex items-center gap-2 flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus-within:border-crm-primary/60 transition-colors">
+          <Search size={13} className="text-gray-400 shrink-0" />
+          <input
+            className="flex-1 text-sm bg-transparent outline-none placeholder:text-gray-400 text-gray-800 min-w-0"
+            placeholder="Buscar conversa..."
+            value={searchQuery}
+            onChange={e => { setSearchQuery(e.target.value); }}
+            onKeyDown={e => e.key === 'Escape' && setSearchQuery('')}
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} className="text-gray-400 hover:text-gray-600 shrink-0">
+              <X size={11} />
+            </button>
+          )}
+        </div>
+        {/* Botão Anne compacto */}
+        <div className="relative shrink-0">
+          <button
+            onClick={() => togglePanel('anne')}
+            title="Anne (F4)"
+            className={cn(
+              'w-9 h-9 flex items-center justify-center rounded-xl transition-all',
+              activePanel === 'anne'
+                ? 'bg-crm-primary text-white shadow-sm'
+                : anneEnabled
+                  ? 'text-emerald-600 hover:bg-emerald-50'
+                  : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'
+            )}
+          >
+            <Brain size={16} />
+          </button>
+          {/* Dot de status */}
+          <span className={cn(
+            'absolute bottom-1 right-1 w-2 h-2 rounded-full border-2 border-white pointer-events-none',
+            anneEnabled ? 'bg-emerald-500' : 'bg-gray-300'
+          )} />
+          {anneBadge != null && anneBadge > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-0.5 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center pointer-events-none">
+              {anneBadge > 99 ? '99+' : anneBadge}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={() => refetch()}
+          className="shrink-0 w-9 h-9 flex items-center justify-center rounded-xl text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+          title="Atualizar lista"
+        >
+          <RefreshCw size={14} />
+        </button>
+      </div>
 
-      {/* ── Painel ativo inline (apenas Anne) ── */}
+      {/* ── Painel Anne inline ── */}
       {activePanel === 'anne' && (
         <AnnePanelInline
           anneEnabled={anneEnabled}
@@ -517,7 +571,7 @@ export function ConversationSidebar({
       )}
 
       {/* ── Filtros pill ── */}
-      <div className="flex gap-1.5 px-3 py-2 overflow-x-auto shrink-0 bg-gray-50/80 border-b border-gray-100">
+      <div className="flex gap-1.5 px-3 pb-2 overflow-x-auto shrink-0">
         {FILTERS.map(f => (
           <button
             key={f.value}
@@ -526,7 +580,7 @@ export function ConversationSidebar({
               'px-3 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap transition-all',
               activeFilter === f.value
                 ? 'bg-crm-primary text-white shadow-sm'
-                : 'bg-white text-gray-500 hover:bg-gray-100 border border-gray-200'
+                : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border border-transparent'
             )}
           >
             {f.label}
@@ -534,18 +588,16 @@ export function ConversationSidebar({
         ))}
       </div>
 
-      {/* ── Header da lista: contador + refresh ── */}
-      <div className="flex items-center justify-between px-4 py-2 shrink-0">
+      {/* ── Contador ── */}
+      <div className="flex items-center justify-between px-4 pb-1 shrink-0">
         <span className="text-[11px] font-medium text-gray-400">
           {totalCount > 0 ? `${totalCount} conversa${totalCount !== 1 ? 's' : ''}` : 'Nenhuma conversa'}
         </span>
-        <button
-          onClick={() => refetch()}
-          className="p-1 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
-          title="Atualizar lista"
-        >
-          <RefreshCw size={12} />
-        </button>
+        {totalUnread > 0 && (
+          <span className="px-1.5 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-5 text-center">
+            {totalUnread > 99 ? '99+' : totalUnread}
+          </span>
+        )}
       </div>
 
       {/* ── Lista de conversas — 100% do espaço ── */}

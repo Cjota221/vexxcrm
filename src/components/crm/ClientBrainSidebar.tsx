@@ -294,24 +294,40 @@ function IdentityTab({
       )}
 
       {/* Métricas 3 cards */}
-      <div className="grid grid-cols-3 gap-2">
-        <MetricCard
-          icon={<TrendingUp size={12} className="text-crm-primary" />}
-          label="LTV"
-          value={formatCurrency((c.ltv as number) ?? 0)}
-          highlight
-        />
-        <MetricCard
-          icon={<Star size={12} className="text-amber-500" />}
-          label="Ticket"
-          value={formatCurrency((c.avg_ticket as number) ?? (c.ticket_medio as number) ?? 0)}
-        />
-        <MetricCard
-          icon={<ShoppingBag size={12} className="text-gray-500" />}
-          label="Pedidos"
-          value={String((c.total_orders as number) ?? orders.length ?? 0)}
-        />
-      </div>
+      {(() => {
+        // LTV: prioridade campo do cliente → soma de pedidos pagos → "Sem dados"
+        const PAID = new Set(['paid', 'pago', 'completed', 'concluido', 'delivered', 'shipped', 'entregue']);
+        const pedidosPagos = orders.filter(o =>
+          PAID.has(String((o as unknown as Record<string, unknown>).status ?? '').toLowerCase())
+        );
+        const ltvFromOrders = pedidosPagos.reduce((s, o) => s + (Number((o as unknown as Record<string, unknown>).total) || 0), 0);
+        const ticketFromOrders = pedidosPagos.length > 0 ? ltvFromOrders / pedidosPagos.length : 0;
+
+        const ltv = (c.ltv as number) || ltvFromOrders;
+        const ticket = (c.avg_ticket as number) ?? (c.ticket_medio as number) ?? ticketFromOrders;
+        const totalPedidos = (c.total_orders as number) ?? orders.length ?? 0;
+
+        return (
+          <div className="grid grid-cols-3 gap-2">
+            <MetricCard
+              icon={<TrendingUp size={12} className="text-crm-primary" />}
+              label="LTV"
+              value={ltv > 0 ? formatCurrency(ltv) : totalPedidos === 0 ? '—' : formatCurrency(0)}
+              highlight
+            />
+            <MetricCard
+              icon={<Star size={12} className="text-amber-500" />}
+              label="Ticket"
+              value={ticket > 0 ? formatCurrency(ticket) : totalPedidos === 0 ? '—' : formatCurrency(0)}
+            />
+            <MetricCard
+              icon={<ShoppingBag size={12} className="text-gray-500" />}
+              label="Pedidos"
+              value={String(totalPedidos)}
+            />
+          </div>
+        );
+      })()}
 
       {/* Contatos */}
       <SectionBlock title="Contatos">
@@ -1062,7 +1078,7 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
   const orders: Order[] = (client?.recent_orders as Order[]) ?? [];
 
   return (
-    <aside className="w-80 shrink-0 flex flex-col bg-white border-l border-gray-200 h-full overflow-hidden">
+    <aside className="w-72 shrink-0 flex flex-col bg-white border-l border-gray-200 h-full overflow-hidden">
       {/* ── Header ── */}
       <div className="flex items-center justify-between h-14 px-4 border-b border-gray-100 shrink-0">
         <div className="flex items-center gap-2">

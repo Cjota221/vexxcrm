@@ -112,6 +112,10 @@ export function useWhatsAppConnection() {
 /**
  * Hook para buscar mensagens de um chat.
  * Extrai o array de `data` corretamente — API retorna { data: Message[] }.
+ *
+ * staleTime: 0 → considera sempre stale para que invalidateQueries do SSE
+ * dispare refetch imediato, resolvendo o problema de mensagem "fantasma".
+ * refetchInterval: 8s → fallback de polling quando SSE cai.
  */
 export function useMessages(clientId: string | null) {
   return useQuery({
@@ -127,8 +131,9 @@ export function useMessages(clientId: string | null) {
       return [];
     },
     enabled: !!clientId,
-    staleTime: 30_000, // Revalidar a cada 30s (SSE também cuida das atualizações em tempo real)
-    refetchOnWindowFocus: false,
+    staleTime: 0,            // sempre stale → SSE invalidate dispara refetch imediato
+    refetchInterval: 8_000,  // fallback polling 8s caso SSE esteja offline
+    refetchOnWindowFocus: true,
     refetchOnMount: true,
   });
 }

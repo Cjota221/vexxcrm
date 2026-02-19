@@ -110,7 +110,7 @@ export default function CentralAtendimentoPage() {
     <div className="flex flex-col h-full bg-white overflow-hidden">
 
       {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          HEADER GLOBAL — sempre visível, busca + kanban + campanhas
+          HEADER GLOBAL — busca + ações globais
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <div className="h-11 shrink-0 bg-white border-b border-gray-200 flex items-center px-4 gap-2 shadow-[0_1px_3px_rgba(0,0,0,0.06)] z-20">
 
@@ -161,6 +161,23 @@ export default function CentralAtendimentoPage() {
           onClick={() => setKanbanOpen(v => !v)}
         />
 
+        {/* Ações contextuais — visíveis apenas com chat aberto */}
+        {selectedChatId && (
+          <>
+            <div className="w-px h-5 bg-gray-200 shrink-0" />
+            <GlobalBtn
+              icon={<BookOpen size={14} />}
+              label="Catálogo"
+              onClick={() => setCatalogOpen(true)}
+            />
+            <GlobalBtn
+              icon={<ArrowLeftRight size={14} />}
+              label="Transferir"
+              onClick={() => setTransferOpen(true)}
+            />
+          </>
+        )}
+
         {/* Spacer */}
         <div className="flex-1" />
 
@@ -173,9 +190,9 @@ export default function CentralAtendimentoPage() {
       </div>
 
       {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          CORPO — 3 colunas
+          CORPO — 3 colunas, edge-to-edge (sem espaços laterais)
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <div className="flex flex-1 min-h-0 bg-[#f0f2f5]">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
 
         {/* ── COLUNA 1: Sidebar de Conversas ── */}
         <ConversationSidebar
@@ -185,25 +202,7 @@ export default function CentralAtendimentoPage() {
         />
 
         {/* ── COLUNA 2: Workspace do Chat ── */}
-        <div className="flex-1 flex flex-col min-w-0 bg-[#f0f2f5]">
-
-          {/* Topbar contextual — ações da conversa ativa */}
-          <div className={cn(
-            'flex items-center justify-between px-3 bg-white border-b border-gray-100 shrink-0 transition-all duration-150 overflow-hidden',
-            selectedChatId ? 'h-9 opacity-100' : 'h-0 opacity-0 pointer-events-none'
-          )}>
-            <div className="flex items-center gap-0.5">
-              <CtxBtn icon={<BookOpen size={13} />} label="Catálogo" onClick={() => setCatalogOpen(true)} />
-              <CtxBtn icon={<ArrowLeftRight size={13} />} label="Transferir" onClick={() => setTransferOpen(true)} />
-            </div>
-            <div className="flex items-center gap-0.5">
-              <CtxBtn
-                icon={<Brain size={13} />}
-                label={brainOpen ? 'Fechar Cérebro' : 'Cérebro'}
-                onClick={() => setBrainOpen(v => !v)}
-              />
-            </div>
-          </div>
+        <div className="flex-1 flex flex-col min-w-0">
 
           {/* Kanban Drawer — desliza do topo */}
           <KanbanDrawer open={kanbanOpen} onClose={() => setKanbanOpen(false)} />
@@ -214,7 +213,7 @@ export default function CentralAtendimentoPage() {
           </div>
         </div>
 
-        {/* ── COLUNA 3: Cérebro do Cliente ── */}
+        {/* ── COLUNA 3: Cérebro do Cliente (largura reduzida para não espremer) ── */}
         {brainOpen && selectedChatId && (
           <ClientBrainSidebar onClose={() => setBrainOpen(false)} />
         )}
