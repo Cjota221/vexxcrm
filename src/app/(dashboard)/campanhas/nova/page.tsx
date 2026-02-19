@@ -11,6 +11,7 @@ import {
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { api } from '@/lib/api';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -620,13 +621,14 @@ function NovaCampanhaInner() {
   useEffect(() => {
     if (modoDestinatario !== 'inteligencia') return;
     setCarregandoDistribuicao(true);
-    fetch('/api/intelligence/rfm')
-      .then(r => r.json())
-      .then(json => {
+    api.get<Record<string, unknown>>('/api/intelligence/rfm')
+      .then(({ data }) => {
         const dist: Record<string, number> = {};
-        const distData = json?.distribution ?? json?.data?.distribution ?? {};
-        for (const [k, v] of Object.entries(distData)) {
-          dist[k] = typeof v === 'object' && v !== null ? ((v as Record<string, number>).count ?? 0) : Number(v);
+        const distData = (data as Record<string, unknown>)?.distribution ?? {};
+        for (const [k, v] of Object.entries(distData as Record<string, unknown>)) {
+          dist[k] = typeof v === 'object' && v !== null
+            ? ((v as Record<string, number>).count ?? 0)
+            : Number(v);
         }
         setDistribuicaoRFM(dist);
       })
@@ -637,7 +639,6 @@ function NovaCampanhaInner() {
   // Função para selecionar segmento e carregar contatos
   const selecionarSegmento = useCallback(async (seg: { nome: string; label: string }) => {
     if (segmentoRFM === seg.nome) {
-      // Desselecionar
       setSegmentoRFM(null);
       setContatos([]);
       return;
@@ -646,11 +647,11 @@ function NovaCampanhaInner() {
     setContatos([]);
     setCarregandoContatos(true);
     try {
-      // Busca até 500 contatos do segmento (paginando se necessário)
-      const params = new URLSearchParams({ segment: seg.nome, page: '1', limit: '500' });
-      const res = await fetch(`/api/intelligence/rfm/clients?${params}`);
-      const json = await res.json();
-      const lista = (json?.clients ?? []) as Record<string, unknown>[];
+      const { data } = await api.get<Record<string, unknown>>(
+        '/api/intelligence/rfm/clients',
+        { segment: seg.nome, page: '1', limit: '500' }
+      );
+      const lista = ((data as Record<string, unknown>)?.clients ?? []) as Record<string, unknown>[];
       setContatos(lista.map(c => ({
         id: c.id as string,
         telefone: (c.phone ?? c.telefone) as string,
