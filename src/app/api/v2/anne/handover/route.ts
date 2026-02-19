@@ -129,15 +129,22 @@ export async function POST(request: NextRequest) {
     }
 
     // ── [6] Emitir SSE — badge vermelho no header ──────────────────────
-    if (typeof globalThis !== 'undefined' && (globalThis as unknown as Record<string, unknown>).sseClients) {
-      const sseClients = (globalThis as unknown as Record<string, Set<{ write: (d: string) => void }>>).sseClients;
-      const tenantClients = sseClients[tenantId];
-      if (tenantClients) {
+    if (typeof globalThis !== 'undefined' && (globalThis as any).sseClients) {
+      const rawSse = (globalThis as any).sseClients;
+      // sseClients may be a Map or a plain object depending on environment/setup.
+      let tenantClients: Set<{ write: (d: string) => void }> | undefined;
+      if (rawSse instanceof Map) {
+        tenantClients = rawSse.get(tenantId);
+      } else {
+        tenantClients = (rawSse as Record<string, Set<{ write: (d: string) => void }> | undefined>)[tenantId];
+      }
+
+      if (tenantClients && typeof tenantClients.forEach === 'function') {
         const event = JSON.stringify({
-          type:       'anne_handover',
-          chat_id:    chatId,
-          client_id:  clientId,
-          nome:       dossie.nome_cliente,
+          type:        'anne_handover',
+          chat_id:     chatId,
+          client_id:   clientId,
+          nome:        dossie.nome_cliente,
           motivo,
           handover_id: handover?.id,
         });

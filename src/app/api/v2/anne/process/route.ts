@@ -284,15 +284,20 @@ export async function POST(request: NextRequest) {
     });
 
     // ── Emitir SSE para atualizar UI em tempo real ─────────────────────
-    if (typeof globalThis !== 'undefined' && (globalThis as unknown as Record<string, unknown>).sseClients) {
-      const sseClients = (globalThis as unknown as Record<string, Set<{ write: (d: string) => void }>>).sseClients;
-      const tenantClients = sseClients[tenantId];
-      if (tenantClients) {
+    if (typeof globalThis !== 'undefined' && (globalThis as any).sseClients) {
+      const rawSse = (globalThis as any).sseClients;
+      let tenantClients: Set<{ write: (d: string) => void }> | undefined;
+      if (rawSse instanceof Map) {
+        tenantClients = rawSse.get(tenantId);
+      } else {
+        tenantClients = (rawSse as Record<string, Set<{ write: (d: string) => void }> | undefined>)[tenantId];
+      }
+      if (tenantClients && typeof tenantClients.forEach === 'function') {
         const event = JSON.stringify({
-          type: logTipo === 'ativa' ? 'anne_suggestion' : 'anne_action',
-          chat_id: chatId,
-          agent: agentSlug,
-          message: agentResponse.tipo === 'mensagem' ? agentResponse.conteudo : null,
+          type:          logTipo === 'ativa' ? 'anne_suggestion' : 'anne_action',
+          chat_id:       chatId,
+          agent:         agentSlug,
+          message:       agentResponse.tipo === 'mensagem' ? agentResponse.conteudo : null,
           actions_count: allActions.length,
         });
         tenantClients.forEach(client => {
