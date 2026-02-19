@@ -413,6 +413,7 @@ export async function saveCustomerHealth(
 /**
  * Executa varredura completa (Sentinela) em todos os clientes do tenant.
  * Otimizado: busca todos os orders de uma vez e processa em memória.
+ * @deprecated Use executeSentinelaChunk com paginação para evitar timeout no Netlify.
  */
 export async function executeSentinelaFullScan(
   supabase: SupabaseClient,
@@ -614,6 +615,213 @@ export async function executeSentinelaFullScan(
     ltvMedioBase: Math.round(ltvMedioBase * 100) / 100,
     tempoExecucao,
     erros,
+  };
+}
+
+/**
+ * Versão paginada do Sentinela — processa um slice de clientes por chamada.
+ * Resolve o problema de timeout no Netlify (26s max).
+ *
+ * O frontend encadeia chamadas:
+ *   offset=0 → offset=150 → offset=300 → ... até hasMore=false
+ */
+export async function executeSentinelaChunk(
+  supabase: SupabaseClient,
+  tenantId: string,
+  offset: number = 0,
+  limit: number = 150,
+): Promise<import('@/types').SentinelaResult & { offset: number; limit: number; total: number; hasMore: boolean }> {
+  const startTime = Date.now();
+  const erros: string[] = [];
+  const mudancasStatus: import('@/types').SentinelaResult['mudancasStatus'] = [];
+  const distribuicao: Record<HealthClassification, number> = {
+    VIP: 0, Ativo: 0, Oportunidade: 0, Risco: 0, Perdido: 0,
+  };
+
+  // 1. Total de clientes (count apenas)
+  const { count: totalCount } = await supabase
+    .from('clients')
+    .select('id', { count: 'exact', head: true })
+    .eq('tenant_id', tenantId);
+
+  const total = totalCount ?? 0;
+
+  // 2. Clientes deste chunk
+  const { data: clients, error } = await supabase
+    .from('clients')
+    .select('id, name, status, custom_fields')
+    .eq('tenant_id', tenantId)
+    .range(offset, offset + limit - 1);
+
+  if (error || !clients) {
+    return {
+      totalProcessados: 0, distribuicao, mudancasStatus, vipsEmRisco: [],
+      ltvMedioBase: 0, tempoExecucao: '0s',
+      erros: [error?.message || 'Erro ao buscar clientes'],
+      offset, limit, total, hasMore: false,
+    };
+  }
+
+  if (clients.length === 0) {
+    return {
+      totalProcessados: 0, distribuicao, mudancasStatus, vipsEmRisco: [],
+      ltvMedioBase: 0, tempoExecucao: '0s', erros: [],
+      offset, limit, total, hasMore: false,
+    };
+  }
+
+  // 3. Orders apenas dos clientes deste chunk
+  const clientIds = clients.map(c => c.id);
+  const { data: chunkOrders } = await supabase
+    .from('orders')
+    .select('id, client_id, total, status, created_at, metadata')
+    .eq('tenant_id', tenantId)
+    .in('client_id', clientIds)
+    .order('created_at', { ascending: true });
+
+  // Agrupar orders por client_id em memória
+  const ordersByClient = new Map<string, typeof chunkOrders>();
+  for (const order of (chunkOrders || [])) {
+    if (!order.client_id) continue;
+    if (!ordersByClient.has(order.client_id)) ordersByClient.set(order.client_id, []);
+    ordersByClient.get(order.client_id)!.push(order);
+  }
+
+  const clientUpdates: Array<Record<string, unknown>> = [];
+
+  for (const client of clients) {
+    try {
+      const clientOrders = ordersByClient.get(client.id) || [];
+      const health = calculateCustomerHealthFromOrders(client.id, clientOrders);
+
+      const cf = client.custom_fields as Record<string, unknown> | null;
+      const statusAnterior = (cf?.health_classification as string) || client.status || 'novo';
+      const statusNovo = health.classificacao.nivel;
+
+      if (statusAnterior !== statusNovo) {
+        mudancasStatus.push({
+          clienteId: client.id,
+          clienteNome: client.name,
+          statusAnterior,
+          statusNovo,
+          razao: health.classificacao.razao,
+          logInteligencia: health.classificacao.logInteligencia,
+        });
+      }
+
+      const currentFields = (cf && typeof cf === 'object') ? cf : {};
+      const statusMap: Record<HealthClassification, string> = {
+        'VIP': 'vip', 'Ativo': 'ativo', 'Oportunidade': 'ativo', 'Risco': 'risco', 'Perdido': 'inativo',
+      };
+
+      clientUpdates.push({
+        id: client.id,
+        tenant_id: tenantId,
+        custom_fields: {
+          ...currentFields,
+          health_score: health.classificacao.score,
+          health_classification: health.classificacao.nivel,
+          health_data: health,
+        },
+        status: statusMap[health.classificacao.nivel],
+        ltv: health.metricas.comportamentoCompra.valorTotalGasto,
+        avg_ticket: health.metricas.comportamentoCompra.ticketMedio,
+        total_orders: health.metricas.frequenciaCompra.totalPedidos,
+        last_order_at: health.metricas.ultimaCompra,
+        updated_at: new Date().toISOString(),
+      });
+
+      distribuicao[health.classificacao.nivel]++;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Erro desconhecido';
+      erros.push(`Erro em ${client.name}: ${msg}`);
+    }
+  }
+
+  // 4. Batch UPDATE em chunks de 50
+  const CHUNK = 50;
+  for (let i = 0; i < clientUpdates.length; i += CHUNK) {
+    const batch = clientUpdates.slice(i, i + CHUNK);
+    const results = await Promise.allSettled(
+      batch.map(u =>
+        supabase
+          .from('clients')
+          .update({
+            custom_fields: u.custom_fields,
+            status: u.status,
+            ltv: u.ltv,
+            avg_ticket: u.avg_ticket,
+            total_orders: u.total_orders,
+            last_order_at: u.last_order_at,
+            updated_at: u.updated_at,
+          })
+          .eq('id', u.id)
+          .eq('tenant_id', u.tenant_id)
+      )
+    );
+    for (const r of results) {
+      if (r.status === 'rejected') erros.push(`Erro update: ${String(r.reason)}`);
+      else if (r.value.error) erros.push(`Erro update: ${r.value.error.message}`);
+    }
+  }
+
+  const tempoMs = Date.now() - startTime;
+  const tempoExecucao = tempoMs > 60000
+    ? `${Math.round(tempoMs / 60000)}min ${Math.round((tempoMs % 60000) / 1000)}s`
+    : `${Math.round(tempoMs / 1000)}s`;
+
+  const todosLtv = clientUpdates.map(u => Number(u.ltv) || 0).filter(v => v > 0);
+  const ltvMedioBase = todosLtv.length > 0
+    ? todosLtv.reduce((s, v) => s + v, 0) / todosLtv.length
+    : 0;
+
+  type VipRiscoItem = {
+    clienteId: string; clienteNome: string; ltv: number;
+    ticketMedio: number; diasInatividade: number; logInteligencia: string;
+  };
+
+  const vipsEmRisco: VipRiscoItem[] = clientUpdates
+    .filter(u => {
+      const ltv = Number(u.ltv) || 0;
+      const cf = u.custom_fields as Record<string, unknown> | null;
+      const healthData = cf?.health_data as CustomerHealth | undefined;
+      const dias = healthData?.metricas?.diasInatividade ?? 999;
+      return ltv > ltvMedioBase && ltv > 0 && dias >= 15;
+    })
+    .map(u => {
+      const cf = u.custom_fields as Record<string, unknown> | null;
+      const healthData = cf?.health_data as CustomerHealth | undefined;
+      const dias = healthData?.metricas?.diasInatividade ?? 0;
+      const ltv = Number(u.ltv) || 0;
+      const ticket = Number(u.avg_ticket) || 0;
+      const clientName = clients.find(c => c.id === u.id)?.name ?? 'Cliente';
+      return {
+        clienteId: String(u.id),
+        clienteNome: clientName,
+        ltv,
+        ticketMedio: ticket,
+        diasInatividade: dias,
+        logInteligencia: healthData?.classificacao?.logInteligencia
+          ?? `VIP em risco — ${dias} dias sem comprar, LTV R$ ${ltv.toFixed(2).replace('.', ',')}.`,
+      };
+    })
+    .sort((a, b) => b.ltv - a.ltv)
+    .slice(0, 20);
+
+  const hasMore = offset + clients.length < total;
+
+  return {
+    totalProcessados: clients.length,
+    distribuicao,
+    mudancasStatus,
+    vipsEmRisco,
+    ltvMedioBase: Math.round(ltvMedioBase * 100) / 100,
+    tempoExecucao,
+    erros,
+    offset,
+    limit,
+    total,
+    hasMore,
   };
 }
 

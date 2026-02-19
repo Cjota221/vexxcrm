@@ -13,6 +13,14 @@
 # Aumentar timeout das funções serverless (padrão é 10s, máx 26s no plano grátis)
 [functions]
   external_node_modules = ["@supabase/supabase-js"]
+  node_bundler = "esbuild"
+
+# Timeout máximo para funções pesadas (Sentinela, sync, etc.)
+[functions."api/sentinela/scan"]
+  timeout = 26
+
+[functions."api/sync"]
+  timeout = 26
 
 # Redirects and rewrites — NÃO interceptar rotas de API
 # O plugin @netlify/plugin-nextjs gerencia todas as rotas do Next.js automaticamente

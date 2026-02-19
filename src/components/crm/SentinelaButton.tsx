@@ -57,20 +57,10 @@ export function SentinelaButton() {
     setError(null);
     setProgress(0);
 
-    // Progresso incremental (real via SSE pode ser adicionado futuramente)
-    const progressTimer = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 90) { clearInterval(progressTimer); return 90; }
-        const increment = prev < 40 ? 8 : prev < 70 ? 4 : 1;
-        return Math.min(prev + increment, 90);
-      });
-    }, 600);
-
     try {
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
       if (sessionError || !session?.access_token) {
-        // Tentar refresh da sessão antes de desistir
         const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
         if (refreshError || !refreshed?.session?.access_token) {
           setError('Sessão expirada. Recarregue a página e tente novamente.');
@@ -78,7 +68,6 @@ export function SentinelaButton() {
         }
       }
 
-      // Pegar token atualizado após possível refresh
       const { data: { session: currentSession } } = await supabase.auth.getSession();
       const token = currentSession?.access_token;
 
@@ -87,27 +76,67 @@ export function SentinelaButton() {
         return;
       }
 
-      const res = await fetch('/api/sentinela/scan', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      // ── Scan paginado: encadeia chamadas até hasMore=false ──
+      const LIMIT = 150;
+      let offset = 0;
+      let total = 0;
 
-      const data = await res.json();
+      // Acumuladores para mesclar resultados dos chunks
+      const distribuicaoAcc: Record<string, number> = { VIP: 0, Ativo: 0, Oportunidade: 0, Risco: 0, Perdido: 0 };
+      const mudancasAcc: SentinelaResult['mudancasStatus'] = [];
+      const vipsAcc: SentinelaResult['vipsEmRisco'] = [];
+      let totalProcessados = 0;
+      let tempoExecucao = '0s';
 
-      clearInterval(progressTimer);
-      setProgress(100);
+      while (true) {
+        const res = await fetch('/api/sentinela/scan', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ offset, limit: LIMIT }),
+        });
 
-      if (!res.ok) {
-        setError(data.error || 'Erro ao executar varredura');
-        return;
+        const data = await res.json();
+
+        if (!res.ok) {
+          setError(data.error || 'Erro ao executar varredura');
+          return;
+        }
+
+        const chunk = data.data;
+        total = chunk.total ?? total;
+
+        // Acumular distribuição
+        for (const [k, v] of Object.entries(chunk.distribuicao as Record<string, number>)) {
+          distribuicaoAcc[k] = (distribuicaoAcc[k] ?? 0) + v;
+        }
+        mudancasAcc.push(...(chunk.mudancasStatus ?? []));
+        vipsAcc.push(...(chunk.vipsEmRisco ?? []));
+        totalProcessados += chunk.totalProcessados ?? 0;
+        tempoExecucao = chunk.tempoExecucao ?? tempoExecucao;
+
+        // Atualizar progresso visual
+        setProgress(total > 0 ? Math.min(95, Math.round((totalProcessados / total) * 100)) : 50);
+
+        if (!chunk.hasMore) break;
+        offset += LIMIT;
       }
 
-      setResult(data.data);
+      setProgress(100);
+
+      // Montar resultado consolidado
+      setResult({
+        totalProcessados,
+        distribuicao: distribuicaoAcc as SentinelaResult['distribuicao'],
+        mudancasStatus: mudancasAcc,
+        vipsEmRisco: vipsAcc.sort((a, b) => b.ltv - a.ltv).slice(0, 20),
+        ltvMedioBase: 0,
+        tempoExecucao,
+        erros: [],
+      });
     } catch {
-      clearInterval(progressTimer);
       setError('Erro de conexão ao executar Sentinela');
     } finally {
       setIsRunning(false);

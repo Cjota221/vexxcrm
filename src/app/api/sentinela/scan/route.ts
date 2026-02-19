@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createAuthenticatedClient } from '@/lib/supabase';
-import { executeSentinelaFullScan } from '@/lib/services/customer-health';
+import { executeSentinelaChunk } from '@/lib/services/customer-health';
 
 /**
  * POST /api/sentinela/scan
- * Executa varredura completa da base de clientes.
- * Calcula health score e classificação para todos os clientes do tenant.
+ * Executa varredura em lotes para evitar timeout no Netlify (26s max).
+ *
+ * Body: { offset?: number, limit?: number }
+ * - offset: índice de início (default 0)
+ * - limit: clientes por chamada (default 150, max 200)
+ *
+ * Response: { data: { ...resultado, offset, limit, total, hasMore } }
+ * O frontend encadeia chamadas até hasMore === false.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -33,12 +39,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Tenant não encontrado' }, { status: 403 });
     }
 
-    console.log('🔍 Sentinela: Iniciando varredura para tenant', profile.tenant_id);
+    // Parâmetros de paginação
+    const body = await request.json().catch(() => ({}));
+    const offset = Math.max(0, Number(body.offset) || 0);
+    const limit = Math.min(200, Math.max(50, Number(body.limit) || 150));
 
-    const result = await executeSentinelaFullScan(supabase, profile.tenant_id);
+    console.log(`🔍 Sentinela: chunk offset=${offset} limit=${limit} tenant=${profile.tenant_id}`);
 
-    console.log(`✅ Sentinela: ${result.totalProcessados} clientes processados em ${result.tempoExecucao}`);
-    console.log('📊 Distribuição:', JSON.stringify(result.distribuicao));
+    const result = await executeSentinelaChunk(supabase, profile.tenant_id, offset, limit);
+
+    console.log(`✅ Sentinela chunk: ${result.totalProcessados} processados, hasMore=${result.hasMore}`);
 
     return NextResponse.json({ data: result });
   } catch (error: unknown) {
