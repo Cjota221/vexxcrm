@@ -193,6 +193,8 @@ export const KANBAN_COLUMNS_ORDER: KanbanColumn[] = [
   'EM_NEGOCIACAO',
   'AGUARDANDO_PAGAMENTO',
   'PAGO',
+  'DESPACHADO',
+  'CANCELADO',
   'REATIVAR',
   'CONCLUIDO',
 ];
