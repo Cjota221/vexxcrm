@@ -177,7 +177,7 @@ export async function GET(request: NextRequest) {
     const clientIds = pagedBuyers.map(b => b.client_id);
     const { data: clientsData } = await supabase
       .from('clients')
-      .select('id, name, phone, email, rfm_segment, rfm_score, flag_auto_vip, flag_churn_risk, total_orders, total_spent, avg_ticket, last_order_at')
+      .select('id, name, phone, email, rfm_segment, rfm_score, flag_auto_vip, flag_churn_risk, total_orders, ltv, avg_ticket, last_order_at')
       .eq('tenant_id', tenantId)
       .in('id', clientIds);
 
@@ -186,6 +186,7 @@ export async function GET(request: NextRequest) {
     // Montar resultado
     const buyers = pagedBuyers.map(b => {
       const client = clientMap.get(b.client_id);
+      const clientLtv = (client as Record<string, unknown> | undefined)?.ltv as number || 0;
       return {
         client_id: b.client_id,
         name: client?.name || 'Desconhecido',
@@ -202,7 +203,7 @@ export async function GET(request: NextRequest) {
         seasonal_last_order: b.last_order_at,
         // Dados gerais do cliente
         total_orders: client?.total_orders || 0,
-        total_spent: client?.total_spent || 0,
+        total_spent: clientLtv,
         avg_ticket: client?.avg_ticket || 0,
         last_order_at: client?.last_order_at || null,
       };

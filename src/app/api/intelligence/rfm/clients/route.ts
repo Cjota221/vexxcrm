@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
         rfm_segment, rfm_score, rfm_recency, rfm_frequency, rfm_monetary,
         churn_probability, purchase_prob_30d, ltv_projected_12m,
         flag_auto_vip, flag_churn_risk, flag_needs_attention, flag_upsell_ready,
-        total_orders, avg_ticket, total_spent, last_order_at,
+        total_orders, avg_ticket, ltv, last_order_at,
         created_at
       `, { count: 'exact' })
       .eq('tenant_id', tenantId)
@@ -66,28 +66,34 @@ export async function GET(request: NextRequest) {
       query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%`);
     }
 
-    // Ordenação: mais valiosos primeiro
+    // Ordenação: mais valiosos primeiro (ltv = total gasto histórico)
     query = query
-      .order('total_spent', { ascending: false, nullsFirst: false })
+      .order('ltv', { ascending: false, nullsFirst: false })
       .range(offset, offset + limit - 1);
 
     const { data: clients, count, error: queryError } = await query;
 
     if (queryError) {
       console.error('Erro ao buscar clientes do segmento:', queryError);
-      return NextResponse.json({ error: 'Erro ao buscar clientes' }, { status: 500 });
+      return NextResponse.json({ error: 'Erro ao buscar clientes', details: queryError.message }, { status: 500 });
     }
 
     // Calcular totais do segmento
-    const totalSpent = (clients || []).reduce((s, c) => s + (c.total_spent || 0), 0);
+    const totalSpent = (clients || []).reduce((s, c) => s + ((c as Record<string, unknown>).ltv as number || 0), 0);
     const avgTicket = (clients || []).length > 0
       ? (clients || []).reduce((s, c) => s + (c.avg_ticket || 0), 0) / (clients || []).length
       : 0;
 
+    // Normalizar campo para o frontend (renomear ltv → total_spent para compatibilidade)
+    const normalizedClients = (clients || []).map(c => ({
+      ...c,
+      total_spent: (c as Record<string, unknown>).ltv ?? 0,
+    }));
+
     return NextResponse.json({
       success: true,
       segment,
-      clients: clients || [],
+      clients: normalizedClients,
       pagination: {
         page,
         limit,

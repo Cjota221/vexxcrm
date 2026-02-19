@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     if (context?.client_id) {
       const { data: client } = await supabase
         .from('clients')
-        .select('name, phone, email, total_orders, total_spent, rfm_segment, last_order_at, tags')
+        .select('name, phone, email, total_orders, ltv, rfm_segment, last_order_at, tags')
         .eq('id', context.client_id)
         .eq('tenant_id', profile.tenant_id)
         .single();
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
           telefone: client.phone,
           email: client.email,
           total_pedidos: client.total_orders,
-          total_gasto: `R$ ${(client.total_spent || 0).toFixed(2)}`,
+          total_gasto: `R$ ${((client as Record<string, unknown>).ltv as number || 0).toFixed(2)}`,
           segmento_rfm: client.rfm_segment,
           ultimo_pedido: client.last_order_at,
           tags: client.tags,
