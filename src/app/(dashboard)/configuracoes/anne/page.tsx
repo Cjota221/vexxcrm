@@ -1,14 +1,15 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Bot, Save, Loader2, ToggleLeft, ToggleRight, Clock, Send, Zap,
   ChevronDown, ChevronRight, Play, MessageSquare, CheckCircle2,
-  AlertTriangle, RefreshCw, Info, ArrowRight, Sparkles, Settings,
+  AlertTriangle, RefreshCw, Info, Sparkles, Settings,
+  Users, Activity, ShieldAlert, BookOpen, Circle,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { cn } from '@/lib/utils';
+import { cn, formatRelativeTime } from '@/lib/utils';
 
 /* ─── Types ─────────────────────────────────────────────────── */
 interface AnneAutomation {
@@ -38,6 +39,67 @@ interface SandboxResult {
   chain_of_thought: string[];
 }
 
+interface AnneLogEntry {
+  id: string;
+  tipo: 'silenciosa' | 'ativa' | 'handover' | 'erro';
+  agente_executor: string;
+  agente_usado?: string;
+  intencao?: string;
+  gatilho_ativado: string | null;
+  confianca_classificacao: number | null;
+  acoes_executadas: Array<{ acao: string; resultado: string; latencia_ms: number }>;
+  mensagem_enviada: string | null;
+  chain_of_thought: string[] | null;
+  duracao_total_ms: number | null;
+  duracao_ms?: number;
+  requer_revisao: boolean;
+  created_at: string;
+}
+
+interface AnneLogsSummary {
+  silenciosas: number;
+  ativas: number;
+  handovers: number;
+  erros: number;
+  avg_latency_ms: number;
+  handovers_pendentes: number;
+}
+
+interface AgentData {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  knowledge_base: string | null;
+  knowledge_tokens: number;
+  executions_total: number;
+  executions_today: number;
+  avg_latency_ms: number;
+  last_executed_at: string | null;
+}
+
+interface HandoverEntry {
+  id: string;
+  client_id: string | null;
+  client_name?: string | null;
+  phone?: string | null;
+  chat_id: string;
+  motivo: string;
+  reason?: string;
+  palavra_gatilho: string | null;
+  tipo_gatilho: string;
+  status: 'aguardando' | 'assumido' | 'resolvido';
+  assumido_por: string | null;
+  dossie: {
+    ultimas_mensagens?: Array<{ from_me: boolean; body: string }>;
+    perfil_cliente?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
+  mensagem_transicao: string | null;
+  created_at: string;
+}
+
 /* ─── Helpers ───────────────────────────────────────────────── */
 const RULE_ICONS: Record<string, React.ReactNode> = {
   cart_recovery:   <Zap       size={15} className="text-amber-500" />,
@@ -45,6 +107,30 @@ const RULE_ICONS: Record<string, React.ReactNode> = {
   payment_confirm: <CheckCircle2 size={15} className="text-blue-500" />,
   tracking_reply:  <Send       size={15} className="text-purple-500" />,
 };
+
+const LOG_TIPO_CONFIG: Record<string, { label: string; icon: string; color: string; bg: string; badge: string; dot: string }> = {
+  silenciosa: { label: 'Silenciosa', icon: '🔇', color: 'text-gray-600', bg: 'bg-gray-100',  badge: 'bg-gray-100 text-gray-600',  dot: 'bg-gray-400' },
+  ativa:      { label: 'Ativa',      icon: '📣', color: 'text-blue-600', bg: 'bg-blue-50',   badge: 'bg-blue-100 text-blue-700',  dot: 'bg-blue-500' },
+  handover:   { label: 'Handover',   icon: '⚠️', color: 'text-red-600',  bg: 'bg-red-50',    badge: 'bg-red-100 text-red-700',    dot: 'bg-red-500' },
+  erro:       { label: 'Erro',       icon: '❌', color: 'text-red-700',  bg: 'bg-red-100',   badge: 'bg-red-200 text-red-800',    dot: 'bg-red-600' },
+};
+
+const AGENT_SLUGS = ['comercial', 'logistica', 'faq', 'triagem'] as const;
+const AGENT_LABELS: Record<string, { icon: string; color: string; label: string }> = {
+  comercial: { icon: '🏷️', color: 'text-amber-700',   label: 'Comercial' },
+  logistica: { icon: '🚚', color: 'text-blue-700',    label: 'Logística' },
+  faq:       { icon: '❓', color: 'text-purple-700',  label: 'FAQ' },
+  triagem:   { icon: '👋', color: 'text-emerald-700', label: 'Triagem' },
+};
+
+type PageTab = 'config' | 'agentes' | 'feed' | 'handovers';
+
+const PAGE_TABS: { key: PageTab; label: string; icon: React.ReactNode }[] = [
+  { key: 'config',    label: 'Configuração',   icon: <Settings size={14} /> },
+  { key: 'agentes',   label: 'Agentes',         icon: <Users size={14} /> },
+  { key: 'feed',      label: 'Feed ao Vivo',    icon: <Activity size={14} /> },
+  { key: 'handovers', label: 'Handovers',       icon: <ShieldAlert size={14} /> },
+];
 
 const DEFAULT_PROMPT = `Você é a Anne, assistente virtual da loja {{loja}}.
 Você é educada, usa emojis de moda, é rápida e focada em converter carrinhos em vendas.
@@ -57,6 +143,7 @@ export default function AnneConfigPage() {
   const queryClient = useQueryClient();
 
   // ── Estado local ─────────────────────────────────────────────
+  const [activeTab, setActiveTab]         = useState<PageTab>('config');
   const [systemPrompt, setSystemPrompt]   = useState('');
   const [globalMode, setGlobalMode]       = useState<'auto' | 'suggest'>('suggest');
   const [automations, setAutomations]     = useState<AnneAutomation[]>([]);
@@ -108,6 +195,84 @@ export default function AnneConfigPage() {
     },
   });
 
+  // ── Queries — Feed ao Vivo ───────────────────────────────────
+  const { data: logsData, isLoading: logsLoading, refetch: refetchLogs } = useQuery<{
+    logs: AnneLogEntry[];
+    total: number;
+    summary: AnneLogsSummary;
+  }>({
+    queryKey: ['anne-logs-feed'],
+    queryFn: async () => {
+      const res = await api.get<{ logs: AnneLogEntry[]; total: number; summary: AnneLogsSummary }>(
+        '/api/v2/anne/logs?limit=50&dias=1',
+      );
+      return res.data;
+    },
+    staleTime: 15_000,
+    refetchInterval: activeTab === 'feed' ? 15_000 : false,
+    enabled: activeTab === 'feed',
+  });
+
+  // ── Queries — Handovers ───────────────────────────────────────
+  const { data: handoversData, isLoading: handoversLoading, refetch: refetchHandovers } = useQuery<{
+    handovers: HandoverEntry[];
+  }>({
+    queryKey: ['anne-handovers'],
+    queryFn: async () => {
+      const res = await api.get<{ handovers: HandoverEntry[] }>('/api/v2/anne/handover?status=aguardando');
+      return res.data;
+    },
+    staleTime: 30_000,
+    refetchInterval: activeTab === 'handovers' ? 30_000 : false,
+    enabled: activeTab === 'handovers',
+  });
+
+  // ── Queries — Agentes ──────────────────────────────────────────
+  const [agentKnowledge, setAgentKnowledge]     = useState<Record<string, string>>({});
+  const [agentSaving, setAgentSaving]           = useState<string | null>(null);
+  const [agentSaved, setAgentSaved]             = useState<string | null>(null);
+  const [expandedAgent, setExpandedAgent]       = useState<string | null>('comercial');
+
+  const { data: agentsData, isLoading: agentsLoading } = useQuery<{ agents: AgentData[] }>({
+    queryKey: ['anne-agents'],
+    queryFn: async () => {
+      const results = await Promise.all(
+        AGENT_SLUGS.map(slug =>
+          api.get<{ agent: AgentData }>(`/api/v2/agentes/${slug}/knowledge`).then(r => r.data.agent),
+        ),
+      );
+      return { agents: results };
+    },
+    staleTime: 60_000,
+    enabled: activeTab === 'agentes',
+  });
+
+  useEffect(() => {
+    if (agentsData?.agents) {
+      const map: Record<string, string> = {};
+      agentsData.agents.forEach(a => { map[a.slug] = a.knowledge_base ?? ''; });
+      setAgentKnowledge(map);
+    }
+  }, [agentsData]);
+
+  const saveAgentKnowledge = useCallback(async (slug: string) => {
+    setAgentSaving(slug);
+    try {
+      await api.post(`/api/v2/agentes/${slug}/knowledge`, { knowledge_base: agentKnowledge[slug] ?? '' });
+      queryClient.invalidateQueries({ queryKey: ['anne-agents'] });
+      setAgentSaved(slug);
+      setTimeout(() => setAgentSaved(null), 2000);
+    } finally {
+      setAgentSaving(null);
+    }
+  }, [agentKnowledge, queryClient]);
+
+  // ── Resolver handover ─────────────────────────────────────────
+  const resolveHandover = async (handoverId: string, status: 'assumido' | 'resolvido') => {
+    await api.patch('/api/v2/anne/handover', { handover_id: handoverId, status });
+    refetchHandovers();
+  };
+
   // ── Sandbox ───────────────────────────────────────────────────
   const handleSandbox = async () => {
     if (!sandboxText.trim()) return;
@@ -156,30 +321,65 @@ export default function AnneConfigPage() {
               <Bot size={22} className="text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-black text-gray-900">Central de Comando — Anne</h1>
-              <p className="text-sm text-gray-500 mt-0.5">Configure a personalidade, automações e modo de decisão do agente.</p>
+              <h1 className="text-xl font-black text-gray-900">Anne OS — Sistema Multi-Agente</h1>
+              <p className="text-sm text-gray-500 mt-0.5">Orquestradora · 4 Agentes · Pipeline Autônomo · Handover Humano</p>
             </div>
           </div>
-          <button
-            onClick={() => saveMutation.mutate()}
-            disabled={saveMutation.isPending}
-            className={cn(
-              'flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all',
-              savedIndicator
-                ? 'bg-emerald-500 text-white'
-                : 'bg-crm-primary text-white hover:bg-crm-primary/90 disabled:opacity-50'
-            )}
-          >
-            {saveMutation.isPending
-              ? <Loader2 size={15} className="animate-spin" />
-              : savedIndicator
-                ? <CheckCircle2 size={15} />
-                : <Save size={15} />
-            }
-            {savedIndicator ? 'Salvo!' : 'Salvar Configurações'}
-          </button>
+          {activeTab === 'config' && (
+            <button
+              onClick={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending}
+              className={cn(
+                'flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all',
+                savedIndicator
+                  ? 'bg-emerald-500 text-white'
+                  : 'bg-crm-primary text-white hover:bg-crm-primary/90 disabled:opacity-50'
+              )}
+            >
+              {saveMutation.isPending
+                ? <Loader2 size={15} className="animate-spin" />
+                : savedIndicator
+                  ? <CheckCircle2 size={15} />
+                  : <Save size={15} />
+              }
+              {savedIndicator ? 'Salvo!' : 'Salvar Configurações'}
+            </button>
+          )}
+          {activeTab === 'feed' && (
+            <button onClick={() => refetchLogs()} className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors">
+              <RefreshCw size={13} /> Atualizar
+            </button>
+          )}
         </div>
 
+        {/* ── Abas de navegação ─────────────────────────────── */}
+        <div className="flex items-center gap-1 bg-white rounded-xl border border-gray-100 p-1 w-fit shadow-sm">
+          {PAGE_TABS.map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={cn(
+                'flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all',
+                activeTab === tab.key
+                  ? 'bg-crm-primary text-white shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+              )}
+            >
+              {tab.icon}
+              {tab.label}
+              {tab.key === 'handovers' && (handoversData?.handovers?.length ?? 0) > 0 && (
+                <span className="ml-1 text-[9px] font-black bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center shrink-0">
+                  {handoversData!.handovers.length}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* ════════════════════════════════════════════════════ */}
+        {/* ABA: CONFIGURAÇÃO (existente)                       */}
+        {/* ════════════════════════════════════════════════════ */}
+        {activeTab === 'config' && (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
 
           {/* ── Coluna esquerda ─────────────────────────────── */}
@@ -522,6 +722,306 @@ export default function AnneConfigPage() {
             </div>
           </div>
         </div>
+        )} {/* fim activeTab === 'config' */}
+
+        {/* ════════════════════════════════════════════════════ */}
+        {/* ABA: AGENTES — Knowledge Base Editor               */}
+        {/* ════════════════════════════════════════════════════ */}
+        {activeTab === 'agentes' && (
+          <div className="space-y-4">
+            {agentsLoading ? (
+              <div className="flex items-center justify-center py-16 gap-2 text-gray-400">
+                <Loader2 size={18} className="animate-spin" />
+                <span className="text-sm">Carregando agentes…</span>
+              </div>
+            ) : (
+              AGENT_SLUGS.map(slug => {
+                const agent = agentsData?.agents?.find((a: AgentData) => a.slug === slug);
+                const isExpanded = expandedAgent === slug;
+                const cfg = AGENT_LABELS[slug];
+                return (
+                  <section key={slug} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <button
+                      onClick={() => {
+                        setExpandedAgent(isExpanded ? null : slug);
+                        if (!isExpanded && agent?.knowledge_base && !agentKnowledge[slug]) {
+                          setAgentKnowledge(prev => ({ ...prev, [slug]: agent.knowledge_base ?? '' }));
+                        }
+                      }}
+                      className="w-full px-5 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl">{cfg.icon}</span>
+                        <div className="text-left">
+                          <p className="text-sm font-bold text-gray-800">{agent?.name ?? cfg.label}</p>
+                          <p className="text-[11px] text-gray-500">{agent?.description ?? 'Carregando…'}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4 shrink-0">
+                        {agent && (
+                          <div className="flex gap-4 text-right mr-1">
+                            <div>
+                              <p className="text-[9px] text-gray-400 uppercase tracking-wide">Hoje</p>
+                              <p className="text-xs font-bold text-gray-700">{agent.executions_today ?? 0}</p>
+                            </div>
+                            <div>
+                              <p className="text-[9px] text-gray-400 uppercase tracking-wide">Tokens KB</p>
+                              <p className="text-xs font-bold text-gray-700">{agent.knowledge_tokens ?? 0}</p>
+                            </div>
+                          </div>
+                        )}
+                        {isExpanded
+                          ? <ChevronDown size={16} className="text-gray-400" />
+                          : <ChevronRight size={16} className="text-gray-400" />}
+                      </div>
+                    </button>
+
+                    {isExpanded && (
+                      <div className="px-5 pb-5 border-t border-gray-50">
+                        <p className="text-[10px] text-gray-400 mt-3 mb-2 flex items-center gap-1">
+                          <BookOpen size={10} />
+                          Base de Conhecimento — máx 8.000 tokens (~32k chars)
+                        </p>
+                        <textarea
+                          value={agentKnowledge[slug] ?? agent?.knowledge_base ?? ''}
+                          onChange={e => setAgentKnowledge(prev => ({ ...prev, [slug]: e.target.value }))}
+                          rows={12}
+                          placeholder={`Cole aqui as instruções, regras e base de conhecimento para o agente ${cfg.label}…`}
+                          className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:border-crm-primary/50 bg-gray-50 font-mono leading-relaxed"
+                        />
+                        <div className="flex items-center justify-between mt-2">
+                          <span className="text-[9px] text-gray-400">
+                            ~{Math.ceil(((agentKnowledge[slug] ?? agent?.knowledge_base ?? '').length) / 4)} tokens estimados
+                          </span>
+                          <button
+                            onClick={() => saveAgentKnowledge(slug)}
+                            disabled={agentSaving === slug}
+                            className={cn(
+                              'flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all',
+                              agentSaved === slug
+                                ? 'bg-emerald-500 text-white'
+                                : 'bg-crm-primary text-white hover:bg-crm-primary/90 disabled:opacity-60'
+                            )}
+                          >
+                            {agentSaving === slug
+                              ? <Loader2 size={12} className="animate-spin" />
+                              : agentSaved === slug
+                                ? <CheckCircle2 size={12} />
+                                : <Save size={12} />}
+                            {agentSaved === slug ? 'Salvo!' : 'Salvar Base'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </section>
+                );
+              })
+            )}
+          </div>
+        )}
+
+        {/* ════════════════════════════════════════════════════ */}
+        {/* ABA: FEED AO VIVO — Execução em tempo real         */}
+        {/* ════════════════════════════════════════════════════ */}
+        {activeTab === 'feed' && (
+          <div className="space-y-4">
+            {/* Resumo */}
+            {logsData?.summary && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+                {[
+                  { label: 'Silenciosas', value: logsData.summary.silenciosas, color: 'text-gray-600' },
+                  { label: 'Ativas', value: logsData.summary.ativas, color: 'text-blue-600' },
+                  { label: 'Handovers', value: logsData.summary.handovers, color: 'text-red-600' },
+                  { label: 'Erros', value: logsData.summary.erros, color: 'text-orange-600' },
+                  { label: 'Latência média', value: `${logsData.summary.avg_latency_ms ?? 0}ms`, color: 'text-crm-primary' },
+                  { label: 'Pendentes', value: logsData.summary.handovers_pendentes, color: 'text-amber-600' },
+                ].map(s => (
+                  <div key={s.label} className="bg-white rounded-xl border border-gray-100 px-3 py-3 text-center shadow-sm">
+                    <p className={cn('text-lg font-black', s.color)}>{s.value}</p>
+                    <p className="text-[9px] text-gray-400 uppercase tracking-wide mt-0.5">{s.label}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Lista de logs */}
+            {logsLoading ? (
+              <div className="flex items-center justify-center py-16 gap-2 text-gray-400">
+                <Loader2 size={18} className="animate-spin" />
+                <span className="text-sm">Carregando feed…</span>
+              </div>
+            ) : !logsData?.logs?.length ? (
+              <div className="text-center py-16">
+                <Activity size={28} className="text-gray-300 mx-auto mb-3" />
+                <p className="text-sm text-gray-400">Nenhuma execução nas últimas 24h</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {logsData.logs.map((log: AnneLogEntry) => {
+                  const tipoCfg = LOG_TIPO_CONFIG[log.tipo] ?? LOG_TIPO_CONFIG['silenciosa'];
+                  return (
+                    <div key={log.id} className="bg-white rounded-xl border border-gray-100 px-4 py-3 shadow-sm flex items-start gap-3">
+                      <span className={cn('w-2 h-2 rounded-full shrink-0 mt-1.5', tipoCfg.dot)} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={cn('text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full', tipoCfg.badge)}>
+                            {log.tipo}
+                          </span>
+                          {(log.agente_usado ?? log.agente_executor) && (
+                            <span className="text-[10px] text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                              {AGENT_LABELS[log.agente_usado ?? log.agente_executor]?.label ?? (log.agente_usado ?? log.agente_executor)}
+                            </span>
+                          )}
+                          {log.intencao && (
+                            <span className="text-[10px] text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full">{log.intencao}</span>
+                          )}
+                          <span className="text-[9px] text-gray-400 ml-auto">{log.duracao_ms ?? log.duracao_total_ms ?? 0}ms</span>
+                        </div>
+                        {log.mensagem_enviada && (
+                          <p className="text-xs text-gray-700 mt-1.5 font-mono leading-relaxed line-clamp-2">
+                            {log.mensagem_enviada}
+                          </p>
+                        )}
+                        {(log.chain_of_thought?.length ?? 0) > 0 && (
+                          <details className="mt-2">
+                            <summary className="text-[9px] text-gray-400 cursor-pointer hover:text-gray-600 select-none">
+                              Ver cadeia de raciocínio ({log.chain_of_thought!.length} passos)
+                            </summary>
+                            <div className="mt-1.5 pl-2 border-l-2 border-gray-100 space-y-0.5">
+                              {log.chain_of_thought!.map((step, i) => (
+                                <p key={i} className="text-[10px] text-gray-500 leading-relaxed">
+                                  <span className="text-gray-400 mr-1">{i + 1}.</span>{step}
+                                </p>
+                              ))}
+                            </div>
+                          </details>
+                        )}
+                        <p className="text-[9px] text-gray-400 mt-1.5">
+                          {new Date(log.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ════════════════════════════════════════════════════ */}
+        {/* ABA: HANDOVERS — Transferências em aberto          */}
+        {/* ════════════════════════════════════════════════════ */}
+        {activeTab === 'handovers' && (
+          <div className="space-y-4">
+            {handoversLoading ? (
+              <div className="flex items-center justify-center py-16 gap-2 text-gray-400">
+                <Loader2 size={18} className="animate-spin" />
+                <span className="text-sm">Carregando handovers…</span>
+              </div>
+            ) : !handoversData?.handovers?.length ? (
+              <div className="text-center py-16">
+                <ShieldAlert size={28} className="text-gray-300 mx-auto mb-3" />
+                <p className="text-sm text-gray-400">Nenhum handover ativo no momento 🎉</p>
+                <p className="text-[11px] text-gray-400 mt-1">Todos os atendimentos estão sendo gerenciados pela Anne</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {handoversData.handovers.map((hv: HandoverEntry) => (
+                  <div key={hv.id} className="bg-white rounded-2xl border border-red-100 shadow-sm overflow-hidden">
+                    <div className="px-5 py-4 flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-red-50 flex items-center justify-center shrink-0">
+                          <ShieldAlert size={16} className="text-red-500" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-gray-800">{hv.client_name ?? 'Cliente'}</p>
+                          <p className="text-[11px] text-gray-500">{hv.phone ?? hv.chat_id}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={cn(
+                          'text-[10px] font-bold px-2 py-0.5 rounded-full',
+                          hv.status === 'aguardando'
+                            ? 'bg-amber-100 text-amber-700'
+                            : hv.status === 'assumido'
+                              ? 'bg-blue-100 text-blue-700'
+                              : 'bg-emerald-100 text-emerald-700'
+                        )}>
+                          {hv.status.charAt(0).toUpperCase() + hv.status.slice(1)}
+                        </span>
+                        <p className="text-[9px] text-gray-400">
+                          {new Date(hv.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Motivo */}
+                    <div className="px-5 pb-3">
+                      <p className="text-[10px] font-semibold text-gray-500 mb-1">Motivo da transferência</p>
+                      <p className="text-xs text-gray-700 bg-red-50 rounded-lg px-3 py-2 leading-relaxed">{hv.reason ?? hv.motivo}</p>
+                    </div>
+
+                    {/* Dossiê */}
+                    {hv.dossie && (
+                      <details className="px-5 pb-3">
+                        <summary className="text-[10px] text-gray-500 cursor-pointer hover:text-gray-700 select-none flex items-center gap-1">
+                          <BookOpen size={10} /> Ver dossiê completo
+                        </summary>
+                        <div className="mt-2 bg-gray-50 rounded-xl p-3 space-y-2">
+                          {(hv.dossie.ultimas_mensagens?.length ?? 0) > 0 && (
+                            <div>
+                              <p className="text-[9px] text-gray-400 uppercase tracking-wide mb-1">Últimas mensagens</p>
+                              <div className="space-y-1">
+                                {hv.dossie.ultimas_mensagens!.map((m, i) => (
+                                  <p key={i} className={cn('text-[10px] px-2 py-1 rounded', m.from_me ? 'bg-crm-primary/10 text-crm-primary' : 'bg-white border border-gray-100 text-gray-700')}>
+                                    {m.from_me ? '🤖 ' : '👤 '}{m.body}
+                                  </p>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {hv.dossie.perfil_cliente && (
+                            <div>
+                              <p className="text-[9px] text-gray-400 uppercase tracking-wide mb-1">Perfil</p>
+                              <div className="flex gap-3 flex-wrap">
+                                {Object.entries(hv.dossie.perfil_cliente).map(([k, v]) => (
+                                  <span key={k} className="text-[10px] bg-white border border-gray-100 rounded-lg px-2 py-0.5">
+                                    <span className="text-gray-400">{k}:</span> <strong className="text-gray-700">{String(v)}</strong>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </details>
+                    )}
+
+                    {/* Ações */}
+                    {hv.status !== 'resolvido' && (
+                      <div className="px-5 pb-4 flex gap-2">
+                        {hv.status === 'aguardando' && (
+                          <button
+                            onClick={() => resolveHandover(hv.id, 'assumido')}
+                            className="flex-1 py-2 rounded-xl border border-blue-200 text-blue-700 text-xs font-bold hover:bg-blue-50 transition-colors"
+                          >
+                            Assumir atendimento
+                          </button>
+                        )}
+                        <button
+                          onClick={() => resolveHandover(hv.id, 'resolvido')}
+                          className="flex-1 py-2 rounded-xl bg-emerald-500 text-white text-xs font-bold hover:bg-emerald-600 transition-colors"
+                        >
+                          ✓ Marcar resolvido + reativar Anne
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
       </div>
     </div>
   );
