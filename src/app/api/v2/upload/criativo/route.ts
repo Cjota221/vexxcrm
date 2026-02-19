@@ -78,6 +78,17 @@ export async function POST(request: NextRequest) {
 
     if (uploadError) {
       console.error('[UPLOAD_CRIATIVO_ERROR]', uploadError);
+      // Bucket não existe ou sem permissão — orientar o operador
+      if (
+        uploadError.message?.includes('Bucket not found') ||
+        uploadError.message?.includes('bucket') ||
+        uploadError.message?.includes('The resource was not found')
+      ) {
+        return NextResponse.json(
+          { error: 'Bucket de armazenamento "criativos" não encontrado. Execute a migration 018_storage_criativos.sql no Supabase.' },
+          { status: 500 }
+        );
+      }
       return NextResponse.json({ error: uploadError.message }, { status: 500 });
     }
 
