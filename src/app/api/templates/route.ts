@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { createServerSupabaseClient } from '@/lib/supabase';
-import type { TemplateBlock } from '@/types';
 
 /**
  * GET /api/templates
- * Lista todos os templates compostos do tenant.
+ * Lista todos os templates ativos do tenant.
+ * Retorna no formato { templates: [{ id, name, variables }] }
+ * compatível com o EmbeddedCampaignPanel.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -16,20 +17,33 @@ export async function GET(request: NextRequest) {
     const q = searchParams.get('q') || '';
 
     let query = supabase
-      .from('composite_templates')
-      .select('*')
+      .from('message_templates')
+      .select('id, nome, variaveis, blocos, descricao, tags, uso_count, status')
       .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false });
+      .eq('status', 'ativo')
+      .order('uso_count', { ascending: false });
 
     if (q) {
-      query = query.ilike('name', `%${q}%`);
+      query = query.ilike('nome', `%${q}%`);
     }
 
     const { data, error } = await query;
 
     if (error) throw error;
 
-    return NextResponse.json({ data: data || [] });
+    // Mapear para o formato esperado pelo EmbeddedCampaignPanel
+    const templates = (data || []).map(t => ({
+      id: t.id,
+      name: t.nome,
+      variables: t.variaveis ?? [],
+      description: t.descricao,
+      tags: t.tags ?? [],
+      uso_count: t.uso_count ?? 0,
+      // blocos inclusos para quem precisar renderizar preview
+      blocks: t.blocos ?? [],
+    }));
+
+    return NextResponse.json({ templates, data: templates });
   } catch (error: any) {
     console.error('[GET /api/templates]', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -38,8 +52,8 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/templates
- * Cria um novo template composto.
- * Body: { name, description?, blocks: TemplateBlock[] }
+ * Cria um novo template de mensagem.
+ * Body: { name, description?, blocks: Array<{ tipo, conteudo, ... }> }
  */
 export async function POST(request: NextRequest) {
   try {
@@ -50,7 +64,7 @@ export async function POST(request: NextRequest) {
     const { name, description, blocks } = body as {
       name: string;
       description?: string;
-      blocks: TemplateBlock[];
+      blocks: Array<Record<string, unknown>>;
     };
 
     if (!name?.trim()) {
@@ -61,25 +75,30 @@ export async function POST(request: NextRequest) {
     }
 
     // Extrair variáveis {{var}} de todos os blocos de texto
-    const allText = blocks.map(b => b.content || '').join(' ');
-    const variables = [...new Set([...allText.matchAll(/\{\{(\w+)\}\}/g)].map(m => m[1]))];
+    const allText = blocks.map(b => (b.content as string) || (b.conteudo as string) || '').join(' ');
+    const variaveis = [...new Set([...allText.matchAll(/\{\{(\w+)\}\}/g)].map(m => m[1]))];
 
-    // Garantir ordem e delay padrão
+    // Detectar tipo do template
+    const hasImage = blocks.some(b => b.tipo === 'imagem' || b.type === 'image');
+    const tipo = hasImage ? 'composto' : 'texto';
+
+    // Garantir ordem
     const normalizedBlocks = blocks.map((b, i) => ({
       ...b,
-      order: b.order ?? i,
-      delay_ms: b.delay_ms ?? (i === 0 ? 0 : 1000),
+      order: (b.order as number) ?? i,
     }));
 
     const { data, error } = await supabase
-      .from('composite_templates')
+      .from('message_templates')
       .insert({
         tenant_id: tenantId,
-        name: name.trim(),
-        description: description?.trim() || null,
-        blocks: normalizedBlocks,
-        variables,
+        nome: name.trim(),
+        descricao: description?.trim() || null,
+        blocos: normalizedBlocks,
+        variaveis,
+        tipo,
         created_by: userId,
+        status: 'ativo',
       })
       .select()
       .single();

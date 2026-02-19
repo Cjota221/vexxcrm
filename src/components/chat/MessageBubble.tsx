@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { formatTime } from '@/lib/utils';
 import { Check, CheckCheck, Mic, Eye, ImageOff, RefreshCw, Download } from 'lucide-react';
@@ -25,13 +25,17 @@ export function MessageBubble({ message }: MessageBubbleProps) {
   const [mediaError, setMediaError] = useState(false);
   const [isRedownloading, setIsRedownloading] = useState(false);
   const [fixedUrl, setFixedUrl] = useState<string | null>(null);
+  // Garante que o auto-redownload seja tentado apenas 1x por montagem do componente
+  const redownloadAttempted = useRef(false);
 
   const currentMediaUrl = fixedUrl || message.media_url;
 
   /**
    * Tenta re-baixar a mídia expirada via Evolution API → Supabase Storage.
+   * Chamado manualmente pelo botão de retry.
    */
   const handleRedownload = useCallback(async () => {
+    if (isRedownloading) return;
     setIsRedownloading(true);
     try {
       const response = await api.post<{ data: { media_url: string } }>('/api/media/redownload', {
@@ -47,25 +51,27 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       if (newUrl) {
         setFixedUrl(newUrl);
         setMediaError(false);
+        redownloadAttempted.current = false; // reset para permitir re-tentativa manual
       }
     } catch (err) {
       console.warn('[MessageBubble] Erro no re-download:', err);
     } finally {
       setIsRedownloading(false);
     }
-  }, [message.id]);
+  }, [message.id, isRedownloading]);
 
   /**
    * Ao detectar erro de carregamento de mídia (403 URL expirada),
-   * tenta re-download automático. Só mostra fallback se re-download falhar.
+   * tenta re-download automático UMA única vez. Exibe fallback se falhar.
    */
   const handleMediaError = useCallback(async () => {
-    // Se já tentou re-download antes, não tenta de novo — exibe fallback
-    if (isRedownloading || fixedUrl) {
+    // Já tentou antes ou já tem uma URL corrigida — mostra fallback
+    if (redownloadAttempted.current || fixedUrl) {
       setMediaError(true);
       return;
     }
 
+    redownloadAttempted.current = true; // marcar ANTES da chamada para evitar disparos paralelos
     setIsRedownloading(true);
     try {
       const response = await api.post<{ data: { media_url: string } }>('/api/media/redownload', {
@@ -84,7 +90,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
     } finally {
       setIsRedownloading(false);
     }
-  }, [message.id, isRedownloading, fixedUrl]);
+  }, [message.id, fixedUrl]);
 
   const statusIcon = () => {
     if (!isFromMe) return null;
