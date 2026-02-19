@@ -415,6 +415,46 @@ export async function fetchChats(config: EvolutionAPIConfig): Promise<EvolutionC
   );
 }
 
+export interface WhatsAppGroup {
+  id: string;          // JID completo ex: 120363xxxx@g.us
+  nome: string;
+  participantes: number;
+  descricao?: string;
+  criado_em?: string;
+}
+
+/**
+ * Busca grupos do WhatsApp via Evolution API.
+ * Usa o endpoint /group/fetchAllGroups que retorna todos os grupos da instância.
+ */
+export async function fetchGroups(config: EvolutionAPIConfig): Promise<WhatsAppGroup[]> {
+  const response = await fetch(
+    `${config.apiUrl}/group/fetchAllGroups/${config.instanceName}?getParticipants=false`,
+    {
+      method: 'GET',
+      headers: { 'apikey': config.apiKey },
+    }
+  );
+
+  if (!response.ok) {
+    // Alguns setups retornam 404 quando não há grupos — tratar graciosamente
+    if (response.status === 404) return [];
+    const text = await response.text().catch(() => '');
+    throw new Error(`Erro ao buscar grupos: HTTP ${response.status}. ${text.substring(0, 100)}`);
+  }
+
+  const data = await safeJson(response, 'Buscar grupos');
+  const raw: Array<Record<string, any>> = Array.isArray(data) ? data : (data.groups ?? []);
+
+  return raw.map(g => ({
+    id: g.id || g.remoteJid || '',
+    nome: g.subject || g.name || g.pushName || 'Grupo sem nome',
+    participantes: g.participants?.length ?? g.participantCount ?? 0,
+    descricao: g.desc || g.description || undefined,
+    criado_em: g.creation ? new Date(g.creation * 1000).toISOString() : undefined,
+  })).filter(g => g.id.includes('@g.us'));
+}
+
 /**
  * Busca mensagens de um chat específico na Evolution API (com paginação).
  * @param jid - remoteJid do chat (ex: '5521999999999@s.whatsapp.net')

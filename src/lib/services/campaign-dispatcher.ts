@@ -1,4 +1,9 @@
 import { SupabaseClient } from '@supabase/supabase-js';
+import {
+  getTenantEvolutionConfig,
+  sendTextMessage,
+  sendMediaMessage,
+} from '@/lib/services/evolution.service';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -15,7 +20,7 @@ export interface BlocoConteudo {
 export interface Bloco {
   id: string;
   ordem: number;
-  tipo: 'imagem' | 'texto' | 'cta';
+  tipo: 'imagem' | 'video' | 'audio' | 'texto' | 'cta';
   conteudo: BlocoConteudo;
 }
 
@@ -104,7 +109,7 @@ export function resolverVariaveis(texto: string, contato: ContatoJob): string {
 /** Aplica variáveis em todos os blocos de texto/cta */
 export function resolverBlocos(blocos: Bloco[], contato: ContatoJob): Bloco[] {
   return blocos.map(bloco => {
-    if (bloco.tipo === 'imagem') return bloco;
+    if (bloco.tipo === 'imagem' || bloco.tipo === 'video' || bloco.tipo === 'audio') return bloco;
     return {
       ...bloco,
       conteudo: {
@@ -157,15 +162,65 @@ export async function criarJobsCampanha(
 
 // ─── Envio de blocos compostos ───────────────────────────────────────────────
 
-/** Mock de envio — substitua pela chamada real à API WhatsApp/FacilZap */
+/**
+ * Envia um bloco individual via Evolution API.
+ * Suporta: texto, imagem, vídeo, áudio e CTA (link como texto).
+ */
 async function enviarBlocoViaWhatsApp(
   telefone: string,
   bloco: Bloco,
   tenantId: string
 ): Promise<void> {
-  // TODO: integrar com FacilZap/Evolution
-  // Exemplo: await facilzapClient.sendMessage(telefone, bloco)
-  console.log(`[DISPATCHER] Enviando bloco ${bloco.tipo} para ${telefone} (tenant: ${tenantId})`);
+  const config = getTenantEvolutionConfig(tenantId);
+
+  switch (bloco.tipo) {
+    case 'texto': {
+      const texto = bloco.conteudo.texto_formatado ?? bloco.conteudo.texto_raw ?? '';
+      if (texto.trim()) {
+        await sendTextMessage(config, telefone, texto);
+      }
+      break;
+    }
+
+    case 'imagem': {
+      const url = bloco.conteudo.url;
+      if (url) {
+        const caption = bloco.conteudo.texto_raw || undefined;
+        await sendMediaMessage(config, telefone, url, caption, 'image');
+      }
+      break;
+    }
+
+    case 'video': {
+      const url = bloco.conteudo.url;
+      if (url) {
+        const caption = bloco.conteudo.texto_raw || undefined;
+        await sendMediaMessage(config, telefone, url, caption, 'video');
+      }
+      break;
+    }
+
+    case 'audio': {
+      const url = bloco.conteudo.url;
+      if (url) {
+        await sendMediaMessage(config, telefone, url, undefined, 'audio');
+      }
+      break;
+    }
+
+    case 'cta': {
+      // WhatsApp não tem botão nativo fora do Business API — enviar como texto + link
+      const texto = bloco.conteudo.texto_botao ?? '';
+      const link = bloco.conteudo.url_destino ?? '';
+      if (texto || link) {
+        await sendTextMessage(config, telefone, [texto, link].filter(Boolean).join('\n'));
+      }
+      break;
+    }
+
+    default:
+      console.warn(`[DISPATCHER] Tipo de bloco desconhecido: ${(bloco as Bloco).tipo}`);
+  }
 }
 
 async function enviarBlocoComposto(

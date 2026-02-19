@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useRef, Suspense } from 'react';
+import { useState, useEffect, useRef, Suspense, useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft, ArrowRight, Check, Upload, Trash2, GripVertical,
   Image as ImageIcon, Type, Link2, ChevronDown, ChevronUp,
   Plus, Calendar, Users, Zap, Send, Loader2, AlertCircle,
+  Search, Mic, Video, UsersRound, X,
 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -13,7 +14,8 @@ import { Input } from '@/components/ui/Input';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
-type TipoBloco = 'imagem' | 'texto' | 'cta';
+type TipoBloco = 'imagem' | 'video' | 'audio' | 'texto' | 'cta';
+type ModoDestinatario = 'inteligencia' | 'manual' | 'grupos';
 
 interface Bloco {
   id: string;
@@ -22,6 +24,7 @@ interface Bloco {
   conteudo: {
     url?: string;
     storage_path?: string;
+    kind?: 'image' | 'video' | 'audio';
     texto_raw?: string;
     texto_botao?: string;
     url_destino?: string;
@@ -36,6 +39,13 @@ interface Contato {
   estado?: string;
   ultimo_pedido?: string;
   valor_ltv?: number;
+}
+
+interface GrupoWA {
+  id: string;
+  nome: string;
+  participantes: number;
+  descricao?: string;
 }
 
 interface AntibanConfig {
@@ -67,6 +77,7 @@ function uuid8() {
 // ─── Compressor de imagem no client ──────────────────────────────────────────
 
 async function comprimirImagem(file: File): Promise<File> {
+  if (!file.type.startsWith('image/')) return Promise.resolve(file);
   return new Promise((resolve, reject) => {
     const img = new window.Image();
     const url = URL.createObjectURL(file);
@@ -108,28 +119,57 @@ function BlocoEditor({
   const set = (partial: Partial<Bloco['conteudo']>) =>
     onChange({ ...bloco, conteudo: { ...bloco.conteudo, ...partial } });
 
+  const isMedia = bloco.tipo === 'imagem' || bloco.tipo === 'video' || bloco.tipo === 'audio';
+
+  const acceptMap: Record<TipoBloco, string> = {
+    imagem: 'image/jpeg,image/png,image/webp',
+    video:  'video/mp4,video/webm',
+    audio:  'audio/ogg,audio/mpeg,audio/mp4,audio/wav,audio/webm',
+    texto:  '',
+    cta:    '',
+  };
+
+  const metaMap = {
+    imagem: { icon: <ImageIcon size={14} className="text-blue-500" />,  label: 'Imagem',    hint: 'Clique para enviar imagem (máx 5MB)'              },
+    video:  { icon: <Video size={14} className="text-violet-500" />,    label: 'Vídeo',     hint: 'Clique para enviar vídeo MP4 (máx 50MB)'          },
+    audio:  { icon: <Mic size={14} className="text-rose-500" />,        label: 'Áudio',     hint: 'Clique para enviar áudio OGG/MP3 (máx 10MB)'      },
+    texto:  { icon: <Type size={14} className="text-green-600" />,      label: 'Texto',     hint: ''                                                 },
+    cta:    { icon: <Link2 size={14} className="text-purple-600" />,    label: 'Botão CTA', hint: ''                                                 },
+  };
+
+  const meta = metaMap[bloco.tipo];
+
   return (
     <div className="border border-surface-200 rounded-xl p-4 bg-white space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm font-medium text-txt-primary">
           <GripVertical size={14} className="text-txt-muted cursor-grab" />
-          {bloco.tipo === 'imagem' && <><ImageIcon size={14} className="text-blue-500" /> Imagem</>}
-          {bloco.tipo === 'texto' && <><Type size={14} className="text-green-600" /> Texto</>}
-          {bloco.tipo === 'cta' && <><Link2 size={14} className="text-purple-600" /> Botão CTA</>}
+          {meta.icon} {meta.label}
         </div>
         <button onClick={onRemove} className="p-1 rounded hover:bg-red-50 text-red-400 transition-colors">
           <Trash2 size={14} />
         </button>
       </div>
 
-      {bloco.tipo === 'imagem' && (
+      {/* ── Mídia (imagem / vídeo / áudio) ── */}
+      {isMedia && (
         <div>
           {bloco.conteudo.url ? (
-            <div className="relative group rounded-lg overflow-hidden">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={bloco.conteudo.url} alt="criativo" className="w-full max-h-48 object-cover" />
+            <div className="relative group rounded-lg overflow-hidden bg-surface-50 border border-surface-200">
+              {bloco.tipo === 'imagem' && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={bloco.conteudo.url} alt="criativo" className="w-full max-h-48 object-cover" />
+              )}
+              {bloco.tipo === 'video' && (
+                <video src={bloco.conteudo.url} controls className="w-full max-h-48" />
+              )}
+              {bloco.tipo === 'audio' && (
+                <div className="px-4 py-3">
+                  <audio src={bloco.conteudo.url} controls className="w-full" />
+                </div>
+              )}
               <button
-                onClick={() => set({ url: undefined, storage_path: undefined })}
+                onClick={() => set({ url: undefined, storage_path: undefined, kind: undefined })}
                 className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
               >
                 <Trash2 size={12} />
@@ -139,20 +179,26 @@ function BlocoEditor({
             <button
               onClick={() => fileRef.current?.click()}
               disabled={uploading}
-              className="w-full border-2 border-dashed border-surface-300 rounded-xl py-8 flex flex-col items-center gap-2 text-txt-secondary hover:border-crm-primary hover:text-crm-primary transition-colors"
+              className="w-full border-2 border-dashed border-surface-300 rounded-xl py-8 flex flex-col items-center gap-2 text-txt-secondary hover:border-crm-primary hover:text-crm-primary transition-colors disabled:opacity-60"
             >
-              {uploading ? <Loader2 size={20} className="animate-spin" /> : <Upload size={20} />}
-              <span className="text-sm">{uploading ? 'Enviando...' : 'Clique para enviar imagem (máx 5MB)'}</span>
+              {uploading
+                ? <Loader2 size={20} className="animate-spin" />
+                : bloco.tipo === 'audio' ? <Mic size={20} />
+                : bloco.tipo === 'video' ? <Video size={20} />
+                : <Upload size={20} />
+              }
+              <span className="text-sm">{uploading ? 'Enviando...' : meta.hint}</span>
             </button>
           )}
           <input
             ref={fileRef}
             type="file"
-            accept="image/jpeg,image/png,image/webp"
+            accept={acceptMap[bloco.tipo]}
             className="hidden"
             onChange={async e => {
               const file = e.target.files?.[0];
               if (file) await onUpload(file, bloco.id);
+              e.target.value = '';
             }}
           />
         </div>
@@ -237,6 +283,218 @@ function StepIndicator({ current }: { current: number }) {
   );
 }
 
+// ─── Seletor de Contatos Manual ───────────────────────────────────────────────
+
+interface SeletorContatosManualProps {
+  selecionados: Contato[];
+  onToggle: (c: Contato) => void;
+}
+
+function SeletorContatosManual({ selecionados, onToggle }: SeletorContatosManualProps) {
+  const [busca, setBusca] = useState('');
+  const [resultados, setResultados] = useState<Contato[]>([]);
+  const [carregando, setCarregando] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectedIds = useMemo(() => new Set(selecionados.map(c => c.id)), [selecionados]);
+
+  const pesquisar = useCallback((q: string) => {
+    if (!q.trim()) { setResultados([]); return; }
+    setCarregando(true);
+    fetch(`/api/v1/clients?q=${encodeURIComponent(q)}&limit=20`)
+      .then(r => r.json())
+      .then(json => {
+        const lista = (json.clients ?? json.data ?? []) as Record<string, unknown>[];
+        setResultados(lista.map(c => ({
+          id: c.id as string,
+          telefone: (c.phone ?? c.telefone) as string,
+          nome: (c.name ?? c.nome) as string,
+          cidade: c.cidade as string | undefined,
+          estado: c.estado as string | undefined,
+          valor_ltv: (c.ltv ?? c.valor_ltv) as number | undefined,
+        })));
+      })
+      .catch(() => setResultados([]))
+      .finally(() => setCarregando(false));
+  }, []);
+
+  const handleBusca = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value;
+    setBusca(v);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => pesquisar(v), 300);
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Tags dos selecionados */}
+      {selecionados.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 p-3 bg-surface-50 rounded-xl border border-surface-200">
+          {selecionados.map(c => (
+            <span
+              key={c.id}
+              className="inline-flex items-center gap-1 text-xs px-2 py-1 bg-crm-primary/10 text-crm-primary rounded-full"
+            >
+              {c.nome || c.telefone}
+              <button onClick={() => onToggle(c)} className="hover:bg-crm-primary/20 rounded-full p-0.5 transition-colors">
+                <X size={10} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Input de busca */}
+      <div className="relative">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-txt-muted" />
+        <input
+          type="text"
+          value={busca}
+          onChange={handleBusca}
+          placeholder="Buscar por nome ou telefone..."
+          className="w-full pl-8 pr-4 py-2 text-sm border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-crm-primary/40"
+        />
+        {carregando && <Loader2 size={14} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-txt-muted" />}
+      </div>
+
+      {/* Resultados */}
+      {resultados.length > 0 && (
+        <div className="border border-surface-200 rounded-xl divide-y divide-surface-100 max-h-64 overflow-y-auto">
+          {resultados.map(c => {
+            const sel = selectedIds.has(c.id);
+            return (
+              <button
+                key={c.id}
+                onClick={() => onToggle(c)}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-surface-50 transition-colors ${sel ? 'bg-crm-primary/5' : ''}`}
+              >
+                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${sel ? 'bg-crm-primary border-crm-primary' : 'border-surface-300'}`}>
+                  {sel && <Check size={10} className="text-white" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-txt-primary truncate">{c.nome || '(sem nome)'}</p>
+                  <p className="text-xs text-txt-muted">{c.telefone}</p>
+                </div>
+                {c.cidade && <span className="text-xs text-txt-muted shrink-0">{c.cidade}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {busca.trim() && !carregando && resultados.length === 0 && (
+        <p className="text-xs text-txt-muted text-center py-2">Nenhum contato encontrado</p>
+      )}
+
+      <p className="text-xs text-txt-muted">
+        {selecionados.length > 0
+          ? `${selecionados.length} contato${selecionados.length > 1 ? 's' : ''} selecionado${selecionados.length > 1 ? 's' : ''}`
+          : 'Busque e selecione os contatos desejados'}
+      </p>
+    </div>
+  );
+}
+
+// ─── Seletor de Grupos WhatsApp ────────────────────────────────────────────────
+
+interface SeletorGruposProps {
+  selecionados: GrupoWA[];
+  onToggle: (g: GrupoWA) => void;
+}
+
+function SeletorGrupos({ selecionados, onToggle }: SeletorGruposProps) {
+  const [grupos, setGrupos] = useState<GrupoWA[]>([]);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState('');
+  const [aviso, setAviso] = useState('');
+  const [filtro, setFiltro] = useState('');
+  const selectedIds = useMemo(() => new Set(selecionados.map(g => g.id)), [selecionados]);
+
+  useEffect(() => {
+    fetch('/api/v2/whatsapp/grupos')
+      .then(r => r.json())
+      .then(json => {
+        setGrupos(json.grupos ?? []);
+        if (json.aviso) setAviso(json.aviso);
+      })
+      .catch(() => setErro('Erro ao buscar grupos'))
+      .finally(() => setCarregando(false));
+  }, []);
+
+  const gruposFiltrados = useMemo(() =>
+    filtro.trim()
+      ? grupos.filter(g => g.nome.toLowerCase().includes(filtro.toLowerCase()))
+      : grupos,
+    [grupos, filtro]
+  );
+
+  if (carregando) return (
+    <div className="flex items-center gap-2 text-sm text-txt-secondary py-4">
+      <Loader2 size={14} className="animate-spin" /> Carregando grupos...
+    </div>
+  );
+
+  if (erro) return (
+    <div className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-3">{erro}</div>
+  );
+
+  if (aviso && grupos.length === 0) return (
+    <div className="text-sm text-txt-secondary bg-amber-50 rounded-lg px-4 py-3 border border-amber-200">
+      ⚠️ {aviso}
+    </div>
+  );
+
+  if (grupos.length === 0) return (
+    <p className="text-sm text-txt-secondary py-2">Nenhum grupo encontrado no WhatsApp conectado.</p>
+  );
+
+  return (
+    <div className="space-y-3">
+      {/* Filtro */}
+      <div className="relative">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-txt-muted" />
+        <input
+          type="text"
+          value={filtro}
+          onChange={e => setFiltro(e.target.value)}
+          placeholder="Filtrar grupos..."
+          className="w-full pl-8 pr-4 py-2 text-sm border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-crm-primary/40"
+        />
+      </div>
+
+      {/* Lista de grupos */}
+      <div className="border border-surface-200 rounded-xl divide-y divide-surface-100 max-h-72 overflow-y-auto">
+        {gruposFiltrados.map(g => {
+          const sel = selectedIds.has(g.id);
+          return (
+            <button
+              key={g.id}
+              onClick={() => onToggle(g)}
+              className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-50 transition-colors ${sel ? 'bg-crm-primary/5' : ''}`}
+            >
+              <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${sel ? 'bg-crm-primary border-crm-primary' : 'border-surface-300'}`}>
+                {sel && <Check size={10} className="text-white" />}
+              </div>
+              <UsersRound size={15} className={`shrink-0 ${sel ? 'text-crm-primary' : 'text-txt-muted'}`} />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-txt-primary truncate">{g.nome}</p>
+                {g.participantes > 0 && (
+                  <p className="text-xs text-txt-muted">{g.participantes} participante{g.participantes !== 1 ? 's' : ''}</p>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="text-xs text-txt-muted">
+        {selecionados.length > 0
+          ? `${selecionados.length} grupo${selecionados.length > 1 ? 's' : ''} selecionado${selecionados.length > 1 ? 's' : ''}`
+          : `${grupos.length} grupo${grupos.length !== 1 ? 's' : ''} disponível${grupos.length !== 1 ? 'is' : ''}`}
+      </p>
+    </div>
+  );
+}
+
 // ─── Page inner (precisa de useSearchParams) ──────────────────────────────────
 
 function NovaCampanhaInner() {
@@ -251,7 +509,9 @@ function NovaCampanhaInner() {
 
   const [step, setStep] = useState(0);
   const [nomeCampanha, setNomeCampanha] = useState('');
+  const [modoDestinatario, setModoDestinatario] = useState<ModoDestinatario>('inteligencia');
   const [contatos, setContatos] = useState<Contato[]>([]);
+  const [gruposSelecionados, setGruposSelecionados] = useState<GrupoWA[]>([]);
   const [carregandoContatos, setCarregandoContatos] = useState(false);
   const [blocos, setBlocos] = useState<Bloco[]>([]);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
@@ -260,6 +520,11 @@ function NovaCampanhaInner() {
   const [mostrarAntiban, setMostrarAntiban] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState('');
+
+  // Define modo inicial baseado na origem
+  useEffect(() => {
+    if (origemParam === 'inteligencia') setModoDestinatario('inteligencia');
+  }, [origemParam]);
 
   // Pré-carrega contatos se veio da Inteligência
   useEffect(() => {
@@ -282,6 +547,24 @@ function NovaCampanhaInner() {
       .finally(() => setCarregandoContatos(false));
   }, [origemParam, contatosIdsParam]);
 
+  // ─── Callbacks de seleção ──────────────────────────────────────────────────
+
+  const toggleContato = useCallback((c: Contato) => {
+    setContatos(prev =>
+      prev.some(x => x.id === c.id)
+        ? prev.filter(x => x.id !== c.id)
+        : [...prev, c]
+    );
+  }, []);
+
+  const toggleGrupo = useCallback((g: GrupoWA) => {
+    setGruposSelecionados(prev =>
+      prev.some(x => x.id === g.id)
+        ? prev.filter(x => x.id !== g.id)
+        : [...prev, g]
+    );
+  }, []);
+
   // ─── Handlers de blocos ────────────────────────────────────────────────────
 
   const adicionarBloco = (tipo: TipoBloco) => {
@@ -302,7 +585,7 @@ function NovaCampanhaInner() {
   const handleUpload = async (file: File, blocoId: string) => {
     setUploadingId(blocoId);
     try {
-      const compressed = await comprimirImagem(file);
+      const compressed = await comprimirImagem(file); // bypass automático para video/audio
       const form = new FormData();
       form.append('file', compressed);
       const res = await fetch('/api/v2/upload/criativo', { method: 'POST', body: form });
@@ -310,7 +593,7 @@ function NovaCampanhaInner() {
       if (!res.ok) throw new Error(json.error ?? 'Erro no upload');
       setBlocos(prev => prev.map(b =>
         b.id === blocoId
-          ? { ...b, conteudo: { ...b.conteudo, url: json.url, storage_path: json.path } }
+          ? { ...b, conteudo: { ...b.conteudo, url: json.url, storage_path: json.path, kind: json.kind } }
           : b
       ));
     } catch (e) {
@@ -326,18 +609,22 @@ function NovaCampanhaInner() {
     setErro('');
     setEnviando(true);
     try {
+      const destinatarios = modoDestinatario === 'grupos'
+        ? gruposSelecionados.map(g => ({ id: g.id, telefone: g.id, nome: g.nome }))
+        : contatos;
+
       const res = await fetch('/api/v2/campanhas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           nome: nomeCampanha,
           blocos,
-          destinatarios: contatos,
+          destinatarios,
           scheduled_at: scheduledAt || undefined,
           config_antiban: antiban,
           origem: origemParam || undefined,
           origem_grupo_nome: grupoNomeParam || undefined,
-          tipo_destinatario: origemParam === 'inteligencia' ? 'inteligencia' : 'manual',
+          tipo_destinatario: modoDestinatario,
         }),
       });
       const json = await res.json();
@@ -352,14 +639,27 @@ function NovaCampanhaInner() {
 
   // ─── Validações por step ───────────────────────────────────────────────────
 
+  const totalContatos = modoDestinatario === 'grupos'
+    ? gruposSelecionados.length
+    : (contatos.length || totalParam);
+
   const podeProsseguir = (() => {
-    if (step === 0) return nomeCampanha.trim().length > 0 && (contatos.length > 0 || totalParam > 0);
+    if (step === 0) {
+      if (!nomeCampanha.trim()) return false;
+      if (modoDestinatario === 'grupos') return gruposSelecionados.length > 0;
+      if (modoDestinatario === 'manual') return contatos.length > 0;
+      return contatos.length > 0 || totalParam > 0; // inteligencia
+    }
     if (step === 1) return blocos.length > 0;
     return true;
   })();
 
-  const totalContatos = contatos.length || totalParam;
-  const eta = calcEta(totalContatos, antiban);
+  const eta = calcEta(
+    modoDestinatario === 'grupos'
+      ? gruposSelecionados.reduce((s, g) => s + (g.participantes || 1), 0)
+      : (contatos.length || totalParam),
+    antiban
+  );
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -399,43 +699,77 @@ function NovaCampanhaInner() {
           </Card>
 
           <Card>
-            <div className="p-5 space-y-3">
+            <div className="p-5 space-y-4">
               <h2 className="text-base font-semibold text-txt-primary">Destinatários</h2>
-              {carregandoContatos && (
-                <div className="flex items-center gap-2 text-sm text-txt-secondary">
-                  <Loader2 size={14} className="animate-spin" /> Carregando contatos...
-                </div>
-              )}
-              {origemParam === 'inteligencia' && (
-                <div className="flex items-center gap-3 p-3 bg-crm-primary/5 rounded-xl border border-crm-primary/20">
-                  <Zap size={18} className="text-crm-primary flex-shrink-0" />
-                  <div>
-                    <p className="text-sm font-medium text-crm-primary">Segmento de Inteligência</p>
-                    <p className="text-xs text-txt-secondary">{filtroDescricao || `${totalContatos} contatos selecionados`}</p>
-                  </div>
-                  <div className="ml-auto text-right">
-                    <p className="text-lg font-bold text-crm-primary">{totalContatos}</p>
-                    <p className="text-xs text-txt-muted">contatos</p>
-                  </div>
-                </div>
-              )}
-              {contatos.length > 0 && (
-                <div className="flex items-center gap-2 text-sm text-txt-secondary">
-                  <Users size={14} />
-                  <span>{contatos.length.toLocaleString('pt-BR')} contatos carregados</span>
-                </div>
-              )}
-              {origemParam !== 'inteligencia' && contatos.length === 0 && (
-                <p className="text-sm text-txt-secondary">
-                  Para selecionar contatos via segmentação, use a página de{' '}
+
+              {/* Seletor de modo */}
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  { modo: 'inteligencia' as ModoDestinatario, icon: <Zap size={15} />, label: 'Inteligência' },
+                  { modo: 'manual' as ModoDestinatario, icon: <Users size={15} />, label: 'Manual' },
+                  { modo: 'grupos' as ModoDestinatario, icon: <UsersRound size={15} />, label: 'Grupos WA' },
+                ]).map(({ modo, icon, label }) => (
                   <button
-                    onClick={() => router.push('/intelligence')}
-                    className="text-crm-primary underline hover:no-underline"
+                    key={modo}
+                    onClick={() => setModoDestinatario(modo)}
+                    className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border-2 text-sm font-medium transition-all ${
+                      modoDestinatario === modo
+                        ? 'border-crm-primary bg-crm-primary/5 text-crm-primary'
+                        : 'border-surface-200 text-txt-secondary hover:border-crm-primary/40'
+                    }`}
                   >
-                    Inteligência
+                    {icon} {label}
                   </button>
-                  .
-                </p>
+                ))}
+              </div>
+
+              {/* Modo: Inteligência */}
+              {modoDestinatario === 'inteligencia' && (
+                <>
+                  {carregandoContatos && (
+                    <div className="flex items-center gap-2 text-sm text-txt-secondary">
+                      <Loader2 size={14} className="animate-spin" /> Carregando contatos...
+                    </div>
+                  )}
+                  {origemParam === 'inteligencia' && (
+                    <div className="flex items-center gap-3 p-3 bg-crm-primary/5 rounded-xl border border-crm-primary/20">
+                      <Zap size={18} className="text-crm-primary shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium text-crm-primary">Segmento de Inteligência</p>
+                        <p className="text-xs text-txt-secondary">{filtroDescricao || `${contatos.length || totalParam} contatos selecionados`}</p>
+                      </div>
+                      <div className="ml-auto text-right">
+                        <p className="text-lg font-bold text-crm-primary">{contatos.length || totalParam}</p>
+                        <p className="text-xs text-txt-muted">contatos</p>
+                      </div>
+                    </div>
+                  )}
+                  {origemParam !== 'inteligencia' && (
+                    <p className="text-sm text-txt-secondary">
+                      Para selecionar via segmentação, use a página de{' '}
+                      <button onClick={() => router.push('/intelligence')} className="text-crm-primary underline hover:no-underline">
+                        Inteligência
+                      </button>
+                      .
+                    </p>
+                  )}
+                </>
+              )}
+
+              {/* Modo: Manual */}
+              {modoDestinatario === 'manual' && (
+                <SeletorContatosManual
+                  selecionados={contatos}
+                  onToggle={toggleContato}
+                />
+              )}
+
+              {/* Modo: Grupos */}
+              {modoDestinatario === 'grupos' && (
+                <SeletorGrupos
+                  selecionados={gruposSelecionados}
+                  onToggle={toggleGrupo}
+                />
               )}
             </div>
           </Card>
@@ -447,27 +781,24 @@ function NovaCampanhaInner() {
         <div className="space-y-4">
           <Card>
             <div className="p-5 space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <h2 className="text-base font-semibold text-txt-primary">Blocos de conteúdo</h2>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => adicionarBloco('imagem')}
-                    className="text-xs px-3 py-1.5 border border-surface-300 rounded-lg flex items-center gap-1 hover:bg-surface-50 transition-colors"
-                  >
-                    <ImageIcon size={12} /> Imagem
-                  </button>
-                  <button
-                    onClick={() => adicionarBloco('texto')}
-                    className="text-xs px-3 py-1.5 border border-surface-300 rounded-lg flex items-center gap-1 hover:bg-surface-50 transition-colors"
-                  >
-                    <Type size={12} /> Texto
-                  </button>
-                  <button
-                    onClick={() => adicionarBloco('cta')}
-                    className="text-xs px-3 py-1.5 border border-surface-300 rounded-lg flex items-center gap-1 hover:bg-surface-50 transition-colors"
-                  >
-                    <Link2 size={12} /> CTA
-                  </button>
+                <div className="flex items-center flex-wrap gap-2">
+                  {([
+                    { tipo: 'imagem' as TipoBloco, icon: <ImageIcon size={12} />, label: 'Imagem' },
+                    { tipo: 'video' as TipoBloco, icon: <Video size={12} />, label: 'Vídeo' },
+                    { tipo: 'audio' as TipoBloco, icon: <Mic size={12} />, label: 'Áudio' },
+                    { tipo: 'texto' as TipoBloco, icon: <Type size={12} />, label: 'Texto' },
+                    { tipo: 'cta' as TipoBloco, icon: <Link2 size={12} />, label: 'CTA' },
+                  ]).map(({ tipo, icon, label }) => (
+                    <button
+                      key={tipo}
+                      onClick={() => adicionarBloco(tipo)}
+                      className="text-xs px-3 py-1.5 border border-surface-300 rounded-lg flex items-center gap-1 hover:bg-surface-50 transition-colors"
+                    >
+                      {icon} {label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -502,7 +833,7 @@ function NovaCampanhaInner() {
             <div className="p-5 space-y-4">
               <h2 className="text-base font-semibold text-txt-primary">Agendamento</h2>
               <div>
-                <label className="text-sm text-txt-secondary mb-1 block flex items-center gap-1">
+                <label className="text-sm text-txt-secondary mb-1 flex items-center gap-1">
                   <Calendar size={13} /> Data e hora de início (deixe em branco para iniciar agora)
                 </label>
                 <input
@@ -570,11 +901,21 @@ function NovaCampanhaInner() {
             <div className="space-y-3">
               {[
                 { label: 'Nome', value: nomeCampanha },
-                { label: 'Destinatários', value: totalContatos.toLocaleString('pt-BR') },
+                {
+                  label: 'Destinatários',
+                  value: modoDestinatario === 'grupos'
+                    ? `${gruposSelecionados.length} grupo${gruposSelecionados.length !== 1 ? 's' : ''} WhatsApp`
+                    : `${totalContatos.toLocaleString('pt-BR')} contatos`,
+                },
                 { label: 'Blocos', value: `${blocos.length} (${blocos.map(b => b.tipo).join(', ')})` },
                 { label: 'Agendamento', value: scheduledAt ? new Date(scheduledAt).toLocaleString('pt-BR') : 'Imediato' },
                 { label: 'ETA estimado', value: eta },
-                ...(origemParam === 'inteligencia' ? [{ label: 'Origem', value: `Inteligência — ${filtroDescricao}` }] : []),
+                ...(modoDestinatario === 'grupos'
+                  ? [{ label: 'Grupos', value: gruposSelecionados.map(g => g.nome).join(', ') }]
+                  : origemParam === 'inteligencia'
+                    ? [{ label: 'Origem', value: `Inteligência — ${filtroDescricao}` }]
+                    : []
+                ),
               ].map(({ label, value }) => (
                 <div key={label} className="flex items-start justify-between py-2 border-b border-surface-100 last:border-0">
                   <span className="text-sm text-txt-secondary">{label}</span>
