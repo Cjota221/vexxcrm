@@ -468,30 +468,64 @@ function OrdersTab({ clientId }: { clientId: string }) {
 
             {/* Detalhes expandidos */}
             {isExp && (
-              <div className="px-3 pb-3 border-t border-gray-100 bg-gray-50/50">
-                {/* Itens */}
-                {Array.isArray(o.items) && (o.items as Record<string, unknown>[]).length > 0 && (
+              <div className="px-3 pb-3 border-t border-gray-100 bg-gray-50/50 space-y-2">
+                {/* Itens do pedido */}
+                {Array.isArray(o.items) && (o.items as Record<string, unknown>[]).length > 0 ? (
                   <div className="mt-2 space-y-1.5">
-                    {(o.items as Record<string, unknown>[]).slice(0, 5).map((item, i) => (
-                      <div key={i} className="flex items-center justify-between text-xs">
-                        <span className="text-gray-700 truncate flex-1">
-                          {String((item as Record<string, unknown>).product_name ?? (item as Record<string, unknown>).nome ?? 'Produto')}
-                          {' '}
-                          <span className="text-gray-400">
-                            ×{String((item as Record<string, unknown>).quantity ?? 1)}
-                          </span>
-                        </span>
-                        <span className="text-gray-600 font-semibold shrink-0 ml-2">
-                          {formatCurrency((item as Record<string, unknown>).price as number ?? 0)}
-                        </span>
-                      </div>
-                    ))}
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Itens</p>
+                    {(o.items as Record<string, unknown>[]).map((item, i) => {
+                      const nome = String(item.product_name ?? item.nome ?? item.name ?? 'Produto');
+                      const qty = Number(item.quantity ?? item.quantidade ?? 1);
+                      const unitPrice = Number(item.unit_price ?? item.price ?? item.valor ?? 0);
+                      const totalPrice = Number(item.total_price ?? item.total ?? unitPrice * qty);
+                      // Detectar numeração no nome (ex: "Tênis Nike Tam 38" ou variação)
+                      const variacaoRaw = String(item.variacao ?? item.variation ?? item.product_sku ?? '');
+                      const numMatch = (nome + ' ' + variacaoRaw).match(/\b(3[3-9]|4[0-8]|[PpMmGg]{1,2}|[Pp]eq|[Mm]ed|[Gg]rand)\b/);
+                      const numeracao = numMatch?.[0] ?? null;
+
+                      return (
+                        <div key={i} className="bg-white rounded-lg border border-gray-100 px-2.5 py-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-[11px] text-gray-800 font-medium flex-1 leading-tight">{nome}</p>
+                            <span className="text-[11px] font-bold text-gray-700 shrink-0">{formatCurrency(totalPrice)}</span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            <span className="text-[9px] text-gray-400">Qtd: <span className="font-semibold text-gray-600">{qty}</span></span>
+                            <span className="text-[9px] text-gray-400">Unit: <span className="font-semibold text-gray-600">{formatCurrency(unitPrice)}</span></span>
+                            {numeracao && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 bg-crm-primary/10 text-crm-primary rounded">
+                                Tam {numeracao}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
+                ) : (
+                  <p className="text-[10px] text-gray-400 mt-2 italic">Itens não sincronizados.</p>
                 )}
+
+                {/* Endereço de entrega */}
+                {(o.shipping_address as Record<string, unknown>) && (() => {
+                  const addr = o.shipping_address as Record<string, string>;
+                  const linha = [addr.rua ?? addr.street, addr.numero ?? addr.number].filter(Boolean).join(', ');
+                  const cidade = [addr.cidade ?? addr.city, addr.uf ?? addr.state].filter(Boolean).join(' - ');
+                  if (!cidade) return null;
+                  return (
+                    <div className="flex items-start gap-1.5 pt-1 border-t border-gray-100 mt-1">
+                      <MapPin size={10} className="text-gray-400 mt-0.5 shrink-0" />
+                      <div className="text-[10px] text-gray-500 leading-tight">
+                        {linha && <p>{linha}</p>}
+                        <p>{cidade}{addr.cep ?? addr.zip ? ` · ${addr.cep ?? addr.zip}` : ''}</p>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Código de rastreio */}
                 {(o.tracking_code as string) && (
-                  <div className="flex items-center gap-2 mt-2 p-2 bg-white rounded-lg border border-gray-100">
+                  <div className="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-100">
                     <Truck size={12} className="text-violet-500 shrink-0" />
                     <span className="text-xs font-mono text-gray-700 flex-1 truncate">{o.tracking_code as string}</span>
                     <button
@@ -866,12 +900,33 @@ function PatternsTab({ clientId }: { clientId: string }) {
     );
   }
 
+  // Cliente novo ou sem pedidos suficientes
+  if (!isError && data && data.total_pedidos < 2) {
+    return (
+      <div className="flex flex-col items-center py-14 text-center px-6 gap-3">
+        <div className="w-14 h-14 rounded-2xl bg-crm-primary/10 flex items-center justify-center">
+          <BarChart3 size={22} className="text-crm-primary" />
+        </div>
+        <p className="text-sm font-bold text-gray-700">Perfil em construção</p>
+        <p className="text-xs text-gray-400 leading-relaxed">
+          Aguardando mais pedidos para análise. Com 2 ou mais pedidos a Anne identifica padrões de dia, hora e ciclo de recompra.
+        </p>
+        {data.total_pedidos === 1 && (
+          <div className="bg-crm-primary/5 border border-crm-primary/20 rounded-xl p-3 w-full text-left">
+            <p className="text-[10px] font-bold text-crm-primary mb-1">1 pedido registrado</p>
+            <p className="text-[10px] text-gray-500">LTV: {formatCurrency(data.ltv)} · Ticket: {formatCurrency(data.ticket_medio)}</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (isError || !data) {
     return (
-      <div className="flex flex-col items-center py-12 text-center px-4">
-        <AlertTriangle size={24} className="text-gray-200 mb-2" />
-        <p className="text-xs text-gray-400">Não foi possível carregar os padrões.</p>
-        <p className="text-[10px] text-gray-300 mt-1">O cliente precisa ter pedidos registrados.</p>
+      <div className="flex flex-col items-center py-12 text-center px-4 gap-2">
+        <AlertTriangle size={24} className="text-orange-300" />
+        <p className="text-xs font-semibold text-gray-600">Erro ao carregar padrões</p>
+        <p className="text-[10px] text-gray-400">Verifique se os pedidos estão sincronizados com o FacilZap.</p>
       </div>
     );
   }
@@ -1011,17 +1066,31 @@ function PatternsTab({ clientId }: { clientId: string }) {
       {data.inventario.top_produtos.length > 0 && (
         <div>
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-            <Package size={10} className="text-gray-400" /> Produtos Favoritos
+            <Package size={10} className="text-gray-400" /> Top {Math.min(3, data.inventario.top_produtos.length)} Produtos
           </p>
           <div className="space-y-1.5">
-            {data.inventario.top_produtos.slice(0, 5).map((p, i) => (
-              <div key={i} className="flex items-center gap-2 bg-white border border-gray-100 rounded-xl px-3 py-2">
-                <span className="text-[10px] font-black text-gray-300 w-4 shrink-0">#{i + 1}</span>
-                <span className="flex-1 text-[11px] text-gray-700 truncate">{p.nome}</span>
-                <span className="text-[10px] text-gray-400 shrink-0">{p.quantidade}x</span>
-                <span className="text-[10px] font-bold text-gray-600 shrink-0">{formatCurrency(p.total)}</span>
-              </div>
-            ))}
+            {data.inventario.top_produtos.slice(0, 5).map((p, i) => {
+              const MEDAL = ['🥇', '🥈', '🥉'];
+              const isMedal = i < 3;
+              return (
+                <div key={i} className={cn(
+                  'flex items-center gap-2 border rounded-xl px-3 py-2',
+                  i === 0 ? 'bg-amber-50 border-amber-200' :
+                  i === 1 ? 'bg-gray-50 border-gray-200' :
+                  i === 2 ? 'bg-orange-50 border-orange-200' :
+                  'bg-white border-gray-100'
+                )}>
+                  <span className="text-sm shrink-0 w-5 text-center">
+                    {isMedal ? MEDAL[i] : <span className="text-[10px] font-black text-gray-300">#{i + 1}</span>}
+                  </span>
+                  <span className="flex-1 text-[11px] font-medium text-gray-700 truncate" title={p.nome}>{p.nome}</span>
+                  <div className="shrink-0 text-right">
+                    <span className="block text-[10px] font-bold text-gray-600">{p.quantidade}x</span>
+                    <span className="block text-[9px] text-gray-400">{formatCurrency(p.total ?? 0)}</span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -1052,11 +1121,13 @@ function PatternsTab({ clientId }: { clientId: string }) {
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 function AnneInsightsTab({ chatId }: { chatId: string }) {
+  const queryClient = useQueryClient();
+
   const { data, isLoading } = useQuery({
     queryKey: ['anne-chat-log', chatId],
     queryFn: async () => {
       const res = await api.get<{
-        data: Array<{
+        entradas: Array<{
           id: string;
           trigger: string;
           score: number;
@@ -1078,6 +1149,23 @@ function AnneInsightsTab({ chatId }: { chatId: string }) {
     enabled: !!chatId,
   });
 
+  // ── Realtime: atualizar ao receber evento anne_notification via SSE ──
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const evt = e as CustomEvent<{ chat_id?: string }>;
+      // Invalidar se for deste chat ou sem filtro (broadcast)
+      if (!evt.detail?.chat_id || evt.detail.chat_id === chatId) {
+        queryClient.invalidateQueries({ queryKey: ['anne-chat-log', chatId] });
+      }
+    };
+    window.addEventListener('sse:anne_notification', handler);
+    window.addEventListener('sse:kanban_moved', handler);
+    return () => {
+      window.removeEventListener('sse:anne_notification', handler);
+      window.removeEventListener('sse:kanban_moved', handler);
+    };
+  }, [chatId, queryClient]);
+
   const TRIGGER_LABELS: Record<string, { label: string; color: string; bg: string }> = {
     primeiro_contato:   { label: 'Primeiro Contato', color: 'text-sky-700', bg: 'bg-sky-50' },
     pedido_recebido:    { label: 'Pedido Recebido', color: 'text-blue-700', bg: 'bg-blue-50' },
@@ -1098,7 +1186,7 @@ function AnneInsightsTab({ chatId }: { chatId: string }) {
     return <div className="flex justify-center py-16"><Loader2 size={24} className="animate-spin text-crm-primary" /></div>;
   }
 
-  const logs = data?.data ?? [];
+  const logs = data?.entradas ?? [];
   const stats = data?.stats;
 
   return (
@@ -1283,7 +1371,7 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
   const client = clientData as Record<string, unknown> | null;
 
   return (
-    <aside className="w-72 shrink-0 flex flex-col bg-white border-l border-gray-200 h-full overflow-hidden">
+    <aside className="w-80 shrink-0 flex flex-col bg-white border-l border-gray-200 h-full overflow-hidden">
       {/* ── Header ── */}
       <div className="flex items-center justify-between h-14 px-4 border-b border-gray-100 shrink-0">
         <div className="flex items-center gap-2">
@@ -1340,28 +1428,38 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
         const ticket = (c.avg_ticket as number) ?? (c.ticket_medio as number) ?? 0;
         const totalPedidos = (c.total_orders as number) ?? 0;
         return (
-          <div className="grid grid-cols-3 gap-2 px-3 py-2.5 border-b border-gray-100 bg-white shrink-0">
-            <MetricCard
-              icon={<TrendingUp size={12} className="text-crm-primary" />}
-              label="LTV"
-              value={ltv > 0 ? formatCurrency(ltv) : '—'}
-              highlight
-            />
-            <MetricCard
-              icon={<Star size={12} className="text-amber-500" />}
-              label="Ticket"
-              value={ticket > 0 ? formatCurrency(ticket) : '—'}
-            />
+          <div className="grid grid-cols-3 gap-1.5 px-3 py-2.5 border-b border-gray-100 bg-white shrink-0">
+            {/* LTV */}
+            <div className="rounded-xl p-2 text-center border bg-crm-primary/5 border-crm-primary/20 min-w-0">
+              <div className="flex items-center justify-center gap-0.5 mb-0.5">
+                <TrendingUp size={10} className="text-crm-primary shrink-0" />
+                <p className="text-[9px] text-gray-400 uppercase tracking-wide truncate">LTV</p>
+              </div>
+              <p className="text-xs font-black text-crm-primary truncate" title={ltv > 0 ? formatCurrency(ltv) : '—'}>
+                {ltv > 0 ? formatCurrency(ltv) : '—'}
+              </p>
+            </div>
+            {/* Ticket */}
+            <div className="rounded-xl p-2 text-center border bg-gray-50 border-gray-100 min-w-0">
+              <div className="flex items-center justify-center gap-0.5 mb-0.5">
+                <Star size={10} className="text-amber-500 shrink-0" />
+                <p className="text-[9px] text-gray-400 uppercase tracking-wide truncate">Ticket</p>
+              </div>
+              <p className="text-xs font-black text-gray-800 truncate" title={ticket > 0 ? formatCurrency(ticket) : '—'}>
+                {ticket > 0 ? formatCurrency(ticket) : '—'}
+              </p>
+            </div>
+            {/* Pedidos — clicável */}
             <button
               onClick={() => setActiveTab('orders')}
-              className="rounded-xl p-2.5 text-center border bg-gray-50 border-gray-100 hover:bg-crm-primary/5 hover:border-crm-primary/20 transition-colors group"
+              className="rounded-xl p-2 text-center border bg-gray-50 border-gray-100 hover:bg-crm-primary/5 hover:border-crm-primary/20 transition-colors group min-w-0"
               title="Ver pedidos"
             >
-              <div className="flex items-center justify-center gap-1 mb-0.5">
-                <ShoppingBag size={12} className="text-gray-400 group-hover:text-crm-primary transition-colors" />
-                <p className="text-[9px] text-gray-400 uppercase tracking-wide">Pedidos</p>
+              <div className="flex items-center justify-center gap-0.5 mb-0.5">
+                <ShoppingBag size={10} className="text-gray-400 group-hover:text-crm-primary transition-colors shrink-0" />
+                <p className="text-[9px] text-gray-400 uppercase tracking-wide truncate">Pedidos</p>
               </div>
-              <p className="text-sm font-black text-gray-800 group-hover:text-crm-primary transition-colors">
+              <p className="text-xs font-black text-gray-800 group-hover:text-crm-primary transition-colors">
                 {String(totalPedidos)}
               </p>
             </button>

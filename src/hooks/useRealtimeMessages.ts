@@ -19,7 +19,8 @@ export function useRealtimeMessages() {
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
-  const MAX_RECONNECT_ATTEMPTS = 15;
+  const isMountedRef = useRef(true);
+  const MAX_RECONNECT_ATTEMPTS = 5;
   const { setSSEStatus } = useConnectionStore();
   const { setTyping } = useChatsStore();
 
@@ -81,10 +82,13 @@ export function useRealtimeMessages() {
           }
 
           case 'anne_notification': {
-            // Notificação da Anne (ex: boas-vindas ao conectar)
-            const payload = data as { message: string; type: string };
+            // Notificação da Anne (ex: boas-vindas ao conectar, gatilho executado)
+            const payload = data as { message: string; type: string; chat_id?: string };
             console.log(`[Anne] ${payload.type}: ${payload.message}`);
-            // O componente de notificações pode ouvir este event
+            // Propagar para listeners no window (ex: AnneInsightsTab)
+            window.dispatchEvent(
+              new CustomEvent('sse:anne_notification', { detail: payload })
+            );
             break;
           }
 
@@ -183,23 +187,42 @@ export function useRealtimeMessages() {
         const jitter = baseDelay * 0.2 * (Math.random() - 0.5);
         const delay = Math.round(baseDelay + jitter);
 
-        console.log(`[SSE] Reconectando em ${delay}ms (tentativa ${reconnectAttemptsRef.current + 1}/${MAX_RECONNECT_ATTEMPTS})`);
+        if (process.env.NODE_ENV === 'development') {
+          console.debug(`[SSE] retry ${reconnectAttemptsRef.current + 1}/${MAX_RECONNECT_ATTEMPTS} em ${delay}ms`);
+        }
         reconnectAttemptsRef.current++;
 
         reconnectTimeoutRef.current = setTimeout(() => {
-          connect();
+          if (isMountedRef.current) connect();
         }, delay);
       } else {
-        console.warn('[SSE] Máximo de tentativas atingido. Recarregue a página.');
+        // Esgotou tentativas — aguardar token refresh do Supabase (onAuthStateChange)
+        if (process.env.NODE_ENV === 'development') {
+          console.debug('[SSE] tentativas esgotadas — aguardando TOKEN_REFRESHED');
+        }
         setSSEStatus('disconnected');
       }
     };
   }, [handleEvent, setSSEStatus]);
 
   useEffect(() => {
+    isMountedRef.current = true;
     connect();
 
+    // Reconectar silenciosamente quando o Supabase renova o JWT
+    // Isso evita o loop de 401 → onerror → backoff → 401 → ...
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (!isMountedRef.current) return;
+      if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
+        reconnectAttemptsRef.current = 0; // reset backoff
+        if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+        connect();
+      }
+    });
+
     return () => {
+      isMountedRef.current = false;
+      subscription.unsubscribe();
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
       }

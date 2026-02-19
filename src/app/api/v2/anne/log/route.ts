@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const dias = Math.min(90, parseInt(searchParams.get('dias') ?? '30'));
     const tipo = searchParams.get('tipo') ?? undefined;
+    const chatId = searchParams.get('chat_id') ?? undefined;
     const page = Math.max(1, parseInt(searchParams.get('page') ?? '1'));
     const PER_PAGE = 50;
 
@@ -40,6 +41,9 @@ export async function GET(request: NextRequest) {
 
     if (tipo) {
       query = query.eq('trigger', tipo);
+    }
+    if (chatId) {
+      query = query.eq('chat_id', chatId);
     }
 
     const { data: entradas, count, error } = await query;
