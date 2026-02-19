@@ -766,7 +766,7 @@ function NovaCampanhaInner() {
         ? gruposSelecionados.map(g => ({ id: g.id, telefone: g.id, nome: g.nome }))
         : contatos;
 
-      const { data: json, error } = await api.post<{ campanha_id: string }>('/api/v2/campanhas', {
+      const { data: json, error } = await api.post<{ campanha_id: string; status: string }>('/api/v2/campanhas', {
         nome: nomeCampanha,
         blocos,
         destinatarios,
@@ -777,7 +777,19 @@ function NovaCampanhaInner() {
         tipo_destinatario: modoDestinatario,
       });
       if (error) throw new Error(error);
-      router.push(`/campanhas/${json!.campanha_id}?criada=1`);
+
+      const campanhaId = json!.campanha_id;
+
+      // Se não for agendada, iniciar disparo imediatamente
+      if (!scheduledAt) {
+        const { error: errIniciar } = await api.post(`/api/v2/campanhas/${campanhaId}/iniciar`, {});
+        if (errIniciar) {
+          // Não bloqueia — avisa mas redireciona assim mesmo
+          console.warn('[NOVA_CAMPANHA] Erro ao iniciar disparo:', errIniciar);
+        }
+      }
+
+      router.push(`/campanhas?criada=1`);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao criar campanha');
     } finally {

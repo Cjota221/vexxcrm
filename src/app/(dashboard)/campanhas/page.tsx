@@ -94,6 +94,15 @@ async function cancelarCampanha(id: string) {
   if (!confirm('Cancelar campanha? Esta ação não pode ser desfeita.')) return false;
   return (await fetch(`/api/v2/campanhas/${id}/cancelar`, { method: 'DELETE' })).ok;
 }
+async function iniciarCampanha(id: string) {
+  const res = await fetch(`/api/v2/campanhas/${id}/iniciar`, { method: 'POST' });
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    alert(`Erro ao iniciar: ${json.error ?? 'Tente novamente'}`);
+    return false;
+  }
+  return true;
+}
 
 // ─── ProgressBar ─────────────────────────────────────────────────────────────
 
@@ -160,13 +169,16 @@ function CampanhaCardItem({ campanha, onAction }: { campanha: CampanhaCard; onAc
           <span className="text-xs text-txt-muted">{formatDate(campanha.created_at)}</span>
           <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
             {atualizando && <Loader2 size={14} className="animate-spin text-txt-secondary" />}
+            {campanha.status === 'draft' && (
+              <button onClick={e => handleAction(() => iniciarCampanha(campanha.id), e)} className="p-1 rounded hover:bg-green-50 text-green-600" title="Disparar agora"><Send size={14} /></button>
+            )}
             {campanha.status === 'running' && (
               <button onClick={e => handleAction(() => pausarCampanha(campanha.id), e)} className="p-1 rounded hover:bg-yellow-50 text-yellow-600" title="Pausar"><Pause size={14} /></button>
             )}
             {campanha.status === 'paused' && (
               <button onClick={e => handleAction(() => retomarCampanha(campanha.id), e)} className="p-1 rounded hover:bg-green-50 text-green-600" title="Retomar"><Play size={14} /></button>
             )}
-            {['running', 'paused', 'scheduled'].includes(campanha.status) && (
+            {['running', 'paused', 'scheduled', 'draft'].includes(campanha.status) && (
               <button onClick={e => handleAction(() => cancelarCampanha(campanha.id), e)} className="p-1 rounded hover:bg-red-50 text-red-500" title="Cancelar"><Square size={14} /></button>
             )}
           </div>
