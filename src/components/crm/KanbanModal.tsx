@@ -469,13 +469,15 @@ export function KanbanModal({ open, onClose }: KanbanModalProps) {
       fromCol: KanbanColumn;
       toCol: KanbanColumn;
     }) => {
-      return api.patch('/api/v2/kanban/move', {
+      const res = await api.patch('/api/v2/kanban/move', {
         contato_id: clientId,
         chat_id: chatId,
         de_coluna: fromCol,
         para_coluna: toCol,
         motivo: 'Movido manualmente pelo atendente',
       });
+      if (res.error) throw new Error(res.error);
+      return res.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['kanban-all-cards'] });
@@ -533,6 +535,15 @@ export function KanbanModal({ open, onClose }: KanbanModalProps) {
   }, [open, onClose]);
 
   const handleMoveCard = useCallback((cardId: string, chatId: string, fromCol: KanbanColumn, toCol: KanbanColumn) => {
+    // Capturar o client_id antes do optimistic update para não perder referência
+    const allCurrentCards = queryClient.getQueryData<{ cards: KanbanCardData[] }>(['kanban-all-cards']);
+    const card = allCurrentCards?.cards?.find(c => c.id === cardId);
+
+    if (!card?.client_id || !chatId) {
+      console.warn('[Kanban] handleMoveCard: dados incompletos', { cardId, chatId, clientId: card?.client_id });
+      return;
+    }
+
     // Optimistic update local
     queryClient.setQueryData(['kanban-all-cards'], (old: { cards: KanbanCardData[] } | undefined) => {
       if (!old?.cards) return old;
@@ -544,17 +555,25 @@ export function KanbanModal({ open, onClose }: KanbanModalProps) {
       };
     });
 
-    // Chamar API
-    const card = cardsData?.cards?.find(c => c.id === cardId);
-    if (card) {
-      moveMutation.mutate({
-        chatId,
-        clientId: card.client_id,
-        fromCol,
-        toCol,
-      });
-    }
-  }, [cardsData, moveMutation, queryClient]);
+    // Chamar API com dados capturados antes do update otimista
+    moveMutation.mutate(
+      { chatId, clientId: card.client_id, fromCol, toCol },
+      {
+        onError: () => {
+          // Rollback otimista em caso de erro
+          queryClient.setQueryData(['kanban-all-cards'], (old: { cards: KanbanCardData[] } | undefined) => {
+            if (!old?.cards) return old;
+            return {
+              ...old,
+              cards: old.cards.map(c =>
+                c.id === cardId ? { ...c, coluna: fromCol } : c
+              ),
+            };
+          });
+        },
+      }
+    );
+  }, [moveMutation, queryClient]);
 
   const handleDrop = useCallback((toCol: KanbanColumn) => {
     if (!draggingCard) return;
