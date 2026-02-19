@@ -420,7 +420,7 @@ export interface CustomerHealth {
     };
     comportamentoCompra: {
       ticketMedio: number;
-      valorTotalGasto: number;
+      valorTotalGasto: number; // LTV — soma de pedidos PAGOS
       produtosPreferidos: ProdutoPreferido[];
       categoriasPreferidas: string[];
     };
@@ -438,6 +438,8 @@ export interface CustomerHealth {
     score: number;
     razao: string;
     recomendacoes: string[];
+    /** Frase humanizada resumindo o cliente para exibir na UI */
+    logInteligencia: string;
   };
   calculadoEm: string;
 }
@@ -457,7 +459,18 @@ export interface SentinelaResult {
     statusAnterior: string;
     statusNovo: string;
     razao: string;
+    logInteligencia: string;
   }>;
+  /** Clientes VIP com LTV acima da média que não compram há 15+ dias */
+  vipsEmRisco: Array<{
+    clienteId: string;
+    clienteNome: string;
+    ltv: number;
+    ticketMedio: number;
+    diasInatividade: number;
+    logInteligencia: string;
+  }>;
+  ltvMedioBase: number;
   tempoExecucao: string;
   erros: string[];
 }

@@ -4,10 +4,11 @@
  * Calcula automaticamente:
  * - Score de saúde (0-100)
  * - Classificação inteligente (VIP, Ativo, Oportunidade, Risco, Perdido)
- * - Métricas de frequência, ticket médio, LTV
+ * - Métricas de frequência, ticket médio, LTV (somente pedidos PAGOS)
  * - Produtos preferidos e categorias
  * - Tendências de comportamento
  * - Recomendações acionáveis
+ * - Log de inteligência (frase resumo humanizada)
  */
 
 import type { 
@@ -18,6 +19,9 @@ import type {
 } from '@/types';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+/** Status que representam pedido efetivamente pago */
+const PAID_STATUSES = new Set(['paid', 'pago', 'completed', 'concluido', 'delivered', 'shipped']);
+
 /**
  * Calcula a saúde completa de um cliente.
  */
@@ -26,7 +30,7 @@ export async function calculateCustomerHealth(
   tenantId: string,
   clientId: string
 ): Promise<CustomerHealth> {
-  // Buscar todos os pedidos do cliente
+  // Buscar todos os pedidos do cliente (qualquer status, para histórico de frequência)
   const { data: orders } = await supabase
     .from('orders')
     .select('*')
@@ -58,10 +62,13 @@ export async function calculateCustomerHealth(
   const mediaComprasMes = mesesComoCliente > 0 ? totalPedidos / mesesComoCliente : 0;
 
   // ═══════════════════════════════════════
-  // COMPORTAMENTO DE COMPRA
+  // LTV — somente pedidos com status PAGO
   // ═══════════════════════════════════════
-  const valorTotalGasto = pedidos.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
-  const ticketMedio = totalPedidos > 0 ? valorTotalGasto / totalPedidos : 0;
+  const pedidosPagos = pedidos.filter(o =>
+    PAID_STATUSES.has(String(o.status ?? '').toLowerCase())
+  );
+  const valorTotalGasto = pedidosPagos.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+  const ticketMedio = pedidosPagos.length > 0 ? valorTotalGasto / pedidosPagos.length : 0;
 
   // Produtos preferidos (top 3)
   const productCount: Record<string, { nome: string; quantidade: number }> = {};
@@ -134,7 +141,7 @@ export async function calculateCustomerHealth(
   // ═══════════════════════════════════════
   // SCORE E CLASSIFICAÇÃO
   // ═══════════════════════════════════════
-  const { score, nivel, razao, recomendacoes } = calculateScore({
+  const { score, nivel, razao, recomendacoes, logInteligencia } = calculateScore({
     totalPedidos,
     diasInatividade,
     mediaComprasMes,
@@ -176,6 +183,7 @@ export async function calculateCustomerHealth(
       score,
       razao,
       recomendacoes,
+      logInteligencia,
     },
     calculadoEm: new Date().toISOString(),
   };
@@ -208,12 +216,14 @@ function calculateScore(params: {
   nivel: HealthClassification;
   razao: string;
   recomendacoes: string[];
+  logInteligencia: string;
 } {
   const {
     totalPedidos,
     diasInatividade,
     mediaComprasMes,
     ticketMedio,
+    valorTotalGasto,
     crescimentoFrequencia,
     crescimentoTicket,
     pedidosUlt3m,
@@ -231,6 +241,7 @@ function calculateScore(params: {
       nivel: 'Oportunidade',
       razao: 'Lead novo — ainda não realizou nenhuma compra. Alto potencial de conversão.',
       recomendacoes,
+      logInteligencia: 'Lead novo sem pedidos. Excelente momento para primeira abordagem.',
     };
   }
 
@@ -253,7 +264,6 @@ function calculateScore(params: {
   else if (mediaComprasMes >= 0.5) score += 10;
   else if (mediaComprasMes >= 0.25) score += 6;
   else if (mediaComprasMes > 0) score += 3;
-  // mediaComprasMes === 0 com pedidos → comprou apenas 1x há muito tempo
   else score += 1;
 
   // ── Componente 3: Volume de pedidos (15 pontos) ──
@@ -266,7 +276,7 @@ function calculateScore(params: {
   // ── Componente 4: Tendência (15 pontos) ──
   if (crescimentoFrequencia === 'aumentando') score += 8;
   else if (crescimentoFrequencia === 'estavel') score += 5;
-  else score += 1; // diminuindo — mas não penaliza demais
+  else score += 1;
 
   if (crescimentoTicket === 'aumentando') score += 7;
   else if (crescimentoTicket === 'estavel') score += 4;
@@ -277,7 +287,6 @@ function calculateScore(params: {
   else if (pedidosUlt3m >= 3) score += 12;
   else if (pedidosUlt3m >= 2) score += 8;
   else if (pedidosUlt3m >= 1) score += 5;
-  // 0 pedidos nos últimos 3 meses = 0 pts
 
   // Limitar entre 0 e 100
   score = Math.min(100, Math.max(0, score));
@@ -325,7 +334,30 @@ function calculateScore(params: {
     recomendacoes.push('Se sem resposta em 30 dias, arquivar contato');
   }
 
-  return { score, nivel, razao, recomendacoes };
+  // ── Log de Inteligência humanizado ──
+  const diasStr = diasInatividade >= 999
+    ? 'sem histórico de compra'
+    : diasInatividade === 0
+      ? 'comprou hoje'
+      : diasInatividade === 1
+        ? 'última compra ontem'
+        : `última compra há ${diasInatividade} dia${diasInatividade > 1 ? 's' : ''}`;
+
+  const ticketStr = ticketMedio > 0
+    ? `, ticket médio de R$ ${ticketMedio.toFixed(2).replace('.', ',')}`
+    : '';
+
+  const ltvStr = valorTotalGasto > 0
+    ? `, LTV total R$ ${valorTotalGasto.toFixed(2).replace('.', ',')}`
+    : '';
+
+  const freqStr = mediaComprasMes > 0
+    ? `, frequência de ${mediaComprasMes.toFixed(1)} compra${mediaComprasMes > 1 ? 's' : ''}/mês`
+    : '';
+
+  const logInteligencia = `${nivel === 'VIP' ? 'Cliente fiel' : nivel === 'Ativo' ? 'Cliente ativo' : nivel === 'Oportunidade' ? 'Cliente com potencial' : nivel === 'Risco' ? 'Cliente em risco' : 'Cliente inativo'}, ${diasStr}${ticketStr}${ltvStr}${freqStr}.`;
+
+  return { score, nivel, razao, recomendacoes, logInteligencia };
 }
 
 /**
@@ -386,28 +418,10 @@ export async function executeSentinelaFullScan(
   supabase: SupabaseClient,
   tenantId: string,
   onProgress?: (processed: number, total: number, current: string) => void
-): Promise<{
-  totalProcessados: number;
-  distribuicao: Record<HealthClassification, number>;
-  mudancasStatus: Array<{
-    clienteId: string;
-    clienteNome: string;
-    statusAnterior: string;
-    statusNovo: string;
-    razao: string;
-  }>;
-  tempoExecucao: string;
-  erros: string[];
-}> {
+): Promise<import('@/types').SentinelaResult> {
   const startTime = Date.now();
   const erros: string[] = [];
-  const mudancasStatus: Array<{
-    clienteId: string;
-    clienteNome: string;
-    statusAnterior: string;
-    statusNovo: string;
-    razao: string;
-  }> = [];
+  const mudancasStatus: import('@/types').SentinelaResult['mudancasStatus'] = [];
   const distribuicao: Record<HealthClassification, number> = {
     VIP: 0, Ativo: 0, Oportunidade: 0, Risco: 0, Perdido: 0,
   };
@@ -423,6 +437,8 @@ export async function executeSentinelaFullScan(
       totalProcessados: 0,
       distribuicao,
       mudancasStatus,
+      vipsEmRisco: [],
+      ltvMedioBase: 0,
       tempoExecucao: '0s',
       erros: [error?.message || 'Erro ao buscar clientes'],
     };
@@ -470,6 +486,7 @@ export async function executeSentinelaFullScan(
             statusAnterior,
             statusNovo,
             razao: health.classificacao.razao,
+            logInteligencia: health.classificacao.logInteligencia,
           });
         }
 
@@ -524,10 +541,56 @@ export async function executeSentinelaFullScan(
     ? `${Math.round(tempoMs / 60000)}min ${Math.round((tempoMs % 60000) / 1000)}s`
     : `${Math.round(tempoMs / 1000)}s`;
 
+  // ── Calcular LTV médio da base para identificar VIPs em risco ──
+  const todosLtv = clientUpdates.map(u => Number(u.ltv) || 0).filter(v => v > 0);
+  const ltvMedioBase = todosLtv.length > 0
+    ? todosLtv.reduce((s, v) => s + v, 0) / todosLtv.length
+    : 0;
+
+  type VipRiscoItem = {
+    clienteId: string;
+    clienteNome: string;
+    ltv: number;
+    ticketMedio: number;
+    diasInatividade: number;
+    logInteligencia: string;
+  };
+
+  // ── Identificar VIPs em risco (LTV > média + inatividade > 15 dias) ──
+  const vipsEmRisco: VipRiscoItem[] = clientUpdates
+    .filter(u => {
+      const ltv = Number(u.ltv) || 0;
+      const cf = u.custom_fields as Record<string, unknown> | null;
+      const healthData = cf?.health_data as CustomerHealth | undefined;
+      const dias = healthData?.metricas?.diasInatividade ?? 999;
+      return ltv > ltvMedioBase && ltv > 0 && dias >= 15;
+    })
+    .map(u => {
+      const cf = u.custom_fields as Record<string, unknown> | null;
+      const healthData = cf?.health_data as CustomerHealth | undefined;
+      const dias = healthData?.metricas?.diasInatividade ?? 0;
+      const ltv = Number(u.ltv) || 0;
+      const ticket = Number(u.avg_ticket) || 0;
+      const clientName = clients.find(c => c.id === u.id)?.name ?? 'Cliente';
+      return {
+        clienteId: String(u.id),
+        clienteNome: clientName,
+        ltv,
+        ticketMedio: ticket,
+        diasInatividade: dias,
+        logInteligencia: healthData?.classificacao?.logInteligencia
+          ?? `VIP em risco — ${dias} dias sem comprar, LTV R$ ${ltv.toFixed(2).replace('.', ',')}.`,
+      };
+    })
+    .sort((a, b) => b.ltv - a.ltv)
+    .slice(0, 20);
+
   return {
     totalProcessados: processed,
     distribuicao,
     mudancasStatus,
+    vipsEmRisco,
+    ltvMedioBase: Math.round(ltvMedioBase * 100) / 100,
     tempoExecucao,
     erros,
   };
@@ -559,8 +622,12 @@ function calculateCustomerHealthFromOrders(
   // mediaComprasMes: 0 se sem pedidos (tratado como lead em calculateScore)
   const mediaComprasMes = mesesComoCliente > 0 ? totalPedidos / mesesComoCliente : 0;
 
-  const valorTotalGasto = pedidos.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
-  const ticketMedio = totalPedidos > 0 ? valorTotalGasto / totalPedidos : 0;
+  // ── LTV — somente pedidos com status PAGO ──
+  const pedidosPagos = pedidos.filter(o =>
+    PAID_STATUSES.has(String(o.status ?? '').toLowerCase())
+  );
+  const valorTotalGasto = pedidosPagos.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+  const ticketMedio = pedidosPagos.length > 0 ? valorTotalGasto / pedidosPagos.length : 0;
 
   // Produtos preferidos
   const productCount: Record<string, { nome: string; quantidade: number }> = {};
@@ -610,7 +677,7 @@ function calculateCustomerHealthFromOrders(
     ticketUlt3m > ticketAnt3m * 1.15 ? 'aumentando' :
     ticketUlt3m < ticketAnt3m * 0.85 ? 'diminuindo' : 'estavel';
 
-  const { score, nivel, razao, recomendacoes } = calculateScore({
+  const { score, nivel, razao, recomendacoes, logInteligencia } = calculateScore({
     totalPedidos,
     diasInatividade,
     mediaComprasMes,
@@ -652,6 +719,7 @@ function calculateCustomerHealthFromOrders(
       score,
       razao,
       recomendacoes,
+      logInteligencia,
     },
     calculadoEm: new Date().toISOString(),
   };
