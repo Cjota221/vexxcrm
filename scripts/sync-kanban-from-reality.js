@@ -14,11 +14,12 @@
  *   (sem pedido, sem atividade recente) → PRIMEIRO_CONTATO
  *
  * O script:
- *   1. Apaga os cards seeded artificialmente (que não têm
+ *   1. Apaga cards duplicados (mesmo client_id, múltiplos chat_ids)
+ *   2. Apaga os cards seeded artificialmente (que não têm
  *      client_id correspondente a uma conversa real)
- *   2. Para cada conversa real, cria ou atualiza o card
+ *   3. Para cada conversa real, cria ou atualiza o card
  *      com a coluna correta
- *   3. Registra uma transição "auto" para auditoria
+ *   4. Registra uma transição "auto" para auditoria
  *
  * Uso:
  *   node scripts/sync-kanban-from-reality.js
@@ -48,6 +49,30 @@ const ORDER_STATUS_TO_COLUMN = {
   cancelled:  'CANCELADO',
   refunded:   'CANCELADO',
 };
+
+/**
+ * Normaliza um número de telefone para o formato WhatsApp remoteJid.
+ * Garante que números brasileiros tenham o 9° dígito quando DDD >= 11.
+ * Ex: "5511987654321" → "5511987654321@s.whatsapp.net" (já tem 9°)
+ *     "5511 8765-4321" → "55118765432109" → "55119876543210" (adiciona 9°)
+ * Números de 8 dígitos locais (DDD 11-99): adiciona o 9°
+ */
+function buildChatId(phone) {
+  const digits = phone.replace(/\D/g, '');
+
+  // Formato esperado: 55 + DDD(2) + número(8 ou 9) = 12 ou 13 dígitos
+  if (digits.startsWith('55') && digits.length === 12) {
+    // Número com 8 dígitos após DDD — adicionar 9° dígito
+    const country = digits.slice(0, 2);  // '55'
+    const ddd = digits.slice(2, 4);       // DDD
+    const num = digits.slice(4);          // 8 dígitos
+    const numWith9 = '9' + num;
+    return `${country}${ddd}${numWith9}@s.whatsapp.net`;
+  }
+
+  // 13 dígitos ou formato diferente — usar como está
+  return `${digits}@s.whatsapp.net`;
+}
 
 /**
  * Determina a coluna correta para uma conversa baseado nos pedidos do cliente.
@@ -115,11 +140,51 @@ async function syncTenant(tenantId) {
   // 4. Buscar kanban_cards existentes (para detectar mudanças reais)
   const { data: existingCards } = await s
     .from('kanban_cards')
-    .select('id, client_id, chat_id, coluna')
+    .select('id, client_id, chat_id, coluna, updated_at')
     .eq('tenant_id', tenantId);
 
+  // ── Limpar DUPLICATAS: mesmo client_id com múltiplos chat_ids ─────
+  // Agrupar por client_id e manter apenas o mais recente
+  const cardsByClient = {};
+  for (const c of existingCards || []) {
+    if (!cardsByClient[c.client_id]) {
+      cardsByClient[c.client_id] = [];
+    }
+    cardsByClient[c.client_id].push(c);
+  }
+
+  const dupIds = [];
+  for (const [, cards] of Object.entries(cardsByClient)) {
+    if (cards.length > 1) {
+      // Ordenar: manter o mais recente (updated_at maior), deletar os demais
+      cards.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+      for (let i = 1; i < cards.length; i++) dupIds.push(cards[i].id);
+    }
+  }
+
+  if (dupIds.length > 0) {
+    console.log(`   🧹 Cards duplicados (mesmo cliente): ${dupIds.length}`);
+    if (!DRY_RUN) {
+      for (let i = 0; i < dupIds.length; i += 100) {
+        const batch = dupIds.slice(i, i + 100);
+        const { error: delDupErr } = await s.from('kanban_cards').delete().in('id', batch);
+        if (delDupErr) console.warn(`   ⚠️  Erro ao deletar duplicatas: ${delDupErr.message}`);
+      }
+      console.log(`   ✅ ${dupIds.length} duplicatas removidas`);
+      // Recarregar lista após limpeza
+      for (const id of dupIds) {
+        const clientId = Object.entries(cardsByClient).find(([,cards]) => cards.some(c => c.id === id))?.[0];
+        if (clientId && cardsByClient[clientId]) {
+          cardsByClient[clientId] = cardsByClient[clientId].filter(c => c.id !== id);
+        }
+      }
+    }
+  }
+
   const existingByClient = {};
-  for (const c of existingCards || []) existingByClient[c.client_id] = c;
+  for (const [clientId, cards] of Object.entries(cardsByClient)) {
+    if (cards.length > 0) existingByClient[clientId] = cards[0]; // mais recente
+  }
 
   // 5. Limpar cards que não têm conversa correspondente (seeded fake)
   const realClientIds = new Set(clientIds);
@@ -150,9 +215,8 @@ async function syncTenant(tenantId) {
     const phone = clientPhone[conv.client_id];
     if (!phone) { stats.noPhone++; continue; }
 
-    // Montar chat_id no formato WhatsApp
-    const cleanPhone = phone.replace(/\D/g, '');
-    const chatId = `${cleanPhone}@s.whatsapp.net`;
+    // Montar chat_id no formato WhatsApp com 9° dígito normalizado
+    const chatId = buildChatId(phone);
 
     const clientOrders = ordersByClient[conv.client_id] || [];
     const targetColumn = determineColumn(clientOrders, conv.last_message_at);
@@ -174,9 +238,13 @@ async function syncTenant(tenantId) {
       if (VERBOSE) console.log(`   + ${chatId.slice(0,20)} — novo em ${targetColumn}`);
     }
 
+    // Se já existe card, usar o chat_id que já está no banco (preservar o existente)
+    // para não criar conflito de constraint. Só atualizar a coluna.
+    const finalChatId = existing ? existing.chat_id : chatId;
+
     upsertBatch.push({
       tenant_id: tenantId,
-      chat_id: chatId,
+      chat_id: finalChatId,
       client_id: conv.client_id,
       coluna: targetColumn,
       updated_at: now,
@@ -184,7 +252,7 @@ async function syncTenant(tenantId) {
 
     transitionBatch.push({
       tenant_id: tenantId,
-      chat_id: chatId,
+      chat_id: finalChatId,
       client_id: conv.client_id,
       de_coluna: previousColumn,
       para_coluna: targetColumn,
