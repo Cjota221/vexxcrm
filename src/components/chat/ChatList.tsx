@@ -7,6 +7,7 @@ import { formatRelativeTime, truncate, getInitials, getAvatarColor } from '@/lib
 import { useChatsStore } from '@/store/chats';
 import { useInfiniteChats, useRefreshChats } from '@/hooks/useChats';
 import { useDebounce } from '@/hooks/useDebounce';
+import { AvatarImage } from '@/components/ui/AvatarImage';
 import type { Chat, ChatFilter } from '@/types';
 
 const FILTERS: { label: string; value: ChatFilter }[] = [
@@ -201,20 +202,13 @@ const ChatListItem = memo(function ChatListItem({ chat, isSelected, onSelect }: 
       )}
     >
       {/* Avatar */}
-      {chat.client.avatar_url ? (
-        <img
-          src={chat.client.avatar_url}
-          alt={chat.client.name}
-          className="w-11 h-11 rounded-full object-cover shrink-0"
-        />
-      ) : (
-        <div
-          className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 text-white text-sm font-semibold"
-          style={{ backgroundColor: getAvatarColor(chat.client.name) }}
-        >
-          {getInitials(chat.client.name)}
-        </div>
-      )}
+      <AvatarImage
+        src={chat.client.avatar_url}
+        name={chat.client.name}
+        size={44}
+        rounded="full"
+        className="shrink-0"
+      />
 
       {/* Content */}
       <div className="flex-1 min-w-0">

@@ -8,6 +8,7 @@ import { useChatsStore } from '@/store/chats';
 import { MessageBubble } from './MessageBubble';
 import { MessageInput } from './MessageInput';
 import { getInitials, getAvatarColor } from '@/lib/utils';
+import { AvatarImage } from '@/components/ui/AvatarImage';
 import { api } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import type { Chat } from '@/types';
@@ -201,20 +202,12 @@ export function ChatArea() {
     <div className="flex-1 flex flex-col h-full">
       {/* Chat header */}
       <div className="h-14 bg-wa-bg-panel border-b border-wa-border flex items-center px-4 gap-3 shrink-0">
-        {clientData?.avatar_url ? (
-          <img
-            src={clientData.avatar_url}
-            alt={clientData.name}
-            className="w-10 h-10 rounded-full object-cover"
-          />
-        ) : (
-          <div
-            className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-semibold"
-            style={{ backgroundColor: getAvatarColor(clientData?.name || selectedChatId || '') }}
-          >
-            {getInitials(clientData?.name || '?')}
-          </div>
-        )}
+        <AvatarImage
+          src={clientData?.avatar_url}
+          name={clientData?.name || selectedChatId || '?'}
+          size={40}
+          rounded="full"
+        />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-wa-text-primary truncate">
             {clientData?.name || 'Cliente'}

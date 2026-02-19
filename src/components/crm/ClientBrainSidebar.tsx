@@ -64,6 +64,7 @@ import {
   cn,
 } from '@/lib/utils';
 import type { Order, KanbanTransition, KanbanColumn } from '@/types';
+import { AvatarImage } from '@/components/ui/AvatarImage';
 
 /* ─── Abas disponíveis ───────────────────────────────────────── */
 
@@ -215,20 +216,13 @@ function IdentityTab({
       )}
 
       <div className="flex items-start gap-3">
-        {(c.avatar_url as string) ? (
-          <img
-            src={c.avatar_url as string}
-            alt={c.name as string}
-            className="w-14 h-14 rounded-2xl object-cover shrink-0 border-2 border-gray-100"
-          />
-        ) : (
-          <div
-            className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-bold text-lg shrink-0"
-            style={{ backgroundColor: getAvatarColor((c.name as string) ?? '') }}
-          >
-            {getInitials((c.name as string) ?? '?')}
-          </div>
-        )}
+        <AvatarImage
+          src={c.avatar_url as string}
+          name={(c.name as string) ?? '?'}
+          size={56}
+          rounded="2xl"
+          className="border-2 border-gray-100"
+        />
 
         <div className="flex-1 min-w-0">
           {editingName ? (

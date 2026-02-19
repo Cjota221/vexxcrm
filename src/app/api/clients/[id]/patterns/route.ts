@@ -30,15 +30,69 @@ export async function GET(
     const { id: clientId } = await params;
     const supabase = createServerSupabaseClient();
 
-    // ── Buscar pedidos do cliente ─────────────────────────────
-    const { data: orders, error: ordersError } = await supabase
+    // ── Buscar pedidos do cliente (com itens via JOIN) ────────
+    const { data: ordersRaw, error: ordersError } = await supabase
       .from('orders')
-      .select('id, total, shipping, created_at, status, items, metadata')
+      .select(`
+        id,
+        total,
+        shipping,
+        created_at,
+        status,
+        metadata,
+        order_items (
+          product_name,
+          product_sku,
+          quantity,
+          unit_price,
+          total_price,
+          metadata
+        )
+      `)
       .eq('tenant_id', auth.tenantId)
       .eq('client_id', clientId)
       .order('created_at', { ascending: true });
 
     if (ordersError) throw ordersError;
+
+    // Normalizar: order_items → items para compatibilidade do código abaixo
+    type OrderNorm = {
+      id: string;
+      total: number;
+      shipping: number;
+      created_at: string;
+      status: string;
+      metadata: unknown;
+      items: Array<{
+        product_name: unknown;
+        nome: unknown;
+        quantity: unknown;
+        unit_price: unknown;
+        total: unknown;
+        variacao: unknown;
+        category: unknown;
+      }>;
+    };
+
+    const orders: OrderNorm[] = (ordersRaw ?? []).map((o: Record<string, unknown>) => ({
+      id: o.id as string,
+      total: o.total as number,
+      shipping: o.shipping as number,
+      created_at: o.created_at as string,
+      status: o.status as string,
+      metadata: o.metadata,
+      items: Array.isArray(o.order_items)
+        ? (o.order_items as Array<Record<string, unknown>>).map(item => ({
+            product_name: item.product_name,
+            nome: item.product_name,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            total: item.total_price,
+            variacao: (item.metadata as Record<string, unknown>)?.variacao ?? '',
+            category: (item.metadata as Record<string, unknown>)?.category ?? '',
+          }))
+        : [],
+    }));
 
     if (!orders || orders.length === 0) {
       return NextResponse.json({
