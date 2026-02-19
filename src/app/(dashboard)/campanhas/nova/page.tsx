@@ -6,7 +6,7 @@ import {
   ArrowLeft, ArrowRight, Check, Upload, Trash2, GripVertical,
   Image as ImageIcon, Type, Link2, ChevronDown, ChevronUp,
   Plus, Calendar, Users, Zap, Send, Loader2, AlertCircle,
-  Search, Mic, Video, UsersRound, X,
+  Search, Mic, Video, UsersRound, X, ChevronRight,
 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -283,6 +283,92 @@ function StepIndicator({ current }: { current: number }) {
   );
 }
 
+// ─── Seletor de Segmento de Inteligência ──────────────────────────────────────
+
+// Mapa simplificado dos segmentos RFM (label em PT e cor)
+const SEGMENTOS_RFM: { nome: string; label: string; cor: string }[] = [
+  { nome: 'Champions',         label: 'Campeões',         cor: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
+  { nome: 'Loyal Customers',   label: 'Clientes Fiéis',   cor: 'bg-green-100 text-green-800 border-green-200'   },
+  { nome: 'Potential Loyalist',label: 'Potencial Fiel',   cor: 'bg-blue-100 text-blue-800 border-blue-200'      },
+  { nome: 'New Customers',     label: 'Novos Clientes',   cor: 'bg-cyan-100 text-cyan-800 border-cyan-200'      },
+  { nome: 'Promising',         label: 'Promissores',      cor: 'bg-purple-100 text-purple-800 border-purple-200'},
+  { nome: 'Need Attention',    label: 'Precisa Atenção',  cor: 'bg-orange-100 text-orange-800 border-orange-200'},
+  { nome: 'About To Sleep',    label: 'Quase Dormindo',   cor: 'bg-red-100 text-red-700 border-red-200'         },
+  { nome: 'At Risk',           label: 'Em Risco',         cor: 'bg-red-100 text-red-800 border-red-300'         },
+  { nome: 'Cant Lose Them',    label: 'Não Posso Perder', cor: 'bg-red-200 text-red-900 border-red-400'         },
+  { nome: 'Hibernating',       label: 'Hibernando',       cor: 'bg-gray-100 text-gray-700 border-gray-200'      },
+  { nome: 'Lost',              label: 'Perdidos',         cor: 'bg-gray-200 text-gray-700 border-gray-300'      },
+];
+
+interface SeletorSegmentoInteligenciaProps {
+  segmentoAtivo: string | null;
+  totalContatos: number;
+  carregando: boolean;
+  onSelecionar: (segmento: { nome: string; label: string }) => void;
+  distribuicao: Record<string, number>; // segmento → count
+}
+
+function SeletorSegmentoInteligencia({
+  segmentoAtivo,
+  totalContatos,
+  carregando,
+  onSelecionar,
+  distribuicao,
+}: SeletorSegmentoInteligenciaProps) {
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-txt-secondary">
+        Selecione um segmento de Inteligência para carregar os contatos automaticamente:
+      </p>
+
+      <div className="grid grid-cols-1 gap-2 max-h-72 overflow-y-auto pr-1">
+        {SEGMENTOS_RFM.map(seg => {
+          const count = distribuicao[seg.nome] ?? 0;
+          const ativo = segmentoAtivo === seg.nome;
+          return (
+            <button
+              key={seg.nome}
+              onClick={() => onSelecionar(seg)}
+              disabled={count === 0}
+              className={`flex items-center justify-between px-4 py-3 rounded-xl border-2 text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                ativo
+                  ? 'border-crm-primary bg-crm-primary/5'
+                  : 'border-surface-200 hover:border-crm-primary/40 hover:bg-surface-50'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${ativo ? 'bg-crm-primary border-crm-primary' : 'border-surface-300'}`}>
+                  {ativo && <Check size={10} className="text-white" />}
+                </div>
+                <div>
+                  <p className={`text-sm font-medium ${ativo ? 'text-crm-primary' : 'text-txt-primary'}`}>{seg.label}</p>
+                  <p className="text-xs text-txt-muted">{seg.nome}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${seg.cor}`}>
+                  {count.toLocaleString('pt-BR')}
+                </span>
+                {ativo && carregando && <Loader2 size={13} className="animate-spin text-crm-primary" />}
+                {ativo && !carregando && totalContatos > 0 && <ChevronRight size={13} className="text-crm-primary" />}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {segmentoAtivo && !carregando && totalContatos > 0 && (
+        <div className="flex items-center gap-2 p-3 bg-crm-primary/5 rounded-xl border border-crm-primary/20">
+          <Zap size={14} className="text-crm-primary shrink-0" />
+          <p className="text-sm text-crm-primary font-medium">
+            {totalContatos.toLocaleString('pt-BR')} contatos carregados do segmento &ldquo;{SEGMENTOS_RFM.find(s => s.nome === segmentoAtivo)?.label}&rdquo;
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Seletor de Contatos Manual ───────────────────────────────────────────────
 
 interface SeletorContatosManualProps {
@@ -506,6 +592,7 @@ function NovaCampanhaInner() {
   const contatosIdsParam = searchParams.get('contatos_ids') ?? '';
   const totalParam = Number(searchParams.get('total') ?? '0');
   const filtroDescricao = searchParams.get('filtro_descricao') ?? '';
+  const segmentoParam = searchParams.get('segmento') ?? '';
 
   const [step, setStep] = useState(0);
   const [nomeCampanha, setNomeCampanha] = useState('');
@@ -513,6 +600,9 @@ function NovaCampanhaInner() {
   const [contatos, setContatos] = useState<Contato[]>([]);
   const [gruposSelecionados, setGruposSelecionados] = useState<GrupoWA[]>([]);
   const [carregandoContatos, setCarregandoContatos] = useState(false);
+  const [segmentoRFM, setSegmentoRFM] = useState<string | null>(segmentoParam || null);
+  const [distribuicaoRFM, setDistribuicaoRFM] = useState<Record<string, number>>({});
+  const [carregandoDistribuicao, setCarregandoDistribuicao] = useState(false);
   const [blocos, setBlocos] = useState<Bloco[]>([]);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [scheduledAt, setScheduledAt] = useState('');
@@ -526,26 +616,82 @@ function NovaCampanhaInner() {
     if (origemParam === 'inteligencia') setModoDestinatario('inteligencia');
   }, [origemParam]);
 
-  // Pré-carrega contatos se veio da Inteligência
+  // Carrega distribuição RFM ao entrar em modo inteligência
   useEffect(() => {
-    if (origemParam !== 'inteligencia' || !contatosIdsParam) return;
-    setCarregandoContatos(true);
-    const ids = contatosIdsParam.split(',').filter(Boolean);
-    fetch(`/api/v1/clients?ids=${ids.join(',')}&limit=500`)
+    if (modoDestinatario !== 'inteligencia') return;
+    setCarregandoDistribuicao(true);
+    fetch('/api/intelligence/rfm')
       .then(r => r.json())
       .then(json => {
-        setContatos((json.clients ?? json.data ?? []).map((c: Record<string, unknown>) => ({
-          id: c.id as string,
-          telefone: c.phone as string || c.telefone as string,
-          nome: c.name as string || c.nome as string,
-          cidade: c.cidade as string,
-          estado: c.estado as string,
-          valor_ltv: c.ltv as number || c.valor_ltv as number,
-        })));
+        const dist: Record<string, number> = {};
+        const distData = json?.distribution ?? json?.data?.distribution ?? {};
+        for (const [k, v] of Object.entries(distData)) {
+          dist[k] = typeof v === 'object' && v !== null ? ((v as Record<string, number>).count ?? 0) : Number(v);
+        }
+        setDistribuicaoRFM(dist);
       })
       .catch(() => {})
-      .finally(() => setCarregandoContatos(false));
-  }, [origemParam, contatosIdsParam]);
+      .finally(() => setCarregandoDistribuicao(false));
+  }, [modoDestinatario]);
+
+  // Função para selecionar segmento e carregar contatos
+  const selecionarSegmento = useCallback(async (seg: { nome: string; label: string }) => {
+    if (segmentoRFM === seg.nome) {
+      // Desselecionar
+      setSegmentoRFM(null);
+      setContatos([]);
+      return;
+    }
+    setSegmentoRFM(seg.nome);
+    setContatos([]);
+    setCarregandoContatos(true);
+    try {
+      // Busca até 500 contatos do segmento (paginando se necessário)
+      const params = new URLSearchParams({ segment: seg.nome, page: '1', limit: '500' });
+      const res = await fetch(`/api/intelligence/rfm/clients?${params}`);
+      const json = await res.json();
+      const lista = (json?.clients ?? []) as Record<string, unknown>[];
+      setContatos(lista.map(c => ({
+        id: c.id as string,
+        telefone: (c.phone ?? c.telefone) as string,
+        nome: (c.name ?? c.nome) as string,
+        cidade: c.cidade as string | undefined,
+        estado: c.estado as string | undefined,
+        valor_ltv: (c.total_spent ?? c.ltv ?? c.valor_ltv) as number | undefined,
+      })));
+    } catch {
+      // silencia erro
+    } finally {
+      setCarregandoContatos(false);
+    }
+  }, [segmentoRFM]);
+
+  // Pré-carrega contatos se veio da Inteligência via segmentoParam
+  useEffect(() => {
+    if (segmentoParam) {
+      const seg = SEGMENTOS_RFM.find(s => s.nome === segmentoParam);
+      if (seg) selecionarSegmento(seg);
+    } else if (origemParam === 'inteligencia' && contatosIdsParam) {
+      // Legado: veio com IDs de contatos na URL
+      setCarregandoContatos(true);
+      const ids = contatosIdsParam.split(',').filter(Boolean);
+      fetch(`/api/v1/clients?ids=${ids.join(',')}&limit=500`)
+        .then(r => r.json())
+        .then(json => {
+          setContatos((json.clients ?? json.data ?? []).map((c: Record<string, unknown>) => ({
+            id: c.id as string,
+            telefone: c.phone as string || c.telefone as string,
+            nome: c.name as string || c.nome as string,
+            cidade: c.cidade as string,
+            estado: c.estado as string,
+            valor_ltv: c.ltv as number || c.valor_ltv as number,
+          })));
+        })
+        .catch(() => {})
+        .finally(() => setCarregandoContatos(false));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ─── Callbacks de seleção ──────────────────────────────────────────────────
 
@@ -726,32 +872,18 @@ function NovaCampanhaInner() {
               {/* Modo: Inteligência */}
               {modoDestinatario === 'inteligencia' && (
                 <>
-                  {carregandoContatos && (
-                    <div className="flex items-center gap-2 text-sm text-txt-secondary">
-                      <Loader2 size={14} className="animate-spin" /> Carregando contatos...
+                  {carregandoDistribuicao ? (
+                    <div className="flex items-center gap-2 text-sm text-txt-secondary py-2">
+                      <Loader2 size={14} className="animate-spin" /> Carregando segmentos...
                     </div>
-                  )}
-                  {origemParam === 'inteligencia' && (
-                    <div className="flex items-center gap-3 p-3 bg-crm-primary/5 rounded-xl border border-crm-primary/20">
-                      <Zap size={18} className="text-crm-primary shrink-0" />
-                      <div>
-                        <p className="text-sm font-medium text-crm-primary">Segmento de Inteligência</p>
-                        <p className="text-xs text-txt-secondary">{filtroDescricao || `${contatos.length || totalParam} contatos selecionados`}</p>
-                      </div>
-                      <div className="ml-auto text-right">
-                        <p className="text-lg font-bold text-crm-primary">{contatos.length || totalParam}</p>
-                        <p className="text-xs text-txt-muted">contatos</p>
-                      </div>
-                    </div>
-                  )}
-                  {origemParam !== 'inteligencia' && (
-                    <p className="text-sm text-txt-secondary">
-                      Para selecionar via segmentação, use a página de{' '}
-                      <button onClick={() => router.push('/intelligence')} className="text-crm-primary underline hover:no-underline">
-                        Inteligência
-                      </button>
-                      .
-                    </p>
+                  ) : (
+                    <SeletorSegmentoInteligencia
+                      segmentoAtivo={segmentoRFM}
+                      totalContatos={contatos.length}
+                      carregando={carregandoContatos}
+                      onSelecionar={selecionarSegmento}
+                      distribuicao={distribuicaoRFM}
+                    />
                   )}
                 </>
               )}
@@ -912,8 +1044,8 @@ function NovaCampanhaInner() {
                 { label: 'ETA estimado', value: eta },
                 ...(modoDestinatario === 'grupos'
                   ? [{ label: 'Grupos', value: gruposSelecionados.map(g => g.nome).join(', ') }]
-                  : origemParam === 'inteligencia'
-                    ? [{ label: 'Origem', value: `Inteligência — ${filtroDescricao}` }]
+                  : modoDestinatario === 'inteligencia' && segmentoRFM
+                    ? [{ label: 'Segmento', value: `${SEGMENTOS_RFM.find(s => s.nome === segmentoRFM)?.label ?? segmentoRFM} — ${filtroDescricao || segmentoRFM}` }]
                     : []
                 ),
               ].map(({ label, value }) => (

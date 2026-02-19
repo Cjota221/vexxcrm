@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   X,
   Search,
@@ -21,6 +22,7 @@ import {
   Megaphone,
   Copy,
   Check,
+  ExternalLink,
 } from 'lucide-react';
 import { formatCurrency, formatRelativeTime, cn } from '@/lib/utils';
 
@@ -151,6 +153,7 @@ export function ClientListDrawer({
   onStartCampaign,
   seasonalMode = false,
 }: ClientListDrawerProps) {
+  const router = useRouter();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showCampaignModal, setShowCampaignModal] = useState(false);
   const [copiedTemplate, setCopiedTemplate] = useState(false);
@@ -471,13 +474,34 @@ export function ClientListDrawer({
 
         {/* Botão campanha — sempre visível no footer quando há clientes */}
         {clients.length > 0 && (
-          <div className="px-4 py-3 border-t border-surface-border bg-gray-50/80 shrink-0">
+          <div className="px-4 py-3 border-t border-surface-border bg-gray-50/80 shrink-0 space-y-2">
+            {/* Criar Campanha — vai para /campanhas/nova com contexto */}
+            <button
+              onClick={() => {
+                const count = selectedIds.size > 0 ? selectedIds.size : totalClients;
+                const params = new URLSearchParams({
+                  origem: 'inteligencia',
+                  segmento: segmentName ?? '',
+                  filtro_descricao: title ?? '',
+                  total: String(count),
+                });
+                router.push(`/campanhas/nova?${params.toString()}`);
+                onClose();
+              }}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl bg-crm-primary text-white hover:opacity-90 transition-opacity shadow-md"
+            >
+              <ExternalLink size={15} />
+              Criar Campanha
+              <span className="text-xs opacity-80">({selectedIds.size > 0 ? selectedIds.size : totalClients})</span>
+            </button>
+
+            {/* Disparo em massa direto */}
             <button
               onClick={() => { setShowCampaignModal(true); setSendResult(null); setCustomMessage(''); }}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl bg-linear-to-r from-green-600 to-emerald-700 text-white hover:opacity-90 transition-opacity shadow-md"
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl border border-green-300 text-green-700 hover:bg-green-50 transition-colors"
             >
-              <Send size={16} />
-              Disparo em Massa pelo WhatsApp
+              <Send size={14} />
+              Disparo Rápido pelo WhatsApp
               {selectedIds.size > 0 && <span className="ml-1 text-xs opacity-80">({selectedIds.size} selecionados)</span>}
             </button>
           </div>
