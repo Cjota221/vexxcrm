@@ -370,15 +370,30 @@ const ORDER_STATUS_CONFIG: Record<
   { label: string; color: string; bg: string; icon: typeof Package }
 > = {
   pending:    { label: 'Pendente',      color: 'text-amber-700',  bg: 'bg-amber-50',    icon: Clock },
+  confirmed:  { label: 'Confirmado',    color: 'text-blue-700',   bg: 'bg-blue-50',     icon: CheckCircle2 },
   processing: { label: 'Em processo',   color: 'text-blue-700',   bg: 'bg-blue-50',     icon: Package },
   shipped:    { label: 'Enviado',       color: 'text-violet-700', bg: 'bg-violet-50',   icon: Truck },
+  in_transit: { label: 'Em trânsito',   color: 'text-violet-700', bg: 'bg-violet-50',   icon: Truck },
   delivered:  { label: 'Entregue',      color: 'text-emerald-700',bg: 'bg-emerald-50',  icon: CheckCircle2 },
   cancelled:  { label: 'Cancelado',     color: 'text-red-700',    bg: 'bg-red-50',      icon: XCircle },
+  refunded:   { label: 'Reembolsado',   color: 'text-gray-700',   bg: 'bg-gray-50',     icon: XCircle },
   completed:  { label: 'Concluído',     color: 'text-emerald-700',bg: 'bg-emerald-50',  icon: CheckCircle2 },
 };
 
-function OrdersTab({ orders, isLoading }: { orders: Order[]; isLoading: boolean }) {
+function OrdersTab({ clientId }: { clientId: string }) {
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  const { data: orders = [], isLoading } = useQuery<Order[]>({
+    queryKey: ['client-orders', clientId],
+    queryFn: async () => {
+      const res = await api.get<{ data: Record<string, unknown> }>(`/api/clients/${clientId}`);
+      const raw = res.data as Record<string, unknown>;
+      const clientData = (raw?.data ?? raw) as Record<string, unknown>;
+      return (clientData?.recent_orders as Order[]) ?? [];
+    },
+    enabled: !!clientId,
+    staleTime: 30_000,
+  });
 
   if (isLoading) {
     return (
@@ -507,7 +522,19 @@ function OrdersTab({ orders, isLoading }: { orders: Order[]; isLoading: boolean 
    ABA 3 — RASTREIO AUTOMÁTICO
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-function TrackingTab({ orders, isLoading }: { orders: Order[]; isLoading: boolean }) {
+function TrackingTab({ clientId }: { clientId: string }) {
+  const { data: orders = [], isLoading } = useQuery<Order[]>({
+    queryKey: ['client-orders', clientId],
+    queryFn: async () => {
+      const res = await api.get<{ data: Record<string, unknown> }>(`/api/clients/${clientId}`);
+      const raw = res.data as Record<string, unknown>;
+      const clientData = (raw?.data ?? raw) as Record<string, unknown>;
+      return (clientData?.recent_orders as Order[]) ?? [];
+    },
+    enabled: !!clientId,
+    staleTime: 30_000,
+  });
+
   const trackableOrders = orders.filter(o =>
     (o as unknown as Record<string, unknown>).tracking_code
   );
@@ -1260,7 +1287,6 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
   if (!selectedChatId) return null;
 
   const client = clientData as Record<string, unknown> | null;
-  const orders: Order[] = (client?.recent_orders as Order[]) ?? [];
 
   return (
     <aside className="w-72 shrink-0 flex flex-col bg-white border-l border-gray-200 h-full overflow-hidden">
@@ -1316,33 +1342,35 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
       {/* ── Métricas fixas — visíveis em qualquer aba ── */}
       {client && (() => {
         const c = client as Record<string, unknown>;
-        const PAID = new Set(['paid', 'pago', 'completed', 'concluido', 'delivered', 'shipped', 'entregue']);
-        const pedidosPagos = orders.filter(o =>
-          PAID.has(String((o as unknown as Record<string, unknown>).status ?? '').toLowerCase())
-        );
-        const ltvFromOrders = pedidosPagos.reduce((s, o) => s + (Number((o as unknown as Record<string, unknown>).total) || 0), 0);
-        const ticketFromOrders = pedidosPagos.length > 0 ? ltvFromOrders / pedidosPagos.length : 0;
-        const ltv = (c.ltv as number) || ltvFromOrders;
-        const ticket = (c.avg_ticket as number) ?? (c.ticket_medio as number) ?? ticketFromOrders;
-        const totalPedidos = (c.total_orders as number) ?? orders.length ?? 0;
+        const ltv = (c.ltv as number) ?? 0;
+        const ticket = (c.avg_ticket as number) ?? (c.ticket_medio as number) ?? 0;
+        const totalPedidos = (c.total_orders as number) ?? 0;
         return (
           <div className="grid grid-cols-3 gap-2 px-3 py-2.5 border-b border-gray-100 bg-white shrink-0">
             <MetricCard
               icon={<TrendingUp size={12} className="text-crm-primary" />}
               label="LTV"
-              value={ltv > 0 ? formatCurrency(ltv) : totalPedidos === 0 ? '—' : formatCurrency(0)}
+              value={ltv > 0 ? formatCurrency(ltv) : '—'}
               highlight
             />
             <MetricCard
               icon={<Star size={12} className="text-amber-500" />}
               label="Ticket"
-              value={ticket > 0 ? formatCurrency(ticket) : totalPedidos === 0 ? '—' : formatCurrency(0)}
+              value={ticket > 0 ? formatCurrency(ticket) : '—'}
             />
-            <MetricCard
-              icon={<ShoppingBag size={12} className="text-gray-500" />}
-              label="Pedidos"
-              value={String(totalPedidos)}
-            />
+            <button
+              onClick={() => setActiveTab('orders')}
+              className="rounded-xl p-2.5 text-center border bg-gray-50 border-gray-100 hover:bg-crm-primary/5 hover:border-crm-primary/20 transition-colors group"
+              title="Ver pedidos"
+            >
+              <div className="flex items-center justify-center gap-1 mb-0.5">
+                <ShoppingBag size={12} className="text-gray-400 group-hover:text-crm-primary transition-colors" />
+                <p className="text-[9px] text-gray-400 uppercase tracking-wide">Pedidos</p>
+              </div>
+              <p className="text-sm font-black text-gray-800 group-hover:text-crm-primary transition-colors">
+                {String(totalPedidos)}
+              </p>
+            </button>
           </div>
         );
       })()}
@@ -1366,7 +1394,7 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
             {activeTab === 'identity' && (
               <IdentityTab
                 client={client}
-                orders={orders}
+                orders={(client?.recent_orders as Order[]) ?? []}
                 clientId={(client.id as string) ?? selectedChatId}
                 onRefresh={() => {
                   queryClient.invalidateQueries({ queryKey: ['brain-client', selectedChatId] });
@@ -1375,10 +1403,10 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
               />
             )}
             {activeTab === 'orders' && (
-              <OrdersTab orders={orders} isLoading={isLoading} />
+              <OrdersTab clientId={(client.id as string) ?? selectedChatId} />
             )}
             {activeTab === 'tracking' && (
-              <TrackingTab orders={orders} isLoading={isLoading} />
+              <TrackingTab clientId={(client.id as string) ?? selectedChatId} />
             )}
             {activeTab === 'pipeline' && (
               <PipelineTab clientId={(client.id as string) ?? selectedChatId} />

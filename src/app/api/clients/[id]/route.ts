@@ -79,43 +79,86 @@ export async function GET(
       return NextResponse.json({ error: 'Cliente não encontrado' }, { status: 404 });
     }
 
-    // Buscar pedidos pelo client_id
+    // Buscar pedidos com itens (JOIN order_items) pelo client_id
     let orders: any[] = [];
-    
-    // Se temos um client.id real, buscar pedidos diretamente
-    if (client.id) {
-      const { data: ordersById } = await supabase
+
+    // Helper: busca pedidos + itens para uma lista de client_ids
+    const fetchOrdersWithItems = async (clientIds: string[]) => {
+      const { data: rawOrders } = await supabase
         .from('orders')
-        .select('*')
+        .select(`
+          id,
+          external_id,
+          order_number,
+          status,
+          payment_status,
+          payment_method,
+          subtotal,
+          discount,
+          shipping,
+          total,
+          tracking_code,
+          tracking_url,
+          shipping_address,
+          coupon_code,
+          notes,
+          metadata,
+          created_at,
+          updated_at,
+          confirmed_at,
+          shipped_at,
+          delivered_at,
+          cancelled_at,
+          client_id,
+          order_items (
+            id,
+            product_name,
+            product_sku,
+            quantity,
+            unit_price,
+            total_price,
+            metadata
+          )
+        `)
         .eq('tenant_id', tenantId)
-        .eq('client_id', client.id)
+        .in('client_id', clientIds)
         .order('created_at', { ascending: false })
         .limit(50);
 
-      orders = ordersById || [];
+      // Normalizar: renomear order_items → items
+      return (rawOrders ?? []).map((o: any) => ({
+        ...o,
+        items: (o.order_items ?? []).map((item: any) => ({
+          product_name: item.product_name,
+          nome: item.product_name,
+          product_sku: item.product_sku,
+          quantity: item.quantity,
+          price: item.unit_price,
+          unit_price: item.unit_price,
+          total_price: item.total_price,
+          metadata: item.metadata,
+        })),
+        order_items: undefined,
+      }));
+    };
+
+    // Se temos um client.id real, buscar pedidos diretamente
+    if (client.id) {
+      orders = await fetchOrdersWithItems([client.id]);
     }
-    
+
     // Fallback: Se não encontrou pedidos mas temos phone_canonical,
-    // tentar buscar cliente com mesmo telefone que tenha pedidos
+    // tentar buscar clientes com mesmo telefone que tenham pedidos
     if (orders.length === 0 && client.phone_canonical) {
       const { data: clientsWithSamePhone } = await supabase
         .from('clients')
         .select('id')
         .eq('tenant_id', tenantId)
         .eq('phone_canonical', client.phone_canonical);
-      
+
       if (clientsWithSamePhone && clientsWithSamePhone.length > 0) {
-        const clientIds = clientsWithSamePhone.map(c => c.id);
-        
-        const { data: ordersByPhoneClients } = await supabase
-          .from('orders')
-          .select('*')
-          .eq('tenant_id', tenantId)
-          .in('client_id', clientIds)
-          .order('created_at', { ascending: false })
-          .limit(50);
-        
-        orders = ordersByPhoneClients || [];
+        const clientIds = clientsWithSamePhone.map((c: any) => c.id);
+        orders = await fetchOrdersWithItems(clientIds);
       }
     }
 
