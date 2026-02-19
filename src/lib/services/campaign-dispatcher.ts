@@ -137,6 +137,7 @@ export async function criarJobsCampanha(
   destinatarios: ContatoJob[],
   blocos: Bloco[]
 ): Promise<{ total: number; error?: string }> {
+  const agora = new Date().toISOString();
   const jobs = destinatarios.map((c, i) => ({
     campanha_id: campanhaId,
     tenant_id: tenantId,
@@ -146,6 +147,7 @@ export async function criarJobsCampanha(
     blocos,
     ordem: i + 1,
     status: 'pendente',
+    proximo_envio_em: agora, // IMPORTANTE: sem isso o dispatcher não encontra os jobs
   }));
 
   // Inserção em chunks de 500 para evitar limite de payload
@@ -290,12 +292,14 @@ export async function processarFilaCampanha(
     }
 
     // Buscar próximo job pendente
+    // Usar .or() para incluir jobs com proximo_envio_em NULL (jobs antigos sem esse campo)
+    const agora = new Date().toISOString();
     const { data: job, error: errJob } = await supabase
       .from('campaign_jobs')
       .select('*')
       .eq('campanha_id', campanhaId)
       .eq('status', 'pendente')
-      .lte('proximo_envio_em', new Date().toISOString())
+      .or(`proximo_envio_em.is.null,proximo_envio_em.lte.${agora}`)
       .order('ordem', { ascending: true })
       .limit(1)
       .single();

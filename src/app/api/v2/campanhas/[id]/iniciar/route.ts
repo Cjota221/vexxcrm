@@ -7,11 +7,9 @@ type Params = Promise<{ id: string }>;
 /**
  * POST /api/v2/campanhas/[id]/iniciar
  *
- * Muda o status da campanha para "running" e dispara o processador
- * de fila via chamada assíncrona ao cron interno (fire-and-forget).
- *
- * O front-end chama este endpoint após criar a campanha (status draft)
- * e o usuário clicar em "Disparar Agora".
+ * Muda o status da campanha para "running".
+ * O front-end é responsável por chamar /dispatch-batch em loop
+ * para processar os jobs com delays anti-ban entre cada chamada.
  */
 export async function POST(request: NextRequest, { params }: { params: Params }) {
   try {
@@ -66,26 +64,7 @@ export async function POST(request: NextRequest, { params }: { params: Params })
       return NextResponse.json({ error: errUpdate.message }, { status: 500 });
     }
 
-    // Fire-and-forget: acionar o dispatcher via cron endpoint interno
-    // Não aguardamos o resultado (o disparo é longo e rodaria em background)
-    const baseUrl = process.env.NEXTAUTH_URL
-      || process.env.NEXT_PUBLIC_APP_URL
-      || request.headers.get('origin')
-      || 'https://vexxcrm.netlify.app';
-
-    const cronSecret = process.env.CRON_SECRET || process.env.SUPABASE_SERVICE_KEY || '';
-
-    // Não await — disparo assíncrono em background
-    fetch(`${baseUrl}/api/cron/campaign-dispatcher`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${cronSecret}`,
-      },
-      body: JSON.stringify({ campanha_id: id, tenant_id: profile.tenant_id }),
-    }).catch(err => {
-      console.error('[INICIAR_CAMPANHA] Erro ao acionar dispatcher:', err);
-    });
+    console.log(`[INICIAR_CAMPANHA] Campanha "${campanha.name}" (${id}) → running com ${jobsPendentes} jobs`);
 
     return NextResponse.json({
       success: true,

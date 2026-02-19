@@ -131,12 +131,16 @@ function CampanhaCardItem({ campanha, onAction }: { campanha: CampanhaCard; onAc
   const Icon = config.icon;
   const [atualizando, setAtualizando] = useState(false);
 
-  const handleAction = async (fn: () => Promise<boolean>, e: React.MouseEvent) => {
+  const handleAction = async (fn: () => Promise<boolean>, e: React.MouseEvent, navigateAfter?: string) => {
     e.stopPropagation();
     setAtualizando(true);
-    await fn();
+    const ok = await fn();
     setAtualizando(false);
-    onAction();
+    if (ok && navigateAfter) {
+      router.push(navigateAfter);
+    } else {
+      onAction();
+    }
   };
 
   const taxaErro = (campanha.sent_count + campanha.failed_count) > 0
@@ -172,7 +176,7 @@ function CampanhaCardItem({ campanha, onAction }: { campanha: CampanhaCard; onAc
           <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
             {atualizando && <Loader2 size={14} className="animate-spin text-txt-secondary" />}
             {campanha.status === 'draft' && (
-              <button onClick={e => handleAction(() => iniciarCampanha(campanha.id), e)} className="p-1 rounded hover:bg-green-50 text-green-600" title="Disparar agora"><Send size={14} /></button>
+              <button onClick={e => handleAction(() => iniciarCampanha(campanha.id), e, `/campanhas/${campanha.id}`)} className="p-1 rounded hover:bg-green-50 text-green-600" title="Disparar agora"><Send size={14} /></button>
             )}
             {campanha.status === 'running' && (
               <button onClick={e => handleAction(() => pausarCampanha(campanha.id), e)} className="p-1 rounded hover:bg-yellow-50 text-yellow-600" title="Pausar"><Pause size={14} /></button>

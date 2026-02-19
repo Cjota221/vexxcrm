@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowLeft,
@@ -20,6 +20,7 @@ import {
   Mic,
   Type,
   ExternalLink,
+  Zap,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -102,6 +103,14 @@ export default function CampanhaDetalhePage() {
   const [metricas, setMetricas] = useState<Metricas | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [atualizando, setAtualizando] = useState(false);
+  const [dispatchLog, setDispatchLog] = useState<string[]>([]);
+  const [dispatching, setDispatching] = useState(false);
+  const dispatchAbortRef = useRef(false);
+
+  const addLog = (msg: string) => {
+    const ts = new Date().toLocaleTimeString('pt-BR');
+    setDispatchLog(prev => [...prev.slice(-50), `[${ts}] ${msg}`]);
+  };
 
   const fetchCampanha = useCallback(async () => {
     const { data, error } = await api.get<{ campanha: CampanhaDetalhe; metricas: Metricas }>(
@@ -116,12 +125,76 @@ export default function CampanhaDetalhePage() {
 
   useEffect(() => { fetchCampanha(); }, [fetchCampanha]);
 
-  // Auto-refresh a cada 5s se running
+  // ─── Dispatch Loop (orquestra envios com delay anti-ban) ───────────────────
+  // Quando a campanha está "running", faz polling no /dispatch-batch
+  // com delay humanizado entre chamadas para simular anti-ban.
   useEffect(() => {
-    if (campanha?.status !== 'running') return;
-    const interval = setInterval(fetchCampanha, 5_000);
-    return () => clearInterval(interval);
-  }, [campanha?.status, fetchCampanha]);
+    if (campanha?.status !== 'running') {
+      setDispatching(false);
+      return;
+    }
+    if (dispatching) return; // já rodando
+
+    let cancelled = false;
+    dispatchAbortRef.current = false;
+    setDispatching(true);
+
+    const runLoop = async () => {
+      addLog('🚀 Iniciando disparo automático...');
+
+      while (!cancelled && !dispatchAbortRef.current) {
+        try {
+          const { data, error } = await api.post<{
+            enviados: number;
+            falhas: number;
+            restantes: number;
+            concluida: boolean;
+            elapsed_ms: number;
+          }>(`/api/v2/campanhas/${campaignId}/dispatch-batch`, { batch_size: 3 });
+
+          if (error) {
+            addLog(`❌ Erro no batch: ${error}`);
+            // Espera 30s e tenta de novo
+            await new Promise(r => setTimeout(r, 30_000));
+            continue;
+          }
+
+          if (!data) break;
+
+          addLog(`✅ Batch: ${data.enviados} enviados, ${data.falhas} falhas — ${data.restantes} restantes (${data.elapsed_ms}ms)`);
+
+          // Atualizar dados da campanha
+          await fetchCampanha();
+
+          if (data.concluida) {
+            addLog('🎉 Campanha concluída! Todos os envios foram processados.');
+            break;
+          }
+
+          if (data.restantes === 0) break;
+
+          // Delay anti-ban humanizado: 15-45s entre batches
+          const delay = 15_000 + Math.random() * 30_000;
+          addLog(`⏳ Aguardando ${Math.round(delay / 1000)}s (anti-ban)...`);
+          await new Promise(r => setTimeout(r, delay));
+
+        } catch (err) {
+          addLog(`❌ Erro inesperado: ${err}`);
+          await new Promise(r => setTimeout(r, 10_000));
+        }
+      }
+
+      setDispatching(false);
+    };
+
+    runLoop();
+
+    return () => {
+      cancelled = true;
+      dispatchAbortRef.current = true;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campanha?.status, campaignId]);
 
   const handleAction = async (action: string) => {
     setAtualizando(true);
@@ -278,6 +351,27 @@ export default function CampanhaDetalhePage() {
           )}
         </div>
       </Card>
+
+      {/* Log de disparo (só aparece quando running ou há logs) */}
+      {(campanha.status === 'running' || dispatchLog.length > 0) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              <Zap size={16} /> Log de Disparo
+              {dispatching && <Loader2 size={14} className="animate-spin ml-2 inline" />}
+            </CardTitle>
+          </CardHeader>
+          <div className="px-6 pb-6">
+            <div className="bg-gray-900 text-green-400 rounded-lg p-4 max-h-48 overflow-y-auto font-mono text-xs space-y-0.5">
+              {dispatchLog.length === 0 ? (
+                <p className="text-gray-500">Aguardando início do disparo...</p>
+              ) : (
+                dispatchLog.map((log, i) => <p key={i}>{log}</p>)
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Blocos da campanha */}
       <Card>

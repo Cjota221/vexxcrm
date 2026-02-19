@@ -788,12 +788,12 @@ function NovaCampanhaInner() {
       if (!scheduledAt) {
         const { error: errIniciar } = await api.post(`/api/v2/campanhas/${campanhaId}/iniciar`, {});
         if (errIniciar) {
-          // Não bloqueia — avisa mas redireciona assim mesmo
           console.warn('[NOVA_CAMPANHA] Erro ao iniciar disparo:', errIniciar);
         }
       }
 
-      router.push(`/campanhas?criada=1`);
+      // Redirecionar para a página de detalhe (onde o disparo é orquestrado)
+      router.push(`/campanhas/${campanhaId}`);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao criar campanha');
     } finally {
