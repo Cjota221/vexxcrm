@@ -331,8 +331,8 @@ export async function sendMediaMessage(
   caption?: string,
   mediaType: 'image' | 'video' | 'audio' | 'document' = 'image'
 ): Promise<string> {
-  const typeCapitalized = mediaType.charAt(0).toUpperCase() + mediaType.slice(1);
-  const endpoint = `${config.apiUrl}/message/send${typeCapitalized}/${config.instanceName}`;
+  // Evolution API usa /message/sendMedia para todos os tipos de mídia
+  const endpoint = `${config.apiUrl}/message/sendMedia/${config.instanceName}`;
 
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -340,7 +340,12 @@ export async function sendMediaMessage(
       'Content-Type': 'application/json',
       'apikey': config.apiKey,
     },
-    body: JSON.stringify({ number: to, mediaUrl, caption }),
+    body: JSON.stringify({
+      number: to,
+      media: mediaUrl,
+      mediatype: mediaType,
+      caption: caption || undefined,
+    }),
   });
 
   if (!response.ok) {
