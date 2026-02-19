@@ -87,6 +87,47 @@ export function useRealtimeMessages() {
             // O componente de notificações pode ouvir este event
             break;
           }
+
+          case 'kanban_moved': {
+            // Anne moveu um card de pipeline → atualizar KanbanDrawer + BrainSidebar
+            const payload = data as {
+              client_id: string;
+              chat_id: string;
+              de_coluna: string | null;
+              para_coluna: string;
+              motivo: string;
+              trigger: string;
+              timestamp: string;
+            };
+            queryClient.invalidateQueries({ queryKey: ['kanban-counts'] });
+            queryClient.invalidateQueries({ queryKey: ['kanban-pipeline', payload.client_id] });
+            // Propagar como CustomEvent para listeners no window
+            window.dispatchEvent(
+              new CustomEvent('sse:kanban_moved', { detail: payload })
+            );
+            break;
+          }
+
+          case 'client_updated': {
+            // Nome ou dados do cliente foram atualizados automaticamente
+            const payload = data as { client_id: string };
+            queryClient.invalidateQueries({ queryKey: ['brain-client'] });
+            queryClient.invalidateQueries({ queryKey: ['chats'] });
+            window.dispatchEvent(
+              new CustomEvent('sse:client_updated', { detail: payload })
+            );
+            break;
+          }
+
+          case 'orders_updated': {
+            // tracking_code inserido num pedido
+            const payload = data as { client_id: string; tracking_code: string };
+            queryClient.invalidateQueries({ queryKey: ['brain-client'] });
+            window.dispatchEvent(
+              new CustomEvent('sse:orders_updated', { detail: payload })
+            );
+            break;
+          }
         }
       } catch {
         // Ignore heartbeats e payloads inválidos

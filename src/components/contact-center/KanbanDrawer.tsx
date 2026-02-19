@@ -27,7 +27,7 @@ import {
   BanknoteIcon,
   CheckCircle2,
 } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 
@@ -137,6 +137,7 @@ function useKanbanCounts() {
 
 export function KanbanDrawer({ open, onClose }: KanbanDrawerProps) {
   const { data: counts = [], isLoading, refetch } = useKanbanCounts();
+  const queryClient = useQueryClient();
   const drawerRef = useRef<HTMLDivElement>(null);
 
   // Fechar com Escape
@@ -147,6 +148,15 @@ export function KanbanDrawer({ open, onClose }: KanbanDrawerProps) {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [open, onClose]);
+
+  // ── Realtime: reagir a kanban_moved emitido pela Anne ─────────
+  useEffect(() => {
+    const handler = () => {
+      queryClient.invalidateQueries({ queryKey: ['kanban-counts'] });
+    };
+    window.addEventListener('sse:kanban_moved', handler);
+    return () => window.removeEventListener('sse:kanban_moved', handler);
+  }, [queryClient]);
 
   const getCount = (col: KanbanColumn) =>
     counts.find(c => c.coluna === col)?.count ?? 0;

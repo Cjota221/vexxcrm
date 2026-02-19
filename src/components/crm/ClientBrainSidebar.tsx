@@ -45,6 +45,10 @@ import {
   Tag,
   ChevronDown,
   ChevronRight,
+  GitBranch,
+  ArrowRight,
+  Bot,
+  UserCheck,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useChatsStore } from '@/store/chats';
@@ -59,11 +63,11 @@ import {
   getAvatarColor,
   cn,
 } from '@/lib/utils';
-import type { Order } from '@/types';
+import type { Order, KanbanTransition, KanbanColumn } from '@/types';
 
 /* ─── Abas disponíveis ───────────────────────────────────────── */
 
-type BrainTab = 'identity' | 'orders' | 'tracking' | 'anne';
+type BrainTab = 'identity' | 'orders' | 'tracking' | 'pipeline' | 'anne';
 
 const TABS: {
   key: BrainTab;
@@ -71,10 +75,11 @@ const TABS: {
   shortLabel: string;
   icon: typeof User;
 }[] = [
-  { key: 'identity', label: 'Identidade', shortLabel: 'ID', icon: User },
-  { key: 'orders', label: 'Pedidos', shortLabel: 'Pedidos', icon: ShoppingBag },
-  { key: 'tracking', label: 'Rastreio', shortLabel: 'Rastreio', icon: Truck },
-  { key: 'anne', label: 'Insights Anne', shortLabel: 'Anne', icon: Brain },
+  { key: 'identity',  label: 'Identidade',    shortLabel: 'ID',       icon: User },
+  { key: 'orders',    label: 'Pedidos',        shortLabel: 'Pedidos',  icon: ShoppingBag },
+  { key: 'tracking',  label: 'Rastreio',       shortLabel: 'Rastreio', icon: Truck },
+  { key: 'pipeline',  label: 'Pipeline',       shortLabel: 'Pipeline', icon: GitBranch },
+  { key: 'anne',      label: 'Insights Anne',  shortLabel: 'Anne',     icon: Brain },
 ];
 
 const STATUS_MAP: Record<
@@ -641,7 +646,187 @@ function TrackingTab({ orders, isLoading }: { orders: Order[]; isLoading: boolea
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   ABA 4 — INSIGHTS ANNE
+   ABA 4 — PIPELINE (histórico de movimentações kanban)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+const KANBAN_COLUMN_CONFIG: Record<
+  KanbanColumn,
+  { label: string; color: string; bg: string; border: string }
+> = {
+  PRIMEIRO_CONTATO:    { label: 'Primeiro Contato',    color: 'text-sky-700',     bg: 'bg-sky-50',     border: 'border-sky-200' },
+  EM_NEGOCIACAO:       { label: 'Em Negociação',        color: 'text-blue-700',    bg: 'bg-blue-50',    border: 'border-blue-200' },
+  AGUARDANDO_PAGAMENTO:{ label: 'Aguard. Pagamento',    color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200' },
+  PAGO:                { label: 'Pago',                 color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' },
+  REATIVAR:            { label: 'Reativar',             color: 'text-orange-700',  bg: 'bg-orange-50',  border: 'border-orange-200' },
+  CONCLUIDO:           { label: 'Concluído',            color: 'text-violet-700',  bg: 'bg-violet-50',  border: 'border-violet-200' },
+};
+
+function KanbanColumnBadge({ coluna }: { coluna: KanbanColumn | null }) {
+  if (!coluna) return <span className="text-[10px] text-gray-400 italic">—</span>;
+  const cfg = KANBAN_COLUMN_CONFIG[coluna] ?? { label: coluna, color: 'text-gray-600', bg: 'bg-gray-50', border: 'border-gray-200' };
+  return (
+    <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-md border', cfg.bg, cfg.color, cfg.border)}>
+      {cfg.label}
+    </span>
+  );
+}
+
+function PipelineTab({ clientId }: { clientId: string }) {
+  const queryClient = useQueryClient();
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['kanban-pipeline', clientId],
+    queryFn: async () => {
+      const res = await api.get<{
+        card: {
+          coluna: KanbanColumn;
+          tags: string[];
+          score_anne: number | null;
+          tentativas_reativacao: number;
+          updated_at: string;
+        } | null;
+        transitions: KanbanTransition[];
+      }>(`/api/kanban/${clientId}`);
+      return res.data;
+    },
+    enabled: !!clientId,
+    staleTime: 15_000,
+  });
+
+  // Escutar SSE kanban_moved para refresh automático
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const evt = e as CustomEvent<{ client_id: string }>;
+      if (evt.detail?.client_id === clientId) {
+        queryClient.invalidateQueries({ queryKey: ['kanban-pipeline', clientId] });
+      }
+    };
+    window.addEventListener('sse:kanban_moved', handler);
+    return () => window.removeEventListener('sse:kanban_moved', handler);
+  }, [clientId, queryClient]);
+
+  if (isLoading) {
+    return <div className="flex justify-center py-16"><Loader2 size={24} className="animate-spin text-crm-primary" /></div>;
+  }
+
+  const card = data?.card ?? null;
+  const transitions = data?.transitions ?? [];
+
+  return (
+    <div className="p-4 space-y-4">
+      {/* Card atual */}
+      <div className={cn(
+        'rounded-2xl border p-4 flex items-center gap-3',
+        card ? 'bg-white border-gray-100' : 'bg-gray-50 border-gray-100'
+      )}>
+        <div className={cn(
+          'w-10 h-10 rounded-xl flex items-center justify-center shrink-0',
+          card ? 'bg-crm-primary/10' : 'bg-gray-100'
+        )}>
+          <GitBranch size={18} className={card ? 'text-crm-primary' : 'text-gray-300'} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Coluna atual</p>
+          {card ? (
+            <>
+              <KanbanColumnBadge coluna={card.coluna} />
+              <div className="flex items-center gap-2 mt-1.5">
+                {card.score_anne !== null && (
+                  <div className="flex items-center gap-1">
+                    <div className="w-12 h-1 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-crm-primary rounded-full"
+                        style={{ width: `${Math.round((card.score_anne ?? 0) * 100)}%` }}
+                      />
+                    </div>
+                    <span className="text-[9px] text-gray-400">{Math.round((card.score_anne ?? 0) * 100)}%</span>
+                  </div>
+                )}
+                <span className="text-[9px] text-gray-400">
+                  {formatRelativeTime(card.updated_at)}
+                </span>
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-gray-400 italic">Nenhum card de pipeline</p>
+          )}
+        </div>
+        <button
+          onClick={() => refetch()}
+          className="p-1.5 rounded-lg text-gray-300 hover:bg-gray-100 hover:text-gray-600 transition-colors shrink-0"
+        >
+          <RefreshCw size={12} />
+        </button>
+      </div>
+
+      {/* Histórico de movimentações */}
+      <div>
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
+          Histórico de Pipeline
+        </p>
+
+        {transitions.length === 0 ? (
+          <div className="flex flex-col items-center py-10 text-center">
+            <GitBranch size={24} className="text-gray-200 mb-2" />
+            <p className="text-xs text-gray-400">Nenhuma movimentação registrada.</p>
+            <p className="text-[10px] text-gray-300 mt-0.5">As movimentações aparecem automaticamente.</p>
+          </div>
+        ) : (
+          <div className="relative space-y-0">
+            {/* Linha vertical */}
+            <div className="absolute left-3.5 top-4 bottom-4 w-px bg-gray-100" />
+
+            {transitions.map((t, i) => {
+              const isAnne = t.autor === 'anne';
+              return (
+                <div key={t.id} className="relative flex gap-3 pb-3">
+                  {/* Dot na timeline */}
+                  <div className={cn(
+                    'w-7 h-7 rounded-full border-2 flex items-center justify-center shrink-0 z-10 bg-white',
+                    isAnne
+                      ? 'border-crm-primary/40'
+                      : 'border-gray-300'
+                  )}>
+                    {isAnne
+                      ? <Bot size={12} className="text-crm-primary" />
+                      : <UserCheck size={12} className="text-gray-500" />
+                    }
+                  </div>
+
+                  {/* Conteúdo */}
+                  <div className="flex-1 min-w-0 pt-0.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <KanbanColumnBadge coluna={t.de_coluna as KanbanColumn | null} />
+                      <ArrowRight size={10} className="text-gray-300 shrink-0" />
+                      <KanbanColumnBadge coluna={t.para_coluna as KanbanColumn} />
+                    </div>
+
+                    {t.motivo && (
+                      <p className="text-[10px] text-gray-500 mt-1 leading-relaxed line-clamp-2">{t.motivo}</p>
+                    )}
+
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <span className={cn(
+                        'text-[9px] font-semibold px-1.5 py-0.5 rounded',
+                        isAnne ? 'text-crm-primary bg-crm-primary/8' : 'text-gray-500 bg-gray-100'
+                      )}>
+                        {isAnne ? '🤖 Anne' : '👤 Manual'}
+                      </span>
+                      <span className="text-[9px] text-gray-400">{formatRelativeTime(t.created_at)}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ABA 5 — INSIGHTS ANNE
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 function AnneInsightsTab({ chatId }: { chatId: string }) {
@@ -959,6 +1144,9 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
             )}
             {activeTab === 'tracking' && (
               <TrackingTab orders={orders} isLoading={isLoading} />
+            )}
+            {activeTab === 'pipeline' && (
+              <PipelineTab clientId={(client.id as string) ?? selectedChatId} />
             )}
             {activeTab === 'anne' && (
               <AnneInsightsTab chatId={selectedChatId} />

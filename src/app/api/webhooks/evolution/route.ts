@@ -3,6 +3,7 @@ import { createServerSupabaseClient } from '@/lib/supabase';
 import { PhoneNormalizer } from '@/lib/phone-normalizer';
 import { eventBus } from '@/lib/event-bus';
 import { forwardMediaToN8n, getTenantEvolutionConfig, sendTextMessage, fetchChats, fetchMessages, downloadMediaToStorage } from '@/lib/services/evolution.service';
+import { processPipelineTriggers } from '@/lib/services/pipeline-triggers';
 import type { EvolutionWebhookPayload } from '@/types';
 
 /**
@@ -293,6 +294,17 @@ async function handleNewMessage(
     client_id: client.id,
     message: savedMessage,
   });
+
+  // ━━━ AUTOMAÇÃO DE PIPELINE (Anne Motor de Gatilhos) ━━━
+  // Fire-and-forget: não bloqueia resposta do webhook
+  processPipelineTriggers(
+    supabase,
+    tenantId,
+    { id: client.id, name: client.name, name_manual: client.name_manual },
+    remoteJid,
+    text,
+    fromMe
+  ).catch(err => console.warn('[Webhook] Erro no pipeline trigger:', err));
 
   // ━━━ TRANSBORDO DE MÍDIA PARA n8n ━━━
   // Encaminhar áudio, imagem e vídeo para processamento inteligente
