@@ -48,9 +48,9 @@ export async function POST(request: NextRequest) {
 
     // ─── SYNC RÁPIDO: apenas página 1 de cada (dados mais recentes) ───
 
-    // 1. PRODUTOS (página 1)
+    // 1. PRODUTOS (página 1 — apenas 30 para ser rápido)
     try {
-      const { products } = await fetchProducts(facilzapConfig, 1, 50);
+      const { products } = await fetchProducts(facilzapConfig, 1, 30);
       if (products.length > 0) {
         const data = (products as any[]).map((p: any) => {
           let stock = parseInt(String(p.stock ?? 0), 10);
@@ -90,9 +90,9 @@ export async function POST(request: NextRequest) {
       results.errors.push('Produtos: ' + e.message);
     }
 
-    // 2. CLIENTES (página 1)
+    // 2. CLIENTES (página 1 — apenas 30 para ser rápido)
     try {
-      const { clients } = await fetchClients(facilzapConfig, 1, 50);
+      const { clients } = await fetchClients(facilzapConfig, 1, 30);
       if (clients.length > 0) {
         const mapped = clients.map((c: any) => {
           const ph = (c.whatsapp_e164 || c.whatsapp || c.telefone || c.celular || '').replace(/\D/g, '');
@@ -135,8 +135,11 @@ export async function POST(request: NextRequest) {
       results.errors.push('Clientes: ' + e.message);
     }
 
-    // 3. PEDIDOS (últimos 30 dias, página 1)
-    try {
+    // 3. PEDIDOS (últimos 30 dias, página 1) — com guard de tempo
+    const elapsedBeforeOrders = Date.now() - startTime;
+    if (elapsedBeforeOrders > 15000) {
+      console.warn(`[AutoSync] ⏱️ Pedidos pulados — já gastou ${elapsedBeforeOrders}ms com produtos+clientes`);
+    } else try {
       const parseNum = (v: any): number => { const n = parseFloat(String(v || '0').replace(',', '.')); return isNaN(n) ? 0 : n; };
       const isTruthy = (v: any): boolean => v === '1' || v === 1 || v === true || v === 'true' || v === 'sim';
 
@@ -146,7 +149,7 @@ export async function POST(request: NextRequest) {
       const dis = di.toISOString().split('T')[0];
 
       console.log(`[AutoSync] Buscando pedidos de ${dis} até ${df}...`);
-      const { orders } = await fetchOrders(facilzapConfig, 1, 100, { data_inicial: dis, data_final: df });
+      const { orders } = await fetchOrders(facilzapConfig, 1, 50, { data_inicial: dis, data_final: df });
       console.log(`[AutoSync] Recebidos ${orders.length} pedidos da API`);
       if (orders.length > 0) {
         // Buscar clientes existentes para linkagem
@@ -306,7 +309,7 @@ export async function POST(request: NextRequest) {
           results.orders = uniqueData.length;
         }
 
-        // Re-vincular pedidos órfãos recentes
+        // Re-vincular pedidos órfãos recentes (batch update, sem loop individual)
         if (results.orders > 0) {
           try {
             const { data: orphans } = await supabaseAdmin
@@ -315,9 +318,9 @@ export async function POST(request: NextRequest) {
               .eq('tenant_id', tenantId)
               .is('client_id', null)
               .order('created_at', { ascending: false })
-              .limit(50);
+              .limit(30);
 
-            let relinked = 0;
+            const relinkUpdates: { id: string; client_id: string }[] = [];
             for (const order of (orphans || [])) {
               const meta = order.metadata as any;
               if (!meta) continue;
@@ -328,12 +331,16 @@ export async function POST(request: NextRequest) {
               }
               if (!cid && meta.cliente_id_facilzap) cid = fzIdMap.get(String(meta.cliente_id_facilzap)) || null;
               if (!cid && meta.cliente_email) cid = emailMap.get(meta.cliente_email.toLowerCase().trim()) || null;
-              if (cid) {
-                await supabaseAdmin.from('orders').update({ client_id: cid }).eq('id', order.id);
-                relinked++;
-              }
+              if (cid) relinkUpdates.push({ id: order.id, client_id: cid });
             }
-            results.relinked = relinked;
+
+            // Batch update: uma query por batch em vez de uma por órfão
+            if (relinkUpdates.length > 0) {
+              for (const upd of relinkUpdates) {
+                await supabaseAdmin.from('orders').update({ client_id: upd.client_id }).eq('id', upd.id);
+              }
+              results.relinked = relinkUpdates.length;
+            }
           } catch (e: any) {
             console.error('[Auto-Sync] Erro ao re-vincular:', e.message);
           }
@@ -346,52 +353,73 @@ export async function POST(request: NextRequest) {
     }
 
     // ========================================
-    // RECALCULAR STATS (após pedidos)
+    // RECALCULAR STATS (incremental — só clientes afetados)
     // ========================================
-    if (results.orders > 0 || results.relinked > 0) {
+    const elapsed = Date.now() - startTime;
+    if ((results.orders > 0 || results.relinked > 0) && elapsed < 18000) {
       try {
-        console.log('[Auto-Sync] 🔄 Recalculando stats dos clientes...');
-        
-        const { data: orders } = await supabaseAdmin
+        // Coletar IDs dos clientes afetados (dos pedidos sincronizados + revinculados)
+        const affectedClientIds = new Set<string>();
+        // Buscar client_ids dos pedidos que acabaram de ser upserted
+        const { data: recentOrders } = await supabaseAdmin
           .from('orders')
-          .select('client_id, total, created_at')
+          .select('client_id')
           .eq('tenant_id', tenantId)
-          .not('client_id', 'is', null);
+          .not('client_id', 'is', null)
+          .order('updated_at', { ascending: false })
+          .limit(100);
 
-        const clientStats = new Map<string, { total: number; count: number; last: string }>();
-        
-        for (const order of orders || []) {
-          if (!order.client_id) continue;
-          const existing = clientStats.get(order.client_id) || { total: 0, count: 0, last: '' };
-          existing.total += Number(order.total) || 0;
-          existing.count += 1;
-          if (!existing.last || order.created_at > existing.last) {
-            existing.last = order.created_at;
+        for (const o of recentOrders || []) {
+          if (o.client_id) affectedClientIds.add(o.client_id);
+        }
+
+        if (affectedClientIds.size > 0 && (Date.now() - startTime) < 20000) {
+          console.log(`[Auto-Sync] 🔄 Recalculando stats de ${affectedClientIds.size} clientes afetados...`);
+
+          // Buscar pedidos APENAS dos clientes afetados
+          const clientIdArray = Array.from(affectedClientIds);
+          const { data: clientOrders } = await supabaseAdmin
+            .from('orders')
+            .select('client_id, total, created_at')
+            .eq('tenant_id', tenantId)
+            .in('client_id', clientIdArray);
+
+          const clientStats = new Map<string, { total: number; count: number; last: string }>();
+          for (const order of clientOrders || []) {
+            if (!order.client_id) continue;
+            const existing = clientStats.get(order.client_id) || { total: 0, count: 0, last: '' };
+            existing.total += Number(order.total) || 0;
+            existing.count += 1;
+            if (!existing.last || order.created_at > existing.last) {
+              existing.last = order.created_at;
+            }
+            clientStats.set(order.client_id, existing);
           }
-          clientStats.set(order.client_id, existing);
+
+          const updates = Array.from(clientStats.entries()).map(([clientId, stats]) => ({
+            id: clientId,
+            tenant_id: tenantId,
+            total_orders: stats.count,
+            ltv: Math.round(stats.total * 100) / 100,
+            avg_ticket: stats.count > 0 ? Math.round((stats.total / stats.count) * 100) / 100 : 0,
+            last_order_at: stats.last || null,
+          }));
+
+          // Batch update
+          for (let i = 0; i < updates.length; i += 50) {
+            if (Date.now() - startTime > 22000) break; // safety: parar antes do timeout
+            const batch = updates.slice(i, i + 50);
+            await supabaseAdmin.from('clients').upsert(batch, { onConflict: 'id' });
+          }
+
+          console.log(`[Auto-Sync] ✅ Stats recalculadas: ${updates.length} clientes`);
+          results.stats_updated = updates.length;
         }
-
-        const updates = Array.from(clientStats.entries()).map(([clientId, stats]) => ({
-          id: clientId,
-          tenant_id: tenantId,
-          total_orders: stats.count,
-          ltv: Math.round(stats.total * 100) / 100,
-          avg_ticket: stats.count > 0 ? Math.round((stats.total / stats.count) * 100) / 100 : 0,
-          last_order_at: stats.last || null,
-        }));
-
-        let statsUpdated = 0;
-        for (let i = 0; i < updates.length; i += 100) {
-          const batch = updates.slice(i, i + 100);
-          await supabaseAdmin.from('clients').upsert(batch, { onConflict: 'id' });
-          statsUpdated += batch.length;
-        }
-
-        console.log(`[Auto-Sync] ✅ Stats recalculadas: ${statsUpdated} clientes`);
-        results.stats_updated = statsUpdated;
       } catch (e: any) {
         console.error('[Auto-Sync] Erro ao recalcular stats:', e.message);
       }
+    } else if (elapsed >= 18000) {
+      console.warn(`[Auto-Sync] ⏱️ Stats puladas — já gastou ${elapsed}ms, sem tempo para recalcular`);
     }
 
     const duration = Date.now() - startTime;
