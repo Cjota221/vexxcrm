@@ -1,14 +1,17 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Paperclip, Smile, Mic, X, Image, FileText, Video, Loader2 } from 'lucide-react';
+import { Send, Paperclip, Smile, Mic, X, Image, FileText, Video, Loader2, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { TemplatesFloatingPanel } from './TemplatesFloatingPanel';
 
 interface MessageInputProps {
   onSend: (content: string) => void;
   onSendMedia?: (file: File, caption: string) => void;
   isLoading?: boolean;
   disabled?: boolean;
+  /** Telefone do destinatário — necessário para envio de templates multi-bubble */
+  recipientPhone?: string;
 }
 
 const ACCEPTED_TYPES: Record<string, string> = {
@@ -33,13 +36,15 @@ const MAX_FILE_SIZE = 16 * 1024 * 1024; // 16MB
 /**
  * Input de mensagem com auto-resize estilo WhatsApp + envio de mídia.
  */
-export function MessageInput({ onSend, onSendMedia, isLoading, disabled }: MessageInputProps) {
+export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipientPhone }: MessageInputProps) {
   const [text, setText] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
   const [caption, setCaption] = useState('');
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Auto resize
   useEffect(() => {
@@ -112,6 +117,12 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled }: Messa
   }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // "/" no início do campo abre painel de templates
+    if (e.key === '/' && !text && !e.shiftKey && recipientPhone) {
+      e.preventDefault();
+      setTemplatesOpen(true);
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (selectedFile) {
@@ -188,7 +199,15 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled }: Messa
   }
 
   return (
-    <div className="bg-wa-bg-panel border-t border-wa-border px-4 py-3">
+    <div ref={containerRef} className="relative bg-wa-bg-panel border-t border-wa-border px-4 py-3">
+      {/* ── Templates Floating Panel ── */}
+      {templatesOpen && recipientPhone && (
+        <TemplatesFloatingPanel
+          recipientPhone={recipientPhone}
+          onClose={() => setTemplatesOpen(false)}
+        />
+      )}
+
       <div className="flex items-end gap-2">
         {/* Emoji */}
         <button className="p-2 text-wa-text-secondary hover:text-wa-text-primary transition-colors rounded-full hover:bg-wa-bg-hover">
@@ -210,6 +229,22 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled }: Messa
           className="hidden"
         />
 
+        {/* Templates ⚡ */}
+        {recipientPhone && (
+          <button
+            onClick={() => setTemplatesOpen(v => !v)}
+            title="Respostas rápidas (/) "
+            className={cn(
+              'p-2 transition-colors rounded-full',
+              templatesOpen
+                ? 'text-amber-500 bg-amber-50'
+                : 'text-wa-text-secondary hover:text-amber-500 hover:bg-wa-bg-hover'
+            )}
+          >
+            <Zap size={20} />
+          </button>
+        )}
+
         {/* Input */}
         <div className="flex-1 bg-wa-bg-input rounded-xl px-4 py-2">
           <textarea
@@ -220,7 +255,7 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled }: Messa
             placeholder="Digite uma mensagem"
             rows={1}
             disabled={disabled}
-            className="w-full bg-transparent text-sm text-wa-text-primary placeholder:text-wa-text-secondary outline-none resize-none max-h-[120px]"
+            className="w-full bg-transparent text-sm text-wa-text-primary placeholder:text-wa-text-secondary outline-none resize-none max-h-30"
           />
         </div>
 

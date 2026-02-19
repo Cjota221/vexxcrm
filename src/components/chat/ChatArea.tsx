@@ -208,7 +208,7 @@ export function ChatArea() {
       </div>
 
       {/* Message input */}
-      <MessageInput onSend={handleSend} onSendMedia={handleSendMedia} isLoading={isSending} disabled={!resolvedPhone} />
+      <MessageInput onSend={handleSend} onSendMedia={handleSendMedia} isLoading={isSending} disabled={!resolvedPhone} recipientPhone={resolvedPhone || undefined} />
     </div>
   );
 }

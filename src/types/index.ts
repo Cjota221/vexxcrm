@@ -796,16 +796,22 @@ export interface AnneTriggerLogEntry {
    TEMPLATE COMPOSTO (Mensagens Rápidas v2)
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-export type TemplateBlockType = 'text' | 'image' | 'link' | 'cta';
+export type TemplateBlockType = 'text' | 'image' | 'video' | 'audio' | 'document' | 'link' | 'cta';
 
 export interface TemplateBlock {
   id: string;
   type: TemplateBlockType;
   order: number;
+  /** Atraso em ms antes de enviar este bloco (padrão: 1000 = 1s para simular digitação humana) */
+  delay_ms?: number;
   // text
   content?: string;
-  // image
+  // image / video / audio / document
+  media_url?: string;
+  media_caption?: string;
+  /** @deprecated use media_url */
   image_url?: string;
+  /** @deprecated use media_caption */
   image_caption?: string;
   // link
   link_title?: string;

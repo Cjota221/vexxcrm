@@ -66,7 +66,7 @@ const FILTERS: { label: string; value: ChatFilter; badge?: boolean }[] = [
 
 /* ─── Tipos de painel ativo ──────────────────────────────────── */
 
-type ActivePanel = 'search' | 'templates' | 'anne' | null;
+type ActivePanel = 'anne' | null;
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    ACTION BAR — barra de ações compacta no topo
@@ -115,31 +115,6 @@ function ActionBar({
 
       {/* Ações */}
       <div className="flex items-center gap-0.5">
-        {/* Busca */}
-        <ActionIconBtn
-          icon={<Search size={15} />}
-          label="Busca (F1)"
-          active={activePanel === 'search'}
-          onClick={() => onTogglePanel('search')}
-        />
-
-        {/* Templates */}
-        <ActionIconBtn
-          icon={<MessageSquarePlus size={15} />}
-          label="Templates (F2)"
-          active={activePanel === 'templates'}
-          onClick={() => onTogglePanel('templates')}
-        />
-
-        {/* Campanha */}
-        <ActionIconBtn
-          icon={<Megaphone size={15} />}
-          label="Campanha (F3)"
-          active={false}
-          onClick={onOpenCampaign}
-          accent="amber"
-        />
-
         {/* Anne Monitor */}
         <div className="relative">
           <ActionIconBtn
@@ -500,7 +475,7 @@ export function ConversationSidebar({
   // Atalhos F1-F4
   useEffect(() => {
     const map: Record<string, ActivePanel | 'campaign'> = {
-      F1: 'search', F2: 'templates', F3: 'campaign', F4: 'anne',
+      F4: 'anne',
     };
     const handler = (e: KeyboardEvent) => {
       const action = map[e.key];
@@ -532,19 +507,13 @@ export function ConversationSidebar({
         totalUnread={totalUnread}
       />
 
-      {/* ── Painel ativo inline (busca / templates / anne) ── */}
-      {activePanel === 'search' && (
-        <SearchPanelInline onClose={() => setActivePanel(null)} />
-      )}
+      {/* ── Painel ativo inline (apenas Anne) ── */}
       {activePanel === 'anne' && (
         <AnnePanelInline
           anneEnabled={anneEnabled}
           onAnneToggle={onAnneToggle}
           onClose={() => setActivePanel(null)}
         />
-      )}
-      {activePanel === 'templates' && (
-        <TemplatesQuickPanel onClose={() => setActivePanel(null)} />
       )}
 
       {/* ── Filtros pill ── */}
