@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase';
-import { createClient } from '@supabase/supabase-js';
 
 /**
  * GET /api/kanban/[clientId]
@@ -14,9 +13,9 @@ import { createClient } from '@supabase/supabase-js';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { clientId: string } }
+  { params }: { params: Promise<{ clientId: string }> }
 ) {
-  const { clientId } = params;
+  const { clientId } = await params;
 
   if (!clientId) {
     return NextResponse.json({ error: 'clientId obrigatório' }, { status: 400 });
@@ -73,9 +72,9 @@ export async function GET(
  */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { clientId: string } }
+  { params }: { params: Promise<{ clientId: string }> }
 ) {
-  const { clientId } = params;
+  const { clientId } = await params;
 
   try {
     const body = await request.json();
