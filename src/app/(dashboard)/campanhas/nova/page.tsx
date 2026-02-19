@@ -595,7 +595,7 @@ function NovaCampanhaInner() {
       {/* Navegação */}
       <div className="flex items-center justify-between pt-2">
         <Button
-          variant="outline"
+          variant="ghost"
           onClick={() => step === 0 ? router.back() : setStep(s => s - 1)}
         >
           <ArrowLeft size={15} /> {step === 0 ? 'Voltar' : 'Anterior'}

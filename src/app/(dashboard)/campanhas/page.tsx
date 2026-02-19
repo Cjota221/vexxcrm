@@ -215,7 +215,7 @@ export default function CampanhasPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={refetch}><RefreshCw size={15} /></Button>
+          <Button variant="ghost" onClick={refetch}><RefreshCw size={15} /></Button>
           <Button variant="primary" onClick={() => router.push('/campanhas/nova')}>
             <Plus size={16} /> Nova Campanha
           </Button>
