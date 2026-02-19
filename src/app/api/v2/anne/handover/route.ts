@@ -73,9 +73,9 @@ export async function POST(request: NextRequest) {
       // Últimas 5 mensagens para contexto
       const { data: recentMsgs } = await supabase
         .from('messages')
-        .select('body, from_me, created_at')
+        .select('content, direction, created_at')
         .eq('tenant_id', tenantId)
-        .eq('chat_id', chatId)
+        .eq('conversation_id', chatId)
         .order('created_at', { ascending: false })
         .limit(5);
 
@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
         total_pedidos:          client?.total_orders ?? 0,
         ultimo_pedido:          client?.last_order_at ?? null,
         flag_historico_reclamacao: (client?.flags ?? []).includes('historico_reclamacao'),
-        historico_resumido:     (recentMsgs ?? []).reverse().map(m => `${m.from_me ? '[LOJA]' : '[CLIENTE]'} ${m.body}`),
+        historico_resumido:     (recentMsgs ?? []).reverse().map(m => `${m.direction === 'outbound' ? '[LOJA]' : '[CLIENTE]'} ${m.content ?? ''}`),
         pedidos_em_aberto:      openOrders ?? [],
         urgencia_estimada:      (score_sentimento ?? 0) > 0.85 ? 'critica' : 'alta',
       };
@@ -230,10 +230,10 @@ export async function PATCH(request: NextRequest) {
 
       if (handover?.chat_id) {
         await supabase
-          .from('chats')
+          .from('conversations')
           .update({ automacao_suspensa: false, automacao_suspensa_motivo: null })
           .eq('tenant_id', tenantId)
-          .eq('remote_jid', handover.chat_id);
+          .eq('id', handover.chat_id);
       }
     }
 

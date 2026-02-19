@@ -284,10 +284,10 @@ export async function isAutomationSuspended(
   chatId: string,
 ): Promise<boolean> {
   const { data } = await supabase
-    .from('chats')
+    .from('conversations')
     .select('automacao_suspensa')
     .eq('tenant_id', tenantId)
-    .eq('remote_jid', chatId)
+    .eq('id', chatId)
     .single();
   return data?.automacao_suspensa === true;
 }
@@ -301,10 +301,10 @@ export async function suspendAutomation(
   motivo: string,
 ): Promise<void> {
   await supabase
-    .from('chats')
+    .from('conversations')
     .update({ automacao_suspensa: true, automacao_suspensa_motivo: motivo })
     .eq('tenant_id', tenantId)
-    .eq('remote_jid', chatId);
+    .eq('id', chatId);
 }
 
 // ─── Atualizar tier do cliente após mudança de LTV ───────────────────────────

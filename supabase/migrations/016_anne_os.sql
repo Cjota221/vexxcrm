@@ -1,7 +1,7 @@
 -- ══════════════════════════════════════════════════════════════
 -- Migration 016 — Anne OS v5.0 · Sistema Multi-Agente Autônomo
 -- Tabelas: anne_agents, anne_logs_v2, anne_handovers
--- Colunas: clients.tier, clients.ltv_tier, chats.automacao_suspensa
+-- Colunas: clients.tier, clients.ltv_tier, conversations.automacao_suspensa
 -- ══════════════════════════════════════════════════════════════
 
 -- ── 1. Agentes especialistas com base de conhecimento isolada ─
@@ -115,11 +115,11 @@ ALTER TABLE clients
   ADD COLUMN IF NOT EXISTS flags text[] DEFAULT '{}';
   -- ['vip_prioridade', 'historico_reclamacao', 'pagamento_atrasado']
 
--- ── 5. Coluna automacao_suspensa em chats ─────────────────────
-ALTER TABLE chats
+-- ── 5. Coluna automacao_suspensa em conversations ─────────────
+ALTER TABLE conversations
   ADD COLUMN IF NOT EXISTS automacao_suspensa boolean NOT NULL DEFAULT false;
 
-ALTER TABLE chats
+ALTER TABLE conversations
   ADD COLUMN IF NOT EXISTS automacao_suspensa_motivo text;
 
 -- ── 6. Índices ────────────────────────────────────────────────
