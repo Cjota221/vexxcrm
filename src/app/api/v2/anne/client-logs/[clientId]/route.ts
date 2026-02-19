@@ -13,13 +13,13 @@ import { getTenantFromRequest } from '@/lib/auth-helpers';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { clientId: string } },
+  { params }: { params: Promise<{ clientId: string }> },
 ) {
   try {
     const { profile } = await getTenantFromRequest(request);
     const supabase = createServerSupabaseClient();
     const tenantId = profile.tenant_id;
-    const { clientId } = params;
+    const { clientId } = await params;
 
     const { searchParams } = new URL(request.url);
     const limit = Math.min(100, parseInt(searchParams.get('limit') ?? '50'));
