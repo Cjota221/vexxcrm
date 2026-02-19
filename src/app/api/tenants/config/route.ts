@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
 
     const { data: tenant } = await supabase
       .from('tenants')
-      .select('evolution_api_url, evolution_api_key, evolution_instance, facilzap_token, openai_api_key')
+      .select('evolution_api_url, evolution_api_key, evolution_instance, facilzap_token, openai_api_key, openai_model, openai_system_prompt, openai_provider, openai_base_url')
       .eq('id', profile.tenant_id)
       .single();
 
@@ -69,8 +69,10 @@ export async function GET(request: NextRequest) {
         enabled: !!tenant?.openai_api_key,
         api_key: maskKey(tenant?.openai_api_key),
         has_key: !!tenant?.openai_api_key,
-        model: 'gpt-4o-mini',
-        system_prompt: '',
+        model: tenant?.openai_model || 'gpt-4o-mini',
+        system_prompt: tenant?.openai_system_prompt || '',
+        provider: tenant?.openai_provider || 'openai',
+        base_url: tenant?.openai_base_url || '',
       },
     };
 
@@ -133,13 +135,26 @@ export async function PUT(request: NextRequest) {
       if (configUpdate.openai.api_key !== undefined) {
         dbUpdate.openai_api_key = configUpdate.openai.api_key;
       }
+      if (configUpdate.openai.model !== undefined) {
+        dbUpdate.openai_model = configUpdate.openai.model;
+      }
+      if (configUpdate.openai.system_prompt !== undefined) {
+        // Salvar null se string vazia (usa o prompt padrão)
+        dbUpdate.openai_system_prompt = configUpdate.openai.system_prompt?.trim() || null;
+      }
+      if (configUpdate.openai.provider !== undefined) {
+        dbUpdate.openai_provider = configUpdate.openai.provider;
+      }
+      if (configUpdate.openai.base_url !== undefined) {
+        dbUpdate.openai_base_url = configUpdate.openai.base_url?.trim() || null;
+      }
     }
 
     const { data, error } = await supabase
       .from('tenants')
       .update(dbUpdate)
       .eq('id', profile.tenant_id)
-      .select('evolution_api_url, evolution_api_key, evolution_instance, facilzap_token, openai_api_key')
+      .select('evolution_api_url, evolution_api_key, evolution_instance, facilzap_token, openai_api_key, openai_model, openai_system_prompt, openai_provider, openai_base_url')
       .single();
 
     if (error) {
@@ -166,8 +181,10 @@ export async function PUT(request: NextRequest) {
         enabled: !!data.openai_api_key,
         api_key: maskKey(data.openai_api_key),
         has_key: !!data.openai_api_key,
-        model: 'gpt-4o-mini',
-        system_prompt: '',
+        model: data.openai_model || 'gpt-4o-mini',
+        system_prompt: data.openai_system_prompt || '',
+        provider: data.openai_provider || 'openai',
+        base_url: data.openai_base_url || '',
       },
     };
 

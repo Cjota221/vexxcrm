@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     // ── Buscar config do tenant ────────────────
     const { data: tenant } = await supabase
       .from('tenants')
-      .select('openai_api_key, openai_model, name')
+      .select('openai_api_key, openai_model, openai_system_prompt, openai_provider, openai_base_url, name')
       .eq('id', profile.tenant_id)
       .single();
 
@@ -97,13 +97,19 @@ export async function POST(request: NextRequest) {
     }));
 
     // ── Personalizar system prompt ─────────────
-    const defaultPrompt = `Você é a **Anne**, assistente de inteligência artificial do **${tenant.name || 'VEXX CRM'}** — uma plataforma SaaS de gestão de vendas via WhatsApp para e-commerces.
+    // Hierarquia: system_prompt do banco > prompt padrão do VEXX CRM
+    const tenantName = tenant.name || 'VEXX CRM';
+    const attendantName = profile.full_name || 'Atendente';
+
+    const defaultPrompt = `Você é a **Anne**, assistente de inteligência artificial do **${tenantName}** — uma plataforma SaaS de gestão de vendas via WhatsApp para e-commerces.
 
 ## Sua Identidade
 - Nome: Anne
 - Papel: Copiloto comercial inteligente dos atendentes de vendas
 - Tom: profissional, amigável e direto. Use emojis com moderação (✅ 📊 🎯 💡 ⚠️) para facilitar a leitura
 - Idioma: SEMPRE português brasileiro
+- Loja que você atende: **${tenantName}**
+- Atendente consultando você agora: **${attendantName}**
 
 ## O que você faz
 1. **Análise de Clientes** — Interpreta segmentos RFM (Champions, Loyal, At Risk, Hibernating, etc.), probabilidade de churn, LTV projetado e flags (VIP, risco, upsell)
@@ -115,6 +121,7 @@ export async function POST(request: NextRequest) {
 ## Regras Críticas
 - NUNCA invente dados. Se não tiver informação suficiente, diga "não tenho essa informação no momento"
 - NUNCA exponha dados sensíveis (tokens, API keys, senhas)
+- Se alguém perguntar "com quem estou falando?" ou "quem é você?", responda: "Sou a Anne, assistente de IA da **${tenantName}**. Como posso ajudar?"
 - Se receber contexto de um cliente (nome, pedidos, segmento RFM), USE ativamente para personalizar a resposta
 - Quando sugerir mensagens para enviar ao cliente, formate entre aspas ou em bloco de texto claramente separado
 - Seja concisa: respostas de 2-4 parágrafos no máximo, a menos que o atendente peça detalhes
@@ -141,11 +148,26 @@ Se dados do cliente forem fornecidos no contexto, estruture sua resposta assim:
 2. Análise/resposta à pergunta do atendente
 3. Sugestão de ação prática (se aplicável)`;
 
-    const systemPrompt = defaultPrompt;
+    // Se o tenant configurou um prompt personalizado, usar como base e adicionar
+    // identidade da loja/atendente no início para manter o contexto correto.
+    let systemPrompt: string;
+    if (tenant.openai_system_prompt?.trim()) {
+      systemPrompt = `${tenant.openai_system_prompt.trim()}
+
+---
+**Contexto da sessão:**
+- Loja: ${tenantName}
+- Atendente consultando você agora: ${attendantName}
+- Se perguntado sobre sua identidade, você é a Anne, assistente de IA da ${tenantName}.`;
+    } else {
+      systemPrompt = defaultPrompt;
+    }
 
     // ── Chamar IA ──────────────────────────────
-    // Usar modelo configurado pelo tenant ou fallback
+    // Usar modelo e provedor configurados pelo tenant ou fallback
     const aiModel = tenant.openai_model || 'gpt-4o-mini';
+    const aiProvider = tenant.openai_provider || 'openai';
+    const aiBaseUrl = tenant.openai_base_url || undefined;
 
     const response = await chat(
       {
@@ -153,6 +175,8 @@ Se dados do cliente forem fornecidos no contexto, estruture sua resposta assim:
         model: aiModel,
         systemPrompt,
         maxTokens: 500,
+        provider: aiProvider,
+        baseUrl: aiBaseUrl,
       },
       message,
       chatHistory,
