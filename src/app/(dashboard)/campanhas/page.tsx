@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
 import { formatDate } from '@/lib/utils';
+import { api } from '@/lib/api';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -57,12 +58,11 @@ function useCampanhasV2(statusFilter?: string) {
 
   const fetchCampanhas = useCallback(async () => {
     try {
-      const params = new URLSearchParams({ limit: '50' });
-      if (statusFilter) params.set('status', statusFilter);
-      const res = await fetch(`/api/v2/campanhas?${params}`);
-      if (!res.ok) throw new Error('Falha ao carregar campanhas');
-      const json = await res.json();
-      setCampanhas(json.campanhas ?? []);
+      const params: Record<string, string> = { limit: '50' };
+      if (statusFilter) params.status = statusFilter;
+      const { data, error } = await api.get<{ campanhas: CampanhaCard[] }>('/api/v2/campanhas', params);
+      if (error) throw new Error(error);
+      setCampanhas(data?.campanhas ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro');
     } finally {
@@ -85,20 +85,22 @@ function useCampanhasV2(statusFilter?: string) {
 // ─── Ações ────────────────────────────────────────────────────────────────────
 
 async function pausarCampanha(id: string) {
-  return (await fetch(`/api/v2/campanhas/${id}/pausar`, { method: 'PATCH' })).ok;
+  const { error } = await api.patch(`/api/v2/campanhas/${id}/pausar`, {});
+  return !error;
 }
 async function retomarCampanha(id: string) {
-  return (await fetch(`/api/v2/campanhas/${id}/retomar`, { method: 'PATCH' })).ok;
+  const { error } = await api.patch(`/api/v2/campanhas/${id}/retomar`, {});
+  return !error;
 }
 async function cancelarCampanha(id: string) {
   if (!confirm('Cancelar campanha? Esta ação não pode ser desfeita.')) return false;
-  return (await fetch(`/api/v2/campanhas/${id}/cancelar`, { method: 'DELETE' })).ok;
+  const { error } = await api.delete(`/api/v2/campanhas/${id}/cancelar`);
+  return !error;
 }
 async function iniciarCampanha(id: string) {
-  const res = await fetch(`/api/v2/campanhas/${id}/iniciar`, { method: 'POST' });
-  if (!res.ok) {
-    const json = await res.json().catch(() => ({}));
-    alert(`Erro ao iniciar: ${json.error ?? 'Tente novamente'}`);
+  const { data, error } = await api.post(`/api/v2/campanhas/${id}/iniciar`, {});
+  if (error) {
+    alert(`Erro ao iniciar: ${error}`);
     return false;
   }
   return true;
