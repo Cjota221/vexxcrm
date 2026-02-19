@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Plus, Search, Play, Pause, Square, BarChart3,
@@ -176,7 +176,7 @@ function CampanhaCardItem({ campanha, onAction }: { campanha: CampanhaCard; onAc
   );
 }
 
-export default function CampanhasPage() {
+function CampanhasContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [search, setSearch] = useState('');
@@ -328,5 +328,17 @@ export default function CampanhasPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function CampanhasPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center py-20">
+        <Loader2 size={24} className="animate-spin text-crm-primary" />
+      </div>
+    }>
+      <CampanhasContent />
+    </Suspense>
   );
 }
