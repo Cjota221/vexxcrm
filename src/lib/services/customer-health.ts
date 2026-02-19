@@ -49,12 +49,12 @@ export async function calculateCustomerHealth(
     ? Math.floor((agora.getTime() - new Date(ultimaCompra).getTime()) / (1000 * 60 * 60 * 24))
     : 999;
 
-  // Meses como cliente
-  const mesesComoCliente = primeiraCompra
+  // Meses como cliente: apenas relevante se há pedidos; sem pedidos = 0
+  const mesesComoCliente = primeiraCompra && totalPedidos > 0
     ? Math.max(1, Math.floor((agora.getTime() - new Date(primeiraCompra).getTime()) / (1000 * 60 * 60 * 24 * 30)))
     : 0;
 
-  // Frequência de compra por mês
+  // Frequência de compra por mês (0 se sem pedidos — tratado como lead em calculateScore)
   const mediaComprasMes = mesesComoCliente > 0 ? totalPedidos / mesesComoCliente : 0;
 
   // ═══════════════════════════════════════
@@ -183,6 +183,16 @@ export async function calculateCustomerHealth(
 
 /**
  * Algoritmo de classificação inteligente.
+ *
+ * Thresholds revisados (v2):
+ *  VIP          ≥ 70  (antes 80 — muito restritivo)
+ *  Ativo        ≥ 45  (antes 60)
+ *  Oportunidade ≥ 25  (antes 40)
+ *  Risco        ≥ 10  (antes 20)
+ *  Perdido      <  10 (somente clientes MUITO inativos com histórico real)
+ *
+ *  Clientes sem nenhum pedido recebem tratamento especial:
+ *  → classificados como "Oportunidade" (lead novo, nunca comprou)
  */
 function calculateScore(params: {
   totalPedidos: number;
@@ -209,8 +219,22 @@ function calculateScore(params: {
     pedidosUlt3m,
   } = params;
 
-  let score = 0;
   const recomendacoes: string[] = [];
+
+  // ── Caso especial: cliente sem histórico de compras = lead novo ──
+  if (totalPedidos === 0) {
+    recomendacoes.push('Lead novo — iniciar abordagem de vendas');
+    recomendacoes.push('Enviar mensagem de boas-vindas com oferta especial');
+    recomendacoes.push('Apresentar os produtos mais populares da loja');
+    return {
+      score: 30,
+      nivel: 'Oportunidade',
+      razao: 'Lead novo — ainda não realizou nenhuma compra. Alto potencial de conversão.',
+      recomendacoes,
+    };
+  }
+
+  let score = 0;
 
   // ── Componente 1: Recência (30 pontos) ──
   if (diasInatividade <= 7) score += 30;
@@ -219,6 +243,7 @@ function calculateScore(params: {
   else if (diasInatividade <= 45) score += 14;
   else if (diasInatividade <= 60) score += 8;
   else if (diasInatividade <= 90) score += 4;
+  else if (diasInatividade <= 180) score += 2;
   else score += 0;
 
   // ── Componente 2: Frequência (25 pontos) ──
@@ -226,8 +251,10 @@ function calculateScore(params: {
   else if (mediaComprasMes >= 2) score += 20;
   else if (mediaComprasMes >= 1) score += 15;
   else if (mediaComprasMes >= 0.5) score += 10;
-  else if (mediaComprasMes >= 0.25) score += 5;
-  else score += 2;
+  else if (mediaComprasMes >= 0.25) score += 6;
+  else if (mediaComprasMes > 0) score += 3;
+  // mediaComprasMes === 0 com pedidos → comprou apenas 1x há muito tempo
+  else score += 1;
 
   // ── Componente 3: Volume de pedidos (15 pontos) ──
   if (totalPedidos >= 20) score += 15;
@@ -235,30 +262,31 @@ function calculateScore(params: {
   else if (totalPedidos >= 5) score += 8;
   else if (totalPedidos >= 3) score += 5;
   else if (totalPedidos >= 1) score += 3;
-  else score += 0;
 
   // ── Componente 4: Tendência (15 pontos) ──
   if (crescimentoFrequencia === 'aumentando') score += 8;
-  else if (crescimentoFrequencia === 'estavel') score += 4;
-  
+  else if (crescimentoFrequencia === 'estavel') score += 5;
+  else score += 1; // diminuindo — mas não penaliza demais
+
   if (crescimentoTicket === 'aumentando') score += 7;
-  else if (crescimentoTicket === 'estavel') score += 3;
+  else if (crescimentoTicket === 'estavel') score += 4;
+  else score += 1;
 
   // ── Componente 5: Atividade recente (15 pontos) ──
   if (pedidosUlt3m >= 5) score += 15;
   else if (pedidosUlt3m >= 3) score += 12;
   else if (pedidosUlt3m >= 2) score += 8;
   else if (pedidosUlt3m >= 1) score += 5;
-  else score += 0;
+  // 0 pedidos nos últimos 3 meses = 0 pts
 
   // Limitar entre 0 e 100
   score = Math.min(100, Math.max(0, score));
 
-  // ── Classificação ──
+  // ── Classificação com thresholds revisados ──
   let nivel: HealthClassification;
   let razao: string;
 
-  if (score >= 80) {
+  if (score >= 70) {
     nivel = 'VIP';
     razao = `Cliente premium com score ${score}/100. Compra frequentemente (${mediaComprasMes.toFixed(1)}/mês) e está ativo.`;
     recomendacoes.push('Oferecer programa de fidelidade exclusivo');
@@ -267,7 +295,7 @@ function calculateScore(params: {
     if (crescimentoTicket === 'aumentando') {
       recomendacoes.push('Upsell: ticket crescendo — apresentar produtos premium');
     }
-  } else if (score >= 60) {
+  } else if (score >= 45) {
     nivel = 'Ativo';
     razao = `Cliente ativo com score ${score}/100. Frequência de ${mediaComprasMes.toFixed(1)} compras/mês.`;
     recomendacoes.push('Manter engajamento com promoções periódicas');
@@ -275,7 +303,7 @@ function calculateScore(params: {
     if (diasInatividade > 20) {
       recomendacoes.push(`Atenção: ${diasInatividade} dias sem comprar — enviar incentivo`);
     }
-  } else if (score >= 40) {
+  } else if (score >= 25) {
     nivel = 'Oportunidade';
     razao = `Cliente com potencial (score ${score}/100). Ticket médio de R$ ${ticketMedio.toFixed(2)} mas frequência baixa.`;
     recomendacoes.push('Enviar cupom de desconto para incentivar nova compra');
@@ -283,7 +311,7 @@ function calculateScore(params: {
     if (ticketMedio > 100) {
       recomendacoes.push('Alto ticket médio — vale investir em reativação personalizada');
     }
-  } else if (score >= 20) {
+  } else if (score >= 10) {
     nivel = 'Risco';
     razao = `Cliente em risco (score ${score}/100). ${diasInatividade} dias sem comprar, frequência decrescente.`;
     recomendacoes.push('URGENTE: Enviar mensagem de reativação');
@@ -291,12 +319,10 @@ function calculateScore(params: {
     recomendacoes.push('Perguntar se houve algum problema');
   } else {
     nivel = 'Perdido';
-    razao = `Cliente provavelmente perdido (score ${score}/100). ${diasInatividade} dias sem comprar.`;
+    razao = `Cliente provavelmente perdido (score ${score}/100). ${diasInatividade} dias sem qualquer compra.`;
     recomendacoes.push('Última tentativa: cupom especial de volta');
     recomendacoes.push('Pesquisa de satisfação para entender motivo');
-    if (totalPedidos === 0) {
-      recomendacoes.push('Nunca comprou — considerar como lead');
-    }
+    recomendacoes.push('Se sem resposta em 30 dias, arquivar contato');
   }
 
   return { score, nivel, razao, recomendacoes };
@@ -525,10 +551,12 @@ function calculateCustomerHealthFromOrders(
     ? Math.floor((agora.getTime() - new Date(ultimaCompra).getTime()) / (1000 * 60 * 60 * 24))
     : 999;
 
-  const mesesComoCliente = primeiraCompra
+  // mesesComoCliente: apenas relevante se há pedidos; sem pedidos = 0
+  const mesesComoCliente = primeiraCompra && totalPedidos > 0
     ? Math.max(1, Math.floor((agora.getTime() - new Date(primeiraCompra).getTime()) / (1000 * 60 * 60 * 24 * 30)))
     : 0;
 
+  // mediaComprasMes: 0 se sem pedidos (tratado como lead em calculateScore)
   const mediaComprasMes = mesesComoCliente > 0 ? totalPedidos / mesesComoCliente : 0;
 
   const valorTotalGasto = pedidos.reduce((sum, o) => sum + (Number(o.total) || 0), 0);

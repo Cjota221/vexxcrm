@@ -11,6 +11,8 @@ import {
   AlertTriangle,
   XCircle,
   X,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { supabase } from '@/lib/supabase';
@@ -34,6 +36,7 @@ export function SentinelaButton() {
   const [showModal, setShowModal] = useState(false);
   const [result, setResult] = useState<SentinelaResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showErrors, setShowErrors] = useState(false);
 
   const executeScan = async () => {
     setIsRunning(true);
@@ -148,12 +151,31 @@ export function SentinelaButton() {
                         {result.totalProcessados} clientes analisados em {result.tempoExecucao}
                       </p>
                       {result.erros.length > 0 && (
-                        <p className="text-xs text-orange-600 mt-0.5">
-                          {result.erros.length} erro(s) durante processamento
-                        </p>
+                        <button
+                          onClick={() => setShowErrors(v => !v)}
+                          className="flex items-center gap-1 text-xs text-orange-600 mt-1 hover:text-orange-800"
+                        >
+                          <AlertTriangle size={12} />
+                          {result.erros.length} erro(s) durante processamento — ver detalhes
+                          {showErrors ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                        </button>
                       )}
                     </div>
                   </div>
+
+                  {/* Lista de erros expandível */}
+                  {showErrors && result.erros.length > 0 && (
+                    <div className="rounded-xl border border-orange-200 bg-orange-50 p-3">
+                      <p className="text-xs font-semibold text-orange-700 mb-2">Detalhes dos erros:</p>
+                      <ul className="space-y-1 max-h-32 overflow-y-auto">
+                        {result.erros.map((e, i) => (
+                          <li key={i} className="text-xs text-orange-800 font-mono bg-white rounded px-2 py-1">
+                            {e}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
 
                   {/* Distribuição */}
                   <div>
