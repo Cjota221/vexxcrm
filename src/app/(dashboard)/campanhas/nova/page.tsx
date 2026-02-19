@@ -12,6 +12,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { api } from '@/lib/api';
+import { supabase } from '@/lib/supabase';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -387,10 +388,9 @@ function SeletorContatosManual({ selecionados, onToggle }: SeletorContatosManual
   const pesquisar = useCallback((q: string) => {
     if (!q.trim()) { setResultados([]); return; }
     setCarregando(true);
-    fetch(`/api/v1/clients?q=${encodeURIComponent(q)}&limit=20`)
-      .then(r => r.json())
-      .then(json => {
-        const lista = (json.clients ?? json.data ?? []) as Record<string, unknown>[];
+    api.get<Record<string, unknown>>(`/api/v1/clients`, { q, limit: '20' })
+      .then(({ data }) => {
+        const lista = ((data as Record<string, unknown>)?.clients ?? (data as Record<string, unknown>)?.data ?? []) as Record<string, unknown>[];
         setResultados(lista.map(c => ({
           id: c.id as string,
           telefone: (c.phone ?? c.telefone) as string,
@@ -497,11 +497,11 @@ function SeletorGrupos({ selecionados, onToggle }: SeletorGruposProps) {
   const selectedIds = useMemo(() => new Set(selecionados.map(g => g.id)), [selecionados]);
 
   useEffect(() => {
-    fetch('/api/v2/whatsapp/grupos')
-      .then(r => r.json())
-      .then(json => {
-        setGrupos(json.grupos ?? []);
-        if (json.aviso) setAviso(json.aviso);
+    api.get<Record<string, unknown>>('/api/v2/whatsapp/grupos')
+      .then(({ data }) => {
+        setGrupos((data as Record<string, unknown>)?.grupos as GrupoWA[] ?? []);
+        const aviso = (data as Record<string, unknown>)?.aviso;
+        if (aviso) setAviso(aviso as string);
       })
       .catch(() => setErro('Erro ao buscar grupos'))
       .finally(() => setCarregando(false));
@@ -676,16 +676,15 @@ function NovaCampanhaInner() {
       // Legado: veio com IDs de contatos na URL
       setCarregandoContatos(true);
       const ids = contatosIdsParam.split(',').filter(Boolean);
-      fetch(`/api/v1/clients?ids=${ids.join(',')}&limit=500`)
-        .then(r => r.json())
-        .then(json => {
-          setContatos((json.clients ?? json.data ?? []).map((c: Record<string, unknown>) => ({
+      api.get<Record<string, unknown>>(`/api/v1/clients`, { ids: ids.join(','), limit: '500' })
+        .then(({ data }) => {
+          setContatos((((data as Record<string, unknown>)?.clients ?? (data as Record<string, unknown>)?.data) as Record<string, unknown>[] ?? []).map((c) => ({
             id: c.id as string,
-            telefone: c.phone as string || c.telefone as string,
-            nome: c.name as string || c.nome as string,
+            telefone: (c.phone ?? c.telefone) as string,
+            nome: (c.name ?? c.nome) as string,
             cidade: c.cidade as string,
             estado: c.estado as string,
-            valor_ltv: c.ltv as number || c.valor_ltv as number,
+            valor_ltv: (c.ltv ?? c.valor_ltv) as number,
           })));
         })
         .catch(() => {})
@@ -735,7 +734,14 @@ function NovaCampanhaInner() {
       const compressed = await comprimirImagem(file); // bypass automático para video/audio
       const form = new FormData();
       form.append('file', compressed);
-      const res = await fetch('/api/v2/upload/criativo', { method: 'POST', body: form });
+
+      // Injetar token de auth (rota exige Authorization: Bearer)
+      const { data: { session } } = await supabase.auth.getSession();
+      const headers: HeadersInit = session?.access_token
+        ? { Authorization: `Bearer ${session.access_token}` }
+        : {};
+
+      const res = await fetch('/api/v2/upload/criativo', { method: 'POST', body: form, headers });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? 'Erro no upload');
       setBlocos(prev => prev.map(b =>
@@ -760,23 +766,18 @@ function NovaCampanhaInner() {
         ? gruposSelecionados.map(g => ({ id: g.id, telefone: g.id, nome: g.nome }))
         : contatos;
 
-      const res = await fetch('/api/v2/campanhas', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          nome: nomeCampanha,
-          blocos,
-          destinatarios,
-          scheduled_at: scheduledAt || undefined,
-          config_antiban: antiban,
-          origem: origemParam || undefined,
-          origem_grupo_nome: grupoNomeParam || undefined,
-          tipo_destinatario: modoDestinatario,
-        }),
+      const { data: json, error } = await api.post<{ campanha_id: string }>('/api/v2/campanhas', {
+        nome: nomeCampanha,
+        blocos,
+        destinatarios,
+        scheduled_at: scheduledAt || undefined,
+        config_antiban: antiban,
+        origem: origemParam || undefined,
+        origem_grupo_nome: grupoNomeParam || undefined,
+        tipo_destinatario: modoDestinatario,
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? 'Erro ao criar campanha');
-      router.push(`/campanhas/${json.campanha_id}?criada=1`);
+      if (error) throw new Error(error);
+      router.push(`/campanhas/${json!.campanha_id}?criada=1`);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao criar campanha');
     } finally {
