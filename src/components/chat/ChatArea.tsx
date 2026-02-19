@@ -183,15 +183,15 @@ export function ChatArea() {
   // Estado vazio — nenhum chat selecionado
   if (!selectedChatId) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-wa-bg-conversation">
-        <div className="w-20 h-20 rounded-full bg-wa-bg-panel flex items-center justify-center mb-4">
-          <MessageCircle size={36} className="text-wa-text-secondary" />
+      <div className="flex-1 flex flex-col items-center justify-center bg-wa-bg-conversation gap-3">
+        <div className="w-16 h-16 rounded-full bg-wa-bg-panel flex items-center justify-center">
+          <MessageCircle size={28} className="text-wa-text-secondary" />
         </div>
-        <h3 className="text-xl font-medium text-wa-text-primary mb-2">VEXX CRM 2.0</h3>
-        <p className="text-sm text-wa-text-secondary text-center max-w-md">
+        <p className="text-sm text-wa-text-secondary text-center max-w-xs leading-relaxed">
           Selecione uma conversa para começar a atender seus clientes.
-          <br />
-          Use <kbd className="px-1.5 py-0.5 bg-wa-bg-panel rounded text-xs">Ctrl+K</kbd> para buscar.
+        </p>
+        <p className="text-xs text-wa-text-secondary/60">
+          Use <kbd className="px-1.5 py-0.5 bg-wa-bg-panel rounded text-xs">Ctrl+K</kbd> para buscar
         </p>
       </div>
     );

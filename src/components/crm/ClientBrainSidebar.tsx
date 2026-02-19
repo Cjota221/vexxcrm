@@ -293,42 +293,6 @@ function IdentityTab({
         </div>
       )}
 
-      {/* Métricas 3 cards */}
-      {(() => {
-        // LTV: prioridade campo do cliente → soma de pedidos pagos → "Sem dados"
-        const PAID = new Set(['paid', 'pago', 'completed', 'concluido', 'delivered', 'shipped', 'entregue']);
-        const pedidosPagos = orders.filter(o =>
-          PAID.has(String((o as unknown as Record<string, unknown>).status ?? '').toLowerCase())
-        );
-        const ltvFromOrders = pedidosPagos.reduce((s, o) => s + (Number((o as unknown as Record<string, unknown>).total) || 0), 0);
-        const ticketFromOrders = pedidosPagos.length > 0 ? ltvFromOrders / pedidosPagos.length : 0;
-
-        const ltv = (c.ltv as number) || ltvFromOrders;
-        const ticket = (c.avg_ticket as number) ?? (c.ticket_medio as number) ?? ticketFromOrders;
-        const totalPedidos = (c.total_orders as number) ?? orders.length ?? 0;
-
-        return (
-          <div className="grid grid-cols-3 gap-2">
-            <MetricCard
-              icon={<TrendingUp size={12} className="text-crm-primary" />}
-              label="LTV"
-              value={ltv > 0 ? formatCurrency(ltv) : totalPedidos === 0 ? '—' : formatCurrency(0)}
-              highlight
-            />
-            <MetricCard
-              icon={<Star size={12} className="text-amber-500" />}
-              label="Ticket"
-              value={ticket > 0 ? formatCurrency(ticket) : totalPedidos === 0 ? '—' : formatCurrency(0)}
-            />
-            <MetricCard
-              icon={<ShoppingBag size={12} className="text-gray-500" />}
-              label="Pedidos"
-              value={String(totalPedidos)}
-            />
-          </div>
-        );
-      })()}
-
       {/* Contatos */}
       <SectionBlock title="Contatos">
         <div className="space-y-1.5">
@@ -1127,6 +1091,40 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
           );
         })}
       </div>
+
+      {/* ── Métricas fixas — visíveis em qualquer aba ── */}
+      {client && (() => {
+        const c = client as Record<string, unknown>;
+        const PAID = new Set(['paid', 'pago', 'completed', 'concluido', 'delivered', 'shipped', 'entregue']);
+        const pedidosPagos = orders.filter(o =>
+          PAID.has(String((o as unknown as Record<string, unknown>).status ?? '').toLowerCase())
+        );
+        const ltvFromOrders = pedidosPagos.reduce((s, o) => s + (Number((o as unknown as Record<string, unknown>).total) || 0), 0);
+        const ticketFromOrders = pedidosPagos.length > 0 ? ltvFromOrders / pedidosPagos.length : 0;
+        const ltv = (c.ltv as number) || ltvFromOrders;
+        const ticket = (c.avg_ticket as number) ?? (c.ticket_medio as number) ?? ticketFromOrders;
+        const totalPedidos = (c.total_orders as number) ?? orders.length ?? 0;
+        return (
+          <div className="grid grid-cols-3 gap-2 px-3 py-2.5 border-b border-gray-100 bg-white shrink-0">
+            <MetricCard
+              icon={<TrendingUp size={12} className="text-crm-primary" />}
+              label="LTV"
+              value={ltv > 0 ? formatCurrency(ltv) : totalPedidos === 0 ? '—' : formatCurrency(0)}
+              highlight
+            />
+            <MetricCard
+              icon={<Star size={12} className="text-amber-500" />}
+              label="Ticket"
+              value={ticket > 0 ? formatCurrency(ticket) : totalPedidos === 0 ? '—' : formatCurrency(0)}
+            />
+            <MetricCard
+              icon={<ShoppingBag size={12} className="text-gray-500" />}
+              label="Pedidos"
+              value={String(totalPedidos)}
+            />
+          </div>
+        );
+      })()}
 
       {/* ── Conteúdo ── */}
       <div className="flex-1 overflow-y-auto bg-surface-bg">

@@ -268,7 +268,7 @@ function AnnePanelInline({
             anneEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'
           )} />
           <span className="text-xs font-medium text-gray-700">
-            Anne {anneEnabled ? 'ativa' : 'pausada'} nesta conversa
+            Anne {anneEnabled ? 'ativada' : 'pausada'}
           </span>
         </div>
         <button

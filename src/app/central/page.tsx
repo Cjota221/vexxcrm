@@ -136,40 +136,39 @@ export default function CentralAtendimentoPage() {
 
         <div className="w-px h-5 bg-gray-200 shrink-0 mx-1" />
 
-        {/* Navegação principal */}
-        {searchOpen ? (
-          <div className="flex items-center gap-2 flex-1 max-w-sm px-3 py-1.5 bg-gray-50 border border-crm-primary/50 rounded-lg">
-            <Search size={13} className="text-crm-primary shrink-0" />
-            <input
-              autoFocus
-              value={globalSearch}
-              onChange={e => handleSearchChange(e.target.value)}
-              onKeyDown={e => e.key === 'Escape' && handleSearchClose()}
-              placeholder="Buscar por nome, tag, número..."
-              className="flex-1 text-xs bg-transparent outline-none text-gray-800 placeholder:text-gray-400 min-w-0"
-            />
-            <button onClick={handleSearchClose} className="text-gray-400 hover:text-gray-600 shrink-0">
-              <X size={12} />
-            </button>
-          </div>
-        ) : (
-          <NavBtn icon={<Search size={14} />} label="Buscar" onClick={() => setSearchOpen(true)} />
-        )}
+        {/* Navegação principal — centralizada */}
+        <div className="flex items-center gap-1 flex-1 justify-center">
+          {searchOpen ? (
+            <div className="flex items-center gap-2 w-72 px-3 py-1.5 bg-gray-50 border border-crm-primary/50 rounded-lg">
+              <Search size={13} className="text-crm-primary shrink-0" />
+              <input
+                autoFocus
+                value={globalSearch}
+                onChange={e => handleSearchChange(e.target.value)}
+                onKeyDown={e => e.key === 'Escape' && handleSearchClose()}
+                placeholder="Buscar por nome, tag, número..."
+                className="flex-1 text-xs bg-transparent outline-none text-gray-800 placeholder:text-gray-400 min-w-0"
+              />
+              <button onClick={handleSearchClose} className="text-gray-400 hover:text-gray-600 shrink-0">
+                <X size={12} />
+              </button>
+            </div>
+          ) : (
+            <NavBtn icon={<Search size={14} />} label="Buscar" onClick={() => setSearchOpen(true)} />
+          )}
 
-        <NavBtn icon={<Megaphone size={14} />} label="Campanhas" onClick={() => setCampaignOpen(true)} />
-        <NavBtn icon={<Kanban size={14} />} label="Pipeline" active={kanbanOpen} onClick={() => setKanbanOpen(v => !v)} />
+          <NavBtn icon={<Megaphone size={14} />} label="Campanhas" onClick={() => setCampaignOpen(true)} />
+          <NavBtn icon={<Kanban size={14} />} label="Pipeline" active={kanbanOpen} onClick={() => setKanbanOpen(v => !v)} />
 
-        {/* Ações contextuais — só com chat aberto */}
-        {selectedChatId && (
-          <>
-            <div className="w-px h-5 bg-gray-200 shrink-0" />
-            <NavBtn icon={<BookOpen size={14} />} label="Catálogo" onClick={() => setCatalogOpen(true)} />
-            <NavBtn icon={<ArrowLeftRight size={14} />} label="Transferir" onClick={() => setTransferOpen(true)} />
-          </>
-        )}
-
-        {/* Spacer */}
-        <div className="flex-1" />
+          {/* Ações contextuais — só com chat aberto */}
+          {selectedChatId && (
+            <>
+              <div className="w-px h-5 bg-gray-200 shrink-0" />
+              <NavBtn icon={<BookOpen size={14} />} label="Catálogo" onClick={() => setCatalogOpen(true)} />
+              <NavBtn icon={<ArrowLeftRight size={14} />} label="Transferir" onClick={() => setTransferOpen(true)} />
+            </>
+          )}
+        </div>
 
         {/* Cérebro */}
         <NavBtn icon={<Brain size={14} />} label="Cérebro" active={brainOpen} onClick={() => setBrainOpen(v => !v)} />
