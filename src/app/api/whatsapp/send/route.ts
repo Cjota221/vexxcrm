@@ -134,23 +134,26 @@ export async function POST(request: NextRequest) {
       conversationId = newConv.id;
     }
 
-    // Salvar mensagem enviada
+    // Salvar mensagem enviada (upsert por external_id para evitar duplicata com webhook)
     const { data: savedMessage, error: msgError } = await supabase
       .from('messages')
-      .insert({
-        tenant_id: tenantId,
-        conversation_id: conversationId,
-        client_id: clientId,
-        external_id: messageId,
-        direction: 'outbound',
-        sender_name: 'Atendente',
-        sender_phone: null,
-        content,
-        type,
-        media_url: mediaUrl || null,
-        status: 'sent',
-        created_at: new Date().toISOString(),
-      })
+      .upsert(
+        {
+          tenant_id: tenantId,
+          conversation_id: conversationId,
+          client_id: clientId,
+          external_id: messageId,   // ← ID da Evolution API = chave de dedup
+          direction: 'outbound',
+          sender_name: 'Atendente',
+          sender_phone: null,
+          content,
+          type,
+          media_url: mediaUrl || null,
+          status: 'sent',
+          created_at: new Date().toISOString(),
+        },
+        { onConflict: 'tenant_id,external_id', ignoreDuplicates: true }
+      )
       .select()
       .single();
 

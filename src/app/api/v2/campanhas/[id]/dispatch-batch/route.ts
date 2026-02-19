@@ -136,7 +136,9 @@ export async function POST(request: NextRequest, { params }: { params: Params })
       const blocosResolvidos = resolverBlocos(job.blocos as Bloco[], contatoInfo);
 
       try {
-        await enviarBlocos(job.contato_telefone, blocosResolvidos, tenantId);
+        const envioResult = await enviarBlocos(job.contato_telefone, blocosResolvidos, tenantId);
+        // Pegar o primeiro messageId retornado pela Evolution API (usado como external_id para dedup)
+        const externalId = envioResult.messageIds[0] || null;
 
         await supabase
           .from('campaign_jobs')
@@ -195,23 +197,27 @@ export async function POST(request: NextRequest, { params }: { params: Params })
                 .join('\n')
                 .substring(0, 500) || `[Campanha: ${campanha.name}]`;
 
-              const primeiraMedia = blocosResolvidos.find(b => ['imagem', 'video', 'audio'].includes(b.tipo));
-              const msgType = primeiraMedia ? primeiraMedia.tipo === 'imagem' ? 'image' : primeiraMedia.tipo : 'text';
+              const msgType = envioResult.primeiraMediaUrl ? envioResult.primeiroTipo : 'text';
 
+              // Upsert por external_id: evita duplicata se webhook chegar antes desta gravação
               await supabase
                 .from('messages')
-                .insert({
-                  tenant_id: tenantId,
-                  conversation_id: convId,
-                  client_id: client.id,
-                  direction: 'outbound',
-                  sender_name: 'Campanha',
-                  content: textoResumo,
-                  type: msgType,
-                  media_url: primeiraMedia?.conteudo.url || null,
-                  status: 'sent',
-                  created_at: new Date().toISOString(),
-                });
+                .upsert(
+                  {
+                    tenant_id: tenantId,
+                    conversation_id: convId,
+                    client_id: client.id,
+                    external_id: externalId,   // ← chave para dedup com o webhook
+                    direction: 'outbound',
+                    sender_name: 'Campanha',
+                    content: textoResumo,
+                    type: msgType,
+                    media_url: envioResult.primeiraMediaUrl || null,
+                    status: 'sent',
+                    created_at: new Date().toISOString(),
+                  },
+                  { onConflict: 'tenant_id,external_id', ignoreDuplicates: true }
+                );
             }
           }
         } catch (upsertErr) {
@@ -312,32 +318,50 @@ export async function POST(request: NextRequest, { params }: { params: Params })
 
 // ─── Envio de blocos ──────────────────────────────────────────────────────────
 
-async function enviarBlocos(telefone: string, blocos: Bloco[], tenantId: string): Promise<void> {
+interface EnvioResult {
+  messageIds: string[];  // IDs retornados pela Evolution API (para external_id)
+  primeiraMediaUrl: string | null;
+  primeiroTipo: string;
+}
+
+async function enviarBlocos(telefone: string, blocos: Bloco[], tenantId: string): Promise<EnvioResult> {
   const config = getTenantEvolutionConfig(tenantId);
   const ordenados = [...blocos].sort((a, b) => a.ordem - b.ordem);
+  const messageIds: string[] = [];
+  let primeiraMediaUrl: string | null = null;
+  let primeiroTipo = 'text';
 
   for (const bloco of ordenados) {
     switch (bloco.tipo) {
       case 'texto': {
         const texto = bloco.conteudo.texto_formatado ?? bloco.conteudo.texto_raw ?? '';
-        if (texto.trim()) await sendTextMessage(config, telefone, texto);
+        if (texto.trim()) {
+          const id = await sendTextMessage(config, telefone, texto);
+          if (id) messageIds.push(id);
+        }
         break;
       }
       case 'imagem': {
         if (bloco.conteudo.url) {
-          await sendMediaMessage(config, telefone, bloco.conteudo.url, bloco.conteudo.caption || bloco.conteudo.texto_raw || undefined, 'image');
+          const id = await sendMediaMessage(config, telefone, bloco.conteudo.url, bloco.conteudo.caption || bloco.conteudo.texto_raw || undefined, 'image');
+          if (id) messageIds.push(id);
+          if (!primeiraMediaUrl) { primeiraMediaUrl = bloco.conteudo.url; primeiroTipo = 'image'; }
         }
         break;
       }
       case 'video': {
         if (bloco.conteudo.url) {
-          await sendMediaMessage(config, telefone, bloco.conteudo.url, bloco.conteudo.caption || bloco.conteudo.texto_raw || undefined, 'video');
+          const id = await sendMediaMessage(config, telefone, bloco.conteudo.url, bloco.conteudo.caption || bloco.conteudo.texto_raw || undefined, 'video');
+          if (id) messageIds.push(id);
+          if (!primeiraMediaUrl) { primeiraMediaUrl = bloco.conteudo.url; primeiroTipo = 'video'; }
         }
         break;
       }
       case 'audio': {
         if (bloco.conteudo.url) {
-          await sendMediaMessage(config, telefone, bloco.conteudo.url, undefined, 'audio');
+          const id = await sendMediaMessage(config, telefone, bloco.conteudo.url, undefined, 'audio');
+          if (id) messageIds.push(id);
+          if (!primeiraMediaUrl) { primeiraMediaUrl = bloco.conteudo.url; primeiroTipo = 'audio'; }
         }
         break;
       }
@@ -345,10 +369,13 @@ async function enviarBlocos(telefone: string, blocos: Bloco[], tenantId: string)
         const texto = bloco.conteudo.texto_botao ?? '';
         const link = bloco.conteudo.url_destino ?? '';
         if (texto || link) {
-          await sendTextMessage(config, telefone, [texto, link].filter(Boolean).join('\n'));
+          const id = await sendTextMessage(config, telefone, [texto, link].filter(Boolean).join('\n'));
+          if (id) messageIds.push(id);
         }
         break;
       }
     }
   }
+
+  return { messageIds, primeiraMediaUrl, primeiroTipo };
 }

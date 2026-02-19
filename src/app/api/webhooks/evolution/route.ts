@@ -231,6 +231,7 @@ async function handleNewMessage(
   // ━━━ DOWNLOAD DE MÍDIA PARA STORAGE PERMANENTE ━━━
   // URLs do WhatsApp (mmg.whatsapp.net) expiram e retornam 403.
   // Baixamos via Evolution API e salvamos no Supabase Storage.
+  // INCLUI mensagens fromMe=true (áudios/mídias enviados pelo nosso sistema)
   if (mediaUrl && ['image', 'video', 'audio', 'document', 'sticker'].includes(type)) {
     try {
       const config = getTenantEvolutionConfig(tenantId);
@@ -273,7 +274,12 @@ async function handleNewMessage(
 
   if (existingMsg) {
     // Mensagem já existe — atualizar media_url se temos URL melhor (storage permanente)
-    if (mediaUrl && mediaUrl.includes('supabase.co/storage') && existingMsg.media_url !== mediaUrl) {
+    // Também atualiza se a mensagem existente não tem media_url mas o webhook trouxe uma
+    const deveAtualizar =
+      (mediaUrl && mediaUrl.includes('supabase.co/storage') && existingMsg.media_url !== mediaUrl) ||
+      (mediaUrl && !existingMsg.media_url);
+
+    if (deveAtualizar) {
       await supabase
         .from('messages')
         .update({ media_url: mediaUrl, media_mime_type: mimetype || null })
