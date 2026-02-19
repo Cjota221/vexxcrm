@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Bell, Camera, Trash2, LogOut, Loader2, Wifi, WifiOff, ShoppingCart, Package } from 'lucide-react';
+import { Bell, Camera, Trash2, LogOut, Loader2, Wifi, WifiOff, ShoppingCart, Package, GitBranch } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
 import { useConnectionStore } from '@/store/connection';
 import { supabase } from '@/lib/supabase';
 import { getInitials } from '@/lib/utils';
+import { KanbanModal } from '@/components/crm/KanbanModal';
 
 /**
  * Header limpo — dot de conexão + notificações realtime + perfil.
@@ -17,6 +18,21 @@ export function Header() {
   const [showMenu, setShowMenu] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Kanban Modal ───────────────────────────────────────────────
+  const [showKanban, setShowKanban] = useState(false);
+
+  // Atalho F4 para abrir/fechar Kanban
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'F4') {
+        e.preventDefault();
+        setShowKanban(v => !v);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   // ── Notificações Realtime ──────────────────────────────────
   const [notifCount, setNotifCount] = useState(0);
@@ -129,8 +145,18 @@ export function Header() {
   return (
     <header className="h-16 bg-white border-b border-surface-border flex items-center justify-between px-6">
 
-      {/* Lado esquerdo — vazio, título vem da sidebar */}
-      <div />
+      {/* Lado esquerdo — Botão Fluxo de Vendas */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setShowKanban(true)}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-crm-primary/8 hover:bg-crm-primary/15 text-crm-primary transition-colors group"
+          title="Fluxo de Vendas (F4)"
+        >
+          <GitBranch size={15} className="shrink-0" />
+          <span className="text-xs font-semibold hidden sm:block">Fluxo de Vendas</span>
+          <span className="text-[9px] bg-crm-primary/20 px-1.5 py-0.5 rounded font-bold hidden md:block">F4</span>
+        </button>
+      </div>
 
       {/* Lado direito */}
       <div className="flex items-center gap-3">
@@ -285,6 +311,9 @@ export function Header() {
           />
         </div>
       </div>
+
+      {/* Kanban Modal */}
+      <KanbanModal open={showKanban} onClose={() => setShowKanban(false)} />
     </header>
   );
 }

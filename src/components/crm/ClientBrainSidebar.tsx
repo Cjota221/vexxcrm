@@ -54,6 +54,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useChatsStore } from '@/store/chats';
 import { useUIStore } from '@/store/ui';
+import { useAuthStore } from '@/store/auth';
 import { Badge } from '@/components/ui/Badge';
 import { api } from '@/lib/api';
 import {
@@ -738,6 +739,9 @@ function KanbanColumnBadge({ coluna }: { coluna: KanbanColumn | null }) {
 
 function PipelineTab({ clientId }: { clientId: string }) {
   const queryClient = useQueryClient();
+  const [changingStage, setChangingStage] = useState(false);
+  const [selectedStage, setSelectedStage] = useState<KanbanColumn | ''>('');
+  const [moving, setMoving] = useState(false);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['kanban-pipeline', clientId],
@@ -745,6 +749,7 @@ function PipelineTab({ clientId }: { clientId: string }) {
       const res = await api.get<{
         card: {
           coluna: KanbanColumn;
+          chat_id: string;
           tags: string[];
           score_anne: number | null;
           tentativas_reativacao: number;
@@ -757,6 +762,29 @@ function PipelineTab({ clientId }: { clientId: string }) {
     enabled: !!clientId,
     staleTime: 15_000,
   });
+
+  const handleMoveStage = async () => {
+    if (!selectedStage || !data?.card) return;
+    setMoving(true);
+    try {
+      await api.patch('/api/v2/kanban/move', {
+        contato_id: clientId,
+        chat_id: data.card.chat_id,
+        de_coluna: data.card.coluna,
+        para_coluna: selectedStage,
+        motivo: 'Movido manualmente pelo atendente',
+      });
+      queryClient.invalidateQueries({ queryKey: ['kanban-pipeline', clientId] });
+      queryClient.invalidateQueries({ queryKey: ['kanban-all-cards'] });
+      queryClient.invalidateQueries({ queryKey: ['kanban-summary'] });
+      setChangingStage(false);
+      setSelectedStage('');
+    } catch {
+      // silencioso
+    } finally {
+      setMoving(false);
+    }
+  };
 
   // Escutar SSE kanban_moved para refresh automático
   useEffect(() => {
@@ -777,51 +805,102 @@ function PipelineTab({ clientId }: { clientId: string }) {
   const card = data?.card ?? null;
   const transitions = data?.transitions ?? [];
 
+  const PIPELINE_COLS: KanbanColumn[] = [
+    'PRIMEIRO_CONTATO', 'EM_NEGOCIACAO', 'AGUARDANDO_PAGAMENTO', 'PAGO', 'DESPACHADO', 'CANCELADO', 'REATIVAR', 'CONCLUIDO',
+  ];
+
   return (
     <div className="p-4 space-y-4">
-      {/* Card atual */}
+      {/* Card atual + botão Mudar Etapa */}
       <div className={cn(
-        'rounded-2xl border p-4 flex items-center gap-3',
+        'rounded-2xl border p-4',
         card ? 'bg-white border-gray-100' : 'bg-gray-50 border-gray-100'
       )}>
-        <div className={cn(
-          'w-10 h-10 rounded-xl flex items-center justify-center shrink-0',
-          card ? 'bg-crm-primary/10' : 'bg-gray-100'
-        )}>
-          <GitBranch size={18} className={card ? 'text-crm-primary' : 'text-gray-300'} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Coluna atual</p>
-          {card ? (
-            <>
-              <KanbanColumnBadge coluna={card.coluna} />
-              <div className="flex items-center gap-2 mt-1.5">
-                {card.score_anne !== null && (
-                  <div className="flex items-center gap-1">
-                    <div className="w-12 h-1 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-crm-primary rounded-full"
-                        style={{ width: `${Math.round((card.score_anne ?? 0) * 100)}%` }}
-                      />
+        <div className="flex items-center gap-3">
+          <div className={cn(
+            'w-10 h-10 rounded-xl flex items-center justify-center shrink-0',
+            card ? 'bg-crm-primary/10' : 'bg-gray-100'
+          )}>
+            <GitBranch size={18} className={card ? 'text-crm-primary' : 'text-gray-300'} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Coluna atual</p>
+            {card ? (
+              <>
+                <KanbanColumnBadge coluna={card.coluna} />
+                <div className="flex items-center gap-2 mt-1.5">
+                  {card.score_anne !== null && (
+                    <div className="flex items-center gap-1">
+                      <div className="w-12 h-1 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-crm-primary rounded-full"
+                          style={{ width: `${Math.round((card.score_anne ?? 0) * 100)}%` }}
+                        />
+                      </div>
+                      <span className="text-[9px] text-gray-400">{Math.round((card.score_anne ?? 0) * 100)}%</span>
                     </div>
-                    <span className="text-[9px] text-gray-400">{Math.round((card.score_anne ?? 0) * 100)}%</span>
-                  </div>
-                )}
-                <span className="text-[9px] text-gray-400">
-                  {formatRelativeTime(card.updated_at)}
-                </span>
-              </div>
-            </>
-          ) : (
-            <p className="text-xs text-gray-400 italic">Nenhum card de pipeline</p>
-          )}
+                  )}
+                  <span className="text-[9px] text-gray-400">
+                    {formatRelativeTime(card.updated_at)}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-gray-400 italic">Nenhum card de pipeline</p>
+            )}
+          </div>
+          <button
+            onClick={() => refetch()}
+            className="p-1.5 rounded-lg text-gray-300 hover:bg-gray-100 hover:text-gray-600 transition-colors shrink-0"
+          >
+            <RefreshCw size={12} />
+          </button>
         </div>
-        <button
-          onClick={() => refetch()}
-          className="p-1.5 rounded-lg text-gray-300 hover:bg-gray-100 hover:text-gray-600 transition-colors shrink-0"
-        >
-          <RefreshCw size={12} />
-        </button>
+
+        {/* Botão Mudar Etapa */}
+        {card && !changingStage && (
+          <button
+            onClick={() => { setChangingStage(true); setSelectedStage(card.coluna); }}
+            className="mt-3 w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-crm-primary/30 text-crm-primary text-xs font-semibold hover:bg-crm-primary/5 transition-colors"
+          >
+            <ArrowRight size={12} />
+            Mudar Etapa
+          </button>
+        )}
+
+        {/* Seletor de etapa */}
+        {changingStage && (
+          <div className="mt-3 space-y-2">
+            <select
+              value={selectedStage}
+              onChange={e => setSelectedStage(e.target.value as KanbanColumn)}
+              className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-2 focus:outline-none focus:border-crm-primary/50 bg-white text-gray-800"
+            >
+              <option value="">Selecionar etapa...</option>
+              {PIPELINE_COLS.map(col => (
+                <option key={col} value={col}>
+                  {KANBAN_COLUMN_CONFIG[col].label}
+                </option>
+              ))}
+            </select>
+            <div className="flex gap-2">
+              <button
+                onClick={handleMoveStage}
+                disabled={!selectedStage || selectedStage === card?.coluna || moving}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-crm-primary text-white text-xs font-semibold hover:bg-crm-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {moving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                Confirmar
+              </button>
+              <button
+                onClick={() => { setChangingStage(false); setSelectedStage(''); }}
+                className="px-3 py-2 rounded-xl border border-gray-200 text-xs text-gray-500 hover:bg-gray-50 transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Histórico de movimentações */}
@@ -1357,6 +1436,59 @@ function SectionBlock({ title, icon, children }: { title: string; icon?: React.R
    COMPONENTE PRINCIPAL — ClientBrainSidebar
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   BADGE PIPELINE — Visível em todas as abas
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+function PipelineStageBadge({
+  clientId,
+  onClickPipeline,
+}: {
+  clientId: string;
+  onClickPipeline: () => void;
+}) {
+  const { data } = useQuery({
+    queryKey: ['kanban-pipeline', clientId],
+    queryFn: async () => {
+      const res = await api.get<{ card: { coluna: KanbanColumn; updated_at: string } | null }>(`/api/kanban/${clientId}`);
+      return res.data;
+    },
+    enabled: !!clientId,
+    staleTime: 30_000,
+  });
+
+  const coluna = data?.card?.coluna ?? null;
+  if (!coluna) {
+    return (
+      <button
+        onClick={onClickPipeline}
+        className="flex items-center gap-1.5 px-3 pb-2 text-[10px] text-gray-300 hover:text-crm-primary transition-colors"
+        title="Ver Pipeline"
+      >
+        <GitBranch size={10} />
+        <span>Pipeline: sem etapa</span>
+      </button>
+    );
+  }
+
+  const cfg = KANBAN_COLUMN_CONFIG[coluna] ?? { label: coluna, color: 'text-gray-600', bg: 'bg-gray-50', border: 'border-gray-200' };
+
+  return (
+    <button
+      onClick={onClickPipeline}
+      className={cn(
+        'flex items-center gap-1.5 mx-3 mb-2 px-2.5 py-1.5 rounded-xl border w-[calc(100%-24px)] hover:opacity-80 transition-opacity',
+        cfg.bg, cfg.border
+      )}
+      title="Clique para ver o histórico de pipeline"
+    >
+      <GitBranch size={10} className={cfg.color} />
+      <span className={cn('text-[10px] font-bold truncate', cfg.color)}>Pipeline: {cfg.label}</span>
+      <span className="ml-auto text-[9px] text-gray-400 shrink-0">ver →</span>
+    </button>
+  );
+}
+
 export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
   const { selectedChatId } = useChatsStore();
   const [activeTab, setActiveTab] = useState<BrainTab>('identity');
@@ -1454,42 +1586,50 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
         const ltv = (c.ltv as number) ?? 0;
         const ticket = (c.avg_ticket as number) ?? (c.ticket_medio as number) ?? 0;
         const totalPedidos = (c.total_orders as number) ?? 0;
+        const clientId = (c.id as string) ?? selectedChatId;
         return (
-          <div className="grid grid-cols-3 gap-1.5 px-3 py-2.5 border-b border-gray-100 bg-white shrink-0">
-            {/* LTV */}
-            <div className="rounded-xl p-2 text-center border bg-crm-primary/5 border-crm-primary/20 min-w-0">
-              <div className="flex items-center justify-center gap-0.5 mb-0.5">
-                <TrendingUp size={10} className="text-crm-primary shrink-0" />
-                <p className="text-[9px] text-gray-400 uppercase tracking-wide truncate">LTV</p>
+          <div className="shrink-0 border-b border-gray-100 bg-white">
+            <div className="grid grid-cols-3 gap-1.5 px-3 pt-2.5 pb-1.5">
+              {/* LTV */}
+              <div className="rounded-xl p-2 text-center border bg-crm-primary/5 border-crm-primary/20 min-w-0">
+                <div className="flex items-center justify-center gap-0.5 mb-0.5">
+                  <TrendingUp size={10} className="text-crm-primary shrink-0" />
+                  <p className="text-[9px] text-gray-400 uppercase tracking-wide truncate">LTV</p>
+                </div>
+                <p className="text-xs font-black text-crm-primary truncate" title={ltv > 0 ? formatCurrency(ltv) : '—'}>
+                  {ltv > 0 ? formatCurrency(ltv) : '—'}
+                </p>
               </div>
-              <p className="text-xs font-black text-crm-primary truncate" title={ltv > 0 ? formatCurrency(ltv) : '—'}>
-                {ltv > 0 ? formatCurrency(ltv) : '—'}
-              </p>
+              {/* Ticket */}
+              <div className="rounded-xl p-2 text-center border bg-gray-50 border-gray-100 min-w-0">
+                <div className="flex items-center justify-center gap-0.5 mb-0.5">
+                  <Star size={10} className="text-amber-500 shrink-0" />
+                  <p className="text-[9px] text-gray-400 uppercase tracking-wide truncate">Ticket</p>
+                </div>
+                <p className="text-xs font-black text-gray-800 truncate" title={ticket > 0 ? formatCurrency(ticket) : '—'}>
+                  {ticket > 0 ? formatCurrency(ticket) : '—'}
+                </p>
+              </div>
+              {/* Pedidos — clicável */}
+              <button
+                onClick={() => setActiveTab('orders')}
+                className="rounded-xl p-2 text-center border bg-gray-50 border-gray-100 hover:bg-crm-primary/5 hover:border-crm-primary/20 transition-colors group min-w-0"
+                title="Ver pedidos"
+              >
+                <div className="flex items-center justify-center gap-0.5 mb-0.5">
+                  <ShoppingBag size={10} className="text-gray-400 group-hover:text-crm-primary transition-colors shrink-0" />
+                  <p className="text-[9px] text-gray-400 uppercase tracking-wide truncate">Pedidos</p>
+                </div>
+                <p className="text-xs font-black text-gray-800 group-hover:text-crm-primary transition-colors">
+                  {String(totalPedidos)}
+                </p>
+              </button>
             </div>
-            {/* Ticket */}
-            <div className="rounded-xl p-2 text-center border bg-gray-50 border-gray-100 min-w-0">
-              <div className="flex items-center justify-center gap-0.5 mb-0.5">
-                <Star size={10} className="text-amber-500 shrink-0" />
-                <p className="text-[9px] text-gray-400 uppercase tracking-wide truncate">Ticket</p>
-              </div>
-              <p className="text-xs font-black text-gray-800 truncate" title={ticket > 0 ? formatCurrency(ticket) : '—'}>
-                {ticket > 0 ? formatCurrency(ticket) : '—'}
-              </p>
-            </div>
-            {/* Pedidos — clicável */}
-            <button
-              onClick={() => setActiveTab('orders')}
-              className="rounded-xl p-2 text-center border bg-gray-50 border-gray-100 hover:bg-crm-primary/5 hover:border-crm-primary/20 transition-colors group min-w-0"
-              title="Ver pedidos"
-            >
-              <div className="flex items-center justify-center gap-0.5 mb-0.5">
-                <ShoppingBag size={10} className="text-gray-400 group-hover:text-crm-primary transition-colors shrink-0" />
-                <p className="text-[9px] text-gray-400 uppercase tracking-wide truncate">Pedidos</p>
-              </div>
-              <p className="text-xs font-black text-gray-800 group-hover:text-crm-primary transition-colors">
-                {String(totalPedidos)}
-              </p>
-            </button>
+            {/* Badge de etapa do pipeline — clicável vai para aba Pipeline */}
+            <PipelineStageBadge
+              clientId={clientId}
+              onClickPipeline={() => setActiveTab('pipeline')}
+            />
           </div>
         );
       })()}
