@@ -534,19 +534,21 @@ function NovaCampanhaInner() {
 
               {mostrarAntiban && (
                 <div className="grid grid-cols-2 gap-4 pt-2">
-                  {[
-                    { label: 'Delay mín. (ms)', key: 'delay_min_ms' },
-                    { label: 'Delay máx. (ms)', key: 'delay_max_ms' },
-                    { label: 'Cooloff a cada N msgs', key: 'cooloff_a_cada' },
-                    { label: 'Duração cooloff (ms)', key: 'cooloff_duracao_ms' },
-                    { label: 'Janela início (hora)', key: 'janela_horaria_inicio' },
-                    { label: 'Janela fim (hora)', key: 'janela_horaria_fim' },
-                  ].map(({ label, key }) => (
+                  {(
+                    [
+                      { label: 'Delay mín. (ms)',       key: 'delay_min_ms'           },
+                      { label: 'Delay máx. (ms)',        key: 'delay_max_ms'           },
+                      { label: 'Cooloff a cada N msgs',  key: 'cooloff_a_cada'         },
+                      { label: 'Duração cooloff (ms)',   key: 'cooloff_duracao_ms'     },
+                      { label: 'Janela início (hora)',   key: 'janela_horaria_inicio'  },
+                      { label: 'Janela fim (hora)',      key: 'janela_horaria_fim'     },
+                    ] as const satisfies readonly { label: string; key: keyof AntibanConfig }[]
+                  ).map(({ label, key }) => (
                     <div key={key}>
                       <label className="text-xs text-txt-secondary mb-1 block">{label}</label>
                       <input
                         type="number"
-                        value={(antiban as Record<string, number>)[key]}
+                        value={antiban[key]}
                         onChange={e => setAntiban(prev => ({ ...prev, [key]: Number(e.target.value) }))}
                         className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-crm-primary/40"
                       />
