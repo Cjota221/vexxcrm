@@ -22,12 +22,12 @@ import { getTenantFromRequest } from '@/lib/auth-helpers';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const auth = await getTenantFromRequest(request);
     const tenantId = auth.tenantId;
-    const clientId = params.id;
+    const { id: clientId } = await params;
     const supabase = createServerSupabaseClient();
 
     // ── Buscar pedidos do cliente ─────────────────────────────
