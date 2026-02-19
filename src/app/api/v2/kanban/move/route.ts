@@ -73,6 +73,8 @@ export async function PATCH(request: NextRequest) {
     const now = new Date().toISOString();
 
     // ── Upsert kanban card ─────────────────────────────────────────────
+    // NOTA: a constraint é UNIQUE(tenant_id, chat_id) — onConflict deve
+    // incluir ambas as colunas para corresponder à constraint correta.
     const { error: upsertError } = await supabase
       .from('kanban_cards')
       .upsert(
@@ -83,7 +85,7 @@ export async function PATCH(request: NextRequest) {
           coluna: para_coluna,
           updated_at: now,
         },
-        { onConflict: 'chat_id' }
+        { onConflict: 'tenant_id,chat_id' }
       );
 
     if (upsertError) {
