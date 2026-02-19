@@ -766,15 +766,19 @@ function NovaCampanhaInner() {
         ? gruposSelecionados.map(g => ({ id: g.id, telefone: g.id, nome: g.nome }))
         : contatos;
 
+      // Mapear modo UI → valor aceito pelo CHECK constraint do banco
+      const tipoDestinatarioDB =
+        modoDestinatario === 'grupos' ? 'grupos' : 'contatos';
+
       const { data: json, error } = await api.post<{ campanha_id: string; status: string }>('/api/v2/campanhas', {
         nome: nomeCampanha,
         blocos,
         destinatarios,
         scheduled_at: scheduledAt || undefined,
         config_antiban: antiban,
-        origem: origemParam || undefined,
+        origem: origemParam || modoDestinatario,  // preserva 'inteligencia'|'manual'|'grupos' no campo origem
         origem_grupo_nome: grupoNomeParam || undefined,
-        tipo_destinatario: modoDestinatario,
+        tipo_destinatario: tipoDestinatarioDB,
       });
       if (error) throw new Error(error);
 
