@@ -8,6 +8,7 @@ import { KanbanModal } from '@/components/crm/KanbanModal';
 import { CatalogoDrawer } from '@/components/contact-center/CatalogoDrawer';
 import { TransferDialog } from '@/components/contact-center/TransferDialog';
 import { EmbeddedCampaignPanel } from '@/components/contact-center/EmbeddedCampaignPanel';
+import { StatusPanel } from '@/components/contact-center/StatusPanel';
 import { useRealtimeMessages } from '@/hooks/useRealtimeMessages';
 import { useChatsStore } from '@/store/chats';
 import { useAuthStore } from '@/store/auth';
@@ -24,6 +25,7 @@ import {
   ArrowLeftRight,
   Bell,
   X,
+  Eye,
 } from 'lucide-react';
 
 /* ─── Botão de navegação do header ───────────────────────────── */
@@ -86,6 +88,7 @@ export default function CentralAtendimentoPage() {
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [campaignOpen, setCampaignOpen] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
   const [anneEnabled, setAnneEnabled] = useState(true);
   const [brainOpen, setBrainOpen] = useState(true);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -144,6 +147,7 @@ export default function CentralAtendimentoPage() {
           )}
 
           <NavBtn icon={<Megaphone size={15} />} label="Campanhas" onClick={() => setCampaignOpen(true)} />
+          <NavBtn icon={<Eye size={15} />} label="Status" onClick={() => setStatusOpen(true)} />
           <NavBtn icon={<Kanban size={15} />} label="Pipeline" active={kanbanOpen} onClick={() => setKanbanOpen(v => !v)} />
 
           {selectedChatId && (
@@ -210,6 +214,7 @@ export default function CentralAtendimentoPage() {
       <KanbanModal open={kanbanOpen} onClose={() => setKanbanOpen(false)} />
       <CatalogoDrawer open={catalogOpen} onClose={() => setCatalogOpen(false)} />
       <TransferDialog open={transferOpen} onClose={() => setTransferOpen(false)} />
+      <StatusPanel open={statusOpen} onClose={() => setStatusOpen(false)} />
       {campaignOpen && <EmbeddedCampaignPanel onClose={() => setCampaignOpen(false)} />}
     </div>
   );

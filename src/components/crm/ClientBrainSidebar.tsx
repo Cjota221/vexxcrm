@@ -317,6 +317,9 @@ function IdentityTab({
         </div>
       </SectionBlock>
 
+      {/* Perfil Business WhatsApp */}
+      <BusinessProfileSection phone={(c.phone as string) ?? ''} />
+
       {/* Datas */}
       <SectionBlock title="Histórico">
         <div className="space-y-1.5">
@@ -1622,6 +1625,110 @@ function SectionBlock({ title, icon, children }: { title: string; icon?: React.R
       </div>
       {children}
     </div>
+  );
+}
+
+/* ── Perfil Business WhatsApp ──────────────────────────────── */
+
+interface BusinessProfile {
+  is_business: boolean;
+  description: string | null;
+  email: string | null;
+  website: string[];
+  address: string | null;
+  category: string | null;
+  catalog_url: string | null;
+  profile_pic_url: string | null;
+}
+
+function BusinessProfileSection({ phone }: { phone: string }) {
+  const { data: bp, isLoading } = useQuery<BusinessProfile | null>({
+    queryKey: ['business-profile', phone],
+    queryFn: async () => {
+      const cleanPhone = phone.replace(/[^0-9]/g, '');
+      if (!cleanPhone || cleanPhone.length < 10) return null;
+      const res = await api.get<BusinessProfile>(`/api/whatsapp/business-profile?phone=${cleanPhone}`);
+      return res.data ?? null;
+    },
+    enabled: !!phone && phone.replace(/[^0-9]/g, '').length >= 10,
+    staleTime: 5 * 60 * 1000, // 5min cache
+    retry: 1,
+  });
+
+  if (isLoading) return null;
+  if (!bp) return null;
+
+  // Se não é business e não tem nenhum dado útil, não mostrar
+  const hasData = bp.is_business || bp.description || bp.email || bp.website?.length || bp.address || bp.category;
+  if (!hasData) return null;
+
+  return (
+    <SectionBlock
+      title={bp.is_business ? '🏢 Empresa (Business)' : 'Perfil WhatsApp'}
+      icon={bp.is_business ? undefined : <User size={12} />}
+    >
+      <div className="space-y-2">
+        {/* Selo Business */}
+        {bp.is_business && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-green-50 border border-green-200 rounded-lg w-fit">
+            <CheckCircle2 size={12} className="text-green-600" />
+            <span className="text-[10px] font-bold text-green-700">Conta Business Verificada</span>
+          </div>
+        )}
+
+        {/* Categoria */}
+        {bp.category && (
+          <div className="flex items-center gap-1.5 text-xs text-gray-600">
+            <Tag size={10} className="text-gray-400 shrink-0" />
+            <span>{bp.category}</span>
+          </div>
+        )}
+
+        {/* Descrição */}
+        {bp.description && (
+          <p className="text-xs text-gray-500 leading-relaxed line-clamp-3">{bp.description}</p>
+        )}
+
+        {/* E-mail */}
+        {bp.email && (
+          <div className="flex items-center gap-1.5 text-xs text-gray-600">
+            <Mail size={10} className="text-gray-400 shrink-0" />
+            <a href={`mailto:${bp.email}`} className="text-crm-primary hover:underline truncate">{bp.email}</a>
+          </div>
+        )}
+
+        {/* Website(s) */}
+        {bp.website && bp.website.length > 0 && bp.website.map((url, i) => (
+          <div key={i} className="flex items-center gap-1.5 text-xs text-gray-600">
+            <ExternalLink size={10} className="text-gray-400 shrink-0" />
+            <a href={url.startsWith('http') ? url : `https://${url}`} target="_blank" rel="noopener noreferrer" className="text-crm-primary hover:underline truncate">
+              {url.replace(/^https?:\/\//, '')}
+            </a>
+          </div>
+        ))}
+
+        {/* Endereço */}
+        {bp.address && (
+          <div className="flex items-center gap-1.5 text-xs text-gray-600">
+            <MapPin size={10} className="text-gray-400 shrink-0" />
+            <span className="line-clamp-2">{bp.address}</span>
+          </div>
+        )}
+
+        {/* Catálogo */}
+        {bp.catalog_url && (
+          <a
+            href={bp.catalog_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs text-crm-primary hover:underline"
+          >
+            <ShoppingBag size={10} />
+            Ver catálogo
+          </a>
+        )}
+      </div>
+    </SectionBlock>
   );
 }
 

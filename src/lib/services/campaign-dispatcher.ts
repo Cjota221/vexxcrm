@@ -47,15 +47,55 @@ export interface ContatoJob {
 
 // ─── Configuração padrão ────────────────────────────────────────────────────
 
+/**
+ * ═══════════════════════════════════════════════════════════════
+ * REGRA DA CAROL — Hardcoded anti-ban safety
+ * 
+ * • 15 segundos de intervalo FIXO entre contatos
+ * • 60 segundos de pausa obrigatória a cada 10 envios
+ * • Máximo 200 contatos por período de 24h (com alerta)
+ * • Janela horária: 8h–20h
+ * 
+ * Esses valores são o PISO de segurança. O usuário pode
+ * aumentar (mais lento), mas NUNCA diminuir abaixo disso.
+ * ═══════════════════════════════════════════════════════════════
+ */
+export const REGRA_DA_CAROL = {
+  DELAY_MIN_MS: 15_000,            // 15s mínimo entre contatos
+  COOLOFF_A_CADA: 10,               // pausa a cada 10 envios
+  COOLOFF_DURACAO_MS: 60_000,       // 60s de pausa
+  MAX_ENVIOS_24H: 200,              // trava de volume diário
+  JANELA_INICIO: 8,                 // início às 8h
+  JANELA_FIM: 20,                   // fim às 20h
+} as const;
+
 export const CONFIG_PADRAO: AntibanConfig = {
-  delay_min_ms: 15_000,
+  delay_min_ms: REGRA_DA_CAROL.DELAY_MIN_MS,
   delay_max_ms: 45_000,
-  cooloff_a_cada: 20,
-  cooloff_duracao_ms: 120_000,
+  cooloff_a_cada: REGRA_DA_CAROL.COOLOFF_A_CADA,
+  cooloff_duracao_ms: REGRA_DA_CAROL.COOLOFF_DURACAO_MS,
   max_tentativas: 3,
-  janela_horaria_inicio: 8,
-  janela_horaria_fim: 20,
+  janela_horaria_inicio: REGRA_DA_CAROL.JANELA_INICIO,
+  janela_horaria_fim: REGRA_DA_CAROL.JANELA_FIM,
 };
+
+/**
+ * Aplica a Regra da Carol: garante que os valores nunca fiquem
+ * abaixo do piso de segurança, mesmo que o usuário tente.
+ */
+export function aplicarRegraCarol(config: Partial<AntibanConfig>): AntibanConfig {
+  return {
+    ...CONFIG_PADRAO,
+    ...config,
+    // Enforce mínimos — NUNCA abaixo da Regra da Carol
+    delay_min_ms: Math.max(config.delay_min_ms ?? CONFIG_PADRAO.delay_min_ms, REGRA_DA_CAROL.DELAY_MIN_MS),
+    delay_max_ms: Math.max(config.delay_max_ms ?? CONFIG_PADRAO.delay_max_ms, REGRA_DA_CAROL.DELAY_MIN_MS + 1_000),
+    cooloff_a_cada: Math.min(config.cooloff_a_cada ?? CONFIG_PADRAO.cooloff_a_cada, REGRA_DA_CAROL.COOLOFF_A_CADA),
+    cooloff_duracao_ms: Math.max(config.cooloff_duracao_ms ?? CONFIG_PADRAO.cooloff_duracao_ms, REGRA_DA_CAROL.COOLOFF_DURACAO_MS),
+    janela_horaria_inicio: Math.max(config.janela_horaria_inicio ?? CONFIG_PADRAO.janela_horaria_inicio, REGRA_DA_CAROL.JANELA_INICIO),
+    janela_horaria_fim: Math.min(config.janela_horaria_fim ?? CONFIG_PADRAO.janela_horaria_fim, REGRA_DA_CAROL.JANELA_FIM),
+  };
+}
 
 // ─── Utilitários de delay ────────────────────────────────────────────────────
 
@@ -247,7 +287,7 @@ export async function processarFilaCampanha(
   campanhaId: string,
   configOverride?: Partial<AntibanConfig>
 ): Promise<void> {
-  const config = { ...CONFIG_PADRAO, ...configOverride };
+  const config = aplicarRegraCarol({ ...CONFIG_PADRAO, ...configOverride });
 
   // Carrega campanha
   const { data: campanha, error: errCampanha } = await supabase
@@ -262,7 +302,7 @@ export async function processarFilaCampanha(
   }
 
   const tenantId: string = campanha.tenant_id;
-  const cfgAntiban: AntibanConfig = { ...config, ...(campanha.config_antiban ?? {}) };
+  const cfgAntiban: AntibanConfig = aplicarRegraCarol({ ...config, ...(campanha.config_antiban ?? {}) });
 
   let msgEnviadas = 0;
 

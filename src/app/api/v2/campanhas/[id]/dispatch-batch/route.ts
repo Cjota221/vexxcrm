@@ -6,6 +6,7 @@ import {
   resolverBlocos,
   Bloco,
   ContatoJob,
+  REGRA_DA_CAROL,
 } from '@/lib/services/campaign-dispatcher';
 import {
   getTenantEvolutionConfig,
@@ -57,6 +58,24 @@ export async function POST(request: NextRequest, { params }: { params: Params })
         error: `Campanha com status "${campanha.status}" — não está em execução`,
         status: campanha.status,
       }, { status: 400 });
+    }
+
+    // ━━━ REGRA DA CAROL: Verificar trava de volume 24h ━━━
+    try {
+      const { data: enviadosHoje } = await supabase.rpc('get_daily_send_count', {
+        p_tenant_id: profile.tenant_id,
+      });
+      if ((enviadosHoje ?? 0) >= REGRA_DA_CAROL.MAX_ENVIOS_24H) {
+        return NextResponse.json({
+          error: `Limite diário de ${REGRA_DA_CAROL.MAX_ENVIOS_24H} envios atingido. Aguarde 24h para continuar.`,
+          enviados_hoje: enviadosHoje,
+          limite: REGRA_DA_CAROL.MAX_ENVIOS_24H,
+          bloqueado: true,
+        }, { status: 429 });
+      }
+    } catch {
+      // Se a RPC não existir ainda, continua normalmente
+      console.warn('[DISPATCH_BATCH] Falha ao verificar volume diário — continuando');
     }
 
     // Buscar próximos jobs pendentes
@@ -210,6 +229,17 @@ export async function POST(request: NextRequest, { params }: { params: Params })
             .update({ sent_count: (campanha.sent_count ?? 0) + enviados + 1 })
             .eq('id', campanhaId);
         }
+
+        // ━━━ REGRA DA CAROL: Incrementar contador diário ━━━
+        try {
+          await supabase.rpc('increment_daily_send_count', {
+            p_tenant_id: tenantId,
+            p_count: 1,
+          });
+        } catch {
+          // Silencia se RPC não existir
+        }
+
         enviados++;
 
         console.log(`[DISPATCH_BATCH] ✅ Enviado para ${job.contato_telefone} (${job.contato_nome || 'sem nome'})`);

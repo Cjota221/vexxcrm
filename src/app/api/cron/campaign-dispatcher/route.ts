@@ -16,7 +16,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase';
-import { processarFilaCampanha } from '@/lib/services/campaign-dispatcher';
+import { processarFilaCampanha, criarJobsCampanha } from '@/lib/services/campaign-dispatcher';
 
 // ─── Validação do secret ──────────────────────────────────────────────────────
 const CRON_SECRET = process.env.CRON_SECRET || process.env.SUPABASE_SERVICE_KEY;
@@ -108,6 +108,107 @@ export async function POST(request: NextRequest) {
 
         console.log(`[DISPATCHER_CRON] ${agendadas.length} campanhas agendadas ativadas`);
         return NextResponse.json({ ok: true, ativadas: ids, running: [] });
+      }
+
+      // ── Verificar campanhas recorrentes (diárias) que precisam ser clonadas ──
+      const agora = new Date();
+      const horaAtual = `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
+      const hojeISO = agora.toISOString().slice(0, 10); // YYYY-MM-DD
+
+      const { data: recorrentes } = await supabase
+        .from('campaigns')
+        .select('id, tenant_id, name, blocos_snapshot, config_antiban, tipo_destinatario, origem, origem_grupo_nome, recurrence_time, created_by')
+        .eq('is_recurring', true)
+        .eq('recurrence_active', true)
+        .eq('recurrence_type', 'daily');
+
+      if (recorrentes && recorrentes.length > 0) {
+        const recorrenciasClonadas: string[] = [];
+
+        for (const camp of recorrentes) {
+          // Verificar se o horário já passou e se ainda não disparou hoje
+          const horaCamp = (camp.recurrence_time as string)?.slice(0, 5) ?? '09:00';
+          if (horaAtual < horaCamp) continue; // ainda não chegou a hora
+
+          // Checar last_recurrence_at para não clonar mais de uma vez no dia
+          const { data: original } = await supabase
+            .from('campaigns')
+            .select('last_recurrence_at')
+            .eq('id', camp.id)
+            .single();
+
+          if (original?.last_recurrence_at) {
+            const lastDate = new Date(original.last_recurrence_at).toISOString().slice(0, 10);
+            if (lastDate === hojeISO) continue; // já disparou hoje
+          }
+
+          // Buscar jobs da campanha original para recriar destinatários
+          const { data: jobsOriginais } = await supabase
+            .from('campaign_jobs')
+            .select('telefone, nome_contato, blocos_snapshot')
+            .eq('campaign_id', camp.id)
+            .limit(500);
+
+          if (!jobsOriginais || jobsOriginais.length === 0) continue;
+
+          const destinatarios = jobsOriginais.map(j => ({
+            id: j.telefone,
+            telefone: j.telefone,
+            nome: j.nome_contato ?? '',
+          }));
+
+          // Criar campanha clone
+          const { data: clone, error: errClone } = await supabase
+            .from('campaigns')
+            .insert({
+              tenant_id: camp.tenant_id,
+              created_by: camp.created_by,
+              name: `${camp.name} (${hojeISO})`,
+              type: 'broadcast',
+              status: 'running',
+              blocos_snapshot: camp.blocos_snapshot,
+              destinatarios: destinatarios.length,
+              tipo_destinatario: camp.tipo_destinatario ?? 'grupos',
+              config_antiban: camp.config_antiban,
+              origem: camp.origem,
+              origem_grupo_nome: camp.origem_grupo_nome,
+              status_detalhe: `Recorrência automática de #${camp.id.slice(0, 8)}`,
+              messages: camp.blocos_snapshot,
+            })
+            .select('id')
+            .single();
+
+          if (errClone || !clone) {
+            console.error(`[DISPATCHER_CRON] Erro ao clonar recorrência ${camp.id}:`, errClone);
+            continue;
+          }
+
+          // Criar jobs do clone
+          await criarJobsCampanha(
+            supabase,
+            clone.id,
+            camp.tenant_id,
+            destinatarios,
+            camp.blocos_snapshot as any[]
+          );
+
+          // Atualizar last_recurrence_at na campanha original
+          await supabase
+            .from('campaigns')
+            .update({ last_recurrence_at: agora.toISOString() })
+            .eq('id', camp.id);
+
+          recorrenciasClonadas.push(clone.id);
+          console.log(`[DISPATCHER_CRON] Recorrência clonada: ${camp.name} → ${clone.id}`);
+        }
+
+        if (recorrenciasClonadas.length > 0) {
+          return NextResponse.json({
+            ok: true,
+            recorrencias_clonadas: recorrenciasClonadas,
+            running: [],
+          });
+        }
       }
 
       return NextResponse.json({ ok: true, mensagem: 'Nenhuma campanha ativa no momento', running: [] });

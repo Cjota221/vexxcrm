@@ -21,6 +21,11 @@ export async function POST(request: NextRequest) {
       config_antiban?: Record<string, number>;
       origem?: string;
       origem_grupo_nome?: string;
+      // Recorrência
+      is_recurring?: boolean;
+      recurrence_type?: string;
+      recurrence_time?: string;
+      recurrence_active?: boolean;
     };
 
     // Validações básicas
@@ -63,6 +68,13 @@ export async function POST(request: NextRequest) {
         origem_grupo_nome: body.origem_grupo_nome ?? null,
         scheduled_at: body.scheduled_at ?? null,
         messages: body.blocos, // manter compat com schema legado
+        // Recorrência
+        ...(body.is_recurring ? {
+          is_recurring: true,
+          recurrence_type: body.recurrence_type ?? 'daily',
+          recurrence_time: body.recurrence_time ?? '09:00',
+          recurrence_active: body.recurrence_active ?? true,
+        } : {}),
       })
       .select('id, status')
       .single();

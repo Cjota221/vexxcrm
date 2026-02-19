@@ -63,13 +63,15 @@ interface AntibanConfig {
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
 const ANTIBAN_PADRAO: AntibanConfig = {
-  delay_min_ms: 15_000,
+  delay_min_ms: 15_000,         // Regra da Carol: mínimo 15s
   delay_max_ms: 45_000,
-  cooloff_a_cada: 20,
-  cooloff_duracao_ms: 120_000,
+  cooloff_a_cada: 10,           // Regra da Carol: pausa a cada 10
+  cooloff_duracao_ms: 60_000,   // Regra da Carol: 60s de pausa
   janela_horaria_inicio: 8,
   janela_horaria_fim: 20,
 };
+
+const LIMITE_DIARIO = 200; // Regra da Carol: máx 200 envios/24h
 
 const VARIAVEIS_DISPONIVEIS = ['{{nome}}', '{{cidade}}', '{{estado}}', '{{ultimo_pedido}}', '{{valor_ltv}}'];
 
@@ -622,8 +624,27 @@ function NovaCampanhaInner() {
   const [scheduledAt, setScheduledAt] = useState('');
   const [antiban, setAntiban] = useState<AntibanConfig>(ANTIBAN_PADRAO);
   const [mostrarAntiban, setMostrarAntiban] = useState(false);
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurrenceTime, setRecurrenceTime] = useState('09:00');
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState('');
+  const [volumeCheck, setVolumeCheck] = useState<{
+    enviados_hoje: number;
+    limite_diario: number;
+    restantes: number;
+    risco: 'safe' | 'warning' | 'danger';
+    percentual: number;
+  } | null>(null);
+  const [confirmaRisco, setConfirmaRisco] = useState(false);
+
+  // ━━━ REGRA DA CAROL: Verificar volume diário ao abrir ━━━
+  useEffect(() => {
+    api.get<Record<string, unknown>>('/api/v2/campanhas/volume-check')
+      .then(({ data }) => {
+        if (data) setVolumeCheck(data as typeof volumeCheck);
+      })
+      .catch(() => {}); // Silencia se a RPC não existir ainda
+  }, []);
 
   // Define modo inicial baseado na origem
   useEffect(() => {
@@ -792,6 +813,13 @@ function NovaCampanhaInner() {
         origem: origemParam || modoDestinatario,  // preserva 'inteligencia'|'manual'|'grupos' no campo origem
         origem_grupo_nome: grupoNomeParam || undefined,
         tipo_destinatario: tipoDestinatarioDB,
+        // Recorrência (apenas para grupos)
+        ...(isRecurring && modoDestinatario === 'grupos' ? {
+          is_recurring: true,
+          recurrence_type: 'daily',
+          recurrence_time: recurrenceTime,
+          recurrence_active: true,
+        } : {}),
       });
       if (error) throw new Error(error);
 
@@ -1006,6 +1034,42 @@ function NovaCampanhaInner() {
                   className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-crm-primary/40"
                 />
               </div>
+
+              {/* ━━━ RECORRÊNCIA (apenas para grupos) ━━━ */}
+              {modoDestinatario === 'grupos' && (
+                <div className="mt-4 p-4 bg-surface-50 rounded-xl border border-surface-200 space-y-3">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <div className={`w-10 h-5 rounded-full relative transition-colors ${isRecurring ? 'bg-crm-primary' : 'bg-surface-300'}`}>
+                      <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${isRecurring ? 'left-5' : 'left-0.5'}`} />
+                    </div>
+                    <div>
+                      <span className="text-sm font-semibold text-txt-primary">Agendar Recorrência</span>
+                      <p className="text-xs text-txt-muted">Disparar automaticamente todos os dias</p>
+                    </div>
+                  </label>
+
+                  {isRecurring && (
+                    <div className="space-y-3 pt-2">
+                      <div>
+                        <label className="text-xs text-txt-secondary mb-1 block">Horário diário</label>
+                        <input
+                          type="time"
+                          value={recurrenceTime}
+                          onChange={e => setRecurrenceTime(e.target.value)}
+                          className="w-40 px-3 py-2 text-sm border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-crm-primary/40"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2 p-2.5 bg-blue-50 rounded-lg border border-blue-200">
+                        <Calendar size={13} className="text-blue-600 shrink-0" />
+                        <p className="text-xs text-blue-700">
+                          A mensagem será enviada todos os dias às <strong>{recurrenceTime}</strong> para os {gruposSelecionados.length} grupo(s) selecionado(s).
+                          Você pode pausar ou cancelar a qualquer momento.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </Card>
 
@@ -1023,7 +1087,7 @@ function NovaCampanhaInner() {
               </button>
 
               <div className="text-xs text-txt-secondary bg-green-50 rounded-lg px-3 py-2">
-                ✅ Padrões recomendados já aplicados — {antiban.delay_min_ms / 1000}–{antiban.delay_max_ms / 1000}s entre envios, cooloff a cada {antiban.cooloff_a_cada} msgs
+                ✅ <strong>Regra da Carol</strong> ativa — mínimo 15s entre envios, pausa de 60s a cada 10 msgs, máx {LIMITE_DIARIO}/dia
               </div>
 
               {mostrarAntiban && (
@@ -1037,17 +1101,37 @@ function NovaCampanhaInner() {
                       { label: 'Janela início (hora)',   key: 'janela_horaria_inicio'  },
                       { label: 'Janela fim (hora)',      key: 'janela_horaria_fim'     },
                     ] as const satisfies readonly { label: string; key: keyof AntibanConfig }[]
-                  ).map(({ label, key }) => (
+                  ).map(({ label, key }) => {
+                    // Regra da Carol: mínimos hardcoded
+                    const MIN_MAP: Partial<Record<keyof AntibanConfig, number>> = {
+                      delay_min_ms: 15_000,
+                      delay_max_ms: 16_000,
+                      cooloff_duracao_ms: 60_000,
+                      janela_horaria_inicio: 8,
+                    };
+                    const MAX_MAP: Partial<Record<keyof AntibanConfig, number>> = {
+                      cooloff_a_cada: 10,
+                      janela_horaria_fim: 20,
+                    };
+                    return (
                     <div key={key}>
                       <label className="text-xs text-txt-secondary mb-1 block">{label}</label>
                       <input
                         type="number"
                         value={antiban[key]}
-                        onChange={e => setAntiban(prev => ({ ...prev, [key]: Number(e.target.value) }))}
+                        min={MIN_MAP[key]}
+                        max={MAX_MAP[key]}
+                        onChange={e => {
+                          let val = Number(e.target.value);
+                          if (MIN_MAP[key]) val = Math.max(val, MIN_MAP[key]!);
+                          if (MAX_MAP[key]) val = Math.min(val, MAX_MAP[key]!);
+                          setAntiban(prev => ({ ...prev, [key]: val }));
+                        }}
                         className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-crm-primary/40"
                       />
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1092,6 +1176,64 @@ function NovaCampanhaInner() {
                 <AlertCircle size={16} /> {erro}
               </div>
             )}
+
+            {/* ━━━ REGRA DA CAROL: Alerta de risco de banimento ━━━ */}
+            {volumeCheck && (
+              <div className={`rounded-xl border p-4 space-y-2 ${
+                volumeCheck.risco === 'danger'
+                  ? 'bg-red-50 border-red-300'
+                  : volumeCheck.risco === 'warning'
+                    ? 'bg-amber-50 border-amber-300'
+                    : 'bg-green-50 border-green-200'
+              }`}>
+                <div className="flex items-center gap-2">
+                  <Zap size={14} className={
+                    volumeCheck.risco === 'danger' ? 'text-red-600' :
+                    volumeCheck.risco === 'warning' ? 'text-amber-600' : 'text-green-600'
+                  } />
+                  <span className={`text-sm font-semibold ${
+                    volumeCheck.risco === 'danger' ? 'text-red-700' :
+                    volumeCheck.risco === 'warning' ? 'text-amber-700' : 'text-green-700'
+                  }`}>
+                    Regra da Carol — Anti-Ban
+                  </span>
+                </div>
+                <p className="text-xs text-gray-600">
+                  Enviados hoje: <strong>{volumeCheck.enviados_hoje}</strong> / {volumeCheck.limite_diario} · 
+                  Restantes: <strong>{volumeCheck.restantes}</strong>
+                </p>
+                <div className="w-full h-2 bg-white rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      volumeCheck.risco === 'danger' ? 'bg-red-500' :
+                      volumeCheck.risco === 'warning' ? 'bg-amber-500' : 'bg-green-500'
+                    }`}
+                    style={{ width: `${Math.min(100, volumeCheck.percentual)}%` }}
+                  />
+                </div>
+
+                {/* Alerta de risco + totalContatos > restantes */}
+                {totalContatos > volumeCheck.restantes && (
+                  <div className="mt-2 p-3 bg-red-100 rounded-lg border border-red-300">
+                    <p className="text-xs font-bold text-red-800 mb-1">
+                      ⚠️ RISCO DE BANIMENTO: Você quer enviar {totalContatos} mensagens mas só pode enviar mais {volumeCheck.restantes} hoje.
+                    </p>
+                    <p className="text-xs text-red-700 mb-2">
+                      Enviar acima do limite de {LIMITE_DIARIO}/24h pode resultar em banimento do número pelo WhatsApp.
+                    </p>
+                    <label className="flex items-center gap-2 text-xs text-red-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={confirmaRisco}
+                        onChange={e => setConfirmaRisco(e.target.checked)}
+                        className="rounded border-red-400"
+                      />
+                      <span>Estou ciente do risco e desejo prosseguir mesmo assim</span>
+                    </label>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </Card>
       )}
@@ -1113,7 +1255,9 @@ function NovaCampanhaInner() {
           <Button
             variant="primary"
             onClick={handleSubmit}
-            disabled={enviando || !nomeCampanha.trim()}
+            disabled={enviando || !nomeCampanha.trim() || (
+              volumeCheck != null && totalContatos > volumeCheck.restantes && !confirmaRisco
+            )}
           >
             {enviando ? <><Loader2 size={15} className="animate-spin" /> Criando...</> : <><Send size={15} /> Criar Campanha</>}
           </Button>
