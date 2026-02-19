@@ -156,9 +156,18 @@ export function useSendMessage() {
       if (response.error) throw new Error(response.error);
       return response.data;
     },
-    onSuccess: () => {
+    onSuccess: (data, variables) => {
       // Invalidar lista de chats para reordenar
       queryClient.invalidateQueries({ queryKey: ['chats'] });
+      // Invalidar mensagens do chat atual para exibir a mensagem enviada
+      queryClient.invalidateQueries({ queryKey: ['messages'] });
+    },
+    onError: (error: Error) => {
+      console.error('[useSendMessage] Falha ao enviar mensagem:', error.message);
+      // Exibir alert nativo caso não haja toast disponível no contexto
+      if (typeof window !== 'undefined') {
+        alert(`Erro ao enviar mensagem: ${error.message}`);
+      }
     },
   });
 }

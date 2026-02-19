@@ -73,17 +73,35 @@ export function ChatArea() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Resolver o telefone do cliente com fallback: clientData > cachedChat > selectedChatId
+  const resolvedPhone = clientData?.phone
+    || cachedChat?.client?.phone
+    || cachedChat?.client?.phone_normalized
+    || (selectedChatId?.includes('@') ? selectedChatId.split('@')[0] : selectedChatId)
+    || '';
+
   const handleSend = (content: string) => {
-    if (!selectedChatId || !clientData) return;
+    if (!selectedChatId) return;
+
+    if (!resolvedPhone) {
+      alert('Número do cliente ainda não carregado. Aguarde um momento e tente novamente.');
+      return;
+    }
+
     sendMessage({
-      to: clientData.phone,
+      to: resolvedPhone,
       content,
       type: 'text',
     });
   };
 
   const handleSendMedia = useCallback(async (file: File, caption: string) => {
-    if (!selectedChatId || !clientData) return;
+    if (!selectedChatId) return;
+
+    if (!resolvedPhone) {
+      alert('Número do cliente ainda não carregado. Aguarde um momento e tente novamente.');
+      return;
+    }
 
     try {
       // 1. Upload para Supabase Storage
@@ -110,7 +128,7 @@ export function ChatArea() {
 
       // 3. Enviar via WhatsApp
       sendMessage({
-        to: clientData.phone,
+        to: resolvedPhone,
         content: caption || file.name,
         type: mediaType,
         mediaUrl: url,
@@ -120,7 +138,7 @@ export function ChatArea() {
       console.error('[ChatArea] Erro ao enviar mídia:', err);
       alert('Erro ao enviar arquivo. Tente novamente.');
     }
-  }, [selectedChatId, clientData, sendMessage]);
+  }, [selectedChatId, resolvedPhone, sendMessage]);
 
   // Estado vazio — nenhum chat selecionado
   if (!selectedChatId) {
@@ -190,7 +208,7 @@ export function ChatArea() {
       </div>
 
       {/* Message input */}
-      <MessageInput onSend={handleSend} onSendMedia={handleSendMedia} isLoading={isSending} />
+      <MessageInput onSend={handleSend} onSendMedia={handleSendMedia} isLoading={isSending} disabled={!resolvedPhone} />
     </div>
   );
 }

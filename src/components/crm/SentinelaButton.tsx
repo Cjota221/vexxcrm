@@ -45,8 +45,25 @@ export function SentinelaButton() {
     setError(null);
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token || '';
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.access_token) {
+        // Tentar refresh da sessão antes de desistir
+        const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+        if (refreshError || !refreshed?.session?.access_token) {
+          setError('Sessão expirada. Recarregue a página e tente novamente.');
+          return;
+        }
+      }
+
+      // Pegar token atualizado após possível refresh
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      const token = currentSession?.access_token;
+
+      if (!token) {
+        setError('Não foi possível obter token de autenticação. Faça login novamente.');
+        return;
+      }
 
       const res = await fetch('/api/sentinela/scan', {
         method: 'POST',
