@@ -1,7 +1,8 @@
 import { Sidebar } from '@/components/layout/Sidebar';
-import { Header } from '@/components/layout/Header';
+import { ConditionalHeader } from '@/components/layout/ConditionalHeader';
 import { ToastContainer } from '@/components/ui/Toast';
 import { AutoSyncProvider } from '@/components/layout/AutoSyncProvider';
+import { ConditionalMain } from '@/components/layout/ConditionalMain';
 
 /**
  * Layout do Dashboard — Sidebar + Header + Área de conteúdo.
@@ -19,11 +20,9 @@ export default function DashboardLayout({
 
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        <Header />
+        <ConditionalHeader />
 
-        <main className="flex-1 overflow-y-auto p-6">
-          {children}
-        </main>
+        <ConditionalMain>{children}</ConditionalMain>
       </div>
 
       {/* Auto-sync FacilZap (pedidos, produtos, clientes) a cada 5 min */}
