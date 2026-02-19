@@ -62,35 +62,12 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
   /**
    * Ao detectar erro de carregamento de mídia (403 URL expirada),
-   * tenta re-download automático UMA única vez. Exibe fallback se falhar.
+   * apenas exibe o fallback com botão de re-download manual.
+   * NÃO faz tentativa automática para evitar spam de requests.
    */
-  const handleMediaError = useCallback(async () => {
-    // Já tentou antes ou já tem uma URL corrigida — mostra fallback
-    if (redownloadAttempted.current || fixedUrl) {
-      setMediaError(true);
-      return;
-    }
-
-    redownloadAttempted.current = true; // marcar ANTES da chamada para evitar disparos paralelos
-    setIsRedownloading(true);
-    try {
-      const response = await api.post<{ data: { media_url: string } }>('/api/media/redownload', {
-        messageId: message.id,
-      });
-
-      const newUrl = (response.data as any)?.data?.media_url || (response.data as any)?.media_url;
-      if (newUrl && !response.error) {
-        setFixedUrl(newUrl);
-        // Não seta mediaError — a nova URL vai tentar carregar
-      } else {
-        setMediaError(true);
-      }
-    } catch {
-      setMediaError(true);
-    } finally {
-      setIsRedownloading(false);
-    }
-  }, [message.id, fixedUrl]);
+  const handleMediaError = useCallback(() => {
+    setMediaError(true);
+  }, []);
 
   const statusIcon = () => {
     if (!isFromMe) return null;

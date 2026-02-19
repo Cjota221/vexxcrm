@@ -15,6 +15,9 @@ const ALLOWED_MIME: Record<string, string> = {
   'audio/mpeg': 'mp3',
   'audio/ogg': 'ogg',
   'audio/wav': 'wav',
+  'audio/webm': 'webm',
+  'audio/mp4': 'm4a',
+  'audio/aac': 'aac',
   'application/pdf': 'pdf',
   'application/msword': 'doc',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
@@ -43,7 +46,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Arquivo muito grande. Máximo 16MB.' }, { status: 400 });
     }
 
-    const ext = ALLOWED_MIME[file.type];
+    // Normalizar MIME type — remover parâmetros como "; codecs=opus"
+    const baseMime = file.type.split(';')[0].trim();
+    const ext = ALLOWED_MIME[baseMime];
     if (!ext) {
       return NextResponse.json({ error: 'Tipo de arquivo não suportado' }, { status: 400 });
     }
@@ -55,7 +60,7 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase.storage
       .from('media')
       .upload(fileName, buffer, {
-        contentType: file.type,
+        contentType: baseMime,
         cacheControl: '3600',
         upsert: false,
       });
@@ -77,7 +82,7 @@ export async function POST(request: NextRequest) {
       url: publicUrlData.publicUrl,
       path: data.path,
       fileName: file.name,
-      mimeType: file.type,
+      mimeType: baseMime,
       size: file.size,
     });
   } catch (err: unknown) {
