@@ -55,9 +55,36 @@ export function MessageBubble({ message }: MessageBubbleProps) {
     }
   }, [message.id]);
 
-  const handleMediaError = useCallback(() => {
-    setMediaError(true);
-  }, []);
+  /**
+   * Ao detectar erro de carregamento de mídia (403 URL expirada),
+   * tenta re-download automático. Só mostra fallback se re-download falhar.
+   */
+  const handleMediaError = useCallback(async () => {
+    // Se já tentou re-download antes, não tenta de novo — exibe fallback
+    if (isRedownloading || fixedUrl) {
+      setMediaError(true);
+      return;
+    }
+
+    setIsRedownloading(true);
+    try {
+      const response = await api.post<{ data: { media_url: string } }>('/api/media/redownload', {
+        messageId: message.id,
+      });
+
+      const newUrl = (response.data as any)?.data?.media_url || (response.data as any)?.media_url;
+      if (newUrl && !response.error) {
+        setFixedUrl(newUrl);
+        // Não seta mediaError — a nova URL vai tentar carregar
+      } else {
+        setMediaError(true);
+      }
+    } catch {
+      setMediaError(true);
+    } finally {
+      setIsRedownloading(false);
+    }
+  }, [message.id, isRedownloading, fixedUrl]);
 
   const statusIcon = () => {
     if (!isFromMe) return null;
