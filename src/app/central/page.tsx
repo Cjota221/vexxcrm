@@ -4,7 +4,7 @@ import { useState, useCallback } from 'react';
 import { ConversationSidebar } from '@/components/contact-center/ConversationSidebar';
 import { ChatArea } from '@/components/chat/ChatArea';
 import { ClientBrainSidebar } from '@/components/crm/ClientBrainSidebar';
-import { KanbanDrawer } from '@/components/contact-center/KanbanDrawer';
+import { KanbanModal } from '@/components/crm/KanbanModal';
 import { CatalogoDrawer } from '@/components/contact-center/CatalogoDrawer';
 import { TransferDialog } from '@/components/contact-center/TransferDialog';
 import { EmbeddedCampaignPanel } from '@/components/contact-center/EmbeddedCampaignPanel';
@@ -195,7 +195,6 @@ export default function CentralAtendimentoPage() {
 
         {/* ── COLUNA 2: Workspace do Chat ── */}
         <div className="flex-1 flex flex-col min-w-0">
-          <KanbanDrawer open={kanbanOpen} onClose={() => setKanbanOpen(false)} />
           <div className="flex-1 overflow-hidden">
             <ChatArea />
           </div>
@@ -208,6 +207,7 @@ export default function CentralAtendimentoPage() {
       </div>
 
       {/* ━━━ OVERLAYS ━━━ */}
+      <KanbanModal open={kanbanOpen} onClose={() => setKanbanOpen(false)} />
       <CatalogoDrawer open={catalogOpen} onClose={() => setCatalogOpen(false)} />
       <TransferDialog open={transferOpen} onClose={() => setTransferOpen(false)} />
       {campaignOpen && <EmbeddedCampaignPanel onClose={() => setCampaignOpen(false)} />}
