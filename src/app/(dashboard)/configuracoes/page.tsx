@@ -359,17 +359,46 @@ function FacilZapSettings({ config }: { config?: TenantConfig }) {
   );
 }
 
+// Modelos padrão e labels por provedor
+const AI_PROVIDER_INFO: Record<string, { label: string; defaultModel: string; modelPlaceholder: string; keyPlaceholder: string; needsBaseUrl: boolean; fixedUrl?: string }> = {
+  openai:    { label: 'OpenAI (ChatGPT)',       defaultModel: 'gpt-4o-mini',                   modelPlaceholder: 'gpt-4o ou gpt-4o-mini',                  keyPlaceholder: 'sk-...',                  needsBaseUrl: false, fixedUrl: 'api.openai.com' },
+  anthropic: { label: 'Anthropic (Claude)',      defaultModel: 'claude-3-5-haiku-20241022',      modelPlaceholder: 'claude-3-5-sonnet-20241022',             keyPlaceholder: 'sk-ant-...',              needsBaseUrl: false, fixedUrl: 'api.anthropic.com' },
+  google:    { label: 'Google (Gemini)',         defaultModel: 'gemini-1.5-flash',               modelPlaceholder: 'gemini-1.5-flash ou gemini-1.5-pro',     keyPlaceholder: 'AIza...',                 needsBaseUrl: false, fixedUrl: 'generativelanguage.googleapis.com' },
+  groq:      { label: 'Groq (LLaMA ultra-rápido)', defaultModel: 'llama-3.3-70b-versatile',     modelPlaceholder: 'llama-3.3-70b-versatile',               keyPlaceholder: 'gsk_...',                 needsBaseUrl: false, fixedUrl: 'api.groq.com' },
+  deepseek:  { label: 'DeepSeek',               defaultModel: 'deepseek-chat',                  modelPlaceholder: 'deepseek-chat ou deepseek-reasoner',     keyPlaceholder: 'sk-...',                  needsBaseUrl: false, fixedUrl: 'api.deepseek.com' },
+  custom:    { label: 'Outro (Custom API)',      defaultModel: '',                               modelPlaceholder: 'nome-do-modelo',                         keyPlaceholder: 'chave do provedor',       needsBaseUrl: true },
+};
+
 function AnneSettings({ config }: { config?: TenantConfig }) {
   const { updateConfig, isUpdating } = useTenantConfig();
   const openai = config?.openai;
   const [provider, setProvider] = useState(openai?.provider || 'openai');
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState(openai?.base_url || '');
-  const [model, setModel] = useState(openai?.model || 'gpt-4o');
+  const [model, setModel] = useState(openai?.model || 'gpt-4o-mini');
   const [systemPrompt, setSystemPrompt] = useState(openai?.system_prompt || '');
+
+  const providerInfo = AI_PROVIDER_INFO[provider] || AI_PROVIDER_INFO.custom;
+
+  // Ao trocar provedor: limpar key, ajustar modelo padrão e base_url
+  const handleProviderChange = (newProvider: string) => {
+    setProvider(newProvider);
+    setApiKey('');
+    const info = AI_PROVIDER_INFO[newProvider] || AI_PROVIDER_INFO.custom;
+    setModel(info.defaultModel);
+    setBaseUrl('');
+  };
+
   const handleSave = async () => {
     try {
-      const update: Record<string, unknown> = { openai: { model, system_prompt: systemPrompt, provider, base_url: baseUrl } as Record<string, unknown> };
+      const update: Record<string, unknown> = {
+        openai: {
+          model,
+          system_prompt: systemPrompt,
+          provider,
+          base_url: baseUrl,
+        } as Record<string, unknown>,
+      };
       if (apiKey.trim()) {
         (update.openai as Record<string, unknown>).enabled = true;
         (update.openai as Record<string, unknown>).api_key = apiKey.trim();
@@ -381,37 +410,85 @@ function AnneSettings({ config }: { config?: TenantConfig }) {
       alert('Erro ao salvar: ' + (error as Error).message);
     }
   };
+
+  const activeProviderLabel = AI_PROVIDER_INFO[openai?.provider || 'openai']?.label || 'OpenAI';
+
   return (
     <Card>
       <CardHeader>
         <CardTitle><Bot size={16} /> Anne (IA Assistente)</CardTitle>
-        <Badge variant={openai?.enabled ? 'success' : 'neutral'}>{openai?.enabled ? 'Ativa' : 'Inativa'}</Badge>
+        <div className="flex gap-2 items-center">
+          <Badge variant={openai?.enabled ? 'success' : 'neutral'}>
+            {openai?.enabled ? `Ativa · ${activeProviderLabel}` : 'Inativa'}
+          </Badge>
+        </div>
       </CardHeader>
       <div className="px-6 pb-6 space-y-4">
+
+        {/* Provedor */}
         <div>
           <label className="label mb-1.5">Provedor de IA</label>
-          <select className="input" value={provider} onChange={(e) => setProvider(e.target.value)}>
-            <option value="openai">OpenAI (ChatGPT)</option>
-            <option value="anthropic">Anthropic (Claude)</option>
-            <option value="google">Google (Gemini)</option>
-            <option value="groq">Groq</option>
-            <option value="deepseek">DeepSeek</option>
-            <option value="custom">Outro (Custom API)</option>
+          <select className="input" value={provider} onChange={(e) => handleProviderChange(e.target.value)}>
+            {Object.entries(AI_PROVIDER_INFO).map(([key, info]) => (
+              <option key={key} value={key}>{info.label}</option>
+            ))}
           </select>
+          {providerInfo.fixedUrl && (
+            <p className="text-xs text-txt-muted mt-1">
+              Endpoint: <code className="bg-surface-2 px-1 rounded text-xs">{providerInfo.fixedUrl}</code>
+            </p>
+          )}
         </div>
-        <Input label="API Key" type="password" placeholder={openai?.has_key ? '•••• (configurada)' : 'sk-... ou chave do provedor'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
-        {(provider === 'custom' || provider === 'groq' || provider === 'deepseek') && (
-          <Input label="URL Base da API" placeholder="https://api.provedor.com/v1" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
+
+        {/* API Key */}
+        <Input
+          label={`API Key ${providerInfo.label}`}
+          type="password"
+          placeholder={openai?.has_key && openai?.provider === provider ? `•••• (configurada para ${providerInfo.label})` : providerInfo.keyPlaceholder}
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+        />
+        {openai?.has_key && openai?.provider !== provider && (
+          <p className="text-xs text-amber-500 -mt-2">
+            ⚠️ A key atual é do provedor <strong>{AI_PROVIDER_INFO[openai.provider || 'openai']?.label}</strong>. Insira uma nova key para trocar.
+          </p>
         )}
-        <Input label="Modelo" placeholder={provider === 'openai' ? 'gpt-4o' : provider === 'anthropic' ? 'claude-3-5-sonnet-20241022' : provider === 'google' ? 'gemini-pro' : provider === 'groq' ? 'llama-3.3-70b-versatile' : provider === 'deepseek' ? 'deepseek-chat' : 'nome-do-modelo'} value={model} onChange={(e) => setModel(e.target.value)} />
+
+        {/* URL Base — apenas para custom */}
+        {provider === 'custom' && (
+          <Input
+            label="URL Base da API"
+            placeholder="https://meu-provedor.com/v1"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+          />
+        )}
+
+        {/* Modelo */}
+        <Input
+          label="Modelo"
+          placeholder={providerInfo.modelPlaceholder}
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+        />
+
+        {/* System Prompt */}
         <div>
           <label className="label mb-1.5">System Prompt (Personalidade da Anne)</label>
-          <textarea className="input min-h-32 resize-y" placeholder="Você é a Anne, assistente virtual de vendas da loja..." value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} />
-          <p className="text-xs text-txt-muted mt-1">Escreva a personalidade e instruções da sua IA.</p>
+          <textarea
+            className="input min-h-32 resize-y"
+            placeholder={`Você é a Anne, assistente virtual de vendas da loja...\n\nSe deixar vazio, será usado o prompt padrão do VEXX CRM (recomendado para começar).`}
+            value={systemPrompt}
+            onChange={(e) => setSystemPrompt(e.target.value)}
+          />
+          <p className="text-xs text-txt-muted mt-1">
+            Deixe vazio para usar o prompt padrão rico do VEXX CRM — que já inclui tabela RFM, regras de vendas e identidade da Anne. Personalize apenas se quiser mudar o comportamento.
+          </p>
         </div>
+
         <div className="flex gap-2 pt-2">
           <Button variant="primary" onClick={handleSave} disabled={isUpdating}>
-            <Save size={16} /> {isUpdating ? 'Salvando...' : 'Salvar'}
+            <Save size={16} /> {isUpdating ? 'Salvando...' : 'Salvar Configurações'}
           </Button>
         </div>
       </div>
