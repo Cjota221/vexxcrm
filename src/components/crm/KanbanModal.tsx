@@ -430,15 +430,18 @@ export function KanbanModal({ open, onClose }: KanbanModalProps) {
   const [activeView, setActiveView] = useState<'board' | 'automacoes'>('board');
 
   // ── Query: todos os cards ─────────────────────────────────────
-  const { data: cardsData, isLoading, refetch } = useQuery({
+  const { data: cardsData, isLoading, isError: cardsError, error: cardsQueryError, refetch } = useQuery({
     queryKey: ['kanban-all-cards'],
     queryFn: async () => {
       const res = await api.get<{ cards: KanbanCardData[] }>('/api/v2/kanban/cards');
-      return res.data ?? res;
+      if (res.error) throw new Error(res.error);
+      const payload = res.data ?? (res as unknown as { cards: KanbanCardData[] });
+      return payload;
     },
-    enabled: open && !!accessToken,
+    enabled: open,
     staleTime: 10_000,
     refetchOnWindowFocus: false,
+    retry: 2,
   });
 
   // ── Query: summary por coluna ─────────────────────────────────
@@ -446,9 +449,10 @@ export function KanbanModal({ open, onClose }: KanbanModalProps) {
     queryKey: ['kanban-summary'],
     queryFn: async () => {
       const res = await api.get<{ columns: Record<string, { count: number; total_ltv: number }>; total_cards: number }>('/api/v2/kanban/summary');
-      return res.data ?? res;
+      if (res.error) throw new Error(res.error);
+      return res.data ?? (res as unknown as { columns: Record<string, { count: number; total_ltv: number }>; total_cards: number });
     },
-    enabled: open && !!accessToken,
+    enabled: open,
     staleTime: 15_000,
   });
 
@@ -697,6 +701,20 @@ export function KanbanModal({ open, onClose }: KanbanModalProps) {
                 <div className="flex flex-col items-center gap-3">
                   <Loader2 size={28} className="animate-spin text-crm-primary" />
                   <p className="text-sm text-gray-400">Carregando pipeline...</p>
+                </div>
+              </div>
+            ) : cardsError ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="flex flex-col items-center gap-3 text-center max-w-xs">
+                  <span className="text-3xl">⚠️</span>
+                  <p className="text-sm font-semibold text-gray-700">Erro ao carregar o pipeline</p>
+                  <p className="text-xs text-gray-400">{String((cardsQueryError as Error)?.message ?? 'Erro desconhecido')}</p>
+                  <button
+                    onClick={() => refetch()}
+                    className="mt-1 px-4 py-2 bg-crm-primary text-white text-xs rounded-lg hover:opacity-90 transition-opacity"
+                  >
+                    Tentar novamente
+                  </button>
                 </div>
               </div>
             ) : (
