@@ -118,7 +118,7 @@ export default function CentralAtendimentoPage() {
             <div className="w-8 h-8 rounded-xl bg-crm-primary flex items-center justify-center shadow-sm">
               <span className="text-[11px] font-black text-white tracking-tight">VX</span>
             </div>
-            <span className="text-sm font-bold text-gray-900">Central</span>
+            <span className="text-sm font-bold text-gray-900">Central de Atendimento</span>
           </div>
         </div>
 

@@ -12,6 +12,7 @@ import { AvatarImage } from '@/components/ui/AvatarImage';
 import { api } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import type { Chat } from '@/types';
+import type { Message } from '@/types';
 
 /**
  * Área principal do chat — mensagens + input.
@@ -129,6 +130,23 @@ export function ChatArea() {
       return;
     }
 
+    // Optimistic update: inserir mensagem localmente para aparecer imediatamente
+    const optimisticMsg: Message = {
+      id: `temp-${Date.now()}`,
+      tenant_id: '',
+      client_id: selectedChatId,
+      remote_jid: '',
+      message_id: '',
+      from_me: true,
+      content,
+      type: 'text',
+      timestamp: new Date().toISOString(),
+      status: 'pending',
+      created_at: new Date().toISOString(),
+    };
+
+    queryClient.setQueryData<Message[]>(['messages', selectedChatId], (old = []) => [...old, optimisticMsg]);
+
     sendMessage({
       to: resolvedPhone,
       content,
@@ -145,13 +163,20 @@ export function ChatArea() {
     }
 
     try {
-      // 1. Upload para Supabase Storage
+      // 1. Upload para Supabase Storage (com auth)
       const formData = new FormData();
       formData.append('file', file);
+
+      // Obter token de auth
+      const { data: { session } } = await supabase.auth.getSession();
+      const headers: HeadersInit = session?.access_token
+        ? { Authorization: `Bearer ${session.access_token}` }
+        : {};
 
       const res = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
+        headers,
       });
 
       if (!res.ok) {

@@ -15,6 +15,7 @@ export interface BlocoConteudo {
   variaveis_detectadas?: string[];
   texto_botao?: string;
   url_destino?: string;
+  caption?: string;
 }
 
 export interface Bloco {

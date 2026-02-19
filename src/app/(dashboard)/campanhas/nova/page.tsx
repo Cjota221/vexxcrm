@@ -30,6 +30,7 @@ interface Bloco {
     texto_raw?: string;
     texto_botao?: string;
     url_destino?: string;
+    caption?: string;
   };
 }
 
@@ -157,26 +158,38 @@ function BlocoEditor({
       {isMedia && (
         <div>
           {bloco.conteudo.url ? (
-            <div className="relative group rounded-lg overflow-hidden bg-surface-50 border border-surface-200">
-              {bloco.tipo === 'imagem' && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={bloco.conteudo.url} alt="criativo" className="w-full max-h-48 object-cover" />
+            <>
+              <div className="relative group rounded-lg overflow-hidden bg-surface-50 border border-surface-200">
+                {bloco.tipo === 'imagem' && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={bloco.conteudo.url} alt="criativo" className="w-full max-h-48 object-cover" />
+                )}
+                {bloco.tipo === 'video' && (
+                  <video src={bloco.conteudo.url} controls className="w-full max-h-48" />
+                )}
+                {bloco.tipo === 'audio' && (
+                  <div className="px-4 py-3">
+                    <audio src={bloco.conteudo.url} controls className="w-full" />
+                  </div>
+                )}
+                <button
+                  onClick={() => set({ url: undefined, storage_path: undefined, kind: undefined, caption: undefined })}
+                  className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+              {/* Campo de legenda para imagem e vídeo */}
+              {(bloco.tipo === 'imagem' || bloco.tipo === 'video') && (
+                <input
+                  type="text"
+                  value={bloco.conteudo.caption ?? ''}
+                  onChange={e => set({ caption: e.target.value })}
+                  placeholder="Adicione uma legenda... (opcional)"
+                  className="w-full mt-2 px-3 py-2 text-sm border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-crm-primary/40 placeholder:text-txt-muted"
+                />
               )}
-              {bloco.tipo === 'video' && (
-                <video src={bloco.conteudo.url} controls className="w-full max-h-48" />
-              )}
-              {bloco.tipo === 'audio' && (
-                <div className="px-4 py-3">
-                  <audio src={bloco.conteudo.url} controls className="w-full" />
-                </div>
-              )}
-              <button
-                onClick={() => set({ url: undefined, storage_path: undefined, kind: undefined })}
-                className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <Trash2 size={12} />
-              </button>
-            </div>
+            </>
           ) : (
             <button
               onClick={() => fileRef.current?.click()}

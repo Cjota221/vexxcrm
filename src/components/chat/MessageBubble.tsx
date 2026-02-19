@@ -124,9 +124,9 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         )}
       >
         {/* Media content — Imagem */}
-        {currentMediaUrl && message.type === 'image' && (
+        {message.type === 'image' && (
           <div className="mb-1">
-            {mediaError ? (
+            {!currentMediaUrl || mediaError ? (
               <MediaErrorFallback
                 type="image"
                 isFromMe={isFromMe}
@@ -163,9 +163,9 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         )}
 
         {/* Media content — Áudio + Transcrição */}
-        {currentMediaUrl && message.type === 'audio' && (
+        {message.type === 'audio' && (
           <div className="mb-1">
-            {mediaError ? (
+            {!currentMediaUrl || mediaError ? (
               <MediaErrorFallback
                 type="audio"
                 isFromMe={isFromMe}
@@ -206,9 +206,9 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         )}
 
         {/* Media content — Vídeo */}
-        {currentMediaUrl && message.type === 'video' && (
+        {message.type === 'video' && (
           <div className="mb-1 rounded-lg overflow-hidden">
-            {mediaError ? (
+            {!currentMediaUrl || mediaError ? (
               <MediaErrorFallback
                 type="video"
                 isFromMe={isFromMe}
@@ -224,9 +224,9 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         )}
 
         {/* Media content — Documento */}
-        {currentMediaUrl && message.type === 'document' && (
+        {message.type === 'document' && (
           <div className="mb-1">
-            {mediaError ? (
+            {!currentMediaUrl || mediaError ? (
               <MediaErrorFallback
                 type="document"
                 isFromMe={isFromMe}

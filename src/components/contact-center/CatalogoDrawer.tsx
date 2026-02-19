@@ -11,7 +11,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useSendProductToChat } from '@/hooks/useContactCenter';
 import { useChatsStore } from '@/store/chats';
@@ -29,6 +29,7 @@ export function CatalogoDrawer({ open, onClose }: CatalogoDrawerProps) {
   const { selectedChatId } = useChatsStore();
   const [search, setSearch] = useState('');
   const [sentProductId, setSentProductId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const sendMutation = useSendProductToChat();
 
@@ -81,6 +82,9 @@ export function CatalogoDrawer({ open, onClose }: CatalogoDrawerProps) {
         onSuccess: () => {
           setSentProductId(product.id);
           setTimeout(() => setSentProductId(null), 2000);
+          // Invalidar mensagens e chats para exibir a mensagem enviada
+          queryClient.invalidateQueries({ queryKey: ['messages', selectedChatId] });
+          queryClient.invalidateQueries({ queryKey: ['chats'] });
         },
       }
     );

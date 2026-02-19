@@ -164,8 +164,8 @@ export function useSendMessage() {
     onSuccess: (data, variables) => {
       // Invalidar lista de chats para reordenar
       queryClient.invalidateQueries({ queryKey: ['chats'] });
-      // Invalidar mensagens do chat atual para exibir a mensagem enviada
-      queryClient.invalidateQueries({ queryKey: ['messages'] });
+      // Invalidar mensagens — refetchType 'all' garante que todas as queries refetch mesmo se inativas
+      queryClient.invalidateQueries({ queryKey: ['messages'], refetchType: 'all' });
     },
     onError: (error: Error) => {
       console.error('[useSendMessage] Falha ao enviar mensagem:', error.message);

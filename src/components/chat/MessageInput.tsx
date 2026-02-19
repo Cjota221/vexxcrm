@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Paperclip, Smile, Mic, X, Image, FileText, Video, Loader2, Zap } from 'lucide-react';
+import { Send, Paperclip, Smile, Mic, X, Image, FileText, Video, Loader2, Zap, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TemplatesFloatingPanel } from './TemplatesFloatingPanel';
 
@@ -45,6 +45,13 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // ── Audio recording state ──
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Auto resize
   useEffect(() => {
@@ -133,6 +140,101 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
     setFilePreview(null);
     setCaption('');
   }, []);
+
+  // ── Audio recording handlers ──
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported('audio/ogg; codecs=opus')
+          ? 'audio/ogg; codecs=opus'
+          : MediaRecorder.isTypeSupported('audio/webm; codecs=opus')
+            ? 'audio/webm; codecs=opus'
+            : 'audio/webm',
+      });
+
+      audioChunksRef.current = [];
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const mimeType = mediaRecorder.mimeType || 'audio/ogg';
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        const ext = mimeType.includes('ogg') ? 'ogg' : 'webm';
+        const file = new File([blob], `audio-${Date.now()}.${ext}`, { type: mimeType });
+
+        // Parar todas as tracks do stream
+        stream.getTracks().forEach(track => track.stop());
+
+        if (file.size > 0 && onSendMedia) {
+          onSendMedia(file, '');
+        }
+      };
+
+      mediaRecorder.start(250); // coleta a cada 250ms
+      setIsRecording(true);
+      setRecordingTime(0);
+
+      // Timer para mostrar duração
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingTime(prev => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error('[MessageInput] Erro ao acessar microfone:', err);
+      alert('Não foi possível acessar o microfone. Verifique as permissões do navegador.');
+    }
+  }, [onSendMedia]);
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+    setRecordingTime(0);
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+  }, []);
+
+  const cancelRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      // Remove o handler antes de parar para evitar envio
+      mediaRecorderRef.current.onstop = () => {
+        mediaRecorderRef.current?.stream?.getTracks().forEach(track => track.stop());
+      };
+      mediaRecorderRef.current.stop();
+    }
+    audioChunksRef.current = [];
+    setIsRecording(false);
+    setRecordingTime(0);
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stream?.getTracks().forEach(track => track.stop());
+        mediaRecorderRef.current.stop();
+      }
+    };
+  }, []);
+
+  const formatRecordingTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     // "/" no início do campo abre painel de templates
@@ -290,8 +392,38 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
           >
             <Send size={20} />
           </button>
+        ) : isRecording ? (
+          /* ── Modo gravação ── */
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-red-500 font-medium animate-pulse flex items-center gap-1">
+              <span className="w-2 h-2 bg-red-500 rounded-full" />
+              {formatRecordingTime(recordingTime)}
+            </span>
+            <button
+              onClick={cancelRecording}
+              className="p-2 text-red-400 hover:text-red-600 transition-colors rounded-full hover:bg-red-50"
+              title="Cancelar gravação"
+            >
+              <X size={18} />
+            </button>
+            <button
+              onClick={stopRecording}
+              className="p-2.5 rounded-full bg-wa-accent-green text-white hover:opacity-90 transition-colors"
+              title="Enviar áudio"
+            >
+              <Send size={20} />
+            </button>
+          </div>
         ) : (
-          <button className="p-2 text-wa-text-secondary hover:text-wa-text-primary transition-colors rounded-full hover:bg-wa-bg-hover">
+          <button
+            onClick={startRecording}
+            disabled={disabled || !onSendMedia}
+            className={cn(
+              'p-2 text-wa-text-secondary hover:text-wa-text-primary transition-colors rounded-full hover:bg-wa-bg-hover',
+              (disabled || !onSendMedia) && 'opacity-50 cursor-not-allowed'
+            )}
+            title="Gravar áudio"
+          >
             <Mic size={22} />
           </button>
         )}

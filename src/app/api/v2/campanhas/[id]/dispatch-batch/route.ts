@@ -218,13 +218,13 @@ async function enviarBlocos(telefone: string, blocos: Bloco[], tenantId: string)
       }
       case 'imagem': {
         if (bloco.conteudo.url) {
-          await sendMediaMessage(config, telefone, bloco.conteudo.url, bloco.conteudo.texto_raw || undefined, 'image');
+          await sendMediaMessage(config, telefone, bloco.conteudo.url, bloco.conteudo.caption || bloco.conteudo.texto_raw || undefined, 'image');
         }
         break;
       }
       case 'video': {
         if (bloco.conteudo.url) {
-          await sendMediaMessage(config, telefone, bloco.conteudo.url, bloco.conteudo.texto_raw || undefined, 'video');
+          await sendMediaMessage(config, telefone, bloco.conteudo.url, bloco.conteudo.caption || bloco.conteudo.texto_raw || undefined, 'video');
         }
         break;
       }
