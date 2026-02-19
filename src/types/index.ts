@@ -707,3 +707,123 @@ export interface SentinelaStats {
   coupons_used: number;
   conversion_rate: string;
 }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   KANBAN (Central de Atendimento v3)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+export type KanbanColumn =
+  | 'PRIMEIRO_CONTATO'
+  | 'EM_NEGOCIACAO'
+  | 'AGUARDANDO_PAGAMENTO'
+  | 'PAGO'
+  | 'REATIVAR'
+  | 'CONCLUIDO';
+
+export interface KanbanTransition {
+  id: string;
+  tenant_id: string;
+  chat_id: string;
+  client_id: string;
+  de_coluna: KanbanColumn | null;
+  para_coluna: KanbanColumn;
+  autor: 'anne' | 'human';
+  autor_id?: string;
+  motivo?: string;
+  created_at: string;
+}
+
+export interface KanbanCard {
+  id: string;
+  tenant_id: string;
+  chat_id: string;
+  client_id: string;
+  client_name: string;
+  client_phone: string;
+  coluna: KanbanColumn;
+  tags: string[];
+  score_anne?: number;
+  tentativas_reativacao: number;
+  ultimo_contato: string;
+  transitions: KanbanTransition[];
+  created_at: string;
+  updated_at: string;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ANNE TRIGGERS (Motor de Gatilhos)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+export type AnneTriggerType =
+  | 'primeiro_contato'
+  | 'pedido_recebido'
+  | 'pagamento_aprovado'
+  | 'sinal_rejeicao'
+  | 'engajamento_alto'
+  | 'ghosting';
+
+export type AnneActionType =
+  | 'atualiza_tag'
+  | 'move_kanban'
+  | 'dispara_template'
+  | 'notifica_atendente';
+
+export interface AnneTriggerResult {
+  trigger: AnneTriggerType;
+  score: number;
+  matched: boolean;
+  acoes_executadas: AnneActionType[];
+  escalona_para_humano: boolean;
+  motivo_escalona?: string;
+  nova_coluna?: KanbanColumn;
+  nova_tag?: string;
+}
+
+export interface AnneTriggerLogEntry {
+  id: string;
+  tenant_id: string;
+  chat_id: string;
+  client_id: string;
+  trigger: AnneTriggerType;
+  score: number;
+  acao: AnneActionType | null;
+  resultado: 'executado' | 'sugerido' | 'ignorado' | 'escalado';
+  escalona_para_humano: boolean;
+  created_at: string;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   TEMPLATE COMPOSTO (Mensagens Rápidas v2)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+export type TemplateBlockType = 'text' | 'image' | 'link' | 'cta';
+
+export interface TemplateBlock {
+  id: string;
+  type: TemplateBlockType;
+  order: number;
+  // text
+  content?: string;
+  // image
+  image_url?: string;
+  image_caption?: string;
+  // link
+  link_title?: string;
+  link_url?: string;
+  // cta
+  cta_label?: string;
+  cta_url?: string;
+  cta_utm?: string;
+}
+
+export interface CompositeTemplate {
+  id: string;
+  tenant_id: string;
+  name: string;
+  description?: string;
+  blocks: TemplateBlock[];
+  variables: string[]; // lista de {{variavel}} usadas nos blocos
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
