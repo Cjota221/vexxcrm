@@ -34,6 +34,4 @@ CREATE POLICY "Criativos: authenticated delete"
   TO authenticated
   USING (bucket_id = 'criativos');
 
--- ── 6. Comentário ─────────────────────────────────────────────
-COMMENT ON TABLE storage.buckets IS
-  'Buckets de storage: media (chat/orders), avatars (profile pics), criativos (campaign assets)';
+
