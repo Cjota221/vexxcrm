@@ -31,6 +31,7 @@ import {
   Maximize2,
   Minimize2,
   Activity,
+  Zap,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
@@ -575,6 +576,22 @@ export function KanbanModal({ open, onClose }: KanbanModalProps) {
     );
   }, [moveMutation, queryClient]);
 
+  // ── Mutation: sincronizar kanban com realidade ────────────────
+  const [syncResult, setSyncResult] = useState<{ criados: number; atualizados: number; removidos: number } | null>(null);
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const res = await api.post<{ criados: number; atualizados: number; removidos: number; sem_mudanca: number; total_cards: number }>('/api/v2/kanban/sync');
+      if (res.error) throw new Error(res.error);
+      return res.data;
+    },
+    onSuccess: (data) => {
+      setSyncResult(data as any);
+      queryClient.invalidateQueries({ queryKey: ['kanban-all-cards'] });
+      queryClient.invalidateQueries({ queryKey: ['kanban-summary'] });
+      setTimeout(() => setSyncResult(null), 5000);
+    },
+  });
+
   const handleDrop = useCallback((toCol: KanbanColumn) => {
     if (!draggingCard) return;
     if (draggingCard.coluna !== toCol) {
@@ -662,6 +679,32 @@ export function KanbanModal({ open, onClose }: KanbanModalProps) {
                 Automações
               </button>
             </div>
+
+            {/* Botão sincronizar com realidade */}
+            <button
+              onClick={() => syncMutation.mutate()}
+              disabled={syncMutation.isPending}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all',
+                syncMutation.isPending
+                  ? 'bg-crm-primary/10 text-crm-primary cursor-wait'
+                  : syncResult
+                  ? 'bg-emerald-50 text-emerald-600'
+                  : 'text-gray-500 hover:bg-violet-50 hover:text-violet-600'
+              )}
+              title="Sincronizar kanban com conversas e pedidos reais"
+            >
+              {syncMutation.isPending ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <Zap size={12} />
+              )}
+              {syncMutation.isPending
+                ? 'Sincronizando...'
+                : syncResult
+                ? `+${syncResult.criados} criados`
+                : 'Sincronizar'}
+            </button>
 
             <button
               onClick={() => refetch()}
