@@ -20,6 +20,9 @@ import {
   Activity,
   Power,
   PowerOff,
+  Video,
+  Mic,
+  FileText,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
@@ -61,10 +64,13 @@ const BLOCK_TYPE_CONFIG: Record<
   TemplateBlockType,
   { label: string; icon: typeof Type; placeholder: string }
 > = {
-  text:  { label: 'Texto',   icon: Type,              placeholder: 'Digite o conteúdo do bloco...' },
-  image: { label: 'Imagem',  icon: ImageIcon,         placeholder: 'https://... (URL da imagem)' },
-  link:  { label: 'Link',    icon: Link2,              placeholder: 'https://...' },
-  cta:   { label: 'Botão',   icon: MousePointerClick, placeholder: 'Texto do botão' },
+  text:     { label: 'Texto',     icon: Type,              placeholder: 'Digite o conteúdo do bloco...' },
+  image:    { label: 'Imagem',    icon: ImageIcon,         placeholder: 'https://... (URL da imagem)' },
+  video:    { label: 'Vídeo',     icon: Video,             placeholder: 'https://... (URL do vídeo)' },
+  audio:    { label: 'Áudio',     icon: Mic,               placeholder: 'https://... (URL do áudio)' },
+  document: { label: 'Documento', icon: FileText,          placeholder: 'https://... (URL do documento)' },
+  link:     { label: 'Link',      icon: Link2,             placeholder: 'https://...' },
+  cta:      { label: 'Botão',     icon: MousePointerClick, placeholder: 'Texto do botão' },
 };
 
 function TemplateBlockItem({
