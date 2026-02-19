@@ -258,8 +258,22 @@ export async function GET(
     };
 
     // ── Métricas gerais ───────────────────────────────────────
-    const ltv = orders.reduce((s, o) => s + (Number(o.total) || 0), 0);
-    const ticketMedio = orders.length > 0 ? ltv / orders.length : 0;
+    // LTV: apenas pedidos ativos (excluindo cancelled/refunded)
+    const ACTIVE_STATUSES = ['confirmed', 'processing', 'shipped', 'delivered', 'pending'];
+    const PAID_STATUSES   = ['confirmed', 'delivered'];  // pagos/concluídos
+    const TRANSIT_STATUSES = ['shipped'];                 // em trânsito
+
+    const activeOrders   = orders.filter(o => ACTIVE_STATUSES.includes(o.status));
+    const paidOrders     = orders.filter(o => PAID_STATUSES.includes(o.status));
+    const transitOrders  = orders.filter(o => TRANSIT_STATUSES.includes(o.status));
+    const cancelledOrders = orders.filter(o => ['cancelled', 'refunded'].includes(o.status));
+
+    const ltv         = activeOrders.reduce((s, o) => s + (Number(o.total) || 0), 0);
+    const ltvPaid     = paidOrders.reduce((s, o) => s + (Number(o.total) || 0), 0);
+    const ltvTransit  = transitOrders.reduce((s, o) => s + (Number(o.total) || 0), 0);
+    const ltvCancelled = cancelledOrders.reduce((s, o) => s + (Number(o.total) || 0), 0);
+
+    const ticketMedio = activeOrders.length > 0 ? ltv / activeOrders.length : 0;
 
     const ultimaCompra = orders.at(-1)?.created_at;
     const diasDesdeUltimaCompra = ultimaCompra
@@ -327,9 +341,15 @@ export async function GET(
       insights_anne: insights,
       ltv: Math.round(ltv * 100) / 100,
       ticket_medio: Math.round(ticketMedio * 100) / 100,
-      total_pedidos: orders.length,
+      total_pedidos: activeOrders.length,
       dias_desde_ultima_compra: diasDesdeUltimaCompra,
       ciclo_recompra_medio: cicloRecompra,
+      ltv_breakdown: {
+        paid:      { count: paidOrders.length,     value: Math.round(ltvPaid * 100) / 100 },
+        transit:   { count: transitOrders.length,  value: Math.round(ltvTransit * 100) / 100 },
+        cancelled: { count: cancelledOrders.length, value: Math.round(ltvCancelled * 100) / 100 },
+        total_all_orders: orders.length,
+      },
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Erro desconhecido';

@@ -50,6 +50,7 @@ import {
   Bot,
   UserCheck,
   MessageCircle,
+  Info,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useChatsStore } from '@/store/chats';
@@ -984,6 +985,12 @@ interface PatternsData {
   total_pedidos: number;
   dias_desde_ultima_compra: number | null;
   ciclo_recompra_medio: number | null;
+  ltv_breakdown?: {
+    paid:      { count: number; value: number };
+    transit:   { count: number; value: number };
+    cancelled: { count: number; value: number };
+    total_all_orders: number;
+  };
 }
 
 function PatternsTab({ clientId }: { clientId: string }) {
@@ -1057,6 +1064,47 @@ function PatternsTab({ clientId }: { clientId: string }) {
           <p className="text-sm font-black text-gray-800">{data.total_pedidos}</p>
         </div>
       </div>
+
+      {/* ── Transparência LTV ── */}
+      {data.ltv_breakdown && (
+        <div className="bg-crm-primary/3 border border-crm-primary/15 rounded-xl px-3 py-2.5">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Info size={11} className="text-crm-primary/60 shrink-0" />
+            <p className="text-[9px] font-semibold text-crm-primary/70 uppercase tracking-wider">
+              Como o LTV foi calculado
+            </p>
+          </div>
+          <div className="space-y-1">
+            {data.ltv_breakdown.paid.count > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-gray-500 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                  {data.ltv_breakdown.paid.count} pedido{data.ltv_breakdown.paid.count > 1 ? 's' : ''} pago{data.ltv_breakdown.paid.count > 1 ? 's' : ''}
+                </span>
+                <span className="text-[10px] font-semibold text-emerald-700">{formatCurrency(data.ltv_breakdown.paid.value)}</span>
+              </div>
+            )}
+            {data.ltv_breakdown.transit.count > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-gray-500 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                  {data.ltv_breakdown.transit.count} pedido{data.ltv_breakdown.transit.count > 1 ? 's' : ''} em trânsito
+                </span>
+                <span className="text-[10px] font-semibold text-blue-700">{formatCurrency(data.ltv_breakdown.transit.value)}</span>
+              </div>
+            )}
+            {data.ltv_breakdown.cancelled.count > 0 && (
+              <div className="flex items-center justify-between opacity-60">
+                <span className="text-[10px] text-gray-400 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400 shrink-0" />
+                  {data.ltv_breakdown.cancelled.count} cancelado{data.ltv_breakdown.cancelled.count > 1 ? 's' : ''} (não contabilizado{data.ltv_breakdown.cancelled.count > 1 ? 's' : ''})
+                </span>
+                <span className="text-[10px] text-gray-400 line-through">{formatCurrency(data.ltv_breakdown.cancelled.value)}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Ciclo de recompra ── */}
       {data.ciclo_recompra_medio !== null && (

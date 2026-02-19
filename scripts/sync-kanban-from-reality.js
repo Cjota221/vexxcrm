@@ -121,21 +121,85 @@ async function syncTenant(tenantId) {
   const clientPhone = {};
   for (const c of allClients) clientPhone[c.id] = c.phone;
 
-  // 3. Buscar todos os pedidos, agrupados por cliente
-  const { data: orders, error: ordErr } = await s
-    .from('orders')
-    .select('client_id, status, created_at')
-    .eq('tenant_id', tenantId)
-    .order('created_at', { ascending: false });
+  // 3. Buscar todos os pedidos — em lotes (evitar timeout em tenants grandes)
+  //    Seleciona client_id + metadata (para lookup por phone) + status + created_at
+  const allOrders = [];
+  let page = 0;
+  const PAGE_SIZE = 1000;
+  while (true) {
+    const { data: chunk, error: ordErr } = await s
+      .from('orders')
+      .select('id, client_id, status, created_at, metadata')
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false })
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+    if (ordErr) throw new Error('Erro ao buscar orders: ' + ordErr.message);
+    if (!chunk || chunk.length === 0) break;
+    allOrders.push(...chunk);
+    if (chunk.length < PAGE_SIZE) break;
+    page++;
+  }
+  console.log(`   📦 Pedidos encontrados: ${allOrders.length}`);
 
-  if (ordErr) throw new Error('Erro ao buscar orders: ' + ordErr.message);
+  // Montar mapa: phone normalizado → client_id (para lookup de pedidos sem client_id)
+  // Normaliza phone para 13 dígitos (55 + DDD + 9 dígitos) ou 12 (sem 9°)
+  function normalizePhone(raw) {
+    if (!raw) return null;
+    const digits = String(raw).replace(/\D/g, '');
+    // Remover DDI se necessário
+    if (digits.startsWith('55') && digits.length >= 12) return digits;
+    if (digits.length === 11) return '55' + digits; // DDD + 9 dígitos
+    if (digits.length === 10) return '55' + digits; // DDD + 8 dígitos
+    return digits;
+  }
+
+  // phoneToClientId: versão canônica (sem o 9° dígito) → client_id
+  // Para lidar com 8 ou 9 dígitos após DDD, normalizar ambas as formas
+  const phoneToClientId = {};
+  for (const c of allClients) {
+    const norm = normalizePhone(c.phone);
+    if (!norm) continue;
+    phoneToClientId[norm] = c.id;
+    // Também registrar sem o 9° dígito (para compatibilidade)
+    if (norm.startsWith('55') && norm.length === 13) {
+      const without9 = norm.slice(0, 4) + norm.slice(5); // remove o 9° dígito
+      if (!phoneToClientId[without9]) phoneToClientId[without9] = c.id;
+    }
+    // Registrar com o 9° dígito (se 8-dígito local)
+    if (norm.startsWith('55') && norm.length === 12) {
+      const with9 = norm.slice(0, 4) + '9' + norm.slice(4); // adiciona 9° dígito
+      if (!phoneToClientId[with9]) phoneToClientId[with9] = c.id;
+    }
+  }
 
   // Agrupar pedidos por cliente (mais recente primeiro)
+  // Se client_id é null, tentar resolver via metadata.cliente_whatsapp_e164 ou metadata.cliente_whatsapp
+  let resolvedByPhone = 0;
   const ordersByClient = {};
-  for (const o of orders || []) {
-    if (!ordersByClient[o.client_id]) ordersByClient[o.client_id] = [];
-    ordersByClient[o.client_id].push(o);
+  for (const o of allOrders) {
+    let cid = o.client_id;
+
+    // Tentar resolver pelo phone no metadata
+    if (!cid && o.metadata) {
+      const e164   = o.metadata.cliente_whatsapp_e164;  // "+5566992248062"
+      const wapp   = o.metadata.cliente_whatsapp;       // "66992248062"
+      const phones = [e164, wapp ? '55' + wapp : null].filter(Boolean);
+      for (const p of phones) {
+        const norm = normalizePhone(p);
+        if (norm && phoneToClientId[norm]) {
+          cid = phoneToClientId[norm];
+          resolvedByPhone++;
+          break;
+        }
+      }
+    }
+
+    if (!cid) continue; // Pedido sem vínculo a cliente — ignorar
+
+    if (!ordersByClient[cid]) ordersByClient[cid] = [];
+    ordersByClient[cid].push(o);
   }
+  console.log(`   🔗 Pedidos sem client_id resolvidos via phone: ${resolvedByPhone}`);
 
   // 4. Buscar kanban_cards existentes (para detectar mudanças reais)
   const { data: existingCards } = await s
