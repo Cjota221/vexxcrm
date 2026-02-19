@@ -26,7 +26,7 @@ import {
   X,
 } from 'lucide-react';
 
-/* ─── Botão do header da Central ─────────────────────────────── */
+/* ─── Botão de navegação do header ───────────────────────────── */
 
 function NavBtn({
   icon, label, active, onClick,
@@ -41,42 +41,30 @@ function NavBtn({
       onClick={onClick}
       title={label}
       className={cn(
-        'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all select-none',
+        'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all select-none',
         active
           ? 'bg-crm-primary text-white shadow-sm'
-          : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800'
+          : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
       )}
     >
       {icon}
-      <span className="hidden lg:inline">{label}</span>
+      <span>{label}</span>
     </button>
   );
 }
 
-/* ─── Ponto de status de conexão ─────────────────────────────── */
+/* ─── Dot de conexão WhatsApp ─────────────────────────────────── */
 
 function ConnectionDot() {
   const { whatsappStatus } = useConnectionStore();
-  const dotColor = {
-    connected: 'bg-emerald-500',
-    connecting: 'bg-amber-400 animate-pulse',
-    disconnected: 'bg-red-500',
-    unknown: 'bg-gray-400 animate-pulse',
+  const cfg = {
+    connected:    { dot: 'bg-emerald-500',              title: 'WhatsApp conectado' },
+    connecting:   { dot: 'bg-amber-400 animate-pulse',  title: 'Conectando...' },
+    disconnected: { dot: 'bg-red-500',                  title: 'Desconectado' },
+    unknown:      { dot: 'bg-gray-400 animate-pulse',   title: 'Verificando...' },
   }[whatsappStatus];
 
-  const title = {
-    connected: 'WhatsApp conectado',
-    connecting: 'Conectando...',
-    disconnected: 'Desconectado',
-    unknown: 'Verificando conexão...',
-  }[whatsappStatus];
-
-  return (
-    <span
-      title={title}
-      className={cn('w-2.5 h-2.5 rounded-full shrink-0', dotColor)}
-    />
-  );
+  return <span title={cfg.title} className={cn('w-2.5 h-2.5 rounded-full shrink-0', cfg.dot)} />;
 }
 
 /**
@@ -120,83 +108,75 @@ export default function CentralAtendimentoPage() {
   return (
     <div className="flex flex-col h-full bg-white overflow-hidden">
 
-      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          HEADER ÚNICO — substitui o Header global do layout
-          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <header className="h-16 shrink-0 bg-white border-b border-gray-200 flex items-center px-4 gap-2 shadow-[0_1px_3px_rgba(0,0,0,0.06)] z-20">
+      {/* ━━━ HEADER — 3 ZONAS: marca | nav | perfil ━━━ */}
+      <header className="h-14 shrink-0 bg-white border-b border-gray-100 flex items-center px-5 z-20" style={{ boxShadow: '0 1px 0 #e5e7eb' }}>
 
-        {/* Ponto de conexão + Marca */}
-        <div className="flex items-center gap-2 shrink-0">
+        {/* ZONA ESQUERDA — marca */}
+        <div className="flex items-center gap-3 w-64 shrink-0">
           <ConnectionDot />
-          <div className="w-7 h-7 rounded-lg bg-crm-primary flex items-center justify-center shadow-sm">
-            <span className="text-[10px] font-black text-white tracking-tight">VX</span>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-crm-primary flex items-center justify-center shadow-sm">
+              <span className="text-[11px] font-black text-white tracking-tight">VX</span>
+            </div>
+            <span className="text-sm font-bold text-gray-900">Central</span>
           </div>
-          <span className="text-sm font-bold text-gray-800 hidden md:block">Central</span>
         </div>
 
-        <div className="w-px h-5 bg-gray-200 shrink-0 mx-1" />
-
-        {/* Navegação principal — centralizada */}
-        <div className="flex items-center gap-1 flex-1 justify-center">
+        {/* ZONA CENTRAL — navegação principal */}
+        <nav className="flex items-center gap-1 flex-1 justify-center">
           {searchOpen ? (
-            <div className="flex items-center gap-2 w-72 px-3 py-1.5 bg-gray-50 border border-crm-primary/50 rounded-lg">
-              <Search size={13} className="text-crm-primary shrink-0" />
+            <div className="flex items-center gap-2 w-80 px-3 py-2 bg-gray-50 border border-crm-primary/40 rounded-xl shadow-sm">
+              <Search size={14} className="text-crm-primary shrink-0" />
               <input
                 autoFocus
                 value={globalSearch}
                 onChange={e => handleSearchChange(e.target.value)}
                 onKeyDown={e => e.key === 'Escape' && handleSearchClose()}
-                placeholder="Buscar por nome, tag, número..."
-                className="flex-1 text-xs bg-transparent outline-none text-gray-800 placeholder:text-gray-400 min-w-0"
+                placeholder="Nome, telefone, tag..."
+                className="flex-1 text-sm bg-transparent outline-none text-gray-800 placeholder:text-gray-400 min-w-0"
               />
-              <button onClick={handleSearchClose} className="text-gray-400 hover:text-gray-600 shrink-0">
-                <X size={12} />
+              <button onClick={handleSearchClose} className="text-gray-400 hover:text-gray-600 shrink-0 p-0.5">
+                <X size={13} />
               </button>
             </div>
           ) : (
-            <NavBtn icon={<Search size={14} />} label="Buscar" onClick={() => setSearchOpen(true)} />
+            <NavBtn icon={<Search size={15} />} label="Buscar" onClick={() => setSearchOpen(true)} />
           )}
 
-          <NavBtn icon={<Megaphone size={14} />} label="Campanhas" onClick={() => setCampaignOpen(true)} />
-          <NavBtn icon={<Kanban size={14} />} label="Pipeline" active={kanbanOpen} onClick={() => setKanbanOpen(v => !v)} />
+          <NavBtn icon={<Megaphone size={15} />} label="Campanhas" onClick={() => setCampaignOpen(true)} />
+          <NavBtn icon={<Kanban size={15} />} label="Pipeline" active={kanbanOpen} onClick={() => setKanbanOpen(v => !v)} />
 
-          {/* Ações contextuais — só com chat aberto */}
           {selectedChatId && (
             <>
-              <div className="w-px h-5 bg-gray-200 shrink-0" />
-              <NavBtn icon={<BookOpen size={14} />} label="Catálogo" onClick={() => setCatalogOpen(true)} />
-              <NavBtn icon={<ArrowLeftRight size={14} />} label="Transferir" onClick={() => setTransferOpen(true)} />
+              <div className="w-px h-5 bg-gray-200 shrink-0 mx-1" />
+              <NavBtn icon={<BookOpen size={15} />} label="Catálogo" onClick={() => setCatalogOpen(true)} />
+              <NavBtn icon={<ArrowLeftRight size={15} />} label="Transferir" onClick={() => setTransferOpen(true)} />
             </>
           )}
-        </div>
+        </nav>
 
-        {/* Cérebro */}
-        <NavBtn icon={<Brain size={14} />} label="Cérebro" active={brainOpen} onClick={() => setBrainOpen(v => !v)} />
+        {/* ZONA DIREITA — ações + perfil */}
+        <div className="flex items-center gap-2 w-64 justify-end shrink-0">
+          <NavBtn icon={<Brain size={15} />} label="Cérebro" active={brainOpen} onClick={() => setBrainOpen(v => !v)} />
 
-        <div className="w-px h-5 bg-gray-200 shrink-0" />
+          <div className="w-px h-5 bg-gray-200 mx-1" />
 
-        {/* Notificações */}
-        <button className="relative p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition-colors">
-          <Bell size={18} />
-          <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
-            3
-          </span>
-        </button>
+          <button className="relative p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
+            <Bell size={17} />
+            <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">3</span>
+          </button>
 
-        {/* Avatar + nome */}
-        <div className="flex items-center gap-2.5 pl-3 border-l border-gray-200">
-          <div className="w-8 h-8 rounded-full bg-crm-primary flex items-center justify-center overflow-hidden shrink-0">
-            {user?.avatar_url ? (
-              <img src={user.avatar_url} alt={user.name} className="w-full h-full object-cover" />
-            ) : (
-              <span className="text-white text-xs font-semibold">
-                {user ? getInitials(user.name) : 'U'}
-              </span>
-            )}
-          </div>
-          <div className="hidden md:block leading-tight">
-            <p className="text-xs font-semibold text-gray-800 truncate max-w-30">{user?.name ?? '—'}</p>
-            <p className="text-[10px] text-gray-400">{user?.role ?? ''}</p>
+          <div className="flex items-center gap-2.5 pl-2 border-l border-gray-100">
+            <div className="w-8 h-8 rounded-full bg-crm-primary flex items-center justify-center overflow-hidden shrink-0 ring-2 ring-crm-primary/10">
+              {user?.avatar_url
+                ? <img src={user.avatar_url} alt={user.name} className="w-full h-full object-cover" />
+                : <span className="text-white text-xs font-bold">{user ? getInitials(user.name) : 'U'}</span>
+              }
+            </div>
+            <div className="hidden lg:block leading-tight">
+              <p className="text-xs font-semibold text-gray-900 truncate max-w-28">{user?.name ?? '—'}</p>
+              <p className="text-[10px] text-gray-400 capitalize">{user?.role ?? ''}</p>
+            </div>
           </div>
         </div>
       </header>
