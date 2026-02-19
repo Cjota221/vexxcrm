@@ -67,7 +67,7 @@ import type { Order, KanbanTransition, KanbanColumn } from '@/types';
 
 /* ─── Abas disponíveis ───────────────────────────────────────── */
 
-type BrainTab = 'identity' | 'orders' | 'tracking' | 'pipeline' | 'anne';
+type BrainTab = 'identity' | 'orders' | 'tracking' | 'pipeline' | 'patterns' | 'anne';
 
 const TABS: {
   key: BrainTab;
@@ -79,6 +79,7 @@ const TABS: {
   { key: 'orders',    label: 'Pedidos',        shortLabel: 'Pedidos',  icon: ShoppingBag },
   { key: 'tracking',  label: 'Rastreio',       shortLabel: 'Rastreio', icon: Truck },
   { key: 'pipeline',  label: 'Pipeline',       shortLabel: 'Pipeline', icon: GitBranch },
+  { key: 'patterns',  label: 'Padrões',        shortLabel: 'Padrões',  icon: BarChart3 },
   { key: 'anne',      label: 'Insights Anne',  shortLabel: 'Anne',     icon: Brain },
 ];
 
@@ -637,6 +638,8 @@ const KANBAN_COLUMN_CONFIG: Record<
   EM_NEGOCIACAO:       { label: 'Em Negociação',        color: 'text-blue-700',    bg: 'bg-blue-50',    border: 'border-blue-200' },
   AGUARDANDO_PAGAMENTO:{ label: 'Aguard. Pagamento',    color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200' },
   PAGO:                { label: 'Pago',                 color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' },
+  DESPACHADO:          { label: 'Despachado',           color: 'text-blue-700',    bg: 'bg-blue-50',    border: 'border-blue-200' },
+  CANCELADO:           { label: 'Cancelado',            color: 'text-red-700',     bg: 'bg-red-50',     border: 'border-red-200' },
   REATIVAR:            { label: 'Reativar',             color: 'text-orange-700',  bg: 'bg-orange-50',  border: 'border-orange-200' },
   CONCLUIDO:           { label: 'Concluído',            color: 'text-violet-700',  bg: 'bg-violet-50',  border: 'border-violet-200' },
 };
@@ -806,7 +809,225 @@ function PipelineTab({ clientId }: { clientId: string }) {
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   ABA 5 — INSIGHTS ANNE
+   ABA 5 — PADRÕES DE COMPRA
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+interface PatternsData {
+  dia_ouro: { dia_semana: number; label: string; total_pedidos: number; total_gasto: number } | null;
+  hora_ouro: { faixa_horario: string; label: string; total_pedidos: number } | null;
+  logistica: { frete_medio: number; transportadora_mais_usada: string | null; total_fretes: number } | null;
+  inventario: { numeracoes: string[]; categorias: string[]; top_produtos: Array<{ nome: string; quantidade: number; total: number }> };
+  insights_anne: string[];
+  ltv: number;
+  ticket_medio: number;
+  total_pedidos: number;
+  dias_desde_ultima_compra: number | null;
+  ciclo_recompra_medio: number | null;
+}
+
+function PatternsTab({ clientId }: { clientId: string }) {
+  const { data, isLoading, isError } = useQuery<PatternsData>({
+    queryKey: ['client-patterns', clientId],
+    queryFn: async () => {
+      const res = await api.get<PatternsData>(`/api/clients/${clientId}/patterns`);
+      return res.data;
+    },
+    staleTime: 5 * 60_000,
+    enabled: !!clientId,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-3">
+        <Loader2 size={24} className="animate-spin text-crm-primary" />
+        <p className="text-xs text-gray-400">Calculando padrões de compra...</p>
+      </div>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <div className="flex flex-col items-center py-12 text-center px-4">
+        <AlertTriangle size={24} className="text-gray-200 mb-2" />
+        <p className="text-xs text-gray-400">Não foi possível carregar os padrões.</p>
+        <p className="text-[10px] text-gray-300 mt-1">O cliente precisa ter pedidos registrados.</p>
+      </div>
+    );
+  }
+
+  const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+  return (
+    <div className="p-4 space-y-4">
+
+      {/* ── Métricas gerais ── */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="bg-crm-primary/5 border border-crm-primary/20 rounded-xl p-2.5 text-center">
+          <p className="text-[9px] text-gray-400 uppercase tracking-wide mb-0.5">LTV</p>
+          <p className="text-sm font-black text-crm-primary">{formatCurrency(data.ltv)}</p>
+        </div>
+        <div className="bg-gray-50 border border-gray-100 rounded-xl p-2.5 text-center">
+          <p className="text-[9px] text-gray-400 uppercase tracking-wide mb-0.5">Ticket Médio</p>
+          <p className="text-sm font-black text-gray-800">{formatCurrency(data.ticket_medio)}</p>
+        </div>
+        <div className="bg-gray-50 border border-gray-100 rounded-xl p-2.5 text-center">
+          <p className="text-[9px] text-gray-400 uppercase tracking-wide mb-0.5">Pedidos</p>
+          <p className="text-sm font-black text-gray-800">{data.total_pedidos}</p>
+        </div>
+      </div>
+
+      {/* ── Ciclo de recompra ── */}
+      {data.ciclo_recompra_medio !== null && (
+        <div className={cn(
+          'rounded-xl p-3 border flex items-center gap-3',
+          data.dias_desde_ultima_compra !== null && data.ciclo_recompra_medio > 0 &&
+          data.dias_desde_ultima_compra > data.ciclo_recompra_medio * 1.2
+            ? 'bg-orange-50 border-orange-200'
+            : 'bg-emerald-50 border-emerald-200'
+        )}>
+          <div className={cn(
+            'w-8 h-8 rounded-full flex items-center justify-center shrink-0',
+            data.dias_desde_ultima_compra !== null && data.ciclo_recompra_medio > 0 &&
+            data.dias_desde_ultima_compra > data.ciclo_recompra_medio * 1.2
+              ? 'bg-orange-100' : 'bg-emerald-100'
+          )}>
+            <Clock size={14} className={
+              data.dias_desde_ultima_compra !== null && data.ciclo_recompra_medio > 0 &&
+              data.dias_desde_ultima_compra > data.ciclo_recompra_medio * 1.2
+                ? 'text-orange-600' : 'text-emerald-600'
+            } />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Ciclo de Recompra</p>
+            <p className="text-xs font-semibold text-gray-800">
+              A cada <span className="font-black">{data.ciclo_recompra_medio}d</span>
+              {data.dias_desde_ultima_compra !== null && (
+                <span className="text-gray-400 font-normal"> · última há {data.dias_desde_ultima_compra}d</span>
+              )}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Dia de Ouro ── */}
+      {data.dia_ouro && (
+        <div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+            <Star size={10} className="text-amber-500" /> Dia de Ouro
+          </p>
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 flex flex-col items-center justify-center shrink-0">
+              <span className="text-xs font-black text-amber-700">{DIAS[data.dia_ouro.dia_semana]}</span>
+            </div>
+            <div>
+              <p className="text-sm font-bold text-amber-800">{data.dia_ouro.label}</p>
+              <p className="text-[10px] text-amber-600">
+                {data.dia_ouro.total_pedidos} pedido{data.dia_ouro.total_pedidos > 1 ? 's' : ''} · {formatCurrency(data.dia_ouro.total_gasto)} em compras
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Hora de Ouro ── */}
+      {data.hora_ouro && (
+        <div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+            <Clock size={10} className="text-sky-500" /> Hora de Ouro
+          </p>
+          <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-sky-100 flex items-center justify-center shrink-0">
+              <Clock size={16} className="text-sky-600" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-sky-800">{data.hora_ouro.label}</p>
+              <p className="text-[10px] text-sky-600">
+                {data.hora_ouro.total_pedidos} pedido{data.hora_ouro.total_pedidos > 1 ? 's' : ''} neste horário
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Logística ── */}
+      {data.logistica && data.logistica.total_fretes > 0 && (
+        <div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+            <Truck size={10} className="text-gray-400" /> Logística
+          </p>
+          <div className="bg-white border border-gray-100 rounded-xl p-3 space-y-1.5">
+            <div className="flex justify-between items-center">
+              <span className="text-[10px] text-gray-400">Frete médio</span>
+              <span className="text-xs font-bold text-gray-700">{formatCurrency(data.logistica.frete_medio)}</span>
+            </div>
+            {data.logistica.transportadora_mais_usada && (
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] text-gray-400">Transportadora favorita</span>
+                <span className="text-xs font-bold text-gray-700 truncate max-w-30">{data.logistica.transportadora_mais_usada}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Numerações / Tamanhos ── */}
+      {data.inventario.numeracoes.length > 0 && (
+        <div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+            <Tag size={10} className="text-gray-400" /> Numerações
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {data.inventario.numeracoes.map(num => (
+              <span key={num} className="text-[10px] font-bold px-2 py-1 bg-crm-primary/10 text-crm-primary rounded-lg border border-crm-primary/20">
+                {num}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Top Produtos ── */}
+      {data.inventario.top_produtos.length > 0 && (
+        <div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+            <Package size={10} className="text-gray-400" /> Produtos Favoritos
+          </p>
+          <div className="space-y-1.5">
+            {data.inventario.top_produtos.slice(0, 5).map((p, i) => (
+              <div key={i} className="flex items-center gap-2 bg-white border border-gray-100 rounded-xl px-3 py-2">
+                <span className="text-[10px] font-black text-gray-300 w-4 shrink-0">#{i + 1}</span>
+                <span className="flex-1 text-[11px] text-gray-700 truncate">{p.nome}</span>
+                <span className="text-[10px] text-gray-400 shrink-0">{p.quantidade}x</span>
+                <span className="text-[10px] font-bold text-gray-600 shrink-0">{formatCurrency(p.total)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Insights Anne ── */}
+      {data.insights_anne.length > 0 && (
+        <div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+            <Bot size={10} className="text-crm-primary" /> Insights da Anne
+          </p>
+          <div className="space-y-1.5">
+            {data.insights_anne.map((insight, i) => (
+              <div key={i} className="flex items-start gap-2 bg-crm-primary/5 border border-crm-primary/10 rounded-xl px-3 py-2">
+                <Zap size={10} className="text-crm-primary mt-0.5 shrink-0" />
+                <p className="text-[11px] text-gray-700 leading-relaxed">{insight}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ABA 6 — INSIGHTS ANNE
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 function AnneInsightsTab({ chatId }: { chatId: string }) {
@@ -1161,6 +1382,9 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
             )}
             {activeTab === 'pipeline' && (
               <PipelineTab clientId={(client.id as string) ?? selectedChatId} />
+            )}
+            {activeTab === 'patterns' && (
+              <PatternsTab clientId={(client.id as string) ?? selectedChatId} />
             )}
             {activeTab === 'anne' && (
               <AnneInsightsTab chatId={selectedChatId} />

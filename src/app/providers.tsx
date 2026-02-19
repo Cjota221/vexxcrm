@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { usePathname } from 'next/navigation';
 
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/auth';
+import { AnneFAB } from '@/components/anne/AnneFAB';
 import type { AuthSession } from '@/types';
 
 /**
@@ -83,6 +85,21 @@ function AuthInitializer({ children }: { children: React.ReactNode }) {
 }
 
 /**
+ * Controla se o FAB da Anne deve aparecer na rota atual.
+ * Exclui páginas de auth e páginas sem sessão.
+ */
+function AnneGlobalFAB() {
+  const pathname = usePathname();
+  const { user } = useAuthStore();
+
+  // Não mostrar em rotas de auth
+  const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/register') || pathname.startsWith('/reset');
+  if (isAuthRoute || !user) return null;
+
+  return <AnneFAB />;
+}
+
+/**
  * Providers globais da aplicação.
  * Wraps: React Query + Auth Initializer.
  */
@@ -103,7 +120,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthInitializer>{children}</AuthInitializer>
+      <AuthInitializer>
+        {children}
+        <AnneGlobalFAB />
+      </AuthInitializer>
     </QueryClientProvider>
   );
 }

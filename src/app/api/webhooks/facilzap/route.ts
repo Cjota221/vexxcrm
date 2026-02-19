@@ -3,6 +3,8 @@ import { createServerSupabaseClient } from '@/lib/supabase';
 import { PhoneNormalizer } from '@/lib/phone-normalizer';
 import { mapClients, upsertClients } from '@/lib/facilzap/mapper';
 import { SyncLogger } from '@/lib/facilzap/sync-logger';
+import { processPipelineTriggers, extractNameFromMessage } from '@/lib/services/pipeline-triggers';
+import { eventBus } from '@/lib/event-bus';
 
 /**
  * POST /api/webhooks/facilzap
@@ -78,6 +80,13 @@ export async function POST(request: NextRequest) {
       case 'cliente_criado':
       case 'cliente_atualizado':
         await handleClientEvent(supabase, tenantId, body);
+        break;
+
+      // Carrinho abandonado — Anne captura nome e move Kanban
+      case 'cart.abandoned':
+      case 'carrinho.abandonado':
+      case 'abandoned_cart':
+        await handleCartAbandonedEvent(supabase, tenantId, body);
         break;
 
       default:
@@ -248,6 +257,15 @@ async function handleOrderEvent(
   // Atualizar stats do cliente
   if (clientId) {
     await updateClientStats(supabase, tenantId, clientId);
+
+    // ── PIPELINE AUTOMÁTICO ──────────────────────────────────
+    // Mover kanban_card automaticamente baseado no evento
+    const webhookEvent = body.event || body.tipo || 'unknown';
+    try {
+      await triggerPipelineForOrder(supabase, tenantId, clientId, webhookEvent, orderNumber);
+    } catch (pipelineErr) {
+      console.warn('[Webhook FacilZap] Pipeline trigger ignorado:', pipelineErr);
+    }
   }
 }
 
@@ -388,4 +406,121 @@ async function handleClientEvent(
   } else {
     console.log(`[Webhook FacilZap] Cliente ${valid[0].name} (${valid[0].phone}) salvo via webhook`);
   }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   HELPER: Disparar gatilho de pipeline via mensagem sintética
+   ══════════════════════════════════════════════════════════════ */
+
+/**
+ * Busca o chat_id (remoteJid) do cliente para usar no pipeline.
+ */
+async function getChatIdForClient(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+  clientId: string
+): Promise<string | null> {
+  const { data } = await supabase
+    .from('chats')
+    .select('remote_jid')
+    .eq('tenant_id', tenantId)
+    .eq('client_id', clientId)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .single();
+  return data?.remote_jid ?? null;
+}
+
+/**
+ * Processa evento de carrinho abandonado.
+ * Captura nome do cliente, move kanban → EM_NEGOCIACAO.
+ */
+async function handleCartAbandonedEvent(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+  body: any
+) {
+  const cart = body.data || body.carrinho || body.cart || body;
+  const rawPhone = cart.cliente?.whatsapp_e164 || cart.cliente?.whatsapp || cart.cliente?.telefone || '';
+  const ph = rawPhone.replace(/\D/g, '');
+
+  if (!ph || ph.length < 8) return;
+
+  const canonical = PhoneNormalizer.canonical(ph);
+  const { data: client } = await supabase
+    .from('clients')
+    .select('id, name, name_manual')
+    .eq('tenant_id', tenantId)
+    .eq('phone_normalized', canonical)
+    .single();
+
+  if (!client) return;
+
+  // Extrair nome da mensagem do carrinho, se disponível
+  const cartMessage = cart.mensagem || cart.message || `Olá, ${cart.cliente?.nome || ''}! Vimos que você deixou itens no carrinho.`;
+
+  const chatId = await getChatIdForClient(supabase, tenantId, client.id);
+  if (!chatId) return;
+
+  await processPipelineTriggers(
+    supabase,
+    tenantId,
+    { id: client.id, name: client.name, name_manual: client.name_manual },
+    chatId,
+    cartMessage,
+    true // fromMe = bot enviou
+  );
+
+  // Se nome da FacilZap disponível e cliente ainda sem nome real, atualizar
+  const nomeFacilzap = cart.cliente?.nome || '';
+  if (nomeFacilzap) {
+    const extracted = extractNameFromMessage(cartMessage, client.name, client.name_manual);
+    if (extracted) {
+      await supabase.from('clients').update({ name: extracted }).eq('id', client.id).eq('tenant_id', tenantId);
+      eventBus.emitToTenant('client_updated', tenantId, { client_id: client.id, updated_name: extracted });
+    }
+  }
+}
+
+/**
+ * Dispara pipeline automaticamente após salvar pedido.
+ * Chama processPipelineTriggers com mensagem sintética baseada no evento.
+ */
+async function triggerPipelineForOrder(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+  clientId: string,
+  event: string,
+  orderNumber: string
+): Promise<void> {
+  const chatId = await getChatIdForClient(supabase, tenantId, clientId);
+  if (!chatId) return;
+
+  const { data: client } = await supabase
+    .from('clients')
+    .select('id, name, name_manual')
+    .eq('id', clientId)
+    .eq('tenant_id', tenantId)
+    .single();
+
+  if (!client) return;
+
+  // Mensagem sintética para detecção pelo pipeline
+  let syntheticMessage = '';
+  if (event === 'order.paid' || event === 'pedido.pago') {
+    syntheticMessage = `Pagamento aprovado para o pedido #${orderNumber}. Pix confirmado.`;
+  } else if (event === 'order.created' || event === 'pedido.criado') {
+    syntheticMessage = `Recebemos seu pedido #${orderNumber} confirmado. Aguardando pagamento.`;
+  }
+
+  if (!syntheticMessage) return;
+
+  await processPipelineTriggers(
+    supabase,
+    tenantId,
+    { id: client.id, name: client.name, name_manual: client.name_manual },
+    chatId,
+    syntheticMessage,
+    true // mensagem do bot
+  );
 }

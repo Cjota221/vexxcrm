@@ -44,6 +44,20 @@ export const KANBAN_COLUMN_CONFIG: Record<
     icon: '✅',
     terminal: false,
   },
+  DESPACHADO: {
+    label: 'Despachado',
+    color: 'text-blue-700',
+    bg: 'bg-blue-50 border-blue-200',
+    icon: '🚚',
+    terminal: false,
+  },
+  CANCELADO: {
+    label: 'Cancelado',
+    color: 'text-red-700',
+    bg: 'bg-red-50 border-red-200',
+    icon: '🙁',
+    terminal: false,
+  },
   REATIVAR: {
     label: 'Reativar',
     color: 'text-purple-700',
@@ -66,12 +80,14 @@ export const KANBAN_COLUMN_CONFIG: Record<
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 export const VALID_TRANSITIONS: Record<KanbanColumn, KanbanColumn[]> = {
-  PRIMEIRO_CONTATO: ['EM_NEGOCIACAO', 'REATIVAR'],
-  EM_NEGOCIACAO: ['AGUARDANDO_PAGAMENTO', 'REATIVAR', 'CONCLUIDO'],
-  AGUARDANDO_PAGAMENTO: ['PAGO', 'EM_NEGOCIACAO', 'REATIVAR'],
-  PAGO: ['CONCLUIDO', 'EM_NEGOCIACAO'],
-  REATIVAR: ['EM_NEGOCIACAO', 'CONCLUIDO'],
-  CONCLUIDO: [], // estado terminal — sem transições de saída
+  PRIMEIRO_CONTATO:     ['EM_NEGOCIACAO', 'REATIVAR', 'CANCELADO'],
+  EM_NEGOCIACAO:        ['AGUARDANDO_PAGAMENTO', 'REATIVAR', 'CANCELADO', 'CONCLUIDO'],
+  AGUARDANDO_PAGAMENTO: ['PAGO', 'EM_NEGOCIACAO', 'REATIVAR', 'CANCELADO'],
+  PAGO:                 ['DESPACHADO', 'CONCLUIDO', 'EM_NEGOCIACAO'],
+  DESPACHADO:           ['CONCLUIDO'],
+  CANCELADO:            ['REATIVAR', 'EM_NEGOCIACAO'],
+  REATIVAR:             ['EM_NEGOCIACAO', 'CONCLUIDO'],
+  CONCLUIDO:            [], // estado terminal
 };
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -162,7 +178,9 @@ export function getColumnForTrigger(trigger: string): KanbanColumn | null {
     primeiro_contato:    'PRIMEIRO_CONTATO',
     pedido_recebido:     'AGUARDANDO_PAGAMENTO',
     pagamento_aprovado:  'PAGO',
-    sinal_rejeicao:      'EM_NEGOCIACAO',
+    pedido_despachado:   'DESPACHADO',
+    pedido_cancelado:    'CANCELADO',
+    sinal_rejeicao:      'REATIVAR',
     engajamento_alto:    'EM_NEGOCIACAO',
     ghosting:            'REATIVAR',
   };

@@ -39,80 +39,133 @@ interface ClientRow {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   PADRÕES DE DETECÇÃO (pt-BR + FacilZap)
+   PADRÕES DE DETECÇÃO — Calibrados com mensagens reais da FacilZap
+   Fonte: mensagens reais do cliente cjotarasteirinhas.com.br
    ══════════════════════════════════════════════════════════════ */
 
 /**
- * Regex para código de rastreio (Correios BR: SRO + JADLOG numérico longo)
- * Ex: NL123456789BR, JD123456789BR, PX987654321BR, PI123456789BR
- * Também: JADLOG 13 dígitos, Total Express 14 dígitos
+ * Regex para código de rastreio.
+ *
+ * Formatos reais observados:
+ *   ME2624MAKT4BR  → Frete Fácil / J&T Express (formato alternativo SRO)
+ *   NL123456789BR  → Correios SRO padrão
+ *   JD123456789BR  → JADLOG
+ *   PX/PI + 9 dígitos + 2 letras
+ *
+ * O padrão "ME2624MAKT4BR" tem letras no meio → regex mais amplo necessário
  */
 const TRACKING_CODE_PATTERNS = [
-  /\b([A-Z]{2}\d{9}[A-Z]{2})\b/,          // Correios padrão (SRO)
-  /\b([A-Z]{2}\d{9}[A-Z]{2})\b/i,         // Case-insensitive
-  /\b(\d{13})\b/,                          // JADLOG (13 dígitos)
-  /\b(\d{14})\b/,                          // Total Express (14 dígitos)
+  /\b([A-Z]{2}[A-Z0-9]{7,12}[A-Z]{2})\b/,   // SRO amplo: 2L + 7-12 alfanum + 2L (cobre ME2624MAKT4BR)
+  /\b([A-Z]{2}\d{9}[A-Z]{2})\b/i,            // Correios SRO clássico
+  /\b(\d{13})\b/,                             // JADLOG (13 dígitos)
+  /\b(\d{14})\b/,                             // Total Express (14 dígitos)
 ];
 
 /**
- * Extrai nome próprio de mensagens de carrinho FacilZap.
- * Exemplos:
- *   "Olá, Ana Lívia! Vimos que você deixou itens no carrinho."
- *   "Oi João da Silva, notamos que você abandonou o carrinho."
- *   "Olá Ana! Temos uma oferta especial para você."
+ * Extrai nome próprio de mensagens de carrinho/pedido FacilZap.
+ *
+ * Exemplos reais:
+ *   "Olá, Marcia! Vimos que você colocou alguns itens no carrinho"
+ *   "Olá, Michele Miranda da Silva! Recebemos seu pedido"
+ *   "Olá, Karin Niuli Celestino Soares Lopes! Este é o código"
+ *   "Olá, Mirian Thayanne da Silva Andrade! O seu pedido"
  */
 const NAME_EXTRACTION_PATTERNS = [
-  /(?:olá|oi|hey|ola)[,!]?\s+([A-ZÀ-Ú][a-zà-ú]+(?: [A-ZÀ-Ú][a-zà-ú]+)*)/u,
-  /^([A-ZÀ-Ú][a-zà-ú]+(?: [A-ZÀ-Ú][a-zà-ú]+)*)[,!]/u,
+  // Padrão FacilZap: "Olá, Nome Sobrenome!" — inclui nomes compostos com "da/de/do"
+  /(?:olá|oi|hey|ola)[,!]?\s+([A-ZÀ-Ú][a-zà-úA-ZÀ-Ú]+(?: (?:da|de|do|das|dos|e|[A-ZÀ-Ú][a-zà-ú]+))*)/u,
+  // Início de mensagem: "Nome Sobrenome,"
+  /^([A-ZÀ-Ú][a-zà-ú]+(?: [A-ZÀ-Ú][a-zà-ú]+)+)[,!]/u,
 ];
 
-/** Palavras-chave de carrinho (mensagens da FacilZap) */
+/**
+ * Carrinho abandonado — mensagens reais FacilZap:
+ * "Vimos que você colocou alguns itens no carrinho 🛒, porém não chegou a finalizar"
+ * "Para recuperar seu carrinho, acesse:"
+ * Também contém "#fz" no final
+ */
 const CART_PATTERNS = [
+  /colocou alguns itens no carrinho/i,
+  /não chegou a finalizar o pedido/i,
+  /recuperar seu carrinho/i,
+  /carrinho\?id=/i,          // URL de carrinho FacilZap
   /carrinho/i,
-  /colocou.*itens/i,
-  /deixou.*itens/i,
   /abandonou.*carrinho/i,
   /itens no carrinho/i,
-  /você adicionou/i,
-  /produto.*carrinho/i,
 ];
 
-/** Palavras-chave de pedido confirmado */
+/**
+ * Pedido criado — mensagens reais FacilZap:
+ * "Recebemos seu pedido nº 5260270. ✅"
+ * "Olá, Michele Miranda da Silva! Recebemos seu pedido nº 5260270."
+ * Contém link de pagamento: "/pagamento/NUMERO/HASH"
+ */
 const ORDER_PATTERNS = [
-  /recebemos.*seu\s+pedido/i,
+  /recebemos seu pedido n[oº°]?\s*\d+/i,      // "Recebemos seu pedido nº 5260270"
+  /pedido n[oº°]?\s*\d+\s*\.?\s*✅/i,         // "pedido nº 5260270. ✅"
+  /link para fazer o pagamento/i,              // "Use o seguinte link para fazer o pagamento"
   /pedido\s+#?\w+\s+(?:confirmado|recebido)/i,
   /pedido confirmado/i,
-  /pedido realizado/i,
   /compra confirmada/i,
-  /seu pedido foi confirmado/i,
 ];
 
-/** Palavras-chave de pagamento aprovado */
+/**
+ * Pagamento aprovado — mensagem real FacilZap:
+ * "O pagamento do seu pedido nº 5260270 foi aprovado. ✅"
+ */
 const PAYMENT_PATTERNS = [
+  /o pagamento do seu pedido.*foi aprovado/i,   // Padrão exato FacilZap
+  /pagamento.*pedido.*aprovado/i,
   /pagamento\s+aprovad/i,
   /pagamento\s+confirm/i,
   /pago com sucesso/i,
   /pix confirmado/i,
   /pix aprovado/i,
-  /pagamento recebido/i,
   /boleto compensado/i,
-  /transação aprovada/i,
 ];
 
-/** Palavras-chave de código de rastreio */
+/**
+ * Em separação — mensagens reais FacilZap (intermediário, sem mover kanban ainda):
+ * "Os produtos do seu pedido nº 5260270 estão em separação. 📦"
+ * "Os produtos do seu pedido nº 5260270 estão separados📦, em breve seu pedido será despachado."
+ * → Estes mantêm o card em PAGO, sem transição
+ */
+const SEPARATION_PATTERNS = [
+  /estão em separação/i,
+  /estão separados/i,
+  /em breve.*será despachado/i,
+];
+
+/**
+ * Código de rastreio (despacho) — mensagens reais FacilZap:
+ * "Este é o código de rastreio do seu pedido nº 5257307: ME2624MAKT4BR 🚚"
+ * "Seu pedido já foi despachado e está a caminho. 🚛✨"
+ * "Esse é seu código de rastreamento: ME2624MAKT4BR"
+ */
 const TRACKING_MENTION_PATTERNS = [
+  /código de rastreio do seu pedido/i,           // Exato FacilZap fase 1
+  /código de rastreamento:/i,                    // Exato FacilZap fase 2
+  /seu pedido.*foi despachado/i,                 // "já foi despachado e está a caminho"
+  /está a caminho/i,
+  /acompanhe a entrega em tempo real/i,
   /código de rastreament/i,
-  /código de rastreio/i,
-  /código de acompanhamento/i,
   /rastreamento:/i,
   /rastreio:/i,
-  /código.*correios/i,
   /pedido foi enviado/i,
-  /produto foi despachado/i,
   /saiu para entrega/i,
+  /fretefacil.*tracker/i,                        // URL do tracker FacilZap
 ];
 
-/** Palavras-chave de rejeição / desistência */
+/**
+ * Pedido cancelado — mensagem real FacilZap:
+ * "O seu pedido nº 5182343 foi cancelado. 🙁"
+ */
+const CANCELLATION_PATTERNS = [
+  /pedido.*foi cancelado/i,
+  /pedido cancelado/i,
+  /seu pedido.*cancelado/i,
+];
+
+/** Palavras-chave de rejeição / desistência do CLIENTE */
 const REJECTION_PATTERNS = [
   /não quero/i,
   /nao quero/i,
@@ -135,14 +188,28 @@ const REJECTION_PATTERNS = [
 
 /**
  * Extrai código de rastreio do texto.
+ *
+ * Exemplos reais:
+ *   "código de rastreio do seu pedido nº 5257307: ME2624MAKT4BR 🚚"
+ *   "Esse é seu código de rastreamento: ME2624MAKT4BR"
+ *   "rastreio: NL123456789BR"
+ *
+ * Procura por padrão após ":" ou espaço próximo a palavras de rastreio.
  */
 export function extractTrackingCode(text: string): string | null {
+  // Primeiro: tentar extração contextual (código logo após "rastreio:" ou "rastreamento:")
+  const contextMatch = text.match(/(?:rastreio|rastreamento|rastreament)[^\w]*:\s*([A-Z0-9]{8,20})/i);
+  if (contextMatch?.[1]) {
+    const code = contextMatch[1].toUpperCase();
+    if (code.length >= 8) return code;
+  }
+
+  // Segundo: tentar pelos padrões gerais
   for (const pattern of TRACKING_CODE_PATTERNS) {
     const match = text.match(pattern);
     if (match?.[1]) {
       const code = match[1].toUpperCase();
-      // Validar comprimento mínimo
-      if (code.length >= 11) return code;
+      if (code.length >= 8) return code;
     }
   }
   return null;
@@ -186,10 +253,18 @@ export function extractNameFromMessage(
 
 /**
  * Detecta qual evento de pipeline ocorreu nesta mensagem.
- * Retorna null se nenhum padrão bater.
  *
- * @param text  Conteúdo da mensagem
- * @param fromMe  true = mensagem enviada pelo atendente/bot
+ * Ordem de precedência (mais específico primeiro):
+ *  1. Cancelamento → REATIVAR (com tag cancelado)
+ *  2. Rastreio/Despacho → CONCLUIDO
+ *  3. Pagamento aprovado → PAGO
+ *  4. Em separação → (sem movimento, só log)
+ *  5. Pedido criado → AGUARDANDO_PAGAMENTO
+ *  6. Carrinho abandonado → EM_NEGOCIACAO
+ *  7. Rejeição do cliente → REATIVAR
+ *
+ * @param text    Conteúdo da mensagem
+ * @param fromMe  true = enviada pelo bot/atendente
  */
 export function detectPipelineEvent(
   text: string,
@@ -197,59 +272,88 @@ export function detectPipelineEvent(
 ): PipelineEvent | null {
   if (!text || text.trim().length < 3) return null;
 
-  // ── 1. REJEIÇÃO (mensagem do cliente) ────────────────────────
+  // ── 1. CANCELAMENTO ────────────────────────────────────────────
+  // Mensagem FacilZap: "O seu pedido nº 5182343 foi cancelado. 🙁"
+  if (CANCELLATION_PATTERNS.some(p => p.test(text))) {
+    return {
+      trigger: 'sinal_rejeicao',
+      targetColumn: 'CANCELADO',
+      motivo: 'Pedido cancelado pela FacilZap',
+      score: 0.97,
+    };
+  }
+
+  // ── 2. CÓDIGO DE RASTREIO / DESPACHO ──────────────────────────
+  // Mensagens FacilZap:
+  //   "Este é o código de rastreio do seu pedido nº 5257307: ME2624MAKT4BR 🚚"
+  //   "Seu pedido já foi despachado e está a caminho. 🚛✨"
+  if (TRACKING_MENTION_PATTERNS.some(p => p.test(text))) {
+    const trackingCode = extractTrackingCode(text) ?? undefined;
+    return {
+      trigger: 'pagamento_aprovado',
+      targetColumn: 'DESPACHADO',
+      motivo: trackingCode
+        ? `Pedido despachado — rastreio: ${trackingCode}`
+        : 'Pedido despachado / saiu para entrega',
+      trackingCode,
+      score: 0.97,
+    };
+  }
+
+  // ── 3. PAGAMENTO APROVADO ──────────────────────────────────────
+  // Mensagem FacilZap: "O pagamento do seu pedido nº 5260270 foi aprovado. ✅"
+  if (PAYMENT_PATTERNS.some(p => p.test(text))) {
+    return {
+      trigger: 'pagamento_aprovado',
+      targetColumn: 'PAGO',
+      motivo: 'Pagamento aprovado automaticamente',
+      score: 0.98,
+    };
+  }
+
+  // ── 4. EM SEPARAÇÃO — sem mover kanban, apenas logar ──────────
+  // Mensagens FacilZap:
+  //   "Os produtos do seu pedido nº 5260270 estão em separação. 📦"
+  //   "estão separados📦, em breve seu pedido será despachado."
+  if (SEPARATION_PATTERNS.some(p => p.test(text))) {
+    // Não move o kanban — card já está em PAGO. Retorna null para não gerar transição.
+    return null;
+  }
+
+  // ── 5. PEDIDO CRIADO → AGUARDANDO PAGAMENTO ──────────────────
+  // Mensagem FacilZap: "Recebemos seu pedido nº 5260270. ✅"
+  //   Também contém link de pagamento: /pagamento/NUMERO/HASH
+  if (ORDER_PATTERNS.some(p => p.test(text))) {
+    const extractedName = extractNameFromMessage(text) ?? undefined;
+    return {
+      trigger: 'pedido_recebido',
+      targetColumn: 'AGUARDANDO_PAGAMENTO',
+      motivo: 'Pedido recebido — aguardando pagamento',
+      extractedName,
+      score: 0.95,
+    };
+  }
+
+  // ── 6. CARRINHO ABANDONADO → EM NEGOCIAÇÃO ───────────────────
+  // Mensagem FacilZap: "Vimos que você colocou alguns itens no carrinho 🛒"
+  if (CART_PATTERNS.some(p => p.test(text))) {
+    const extractedName = extractNameFromMessage(text) ?? undefined;
+    return {
+      trigger: 'primeiro_contato',
+      targetColumn: 'EM_NEGOCIACAO',
+      motivo: 'Carrinho abandonado detectado',
+      extractedName,
+      score: 0.85,
+    };
+  }
+
+  // ── 7. REJEIÇÃO DO CLIENTE (apenas mensagens recebidas) ───────
   if (!fromMe && REJECTION_PATTERNS.some(p => p.test(text))) {
     return {
       trigger: 'sinal_rejeicao',
       targetColumn: 'REATIVAR',
       motivo: 'Cliente demonstrou sinal de rejeição',
       score: 0.85,
-    };
-  }
-
-  // ── 2. CÓDIGO DE RASTREIO (mensagem do bot/atendente) ────────
-  if (TRACKING_MENTION_PATTERNS.some(p => p.test(text))) {
-    const trackingCode = extractTrackingCode(text) ?? undefined;
-    return {
-      trigger: 'pagamento_aprovado', // reutilizamos trigger próximo
-      targetColumn: 'CONCLUIDO',
-      motivo: trackingCode
-        ? `Pedido despachado — rastreio: ${trackingCode}`
-        : 'Pedido despachado / saiu para entrega',
-      trackingCode,
-      score: 0.95,
-    };
-  }
-
-  // ── 3. PAGAMENTO APROVADO (bot → cliente) ────────────────────
-  if (PAYMENT_PATTERNS.some(p => p.test(text))) {
-    return {
-      trigger: 'pagamento_aprovado',
-      targetColumn: 'PAGO',
-      motivo: 'Pagamento confirmado automaticamente',
-      score: 0.95,
-    };
-  }
-
-  // ── 4. PEDIDO CONFIRMADO (bot → cliente) ─────────────────────
-  if (ORDER_PATTERNS.some(p => p.test(text))) {
-    return {
-      trigger: 'pedido_recebido',
-      targetColumn: 'AGUARDANDO_PAGAMENTO',
-      motivo: 'Pedido recebido / aguardando pagamento',
-      score: 0.9,
-    };
-  }
-
-  // ── 5. CARRINHO ABANDONADO (bot → cliente) ───────────────────
-  if (CART_PATTERNS.some(p => p.test(text))) {
-    const extractedName = extractNameFromMessage(text) ?? undefined;
-    return {
-      trigger: 'primeiro_contato',
-      targetColumn: 'EM_NEGOCIACAO',
-      motivo: 'Mensagem de carrinho abandonado detectada',
-      extractedName,
-      score: 0.8,
     };
   }
 
@@ -282,16 +386,17 @@ async function moveKanbanCard(
 
   const deColuna = (existing?.coluna as KanbanColumn | undefined) ?? null;
 
-  // Não regredir para coluna anterior (exceto REATIVAR)
+  // Ordem lógica do funil — nunca regredir (exceto para REATIVAR/CANCELADO)
   const COLUMN_ORDER: KanbanColumn[] = [
     'PRIMEIRO_CONTATO',
     'EM_NEGOCIACAO',
     'AGUARDANDO_PAGAMENTO',
     'PAGO',
+    'DESPACHADO',
     'CONCLUIDO',
   ];
 
-  if (deColuna && novaColuna !== 'REATIVAR') {
+  if (deColuna && novaColuna !== 'REATIVAR' && novaColuna !== 'CANCELADO') {
     const currentIdx = COLUMN_ORDER.indexOf(deColuna);
     const newIdx = COLUMN_ORDER.indexOf(novaColuna);
     // Só avançar — nunca voltar colunas (exceto para REATIVAR)

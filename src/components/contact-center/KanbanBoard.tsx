@@ -18,6 +18,8 @@ import { formatRelativeTime } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { KANBAN_COLUMNS_ORDER, KANBAN_COLUMN_CONFIG, MAX_REACTIVATION_ATTEMPTS } from '@/lib/kanban-state-machine';
 import type { KanbanCard, KanbanColumn, KanbanTransition } from '@/types';
+import { useAuthStore } from '@/store/auth';
+import { useKanbanRealtime } from '@/hooks/useKanbanRealtime';
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    HOOKS DE DADOS
@@ -298,6 +300,10 @@ export function KanbanBoard() {
   const moveMutation = useMoveCard();
   const [movingCardId, setMovingCardId] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+
+  // ── Supabase Realtime ──────────────────────────────────────
+  const tenantId = useAuthStore(s => s.tenant?.id ?? null);
+  useKanbanRealtime(tenantId);
 
   // Agrupar cards por coluna
   const cardsByColumn = useCallback(() => {

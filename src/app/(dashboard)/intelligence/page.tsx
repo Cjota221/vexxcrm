@@ -29,6 +29,7 @@ import { AIAlerts } from '@/components/intelligence/AIAlerts';
 import { CalculateRFMButton } from '@/components/intelligence/CalculateRFMButton';
 import { SeasonalInsights } from '@/components/intelligence/SeasonalInsights';
 import { ProductTrends } from '@/components/intelligence/ProductTrends';
+import { TodayInHistory } from '@/components/intelligence/TodayInHistory';
 import type { ClientListItem } from '@/components/intelligence/ClientListDrawer';
 import { cn } from '@/lib/utils';
 
@@ -350,6 +351,9 @@ export default function IntelligencePage() {
               <SeasonalInsights onAskAnne={handleAskAnne} />
               <ProductTrends />
             </div>
+
+            {/* Linha 5: Hoje na História */}
+            <TodayInHistory />
 
             {/* Linha 5: Nota sobre estado */}
             {totalCalculated === 0 && (

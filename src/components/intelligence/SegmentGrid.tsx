@@ -255,6 +255,7 @@ export function SegmentGrid({ distribution, totalClients, onAskAnne }: SegmentGr
         search={drawerSearch}
         onSearchChange={handleSearchChange}
         onAskAnne={onAskAnne ? handleAskAnne : undefined}
+        segmentName={drawerSegment ?? undefined}
       />
     </>
   );

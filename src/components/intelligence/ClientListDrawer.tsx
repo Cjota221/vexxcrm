@@ -18,6 +18,9 @@ import {
   CheckSquare,
   Square,
   Send,
+  Megaphone,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { formatCurrency, formatRelativeTime, cn } from '@/lib/utils';
 
@@ -63,9 +66,66 @@ interface ClientListDrawerProps {
   onSearchChange?: (search: string) => void;
   // Anne
   onAskAnne?: (clients: ClientListItem[]) => void;
+  // Campanha
+  segmentName?: string;
+  onStartCampaign?: (clients: ClientListItem[], template: string, segmentName: string) => void;
   // Modo sazonal
   seasonalMode?: boolean;
 }
+
+/* ─── Templates de campanha por segmento RFM ──────────────── */
+
+const CAMPAIGN_TEMPLATES: Record<string, { label: string; template: string }> = {
+  'Champions': {
+    label: 'VIP Exclusivo',
+    template: 'Olá, {nome}! 👑 Você é um dos nossos clientes mais especiais! Como agradecimento, preparamos uma oferta exclusiva para você. Acesse e aproveite: {link}',
+  },
+  'Loyal Customers': {
+    label: 'Fidelidade',
+    template: 'Oi, {nome}! 💚 Obrigado pela sua fidelidade! Temos novidades selecionadas para você que compra com a gente há tanto tempo. Confira: {link}',
+  },
+  'At Risk': {
+    label: 'Reativação Urgente',
+    template: 'Olá, {nome}! Sentimos sua falta 😢 Faz um tempo que não te vemos por aqui. Que tal voltar com um desconto especial de reativação? {link}',
+  },
+  'Cant Lose Them': {
+    label: 'Recuperação Urgente',
+    template: 'Oi, {nome}! 🚨 Preparamos uma oferta especial para você não nos deixar. Clique e veja o que reservamos: {link}',
+  },
+  'About To Sleep': {
+    label: 'Despertar',
+    template: 'Ei, {nome}! 👋 Não te vemos há um tempinho... Temos produtos novos que você vai amar! Dá uma olhada: {link}',
+  },
+  'Hibernating': {
+    label: 'Reengajamento',
+    template: 'Oi, {nome}! Voltamos a entrar em contato porque temos novidades imperdíveis para você 🛍️. Veja o que chegou de novo: {link}',
+  },
+  'Lost': {
+    label: 'Última Chance',
+    template: 'Olá, {nome}! Última chance para não te perder de vista 💙 Confira nossa oferta especial e volte a comprar com a gente: {link}',
+  },
+  'Need Attention': {
+    label: 'Atenção',
+    template: 'Oi, {nome}! Queremos te conhecer melhor 😊 Separamos algumas sugestões baseadas nas suas compras. Olha só: {link}',
+  },
+  'Promising': {
+    label: 'Incentivo',
+    template: 'Oi, {nome}! Você está na nossa lista de clientes em destaque 🌟 Preparamos uma oferta para você comprar mais e aproveitar ainda mais! {link}',
+  },
+  'Potential Loyalist': {
+    label: 'Fidelização',
+    template: 'Olá, {nome}! Você está quase no nosso clube VIP 🏆 Mais uma compra e você chega lá! Aproveite nossas novidades: {link}',
+  },
+  'New Customers': {
+    label: 'Boas-vindas',
+    template: 'Olá, {nome}! Seja bem-vindo(a)! 🎉 Estamos muito felizes com sua primeira compra. Preparamos uma oferta especial para a sua segunda. Confira: {link}',
+  },
+};
+
+const DEFAULT_TEMPLATE = {
+  label: 'Reativação',
+  template: 'Olá, {nome}! Temos novidades especiais para você 🛍️. Acesse e confira nossas ofertas: {link}',
+};
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    COMPONENTE
@@ -87,11 +147,17 @@ export function ClientListDrawer({
   search,
   onSearchChange,
   onAskAnne,
+  segmentName,
+  onStartCampaign,
   seasonalMode = false,
 }: ClientListDrawerProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showCampaignModal, setShowCampaignModal] = useState(false);
+  const [copiedTemplate, setCopiedTemplate] = useState(false);
 
   if (!isOpen) return null;
+
+  const tpl = segmentName ? (CAMPAIGN_TEMPLATES[segmentName] ?? DEFAULT_TEMPLATE) : DEFAULT_TEMPLATE;
 
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
@@ -372,7 +438,120 @@ export function ClientListDrawer({
             </button>
           </div>
         )}
+
+        {/* Botão campanha — sempre visível no footer quando há clientes */}
+        {(onStartCampaign || true) && clients.length > 0 && (
+          <div className="px-4 py-3 border-t border-surface-border bg-gray-50/80 shrink-0">
+            <button
+              onClick={() => setShowCampaignModal(true)}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl bg-linear-to-r from-green-600 to-emerald-700 text-white hover:opacity-90 transition-opacity shadow-md"
+            >
+              <Megaphone size={16} />
+              Iniciar Campanha de Reativação
+              {selectedIds.size > 0 && <span className="ml-1 text-xs opacity-80">({selectedIds.size} selecionados)</span>}
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* ── Modal de Campanha ─────────────────────────── */}
+      {showCampaignModal && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/60 z-70 backdrop-blur-sm"
+            onClick={() => setShowCampaignModal(false)}
+          />
+          <div className="fixed inset-0 z-71 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+              {/* Header */}
+              <div className="px-5 py-4 bg-linear-to-r from-green-600 to-emerald-700 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center">
+                    <Megaphone size={16} className="text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white">Campanha de Reativação</h3>
+                    <p className="text-[11px] text-white/70">
+                      Template: {tpl.label} · {selectedIds.size > 0 ? selectedIds.size : totalClients} destinatário(s)
+                    </p>
+                  </div>
+                </div>
+                <button onClick={() => setShowCampaignModal(false)} className="p-1.5 hover:bg-white/20 rounded-lg transition-colors">
+                  <X size={16} className="text-white" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                {/* Segmento */}
+                {segmentName && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-gray-500">Segmento:</span>
+                    <span className="font-semibold text-gray-800">{title}</span>
+                  </div>
+                )}
+
+                {/* Template */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Mensagem sugerida</p>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(tpl.template);
+                        setCopiedTemplate(true);
+                        setTimeout(() => setCopiedTemplate(false), 2000);
+                      }}
+                      className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      {copiedTemplate ? <Check size={10} className="text-green-500" /> : <Copy size={10} />}
+                      {copiedTemplate ? 'Copiado!' : 'Copiar'}
+                    </button>
+                  </div>
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
+                    <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{tpl.template}</p>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1.5">
+                    {'{nome}'} e {'{link}'} serão substituídos ao disparar via campanhas.
+                  </p>
+                </div>
+
+                {/* Destinatários */}
+                <div className="bg-green-50 border border-green-100 rounded-xl p-3 flex items-center gap-3">
+                  <Users size={16} className="text-green-600 shrink-0" />
+                  <div>
+                    <p className="text-xs font-semibold text-green-800">
+                      {selectedIds.size > 0 ? selectedIds.size : totalClients} clientes serão incluídos
+                    </p>
+                    <p className="text-[10px] text-green-600">
+                      {selectedIds.size > 0 ? 'Apenas os clientes selecionados' : 'Todos os clientes deste segmento'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Ações */}
+                <div className="flex gap-3 pt-1">
+                  <button
+                    onClick={() => setShowCampaignModal(false)}
+                    className="flex-1 px-4 py-2.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={() => {
+                      const targets = selectedIds.size > 0 ? selectedClients : clients;
+                      onStartCampaign?.(targets, tpl.template, segmentName ?? title);
+                      setShowCampaignModal(false);
+                    }}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl bg-linear-to-r from-green-600 to-emerald-700 text-white hover:opacity-90 transition-opacity shadow-sm"
+                  >
+                    <Megaphone size={14} />
+                    Criar Campanha
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </>
   );
 }

@@ -730,7 +730,9 @@ export type KanbanColumn =
   | 'EM_NEGOCIACAO'
   | 'AGUARDANDO_PAGAMENTO'
   | 'PAGO'
+  | 'DESPACHADO'
   | 'REATIVAR'
+  | 'CANCELADO'
   | 'CONCLUIDO';
 
 export interface KanbanTransition {
