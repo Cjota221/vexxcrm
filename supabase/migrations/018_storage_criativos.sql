@@ -1,35 +1,12 @@
 -- ══════════════════════════════════════════════════════════════
--- Migration 018 — Storage bucket "criativos"
--- Bucket para upload de imagens, vídeos e áudios de campanhas.
+-- Migration 018 — Storage policies para bucket "criativos"
+-- NOTA: O bucket foi criado via API (scripts/setup-storage-criativos.js)
+--       pois INSERT INTO storage.buckets exige owner do schema storage.
+--       Este arquivo contém apenas as RLS policies (executar como superuser).
 -- ══════════════════════════════════════════════════════════════
 
--- ── 1. Criar bucket público "criativos" ──────────────────────
-INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-VALUES (
-  'criativos',
-  'criativos',
-  true,
-  52428800,  -- 50 MB (maior limite, validação real está no código)
-  ARRAY[
-    'image/jpeg',
-    'image/png',
-    'image/webp',
-    'image/gif',
-    'video/mp4',
-    'video/webm',
-    'audio/ogg',
-    'audio/mpeg',
-    'audio/mp4',
-    'audio/wav',
-    'audio/webm'
-  ]
-)
-ON CONFLICT (id) DO UPDATE SET
-  public             = true,
-  file_size_limit    = 52428800,
-  allowed_mime_types = EXCLUDED.allowed_mime_types;
-
--- ── 2. Policy: autenticados podem fazer upload ───────────────
+-- ── 1. Policies RLS para o bucket "criativos" ────────────────
+-- (Executar no SQL Editor do Supabase Dashboard)
 DROP POLICY IF EXISTS "Criativos: authenticated upload" ON storage.objects;
 CREATE POLICY "Criativos: authenticated upload"
   ON storage.objects FOR INSERT
