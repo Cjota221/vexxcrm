@@ -30,12 +30,14 @@ import {
   UserCheck,
   Maximize2,
   Minimize2,
+  Activity,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/auth';
 import { api } from '@/lib/api';
 import { formatCurrency, cn } from '@/lib/utils';
+import { AutomationLogPanel } from '@/components/crm/AutomationLogPanel';
 import type { KanbanColumn } from '@/types';
 
 /* ─── Config de Colunas ───────────────────────────────────────── */
@@ -425,6 +427,7 @@ export function KanbanModal({ open, onClose }: KanbanModalProps) {
   const [draggingCard, setDraggingCard] = useState<KanbanCardData | null>(null);
   const [justMovedIds, setJustMovedIds] = useState<Set<string>>(new Set());
   const [isExpanded, setIsExpanded] = useState(false);
+  const [activeView, setActiveView] = useState<'board' | 'automacoes'>('board');
 
   // ── Query: todos os cards ─────────────────────────────────────
   const { data: cardsData, isLoading, refetch } = useQuery({
@@ -609,6 +612,34 @@ export function KanbanModal({ open, onClose }: KanbanModalProps) {
           </div>
 
           <div className="flex items-center gap-1.5">
+            {/* Tabs: Board / Automações */}
+            <div className="flex items-center gap-1 mr-2 bg-gray-100 rounded-lg p-0.5">
+              <button
+                onClick={() => setActiveView('board')}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+                  activeView === 'board'
+                    ? 'bg-white text-crm-primary shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                )}
+              >
+                <GitBranch size={12} />
+                Board
+              </button>
+              <button
+                onClick={() => setActiveView('automacoes')}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+                  activeView === 'automacoes'
+                    ? 'bg-white text-crm-primary shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                )}
+              >
+                <Activity size={12} />
+                Automações
+              </button>
+            </div>
+
             <button
               onClick={() => refetch()}
               className="p-2 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
@@ -633,53 +664,61 @@ export function KanbanModal({ open, onClose }: KanbanModalProps) {
           </div>
         </div>
 
-        {/* Resumo totais */}
-        <div className="flex items-center gap-3 px-5 py-2 border-b border-gray-50 bg-gray-50/50 shrink-0 overflow-x-auto">
-          {COLUMNS.map(col => {
-            const cfg = COLUMN_CONFIG[col];
-            const count = cardsByColumn[col].length;
-            if (count === 0) return null;
-            return (
-              <div key={col} className="flex items-center gap-1.5 shrink-0">
-                <span className={cn('w-2 h-2 rounded-full shrink-0', cfg.dot)} />
-                <span className="text-[10px] text-gray-600 font-medium">{cfg.shortLabel}:</span>
-                <span className="text-[10px] font-black text-gray-800">{count}</span>
-                {summary[col]?.total_ltv ? (
-                  <span className="text-[10px] text-gray-400">({formatCurrency(summary[col].total_ltv)})</span>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
+        {/* Resumo totais — só no board */}
+        {activeView === 'board' && (
+          <div className="flex items-center gap-3 px-5 py-2 border-b border-gray-50 bg-gray-50/50 shrink-0 overflow-x-auto">
+            {COLUMNS.map(col => {
+              const cfg = COLUMN_CONFIG[col];
+              const count = cardsByColumn[col].length;
+              if (count === 0) return null;
+              return (
+                <div key={col} className="flex items-center gap-1.5 shrink-0">
+                  <span className={cn('w-2 h-2 rounded-full shrink-0', cfg.dot)} />
+                  <span className="text-[10px] text-gray-600 font-medium">{cfg.shortLabel}:</span>
+                  <span className="text-[10px] font-black text-gray-800">{count}</span>
+                  {summary[col]?.total_ltv ? (
+                    <span className="text-[10px] text-gray-400">({formatCurrency(summary[col].total_ltv)})</span>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
-        {/* Board */}
-        <div className="flex-1 overflow-auto p-4">
-          {isLoading ? (
-            <div className="flex items-center justify-center h-full">
-              <div className="flex flex-col items-center gap-3">
-                <Loader2 size={28} className="animate-spin text-crm-primary" />
-                <p className="text-sm text-gray-400">Carregando pipeline...</p>
+        {/* Conteúdo principal: Board ou Automações */}
+        {activeView === 'automacoes' ? (
+          <div className="flex-1 overflow-hidden">
+            <AutomationLogPanel limit={60} />
+          </div>
+        ) : (
+          <div className="flex-1 overflow-auto p-4">
+            {isLoading ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="flex flex-col items-center gap-3">
+                  <Loader2 size={28} className="animate-spin text-crm-primary" />
+                  <p className="text-sm text-gray-400">Carregando pipeline...</p>
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="flex gap-3 h-full min-w-max">
-              {COLUMNS.map(col => (
-                <KanbanColumnView
-                  key={col}
-                  column={col}
-                  cards={cardsByColumn[col]}
-                  summary={summary[col]}
-                  onMoveCard={handleMoveCard}
-                  onDrop={handleDrop}
-                  onDragOver={(e) => e.preventDefault()}
-                  draggingId={draggingCard?.id ?? null}
-                  onDragStart={setDraggingCard}
-                  accessToken={accessToken ?? undefined}
-                />
-              ))}
-            </div>
-          )}
-        </div>
+            ) : (
+              <div className="flex gap-3 h-full min-w-max">
+                {COLUMNS.map(col => (
+                  <KanbanColumnView
+                    key={col}
+                    column={col}
+                    cards={cardsByColumn[col]}
+                    summary={summary[col]}
+                    onMoveCard={handleMoveCard}
+                    onDrop={handleDrop}
+                    onDragOver={(e) => e.preventDefault()}
+                    draggingId={draggingCard?.id ?? null}
+                    onDragStart={setDraggingCard}
+                    accessToken={accessToken ?? undefined}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Legenda */}
         <div className="flex items-center gap-4 px-5 py-2 border-t border-gray-100 bg-gray-50/30 shrink-0">

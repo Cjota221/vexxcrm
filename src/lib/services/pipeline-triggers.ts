@@ -15,6 +15,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { eventBus } from '@/lib/event-bus';
+import { logAutomation } from '@/lib/automation-log';
 import type { KanbanColumn, AnneTriggerType } from '@/types';
 
 /* ══════════════════════════════════════════════════════════════
@@ -29,6 +30,8 @@ interface PipelineEvent {
   trackingCode?: string;
   /** Nome extraído da mensagem de carrinho (se houver) */
   extractedName?: string;
+  /** Número do pedido extraído da mensagem (ex: "5260270") */
+  orderNumber?: string;
   score: number;
 }
 
@@ -216,6 +219,35 @@ export function extractTrackingCode(text: string): string | null {
 }
 
 /**
+ * Extrai o número do pedido de mensagens FacilZap.
+ *
+ * Exemplos reais:
+ *   "Recebemos seu pedido nº 5260270. ✅"
+ *   "O pagamento do seu pedido nº 5260270 foi aprovado."
+ *   "Este é o código de rastreio do seu pedido nº 5257307: ME2624MAKT4BR"
+ *   "O seu pedido nº 5182343 foi cancelado."
+ *   "Os produtos do seu pedido nº 5260270 estão em separação."
+ *   "pedido #5260270 confirmado"
+ */
+export function extractOrderNumber(text: string): string | null {
+  const patterns = [
+    /pedido\s+n[oº°]?\s*\.?\s*(\d{4,12})/i,  // "pedido nº 5260270" | "pedido no 5260270"
+    /pedido\s+#(\d{4,12})/i,                  // "pedido #5260270"
+    /pedido\s+(\d{4,12})\b/i,                 // "pedido 5260270"
+    /#(\d{4,12})\b/,                           // "#5260270" no início
+    /n[oº°]\s*(\d{4,12})\b/i,                 // "nº 5260270" isolado
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      return match[1];
+    }
+  }
+  return null;
+}
+
+/**
  * Extrai nome próprio de mensagem de carrinho FacilZap.
  * Retorna null se cliente já tem nome manual ou se não encontrar.
  */
@@ -279,6 +311,7 @@ export function detectPipelineEvent(
       trigger: 'sinal_rejeicao',
       targetColumn: 'CANCELADO',
       motivo: 'Pedido cancelado pela FacilZap',
+      orderNumber: extractOrderNumber(text) ?? undefined,
       score: 0.97,
     };
   }
@@ -289,6 +322,7 @@ export function detectPipelineEvent(
   //   "Seu pedido já foi despachado e está a caminho. 🚛✨"
   if (TRACKING_MENTION_PATTERNS.some(p => p.test(text))) {
     const trackingCode = extractTrackingCode(text) ?? undefined;
+    const orderNumber = extractOrderNumber(text) ?? undefined;
     return {
       trigger: 'pagamento_aprovado',
       targetColumn: 'DESPACHADO',
@@ -296,6 +330,7 @@ export function detectPipelineEvent(
         ? `Pedido despachado — rastreio: ${trackingCode}`
         : 'Pedido despachado / saiu para entrega',
       trackingCode,
+      orderNumber,
       score: 0.97,
     };
   }
@@ -307,6 +342,7 @@ export function detectPipelineEvent(
       trigger: 'pagamento_aprovado',
       targetColumn: 'PAGO',
       motivo: 'Pagamento aprovado automaticamente',
+      orderNumber: extractOrderNumber(text) ?? undefined,
       score: 0.98,
     };
   }
@@ -330,6 +366,7 @@ export function detectPipelineEvent(
       targetColumn: 'AGUARDANDO_PAGAMENTO',
       motivo: 'Pedido recebido — aguardando pagamento',
       extractedName,
+      orderNumber: extractOrderNumber(text) ?? undefined,
       score: 0.95,
     };
   }
@@ -555,6 +592,7 @@ async function logAnneTrigger(
  * @param chatId     JID da conversa WhatsApp (remoteJid)
  * @param text       Conteúdo da mensagem
  * @param fromMe     true = enviada pelo bot/atendente
+ * @param source     Origem do evento (padrão: 'whatsapp')
  */
 export async function processPipelineTriggers(
   supabase: SupabaseClient,
@@ -562,7 +600,8 @@ export async function processPipelineTriggers(
   client: ClientRow,
   chatId: string,
   text: string,
-  fromMe: boolean
+  fromMe: boolean,
+  source: 'whatsapp' | 'facilzap' | 'manual' = 'whatsapp'
 ): Promise<void> {
   const event = detectPipelineEvent(text, fromMe);
 
@@ -599,9 +638,24 @@ export async function processPipelineTriggers(
       event.motivo
     );
 
-    // Se não houve mudança de coluna, encerrar
+    // Se não houve mudança de coluna (card já está na mesma ou mais avançada)
     if (deColuna === paraColuna) {
       await logAnneTrigger(supabase, tenantId, client.id, chatId, event, 'ignorado');
+      // Registrar também no automation_logs com action 'noop'
+      await logAutomation(supabase, {
+        tenantId,
+        clientId: client.id,
+        chatId,
+        triggerType: event.trigger,
+        source,
+        actionTaken: 'noop',
+        deColuna,
+        paraColuna,
+        orderNumber: event.orderNumber ?? null,
+        trackingCode: event.trackingCode ?? null,
+        success: true,
+        eventData: { text: text.slice(0, 500), motivo: event.motivo, score: event.score },
+      });
       return;
     }
 
@@ -620,10 +674,26 @@ export async function processPipelineTriggers(
       });
     }
 
-    // ── 4. Registrar log Anne ─────────────────────────────────────────
+    // ── 4. Registrar log Anne (legado) ────────────────────────────────
     await logAnneTrigger(supabase, tenantId, client.id, chatId, event, 'executado');
 
-    // ── 5. Emitir SSE para front-end ──────────────────────────────────
+    // ── 5. Registrar em automation_logs (novo — auditoria detalhada) ──
+    await logAutomation(supabase, {
+      tenantId,
+      clientId: client.id,
+      chatId,
+      triggerType: event.trigger,
+      source,
+      actionTaken: 'move_kanban',
+      deColuna,
+      paraColuna,
+      orderNumber: event.orderNumber ?? null,
+      trackingCode: event.trackingCode ?? null,
+      success: true,
+      eventData: { text: text.slice(0, 500), motivo: event.motivo, score: event.score },
+    });
+
+    // ── 6. Emitir SSE para front-end ──────────────────────────────────
     eventBus.emitToTenant('kanban_moved', tenantId, {
       client_id: client.id,
       chat_id: chatId,
@@ -631,6 +701,9 @@ export async function processPipelineTriggers(
       para_coluna: paraColuna,
       motivo: event.motivo,
       trigger: event.trigger,
+      order_number: event.orderNumber ?? null,
+      tracking_code: event.trackingCode ?? null,
+      source,
       timestamp: new Date().toISOString(),
     });
 
@@ -639,6 +712,17 @@ export async function processPipelineTriggers(
     );
   } catch (err) {
     console.error('[Pipeline] Erro ao processar gatilho:', err);
-    // Fire-and-forget: não propagar erro para o webhook
+    // Registrar falha no automation_logs
+    await logAutomation(supabase, {
+      tenantId,
+      clientId: client.id,
+      chatId,
+      triggerType: event.trigger,
+      source,
+      actionTaken: 'move_kanban',
+      success: false,
+      errorMsg: String(err),
+      eventData: { text: text.slice(0, 500) },
+    }).catch(() => null); // Nunca propagar erro do log
   }
 }

@@ -468,7 +468,8 @@ async function handleCartAbandonedEvent(
     { id: client.id, name: client.name, name_manual: client.name_manual },
     chatId,
     cartMessage,
-    true // fromMe = bot enviou
+    true, // fromMe = bot enviou
+    'facilzap'
   );
 
   // Se nome da FacilZap disponível e cliente ainda sem nome real, atualizar
@@ -521,6 +522,7 @@ async function triggerPipelineForOrder(
     { id: client.id, name: client.name, name_manual: client.name_manual },
     chatId,
     syntheticMessage,
-    true // mensagem do bot
+    true, // mensagem do bot
+    'facilzap'
   );
 }
