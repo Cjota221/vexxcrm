@@ -38,13 +38,14 @@ interface RFMOverviewProps {
   coveragePct: number;
   lastCalculatedAt: string | null;
   events7d: number;
+  onSegmentClick?: (segment: string, label: string) => void;
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    COMPONENTE
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-export function RFMOverview({ kpis, totalCalculated, totalClients, coveragePct, lastCalculatedAt, events7d }: RFMOverviewProps) {
+export function RFMOverview({ kpis, totalCalculated, totalClients, coveragePct, lastCalculatedAt, events7d, onSegmentClick }: RFMOverviewProps) {
   const cards = [
     {
       label: 'Clientes VIP',
@@ -55,6 +56,7 @@ export function RFMOverview({ kpis, totalCalculated, totalClients, coveragePct, 
       border: 'border-yellow-100',
       suffix: '',
       description: 'Campeões + Fiéis',
+      segment: 'Champions',
     },
     {
       label: 'Em Risco',
@@ -65,6 +67,7 @@ export function RFMOverview({ kpis, totalCalculated, totalClients, coveragePct, 
       border: 'border-red-100',
       suffix: '',
       description: 'Precisam atenção urgente',
+      segment: 'At Risk',
     },
     {
       label: 'Precisam Atenção',
@@ -75,6 +78,7 @@ export function RFMOverview({ kpis, totalCalculated, totalClients, coveragePct, 
       border: 'border-orange-100',
       suffix: '',
       description: 'Esfriando — reativar!',
+      segment: 'Need Attention',
     },
     {
       label: 'Prontos p/ Upsell',
@@ -85,6 +89,7 @@ export function RFMOverview({ kpis, totalCalculated, totalClients, coveragePct, 
       border: 'border-blue-100',
       suffix: '',
       description: 'Oportunidade de upgrade',
+      segment: 'Potential Loyalist',
     },
     {
       label: 'Prob. Churn Média',
@@ -95,6 +100,7 @@ export function RFMOverview({ kpis, totalCalculated, totalClients, coveragePct, 
       border: kpis.avg_churn_probability > 40 ? 'border-red-100' : kpis.avg_churn_probability > 20 ? 'border-orange-100' : 'border-green-100',
       suffix: '',
       description: kpis.avg_churn_probability > 40 ? 'Alto — agir agora!' : kpis.avg_churn_probability > 20 ? 'Moderado — monitorar' : 'Baixo — saudável',
+      segment: 'Cant Lose Them',
     },
     {
       label: 'Prob. Compra 30d',
@@ -105,6 +111,7 @@ export function RFMOverview({ kpis, totalCalculated, totalClients, coveragePct, 
       border: 'border-emerald-100',
       suffix: '',
       description: 'Chance média de compra',
+      segment: null,
     },
     {
       label: 'LTV Projetado 12m',
@@ -115,6 +122,7 @@ export function RFMOverview({ kpis, totalCalculated, totalClients, coveragePct, 
       border: 'border-crm-primary/10',
       suffix: '',
       description: 'Receita esperada em 12 meses',
+      segment: null,
     },
     {
       label: 'Eventos (7 dias)',
@@ -125,6 +133,7 @@ export function RFMOverview({ kpis, totalCalculated, totalClients, coveragePct, 
       border: 'border-violet-100',
       suffix: '',
       description: 'Interações registradas',
+      segment: null,
     },
   ];
 
@@ -160,19 +169,29 @@ export function RFMOverview({ kpis, totalCalculated, totalClients, coveragePct, 
 
       {/* KPI Grid */}
       <div className="p-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {cards.map((card) => (
-          <div
-            key={card.label}
-            className={`rounded-xl border ${card.border} ${card.bg} p-4 transition-all hover:shadow-sm`}
-          >
-            <div className="flex items-center justify-between mb-2">
-              <span className={card.color}>{card.icon}</span>
+        {cards.map((card) => {
+          const isClickable = !!card.segment && !!onSegmentClick;
+          return (
+            <div
+              key={card.label}
+              role={isClickable ? 'button' : undefined}
+              tabIndex={isClickable ? 0 : undefined}
+              onClick={isClickable ? () => onSegmentClick!(card.segment!, card.label) : undefined}
+              onKeyDown={isClickable ? (e) => e.key === 'Enter' && onSegmentClick!(card.segment!, card.label) : undefined}
+              className={`rounded-xl border ${card.border} ${card.bg} p-4 transition-all hover:shadow-sm ${isClickable ? 'cursor-pointer hover:ring-2 hover:ring-crm-primary/30 hover:-translate-y-0.5' : ''}`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className={card.color}>{card.icon}</span>
+                {isClickable && (
+                  <span className="text-[10px] text-txt-muted opacity-60">Ver lista →</span>
+                )}
+              </div>
+              <p className="text-xl font-bold text-txt-primary">{card.value}</p>
+              <p className="text-xs font-medium text-txt-secondary mt-0.5">{card.label}</p>
+              <p className="text-[10px] text-txt-muted mt-1">{card.description}</p>
             </div>
-            <p className="text-xl font-bold text-txt-primary">{card.value}</p>
-            <p className="text-xs font-medium text-txt-secondary mt-0.5">{card.label}</p>
-            <p className="text-[10px] text-txt-muted mt-1">{card.description}</p>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Settings,
@@ -107,37 +107,177 @@ export default function ConfiguracoesPage() {
 }
 
 function ProfileTab({ config }: { config?: TenantConfig }) {
+  const { accessToken } = useAuthStore();
   const prefs = config?.preferences;
+
+  // ── Estado do perfil ──
+  const [storeName, setStoreName] = useState('');
+  const [cnpj, setCnpj] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // ── Carregar dados atuais ──
+  useEffect(() => {
+    if (!accessToken) return;
+    fetch('/api/tenants/profile', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return;
+        setStoreName(d.store_name || '');
+        setCnpj(d.cnpj || '');
+        setEmail(d.contact_email || '');
+        setPhone(d.contact_phone || '');
+      })
+      .catch(() => {/* silent */});
+  }, [accessToken]);
+
+  const handleSaveProfile = async () => {
+    if (!accessToken) return;
+    setIsSaving(true); setSaveMsg(null);
+    try {
+      const res = await fetch('/api/tenants/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ store_name: storeName, cnpj, contact_email: email, contact_phone: phone }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erro ao salvar');
+      setStoreName(data.store_name || storeName);
+      setSaveMsg({ type: 'success', text: '✅ Perfil salvo com sucesso!' });
+    } catch (err) {
+      setSaveMsg({ type: 'error', text: `❌ ${err instanceof Error ? err.message : 'Erro'}` });
+    } finally {
+      setIsSaving(false);
+      setTimeout(() => setSaveMsg(null), 4000);
+    }
+  };
+
+  // ── Dark Mode ──
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('vexx-theme') as 'light' | 'dark') || prefs?.theme || 'light';
+    }
+    return prefs?.theme || 'light';
+  });
+
+  const handleThemeChange = (newTheme: 'light' | 'dark') => {
+    setTheme(newTheme);
+    if (newTheme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    localStorage.setItem('vexx-theme', newTheme);
+  };
+
+  // Aplicar tema salvo no localStorage ao montar
+  useEffect(() => {
+    const saved = localStorage.getItem('vexx-theme') as 'light' | 'dark' | null;
+    if (saved === 'dark') {
+      document.documentElement.classList.add('dark');
+      setTheme('dark');
+    }
+  }, []);
+
+  const { updateConfig, isUpdating: isUpdatingPrefs } = useTenantConfig();
+  const [notifEnabled, setNotifEnabled] = useState(prefs?.notifications_enabled !== false);
+  const [language, setLanguage] = useState(prefs?.language || 'pt-BR');
+  const [prefSaveMsg, setPrefSaveMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleSavePrefs = async () => {
+    try {
+      await updateConfig({ preferences: { theme, language, notifications_enabled: notifEnabled } });
+      setPrefSaveMsg({ type: 'success', text: '✅ Preferências salvas!' });
+    } catch (err) {
+      setPrefSaveMsg({ type: 'error', text: `❌ ${err instanceof Error ? err.message : 'Erro'}` });
+    } finally {
+      setTimeout(() => setPrefSaveMsg(null), 4000);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader><CardTitle><Store size={16} /> Dados da Loja</CardTitle></CardHeader>
         <div className="px-6 pb-6 space-y-4">
-          <Input label="Nome da loja" placeholder="Minha Loja" defaultValue="" />
-          <Input label="CNPJ" placeholder="00.000.000/0001-00" defaultValue="" />
-          <Input label="E-mail de contato" type="email" placeholder="contato@minhaloja.com.br" defaultValue="" />
-          <Input label="Telefone" placeholder="(11) 99999-9999" defaultValue="" />
-          <div className="flex gap-2 pt-2"><Button variant="primary"><Save size={16} /> Salvar</Button></div>
+          <Input
+            label="Nome da loja"
+            placeholder="Minha Loja"
+            value={storeName}
+            onChange={(e) => setStoreName(e.target.value)}
+          />
+          <Input
+            label="CNPJ"
+            placeholder="00.000.000/0001-00"
+            value={cnpj}
+            onChange={(e) => setCnpj(e.target.value)}
+          />
+          <Input
+            label="E-mail de contato"
+            type="email"
+            placeholder="contato@minhaloja.com.br"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <Input
+            label="Telefone"
+            placeholder="(11) 99999-9999"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+          />
+          {saveMsg && (
+            <div className={`p-3 rounded-xl text-sm font-medium ${saveMsg.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+              {saveMsg.text}
+            </div>
+          )}
+          <div className="flex gap-2 pt-2">
+            <Button variant="primary" onClick={handleSaveProfile} disabled={isSaving}>
+              <Save size={16} /> {isSaving ? 'Salvando...' : 'Salvar'}
+            </Button>
+          </div>
         </div>
       </Card>
+
       <Card>
         <CardHeader><CardTitle><Palette size={16} /> Preferências</CardTitle></CardHeader>
         <div className="px-6 pb-6 space-y-4">
+          {/* Tema com Dark Mode real */}
           <div>
-            <label className="label mb-1.5">Tema</label>
-            <select className="input" defaultValue={prefs?.theme || 'light'}>
-              <option value="light">Claro</option>
-              <option value="dark">Escuro</option>
-            </select>
+            <label className="label mb-2">Tema</label>
+            <div className="flex gap-2">
+              {(['light', 'dark'] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => handleThemeChange(t)}
+                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border-2 text-sm font-medium transition-all ${
+                    theme === t
+                      ? 'border-crm-primary bg-crm-primary/10 text-crm-primary'
+                      : 'border-surface-border text-txt-secondary hover:border-crm-primary/40'
+                  }`}
+                >
+                  {t === 'light' ? '☀️ Claro' : '🌙 Escuro'}
+                  {theme === t && <CheckCircle size={14} />}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-txt-muted mt-1.5">
+              O tema escuro é aplicado imediatamente em todo o sistema.
+            </p>
           </div>
+
           <div>
             <label className="label mb-1.5">Idioma</label>
-            <select className="input" defaultValue={prefs?.language || 'pt-BR'}>
+            <select className="input" value={language} onChange={(e) => setLanguage(e.target.value)}>
               <option value="pt-BR">Português (Brasil)</option>
               <option value="en">English</option>
               <option value="es">Español</option>
             </select>
           </div>
+
           <div className="flex items-center justify-between p-3 bg-surface-50 rounded-xl">
             <div>
               <p className="text-sm font-medium text-txt-primary flex items-center gap-2">
@@ -145,11 +285,24 @@ function ProfileTab({ config }: { config?: TenantConfig }) {
               </p>
               <p className="text-xs text-txt-secondary mt-0.5">Receber notificações de novas mensagens</p>
             </div>
-            <button className="text-crm-primary">
-              {prefs?.notifications_enabled !== false ? <CheckCircle size={24} /> : <AlertCircle size={24} className="text-txt-secondary" />}
+            <button
+              onClick={() => setNotifEnabled(v => !v)}
+              className="text-crm-primary"
+            >
+              {notifEnabled ? <CheckCircle size={24} /> : <AlertCircle size={24} className="text-txt-secondary" />}
             </button>
           </div>
-          <div className="flex gap-2 pt-2"><Button variant="primary"><Save size={16} /> Salvar</Button></div>
+
+          {prefSaveMsg && (
+            <div className={`p-3 rounded-xl text-sm font-medium ${prefSaveMsg.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+              {prefSaveMsg.text}
+            </div>
+          )}
+          <div className="flex gap-2 pt-2">
+            <Button variant="primary" onClick={handleSavePrefs} disabled={isUpdatingPrefs}>
+              <Save size={16} /> {isUpdatingPrefs ? 'Salvando...' : 'Salvar Preferências'}
+            </Button>
+          </div>
         </div>
       </Card>
     </div>
@@ -536,7 +689,7 @@ function SyncStatusCard({ config }: { config?: TenantConfig }) {
     } catch { /* silent */ }
   }, [accessToken]);
 
-  useState(() => { fetchLastSync(); });
+  useEffect(() => { fetchLastSync(); }, [fetchLastSync]);
 
   const handleClear = async (andResync = false) => {
     setIsClearing(true); setClearResults(null); setSyncResults(null);

@@ -154,6 +154,9 @@ export function ClientListDrawer({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showCampaignModal, setShowCampaignModal] = useState(false);
   const [copiedTemplate, setCopiedTemplate] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [sendResult, setSendResult] = useState<{ sent: number; failed: number; errors: string[] } | null>(null);
+  const [customMessage, setCustomMessage] = useState('');
 
   if (!isOpen) return null;
 
@@ -181,6 +184,33 @@ export function ClientListDrawer({
   const handleAskAnne = () => {
     if (onAskAnne && selectedClients.length > 0) {
       onAskAnne(selectedClients);
+    }
+  };
+
+  // Disparo em massa interno via /api/whatsapp/bulk-send
+  const handleBulkSend = async (messageTemplate: string) => {
+    const targets = selectedIds.size > 0 ? selectedClients : clients;
+    if (!targets.length) return;
+
+    setIsSending(true);
+    setSendResult(null);
+    try {
+      const res = await fetch('/api/whatsapp/bulk-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipients: targets.map(c => ({ id: c.id, name: c.name, phone: c.phone })),
+          message: messageTemplate,
+          delay_ms: 1500,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erro no disparo');
+      setSendResult(data.results);
+    } catch (err) {
+      setSendResult({ sent: 0, failed: targets.length, errors: [err instanceof Error ? err.message : 'Erro'] });
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -440,14 +470,14 @@ export function ClientListDrawer({
         )}
 
         {/* Botão campanha — sempre visível no footer quando há clientes */}
-        {(onStartCampaign || true) && clients.length > 0 && (
+        {clients.length > 0 && (
           <div className="px-4 py-3 border-t border-surface-border bg-gray-50/80 shrink-0">
             <button
-              onClick={() => setShowCampaignModal(true)}
+              onClick={() => { setShowCampaignModal(true); setSendResult(null); setCustomMessage(''); }}
               className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl bg-linear-to-r from-green-600 to-emerald-700 text-white hover:opacity-90 transition-opacity shadow-md"
             >
-              <Megaphone size={16} />
-              Iniciar Campanha de Reativação
+              <Send size={16} />
+              Disparo em Massa pelo WhatsApp
               {selectedIds.size > 0 && <span className="ml-1 text-xs opacity-80">({selectedIds.size} selecionados)</span>}
             </button>
           </div>
@@ -510,9 +540,35 @@ export function ClientListDrawer({
                     <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{tpl.template}</p>
                   </div>
                   <p className="text-[10px] text-gray-400 mt-1.5">
-                    {'{nome}'} e {'{link}'} serão substituídos ao disparar via campanhas.
+                    {'{nome}'} será substituído pelo nome do cliente ao disparar.
                   </p>
                 </div>
+
+                {/* Mensagem customizável */}
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5">
+                    Personalizar mensagem (opcional)
+                  </label>
+                  <textarea
+                    rows={4}
+                    className="w-full text-sm border border-gray-200 rounded-xl p-3 resize-none focus:outline-none focus:ring-2 focus:ring-green-500/30"
+                    placeholder={`Deixe em branco para usar o template acima.\n\nUse {nome} para o nome do cliente.`}
+                    value={customMessage}
+                    onChange={(e) => setCustomMessage(e.target.value)}
+                  />
+                </div>
+
+                {/* Resultado do envio */}
+                {sendResult && (
+                  <div className={`p-3 rounded-xl border text-sm ${sendResult.failed === 0 ? 'bg-green-50 border-green-200 text-green-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+                    <p className="font-semibold">
+                      ✅ {sendResult.sent} enviados {sendResult.failed > 0 && `· ❌ ${sendResult.failed} falhas`}
+                    </p>
+                    {sendResult.errors.length > 0 && (
+                      <p className="text-xs mt-1 opacity-70">{sendResult.errors[0]}</p>
+                    )}
+                  </div>
+                )}
 
                 {/* Destinatários */}
                 <div className="bg-green-50 border border-green-100 rounded-xl p-3 flex items-center gap-3">
@@ -530,22 +586,27 @@ export function ClientListDrawer({
                 {/* Ações */}
                 <div className="flex gap-3 pt-1">
                   <button
-                    onClick={() => setShowCampaignModal(false)}
+                    onClick={() => { setShowCampaignModal(false); setSendResult(null); }}
                     className="flex-1 px-4 py-2.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
                   >
-                    Cancelar
+                    {sendResult ? 'Fechar' : 'Cancelar'}
                   </button>
-                  <button
-                    onClick={() => {
-                      const targets = selectedIds.size > 0 ? selectedClients : clients;
-                      onStartCampaign?.(targets, tpl.template, segmentName ?? title);
-                      setShowCampaignModal(false);
-                    }}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl bg-linear-to-r from-green-600 to-emerald-700 text-white hover:opacity-90 transition-opacity shadow-sm"
-                  >
-                    <Megaphone size={14} />
-                    Criar Campanha
-                  </button>
+                  {!sendResult && (
+                    <button
+                      disabled={isSending}
+                      onClick={() => {
+                        const msg = customMessage.trim() || tpl.template;
+                        handleBulkSend(msg);
+                      }}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl bg-linear-to-r from-green-600 to-emerald-700 text-white hover:opacity-90 disabled:opacity-50 transition-opacity shadow-sm"
+                    >
+                      {isSending ? (
+                        <><Send size={14} className="animate-pulse" /> Disparando...</>
+                      ) : (
+                        <><Send size={14} /> Disparar Agora ({selectedIds.size > 0 ? selectedIds.size : totalClients})</>
+                      )}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

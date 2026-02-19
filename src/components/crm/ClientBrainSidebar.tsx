@@ -49,6 +49,7 @@ import {
   ArrowRight,
   Bot,
   UserCheck,
+  MessageCircle,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useChatsStore } from '@/store/chats';
@@ -124,16 +125,27 @@ function IdentityTab({
   orders,
   clientId,
   onRefresh,
+  chatId,
 }: {
   client: Record<string, unknown>;
   orders: Order[];
   clientId: string;
   onRefresh: () => void;
+  chatId?: string | null;
 }) {
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState('');
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleOpenChat = () => {
+    const name = (client.name as string) ?? '';
+    window.dispatchEvent(
+      new CustomEvent('vexx:open-chat', {
+        detail: { chatId, suggestedText: `Olá ${name.split(' ')[0]}! ` },
+      })
+    );
+  };
 
   const c = client as Record<string, unknown> & { name?: string };
   const status = STATUS_MAP[(c.status as string) ?? ''] ?? { label: 'Ativo', variant: 'success' as const };
@@ -343,14 +355,29 @@ function IdentityTab({
         </SectionBlock>
       )}
 
-      {/* Link perfil */}
-      <a
-        href={`/clientes/${clientId}`}
-        className="flex items-center justify-center gap-1.5 w-full py-2.5 rounded-xl text-xs font-semibold text-crm-primary border border-crm-primary/30 hover:bg-crm-primary/5 transition-colors"
-      >
-        <ExternalLink size={12} />
-        Ver perfil completo
-      </a>
+      {/* Botões de ação */}
+      <div className="flex gap-2">
+        {chatId && (
+          <button
+            onClick={handleOpenChat}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold text-white bg-crm-primary hover:bg-crm-primary/90 transition-colors"
+          >
+            <MessageCircle size={13} />
+            Enviar Mensagem
+          </button>
+        )}
+        <a
+          href={`/clientes/${clientId}`}
+          className={cn(
+            'flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold',
+            'text-crm-primary border border-crm-primary/30 hover:bg-crm-primary/5 transition-colors',
+            chatId ? 'px-3' : 'flex-1'
+          )}
+        >
+          <ExternalLink size={12} />
+          {chatId ? 'Perfil' : 'Ver perfil completo'}
+        </a>
+      </div>
     </div>
   );
 }
@@ -1488,6 +1515,7 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
                 client={client}
                 orders={(client?.recent_orders as Order[]) ?? []}
                 clientId={(client.id as string) ?? selectedChatId}
+                chatId={selectedChatId}
                 onRefresh={() => {
                   queryClient.invalidateQueries({ queryKey: ['brain-client', selectedChatId] });
                   queryClient.invalidateQueries({ queryKey: ['chats'] });

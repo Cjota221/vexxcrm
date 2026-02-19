@@ -61,6 +61,24 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
     };
   }, [filePreview]);
 
+  // Escuta evento vexx:open-chat para focar o input e opcionalmente preencher texto
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const evt = e as CustomEvent<{ suggestedText?: string }>;
+      // Pequeno delay para garantir que o chat já esteja selecionado
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+          if (evt.detail?.suggestedText) {
+            setText(evt.detail.suggestedText);
+          }
+        }
+      }, 100);
+    };
+    window.addEventListener('vexx:open-chat', handler);
+    return () => window.removeEventListener('vexx:open-chat', handler);
+  }, []);
+
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
     if (!trimmed || isLoading || disabled) return;

@@ -47,12 +47,13 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'h-screen bg-white border-r border-surface-border flex flex-col transition-all duration-300 relative shrink-0',
-        sidebarExpanded ? 'w-[260px]' : 'w-[72px]'
+        'h-screen flex flex-col transition-all duration-300 relative shrink-0',
+        'bg-crm-primary',
+        sidebarExpanded ? 'w-65' : 'w-18'
       )}
     >
       {/* ─── TOPO: Logo ─── */}
-      <div className="h-16 flex items-center px-5 border-b border-surface-border shrink-0">
+      <div className="h-16 flex items-center px-5 border-b border-white/10 shrink-0">
         {sidebarExpanded ? (
           <div className="flex items-center justify-center w-full">
             <Image
@@ -79,10 +80,10 @@ export function Sidebar() {
       </div>
 
       {/* ─── MENU PRINCIPAL (expande para preencher o espaço) ─── */}
-      <nav className="flex-1 px-3 py-4 overflow-y-auto">
+      <nav className="flex-1 px-3 py-5 overflow-y-auto">
         <div className="flex flex-col justify-between h-full">
           {/* Itens de navegação */}
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1.5">
             {NAV_ITEMS.map((item) => {
               const isActive =
                 item.href === '/'
@@ -94,14 +95,14 @@ export function Sidebar() {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    'flex items-center gap-3 px-3 py-3.5 rounded-xl text-sm font-medium transition-all duration-200',
+                    'flex items-center gap-3 px-3 py-4 rounded-xl text-[15px] font-semibold transition-all duration-200',
                     isActive
-                      ? 'bg-crm-primary/10 text-crm-primary'
-                      : 'text-txt-secondary hover:bg-slate-50 hover:text-txt-primary'
+                      ? 'bg-white/20 text-white shadow-sm'
+                      : 'text-white/75 hover:bg-white/10 hover:text-white'
                   )}
                   title={!sidebarExpanded ? item.label : undefined}
                 >
-                  <span className={cn('shrink-0', isActive ? 'text-crm-primary' : 'text-txt-muted')}>
+                  <span className={cn('shrink-0', isActive ? 'text-white' : 'text-white/70')}>
                     {item.icon}
                   </span>
                   {sidebarExpanded && <span>{item.label}</span>}
@@ -113,9 +114,9 @@ export function Sidebar() {
       </nav>
 
       {/* ─── VERSÃO / IDENTIDADE ─── */}
-      <div className="px-3 py-4 border-t border-surface-border shrink-0">
+      <div className="px-3 py-4 border-t border-white/10 shrink-0">
         <div className="flex items-center justify-center gap-2">
-          <div className="w-7 h-7 rounded-full overflow-hidden shrink-0">
+          <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 bg-white/20">
             <Image
               src="/images/logo-icon.png"
               alt="VEXX CRM"
@@ -125,7 +126,7 @@ export function Sidebar() {
             />
           </div>
           {sidebarExpanded && (
-            <span className="text-xs text-txt-muted font-medium">
+            <span className="text-xs text-white/60 font-medium">
               VEXX CRM v2.0
             </span>
           )}
@@ -135,7 +136,7 @@ export function Sidebar() {
       {/* ─── BOTÃO COLAPSAR ─── */}
       <button
         onClick={toggleSidebar}
-        className="absolute -right-3 top-20 w-6 h-6 bg-white border border-surface-border rounded-full flex items-center justify-center shadow-sm hover:shadow-md transition-shadow text-txt-muted hover:text-txt-primary z-10"
+        className="absolute -right-3 top-20 w-6 h-6 bg-crm-primary border border-white/20 rounded-full flex items-center justify-center shadow-sm hover:shadow-md transition-shadow text-white/70 hover:text-white z-10"
       >
         {sidebarExpanded ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
       </button>

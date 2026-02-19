@@ -238,6 +238,17 @@ export default function IntelligencePage() {
   // Distribution com dados detalhados do endpoint /rfm
   const detailedDistribution = rfmData?.distribution || {};
 
+  // ── Segmento selecionado pelo click no RFMOverview ──
+  const [activeSegment, setActiveSegment] = useState<string | null>(null);
+
+  const handleSegmentClick = useCallback((segment: string) => {
+    setActiveSegment(segment);
+    // Rolar suavemente até o SegmentGrid
+    setTimeout(() => {
+      document.getElementById('segment-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+  }, []);
+
   return (
     <div className="min-h-screen bg-surface-bg">
       {/* ─── HEADER ─── */}
@@ -322,6 +333,7 @@ export default function IntelligencePage() {
                   coveragePct={coveragePct}
                   lastCalculatedAt={lastCalculatedAt}
                   events7d={events7d}
+                  onSegmentClick={handleSegmentClick}
                 />
               </div>
               <div>
@@ -340,11 +352,15 @@ export default function IntelligencePage() {
             </div>
 
             {/* Linha 3: Grid completo de segmentos */}
-            <SegmentGrid
-              distribution={detailedDistribution}
-              totalClients={totalCalculated}
-              onAskAnne={handleAskAnne}
-            />
+            <div id="segment-grid">
+              <SegmentGrid
+                distribution={detailedDistribution}
+                totalClients={totalCalculated}
+                onAskAnne={handleAskAnne}
+                initialSegment={activeSegment}
+                onInitialSegmentHandled={() => setActiveSegment(null)}
+              />
+            </div>
 
             {/* Linha 4: Inteligência v2 — Sazonalidade + Produto */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

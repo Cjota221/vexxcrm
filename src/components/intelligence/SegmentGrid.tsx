@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   Crown,
   Heart,
@@ -38,6 +38,10 @@ interface SegmentGridProps {
   distribution: Record<string, SegmentData>;
   totalClients: number;
   onAskAnne?: (clients: ClientListItem[], segmentName: string) => void;
+  /** Segmento pré-selecionado ao montar (vindo do click no RFMOverview) */
+  initialSegment?: string | null;
+  /** Chamado após o drawer ser aberto com o initialSegment */
+  onInitialSegmentHandled?: () => void;
 }
 
 const SEGMENT_CONFIG: Record<string, {
@@ -107,7 +111,7 @@ const SEGMENT_CONFIG: Record<string, {
   },
 };
 
-export function SegmentGrid({ distribution, totalClients, onAskAnne }: SegmentGridProps) {
+export function SegmentGrid({ distribution, totalClients, onAskAnne, initialSegment, onInitialSegmentHandled }: SegmentGridProps) {
   const [expandedSegment, setExpandedSegment] = useState<string | null>(null);
   const [drawerSegment, setDrawerSegment] = useState<string | null>(null);
   const [drawerPage, setDrawerPage] = useState(1);
@@ -116,6 +120,15 @@ export function SegmentGrid({ distribution, totalClients, onAskAnne }: SegmentGr
   const { data: segmentClientsData, isLoading: isLoadingClients } = useSegmentClients(
     drawerSegment, drawerPage, drawerSearch
   );
+
+  // Abrir drawer automaticamente quando o card do RFMOverview for clicado
+  useEffect(() => {
+    if (initialSegment && SEGMENT_CONFIG[initialSegment]) {
+      openDrawer(initialSegment);
+      onInitialSegmentHandled?.();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSegment]);
 
   const allSegments = Object.keys(SEGMENT_CONFIG).map(name => {
     const data = distribution[name] || { count: 0, avg_churn: 0, vip_count: 0, risk_count: 0 };

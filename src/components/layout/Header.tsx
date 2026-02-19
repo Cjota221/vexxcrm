@@ -1,22 +1,70 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { Bell, Camera, Trash2, LogOut, Loader2, Wifi, WifiOff } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Bell, Camera, Trash2, LogOut, Loader2, Wifi, WifiOff, ShoppingCart, Package } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
 import { useConnectionStore } from '@/store/connection';
+import { supabase } from '@/lib/supabase';
 import { getInitials } from '@/lib/utils';
 
 /**
- * Header limpo — dot de conexão + notificações + perfil.
- * A busca "Buscar clientes, conversas..." foi removida — é ruído desnecessário
- * nas páginas internas que já têm busca própria.
+ * Header limpo — dot de conexão + notificações realtime + perfil.
+ * Notificações: Supabase Realtime escuta INSERT em orders (tenant filtrado).
  */
 export function Header() {
-  const { user, accessToken, updateUser, clearSession } = useAuthStore();
+  const { user, accessToken, tenant, updateUser, clearSession } = useAuthStore();
   const { whatsappStatus } = useConnectionStore();
   const [showMenu, setShowMenu] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Notificações Realtime ──────────────────────────────────
+  const [notifCount, setNotifCount] = useState(0);
+  const [showNotifMenu, setShowNotifMenu] = useState(false);
+  const [recentNotifs, setRecentNotifs] = useState<Array<{
+    id: string;
+    type: 'order' | 'cart';
+    label: string;
+    time: string;
+  }>>([]);
+
+  useEffect(() => {
+    if (!tenant?.id) return;
+
+    const channel = supabase
+      .channel(`header-notifs-${tenant.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'orders',
+          filter: `tenant_id=eq.${tenant.id}`,
+        },
+        (payload) => {
+          const row = payload.new as Record<string, unknown>;
+          const notif = {
+            id: String(row.id ?? Date.now()),
+            type: 'order' as const,
+            label: `Novo pedido #${String(row.external_id ?? row.id ?? '').slice(-6).toUpperCase()}`,
+            time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+          };
+          setRecentNotifs(prev => [notif, ...prev].slice(0, 10));
+          setNotifCount(c => c + 1);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [tenant?.id]);
+
+  const clearNotifs = () => {
+    setNotifCount(0);
+    setShowNotifMenu(false);
+  };
+  // ────────────────────────────────────────────────────────────
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -44,7 +92,6 @@ export function Header() {
     } finally {
       setUploading(false);
       setShowMenu(false);
-      // Reset input
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
@@ -107,12 +154,64 @@ export function Header() {
         </div>
 
         {/* Notificações */}
-        <button className="relative p-2 rounded-xl text-txt-muted hover:text-txt-primary hover:bg-slate-50 transition-colors">
-          <Bell size={18} />
-          <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
-            3
-          </span>
-        </button>
+        <div className="relative">
+          <button
+            onClick={() => setShowNotifMenu(v => !v)}
+            className="relative p-2 rounded-xl text-txt-muted hover:text-txt-primary hover:bg-slate-50 transition-colors"
+            title="Notificações"
+          >
+            <Bell size={18} />
+            {notifCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-4.5 h-4.5 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center px-1">
+                {notifCount > 99 ? '99+' : notifCount}
+              </span>
+            )}
+          </button>
+
+          {showNotifMenu && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowNotifMenu(false)} />
+              <div className="absolute right-0 top-11 w-72 bg-white rounded-xl shadow-lg border border-surface-border z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                  <p className="text-sm font-bold text-gray-800">Notificações</p>
+                  {notifCount > 0 && (
+                    <button
+                      onClick={clearNotifs}
+                      className="text-[11px] text-crm-primary hover:underline font-medium"
+                    >
+                      Limpar todas
+                    </button>
+                  )}
+                </div>
+
+                {recentNotifs.length === 0 ? (
+                  <div className="flex flex-col items-center py-8 text-center px-4">
+                    <Bell size={24} className="text-gray-200 mb-2" />
+                    <p className="text-sm text-gray-400 font-medium">Sem notificações</p>
+                    <p className="text-xs text-gray-300 mt-0.5">Novos pedidos aparecerão aqui</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-50 max-h-72 overflow-y-auto">
+                    {recentNotifs.map(n => (
+                      <div key={n.id} className="flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition-colors">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${n.type === 'cart' ? 'bg-amber-100' : 'bg-emerald-100'}`}>
+                          {n.type === 'cart'
+                            ? <ShoppingCart size={14} className="text-amber-600" />
+                            : <Package size={14} className="text-emerald-600" />
+                          }
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-gray-800 truncate">{n.label}</p>
+                          <p className="text-[10px] text-gray-400 mt-0.5">{n.time}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
 
         {/* Perfil */}
         <div className="relative flex items-center gap-3 pl-3 border-l border-surface-border">
