@@ -1,12 +1,15 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Bell, Camera, Trash2, LogOut, Loader2, Wifi, WifiOff, ShoppingCart, Package, GitBranch } from 'lucide-react';
+import { Bell, Camera, Trash2, LogOut, Loader2, Wifi, WifiOff, ShoppingCart, Package, GitBranch, Bot, Zap } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
 import { useConnectionStore } from '@/store/connection';
 import { supabase } from '@/lib/supabase';
 import { getInitials } from '@/lib/utils';
 import { KanbanModal } from '@/components/crm/KanbanModal';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
+import Link from 'next/link';
 
 /**
  * Header limpo — dot de conexão + notificações realtime + perfil.
@@ -33,6 +36,23 @@ export function Header() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, []);
+
+  // ── Stats da Anne (carrinhos recuperados hoje) ─────────────
+  interface AnneStats {
+    carts_recovered_today: number;
+    suggestions_pending: number;
+    automations_fired_today: number;
+  }
+  const { data: anneStats } = useQuery<AnneStats>({
+    queryKey: ['anne-stats'],
+    queryFn: async (): Promise<AnneStats> => {
+      const res = await api.get<AnneStats>('/api/v2/anne/stats');
+      return res.data;
+    },
+    staleTime: 60_000,
+    enabled: !!tenant?.id,
+    refetchInterval: 3 * 60_000,
+  });
 
   // ── Notificações Realtime ──────────────────────────────────
   const [notifCount, setNotifCount] = useState(0);
@@ -156,6 +176,32 @@ export function Header() {
           <span className="text-xs font-semibold hidden sm:block">Fluxo de Vendas</span>
           <span className="text-[9px] bg-crm-primary/20 px-1.5 py-0.5 rounded font-bold hidden md:block">F4</span>
         </button>
+
+        {/* Badge — Carrinhos Recuperados pela Anne */}
+        {(anneStats?.carts_recovered_today ?? 0) > 0 && (
+          <Link
+            href="/configuracoes/anne"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors"
+            title="Carrinhos recuperados hoje pela Anne"
+          >
+            <Zap size={13} className="text-emerald-600 shrink-0" />
+            <span className="text-xs font-bold text-emerald-700 hidden sm:block">
+              {anneStats!.carts_recovered_today} recuperado{anneStats!.carts_recovered_today > 1 ? 's' : ''} hoje
+            </span>
+          </Link>
+        )}
+
+        {/* Badge — Sugestões pendentes da Anne */}
+        {(anneStats?.suggestions_pending ?? 0) > 0 && (
+          <Link
+            href="/configuracoes/anne"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-colors"
+            title="Mensagens da Anne aguardando sua aprovação"
+          >
+            <Bot size={13} className="text-amber-600 shrink-0" />
+            <span className="text-xs font-bold text-amber-700">{anneStats!.suggestions_pending}</span>
+          </Link>
+        )}
       </div>
 
       {/* Lado direito */}

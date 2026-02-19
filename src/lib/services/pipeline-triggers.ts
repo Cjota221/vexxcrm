@@ -16,6 +16,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { eventBus } from '@/lib/event-bus';
 import { logAutomation } from '@/lib/automation-log';
+import { scheduleCartRecovery, cancelCartRecovery } from '@/lib/services/cart-recovery';
 import type { KanbanColumn, AnneTriggerType } from '@/types';
 
 /* ══════════════════════════════════════════════════════════════
@@ -78,6 +79,23 @@ const NAME_EXTRACTION_PATTERNS = [
   /(?:olá|oi|hey|ola)[,!]?\s+([A-ZÀ-Ú][a-zà-úA-ZÀ-Ú]+(?: (?:da|de|do|das|dos|e|[A-ZÀ-Ú][a-zà-ú]+))*)/u,
   // Início de mensagem: "Nome Sobrenome,"
   /^([A-ZÀ-Ú][a-zà-ú]+(?: [A-ZÀ-Ú][a-zà-ú]+)+)[,!]/u,
+];
+
+/**
+ * Saudações simples (cliente curioso, sem carrinho).
+ * Mensagens de primeiro contato sem intenção de compra detectada.
+ * Ex: "Oi", "Olá", "Tudo bem?", "Quero saber mais sobre os produtos"
+ */
+const GREETING_PATTERNS = [
+  /^(oi|olá|ola|oi!|olá!|hey|e aí|eaí|bom dia|boa tarde|boa noite)\b/i,
+  /tudo bem/i,
+  /quero saber mais/i,
+  /me conta mais/i,
+  /como funciona/i,
+  /vocês vendem/i,
+  /voces vendem/i,
+  /têm disponível/i,
+  /tem disponivel/i,
 ];
 
 /**
@@ -384,7 +402,19 @@ export function detectPipelineEvent(
     };
   }
 
-  // ── 7. REJEIÇÃO DO CLIENTE (apenas mensagens recebidas) ───────
+  // ── 7. SAUDAÇÃO SIMPLES → PRIMEIRO CONTATO ────────────────────
+  // Mensagem do cliente: "Oi", "Olá", "Quero saber mais"
+  // Apenas mensagens RECEBIDAS (não do bot)
+  if (!fromMe && GREETING_PATTERNS.some(p => p.test(text.trim()))) {
+    return {
+      trigger: 'primeiro_contato',
+      targetColumn: 'PRIMEIRO_CONTATO',
+      motivo: 'Primeiro contato — saudação detectada',
+      score: 0.75,
+    };
+  }
+
+  // ── 8. REJEIÇÃO DO CLIENTE (apenas mensagens recebidas) ───────
   if (!fromMe && REJECTION_PATTERNS.some(p => p.test(text))) {
     return {
       trigger: 'sinal_rejeicao',
@@ -659,7 +689,18 @@ export async function processPipelineTriggers(
       return;
     }
 
-    // ── 3. Atualizar tracking_code no pedido ──────────────────────────
+    // ── 3. Agenda/cancela recuperação de carrinho ─────────────────
+    if (paraColuna === 'EM_NEGOCIACAO' && deColuna !== 'EM_NEGOCIACAO') {
+      // Cliente acabou de entrar em negociação → agendar up de recuperação
+      scheduleCartRecovery(supabase, tenantId, client.id, chatId, client.name ?? '')
+        .catch(e => console.warn('[Pipeline] scheduleCartRecovery error:', e));
+    } else if (['PAGO', 'DESPACHADO', 'CONCLUIDO'].includes(paraColuna)) {
+      // Cliente converteu → cancelar recovery pendente
+      cancelCartRecovery(supabase, tenantId, client.id, 'converted')
+        .catch(e => console.warn('[Pipeline] cancelCartRecovery error:', e));
+    }
+
+    // ── 4. Atualizar tracking_code no pedido ──────────────────────────
     if (event.trackingCode) {
       await updateOrderTrackingCode(
         supabase,
@@ -674,10 +715,10 @@ export async function processPipelineTriggers(
       });
     }
 
-    // ── 4. Registrar log Anne (legado) ────────────────────────────────
+    // ── 5. Registrar log Anne (legado) ────────────────────────────────
     await logAnneTrigger(supabase, tenantId, client.id, chatId, event, 'executado');
 
-    // ── 5. Registrar em automation_logs (novo — auditoria detalhada) ──
+    // ── 6. Registrar em automation_logs (auditoria detalhada) ─────────
     await logAutomation(supabase, {
       tenantId,
       clientId: client.id,
@@ -693,7 +734,7 @@ export async function processPipelineTriggers(
       eventData: { text: text.slice(0, 500), motivo: event.motivo, score: event.score },
     });
 
-    // ── 6. Emitir SSE para front-end ──────────────────────────────────
+    // ── 7. Emitir SSE para front-end ──────────────────────────────────
     eventBus.emitToTenant('kanban_moved', tenantId, {
       client_id: client.id,
       chat_id: chatId,

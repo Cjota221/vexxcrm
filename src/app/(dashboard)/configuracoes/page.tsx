@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
+import Link from 'next/link';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Settings,
@@ -640,10 +641,17 @@ function AnneSettings({ config }: { config?: TenantConfig }) {
           </p>
         </div>
 
-        <div className="flex gap-2 pt-2">
+        <div className="flex gap-2 pt-2 flex-wrap">
           <Button variant="primary" onClick={handleSave} disabled={isUpdating}>
             <Save size={16} /> {isUpdating ? 'Salvando...' : 'Salvar Configurações'}
           </Button>
+          <Link
+            href="/configuracoes/anne"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-crm-primary/30 text-crm-primary text-sm font-medium hover:bg-crm-primary/5 transition-colors"
+          >
+            <Bot size={14} />
+            Central de Comando da Anne →
+          </Link>
         </div>
       </div>
     </Card>

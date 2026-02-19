@@ -1274,8 +1274,9 @@ function PatternsTab({ clientId }: { clientId: string }) {
    ABA 6 — INSIGHTS ANNE
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-function AnneInsightsTab({ chatId }: { chatId: string }) {
+function AnneInsightsTab({ chatId, clientId }: { chatId: string; clientId?: string }) {
   const queryClient = useQueryClient();
+  const [expandedLog, setExpandedLog] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['anne-chat-log', chatId],
@@ -1303,6 +1304,39 @@ function AnneInsightsTab({ chatId }: { chatId: string }) {
     enabled: !!chatId,
   });
 
+  // ── Chain of Thought — logs por clientId ─────────────────────────────
+  interface ChainEntry {
+    id: string;
+    type: 'automation' | 'recovery';
+    trigger_type?: string;
+    source?: string;
+    action_taken?: string;
+    de_coluna?: string | null;
+    para_coluna?: string | null;
+    order_number?: string | null;
+    tracking_code?: string | null;
+    success?: boolean;
+    error_msg?: string | null;
+    status?: string;
+    message_preview?: string;
+    due_at?: string | null;
+    sent_at?: string | null;
+    created_at: string;
+    chain_of_thought: string[];
+  }
+
+  const { data: chainData, isLoading: chainLoading } = useQuery({
+    queryKey: ['anne-chain', clientId],
+    queryFn: async () => {
+      const res = await api.get<{ entries: ChainEntry[]; total: number }>(
+        `/api/v2/anne/client-logs/${clientId}`,
+      );
+      return res.data;
+    },
+    staleTime: 30_000,
+    enabled: !!clientId,
+  });
+
   // ── Realtime: atualizar ao receber evento anne_notification via SSE ──
   useEffect(() => {
     const handler = (e: Event) => {
@@ -1310,6 +1344,9 @@ function AnneInsightsTab({ chatId }: { chatId: string }) {
       // Invalidar se for deste chat ou sem filtro (broadcast)
       if (!evt.detail?.chat_id || evt.detail.chat_id === chatId) {
         queryClient.invalidateQueries({ queryKey: ['anne-chat-log', chatId] });
+        if (clientId) {
+          queryClient.invalidateQueries({ queryKey: ['anne-chain', clientId] });
+        }
       }
     };
     window.addEventListener('sse:anne_notification', handler);
@@ -1318,7 +1355,7 @@ function AnneInsightsTab({ chatId }: { chatId: string }) {
       window.removeEventListener('sse:anne_notification', handler);
       window.removeEventListener('sse:kanban_moved', handler);
     };
-  }, [chatId, queryClient]);
+  }, [chatId, clientId, queryClient]);
 
   const TRIGGER_LABELS: Record<string, { label: string; color: string; bg: string }> = {
     primeiro_contato:   { label: 'Primeiro Contato', color: 'text-sky-700', bg: 'bg-sky-50' },
@@ -1327,6 +1364,9 @@ function AnneInsightsTab({ chatId }: { chatId: string }) {
     sinal_rejeicao:     { label: 'Sinal de Rejeição', color: 'text-red-700', bg: 'bg-red-50' },
     engajamento_alto:   { label: 'Engajamento Alto', color: 'text-violet-700', bg: 'bg-violet-50' },
     ghosting:           { label: 'Ghosting', color: 'text-gray-600', bg: 'bg-gray-100' },
+    saudacao:           { label: 'Saudação', color: 'text-teal-700', bg: 'bg-teal-50' },
+    carrinho_abandono:  { label: 'Abandono de Carrinho', color: 'text-orange-700', bg: 'bg-orange-50' },
+    codigo_rastreio:    { label: 'Código Rastreio', color: 'text-purple-700', bg: 'bg-purple-50' },
   };
 
   const RESULTADO_CONFIG: Record<string, { label: string; color: string }> = {
@@ -1408,7 +1448,112 @@ function AnneInsightsTab({ chatId }: { chatId: string }) {
         )}
       </div>
 
-      {/* Recomendações da saúde */}
+      {/* ── Chain of Thought — Histórico de decisões da Anne ── */}
+      {clientId && (
+        <div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <Brain size={10} className="text-crm-primary" />
+            Log de Decisões da Anne
+          </p>
+
+          {chainLoading ? (
+            <div className="flex justify-center py-6">
+              <Loader2 size={16} className="animate-spin text-crm-primary" />
+            </div>
+          ) : !chainData?.entries.length ? (
+            <div className="flex flex-col items-center py-6 text-center bg-gray-50 rounded-xl border border-dashed border-gray-200">
+              <Bot size={20} className="text-gray-200 mb-1.5" />
+              <p className="text-[11px] text-gray-400">Nenhuma decisão registrada ainda.</p>
+              <p className="text-[9px] text-gray-300 mt-0.5">As ações da Anne aparecerão aqui.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {chainData.entries.slice(0, 15).map((entry) => {
+                const isExpanded = expandedLog === entry.id;
+                const isRecovery = entry.type === 'recovery';
+                const isSuccess = entry.success !== false;
+
+                return (
+                  <div
+                    key={entry.id}
+                    className={cn(
+                      'border rounded-xl overflow-hidden transition-colors',
+                      isRecovery
+                        ? 'border-orange-100 bg-orange-50/50'
+                        : isSuccess
+                          ? 'border-gray-100 bg-white'
+                          : 'border-red-100 bg-red-50/40',
+                    )}
+                  >
+                    {/* Header da entrada */}
+                    <button
+                      onClick={() => setExpandedLog(isExpanded ? null : entry.id)}
+                      className="w-full flex items-center justify-between gap-2 px-3 py-2.5 hover:bg-black/5 transition-colors text-left"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {isRecovery ? (
+                          <span className="text-[10px] font-bold text-orange-700 bg-orange-100 px-2 py-0.5 rounded-md shrink-0">
+                            🛒 Recuperação
+                          </span>
+                        ) : (
+                          <span className={cn(
+                            'text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0',
+                            TRIGGER_LABELS[entry.trigger_type ?? '']?.bg ?? 'bg-gray-100',
+                            TRIGGER_LABELS[entry.trigger_type ?? '']?.color ?? 'text-gray-600',
+                          )}>
+                            {TRIGGER_LABELS[entry.trigger_type ?? '']?.label ?? entry.trigger_type}
+                          </span>
+                        )}
+                        {entry.de_coluna && entry.para_coluna && (
+                          <span className="text-[9px] text-gray-400 truncate flex items-center gap-1">
+                            <ArrowRight size={9} />
+                            <span className="font-medium text-gray-600">{entry.para_coluna}</span>
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-[9px] text-gray-400">{formatRelativeTime(entry.created_at)}</span>
+                        {isExpanded
+                          ? <ChevronDown size={11} className="text-gray-400" />
+                          : <ChevronRight size={11} className="text-gray-400" />
+                        }
+                      </div>
+                    </button>
+
+                    {/* Chain of Thought expandido */}
+                    {isExpanded && (
+                      <div className="px-3 pb-3 border-t border-gray-100">
+                        <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mt-2 mb-1.5">
+                          💭 Raciocínio da Anne
+                        </p>
+                        <ol className="space-y-1">
+                          {entry.chain_of_thought.map((step, idx) => (
+                            <li key={idx} className="flex items-start gap-2">
+                              <span className="text-[9px] font-black text-gray-300 w-3.5 shrink-0 mt-0.5">{idx + 1}.</span>
+                              <span className="text-[11px] text-gray-600 leading-relaxed">{step}</span>
+                            </li>
+                          ))}
+                        </ol>
+                        {entry.message_preview && (
+                          <div className="mt-2 bg-gray-50 border border-gray-200 rounded-lg p-2">
+                            <p className="text-[9px] font-bold text-gray-400 mb-1">Mensagem preparada:</p>
+                            <p className="text-[11px] text-gray-600 italic">&ldquo;{entry.message_preview}&rdquo;</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {(chainData.total ?? 0) > 15 && (
+                <p className="text-[10px] text-gray-400 text-center py-1">
+                  +{chainData.total - 15} entradas anteriores
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1723,7 +1868,7 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
               <PatternsTab clientId={(client.id as string) ?? selectedChatId} />
             )}
             {activeTab === 'anne' && (
-              <AnneInsightsTab chatId={selectedChatId} />
+              <AnneInsightsTab chatId={selectedChatId} clientId={(client.id as string) ?? undefined} />
             )}
           </>
         )}
