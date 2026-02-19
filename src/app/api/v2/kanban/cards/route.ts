@@ -18,6 +18,25 @@ export async function GET(request: NextRequest) {
     const supabase = createServerSupabaseClient();
     const tenantId = auth.tenantId;
 
+    // ── Modo especial: só contagens por coluna (usado pelo KanbanDrawer) ──
+    const { searchParams } = new URL(request.url);
+    if (searchParams.get('mode') === 'counts') {
+      const { data: rows, error: countErr } = await supabase
+        .from('kanban_cards')
+        .select('coluna')
+        .eq('tenant_id', tenantId);
+
+      if (countErr) return NextResponse.json({ error: countErr.message }, { status: 500 });
+
+      const byCol: Record<string, number> = {};
+      for (const r of rows ?? []) {
+        byCol[r.coluna] = (byCol[r.coluna] ?? 0) + 1;
+      }
+
+      const data = Object.entries(byCol).map(([coluna, count]) => ({ coluna, count }));
+      return NextResponse.json({ data });
+    }
+
     // ── Cards com dados do cliente (join) ──────────────────────
     const { data: cards, error } = await supabase
       .from('kanban_cards')

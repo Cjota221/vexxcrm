@@ -26,8 +26,11 @@ import {
   RefreshCw,
   BanknoteIcon,
   CheckCircle2,
+  Truck,
+  Zap,
+  Loader2,
 } from 'lucide-react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 
@@ -38,8 +41,9 @@ type KanbanColumn =
   | 'EM_NEGOCIACAO'
   | 'AGUARDANDO_PAGAMENTO'
   | 'PAGO'
-  | 'REATIVAR'
-  | 'CONCLUIDO';
+  | 'DESPACHADO'
+  | 'CONCLUIDO'
+  | 'CANCELADO';
 
 interface KanbanColumnConfig {
   key: KanbanColumn;
@@ -89,13 +93,13 @@ const COLUMNS: KanbanColumnConfig[] = [
     borderColor: 'border-emerald-200',
   },
   {
-    key: 'REATIVAR',
-    label: 'Reativar',
-    shortLabel: 'Reativar',
-    icon: RefreshCw,
-    color: 'text-orange-700',
-    bg: 'bg-orange-50',
-    borderColor: 'border-orange-200',
+    key: 'DESPACHADO',
+    label: 'Despachado',
+    shortLabel: 'Despachado',
+    icon: Truck,
+    color: 'text-blue-700',
+    bg: 'bg-blue-50',
+    borderColor: 'border-blue-200',
   },
   {
     key: 'CONCLUIDO',
@@ -158,14 +162,27 @@ export function KanbanDrawer({ open, onClose }: KanbanDrawerProps) {
     return () => window.removeEventListener('sse:kanban_moved', handler);
   }, [queryClient]);
 
+  // ── Sincronizar kanban com conversas+pedidos reais ─────────────
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const res = await api.post<{ criados: number; atualizados: number }>('/api/v2/kanban/sync');
+      if (res.error) throw new Error(res.error);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['kanban-counts'] });
+      refetch();
+    },
+  });
+
   const getCount = (col: KanbanColumn) =>
     counts.find(c => c.coluna === col)?.count ?? 0;
 
   const totalAtivos = COLUMNS
-    .filter(c => c.key !== 'CONCLUIDO')
+    .filter(c => c.key !== 'CONCLUIDO' && c.key !== 'CANCELADO')
     .reduce((s, c) => s + getCount(c.key), 0);
 
-  const totalPago = getCount('PAGO');
+  const totalPago = getCount('PAGO') + getCount('DESPACHADO');
 
   return (
     <>
@@ -194,6 +211,27 @@ export function KanbanDrawer({ open, onClose }: KanbanDrawerProps) {
               )}
             </div>
             <div className="flex items-center gap-1">
+              {/* Botão sincronizar kanban com realidade */}
+              <button
+                onClick={() => syncMutation.mutate()}
+                disabled={syncMutation.isPending}
+                className={cn(
+                  'flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-medium transition-colors',
+                  syncMutation.isPending
+                    ? 'bg-crm-primary/10 text-crm-primary cursor-wait'
+                    : syncMutation.isSuccess
+                    ? 'bg-emerald-50 text-emerald-600'
+                    : 'text-gray-400 hover:bg-violet-50 hover:text-violet-600'
+                )}
+                title="Sincronizar pipeline com conversas e pedidos reais"
+              >
+                {syncMutation.isPending
+                  ? <Loader2 size={11} className="animate-spin" />
+                  : <Zap size={11} />}
+                <span className="hidden sm:inline">
+                  {syncMutation.isPending ? 'Sincronizando...' : 'Sync'}
+                </span>
+              </button>
               <button
                 onClick={() => refetch()}
                 className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
