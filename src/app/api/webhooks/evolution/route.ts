@@ -261,6 +261,32 @@ async function handleNewMessage(
     }
   }
 
+  // ━━━ DEDUPLICAÇÃO ━━━
+  // Se a mensagem já foi gravada (ex: /api/whatsapp/send gravou antes do webhook chegar),
+  // apenas atualizar a media_url se necessário e sair.
+  const { data: existingMsg } = await supabase
+    .from('messages')
+    .select('id, media_url')
+    .eq('tenant_id', tenantId)
+    .eq('external_id', messageId)
+    .single();
+
+  if (existingMsg) {
+    // Mensagem já existe — atualizar media_url se temos URL melhor (storage permanente)
+    if (mediaUrl && mediaUrl.includes('supabase.co/storage') && existingMsg.media_url !== mediaUrl) {
+      await supabase
+        .from('messages')
+        .update({ media_url: mediaUrl, media_mime_type: mimetype || null })
+        .eq('id', existingMsg.id);
+    }
+    // Emitir evento SSE para atualizar a UI (status pode ter mudado)
+    eventBus.emitToTenant('new_message', tenantId, {
+      client_id: client.id,
+      message: { ...existingMsg, media_url: mediaUrl || existingMsg.media_url },
+    });
+    return;
+  }
+
   // Salvar mensagem (alinhado com schema SQL)
   const { data: savedMessage, error: msgError } = await supabase
     .from('messages')

@@ -65,19 +65,42 @@ export async function POST(request: NextRequest) {
     // Salvar mensagem no banco de dados
     const supabase = createServerSupabaseClient();
 
-    // Buscar ou criar cliente
-    const { data: client } = await supabase
+    // Buscar ou CRIAR cliente (upsert para garantir que existe)
+    let clientId: string;
+    const { data: existingClient } = await supabase
       .from('clients')
       .select('id')
       .eq('tenant_id', tenantId)
       .eq('phone_normalized', PhoneNormalizer.canonical(to))
       .single();
 
-    if (!client) {
-      return NextResponse.json(
-        { error: 'Cliente não encontrado' },
-        { status: 404 }
-      );
+    if (existingClient) {
+      clientId = existingClient.id;
+    } else {
+      // Criar cliente novo automaticamente
+      const phoneDisplay = PhoneNormalizer.normalize(to);
+      const { data: newClient, error: clientErr } = await supabase
+        .from('clients')
+        .upsert(
+          {
+            tenant_id: tenantId,
+            phone: phoneDisplay,
+            phone_normalized: PhoneNormalizer.canonical(to),
+            name: phoneDisplay, // Nome será atualizado quando responder
+          },
+          { onConflict: 'tenant_id,phone_normalized', ignoreDuplicates: false }
+        )
+        .select('id')
+        .single();
+
+      if (clientErr || !newClient) {
+        console.error('[Send] Erro ao criar cliente:', clientErr);
+        return NextResponse.json(
+          { error: 'Erro ao criar contato' },
+          { status: 500 }
+        );
+      }
+      clientId = newClient.id;
     }
 
     // Buscar ou criar conversa
@@ -86,7 +109,7 @@ export async function POST(request: NextRequest) {
       .from('conversations')
       .select('id')
       .eq('tenant_id', tenantId)
-      .eq('client_id', client.id)
+      .eq('client_id', clientId)
       .eq('channel', 'whatsapp')
       .single();
 
@@ -97,7 +120,7 @@ export async function POST(request: NextRequest) {
         .from('conversations')
         .insert({
           tenant_id: tenantId,
-          client_id: client.id,
+          client_id: clientId,
           channel: 'whatsapp',
           status: 'open',
         })
@@ -117,7 +140,7 @@ export async function POST(request: NextRequest) {
       .insert({
         tenant_id: tenantId,
         conversation_id: conversationId,
-        client_id: client.id,
+        client_id: clientId,
         external_id: messageId,
         direction: 'outbound',
         sender_name: 'Atendente',

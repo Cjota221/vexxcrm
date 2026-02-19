@@ -226,12 +226,16 @@ export interface Product {
   description?: string;
   price: number;
   price_promotional?: number;
+  compare_at_price?: number;
   sku?: string;
   category?: string;
   image_url?: string;
   stock: number;
   is_active: boolean;
   source: 'facilzap' | 'manual';
+  checkout_url?: string;
+  chat_template?: string;
+  chat_send_count?: number;
   created_at: string;
   updated_at: string;
 }

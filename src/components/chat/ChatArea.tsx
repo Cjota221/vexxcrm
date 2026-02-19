@@ -12,7 +12,7 @@ import { AvatarImage } from '@/components/ui/AvatarImage';
 import { api } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import type { Chat } from '@/types';
-import type { Message } from '@/types';
+import type { Message, MessageType } from '@/types';
 
 /**
  * Área principal do chat — mensagens + input.
@@ -187,12 +187,30 @@ export function ChatArea() {
       const { url, mimeType } = await res.json();
 
       // 2. Determinar tipo de mídia
-      let mediaType = 'document';
+      let mediaType: MessageType = 'document';
       if (mimeType.startsWith('image/')) mediaType = 'image';
       else if (mimeType.startsWith('video/')) mediaType = 'video';
       else if (mimeType.startsWith('audio/')) mediaType = 'audio';
 
-      // 3. Enviar via WhatsApp
+      // 3. Optimistic update: inserir mensagem localmente para aparecer imediatamente
+      const optimisticMedia: Message = {
+        id: `temp-media-${Date.now()}`,
+        tenant_id: '',
+        client_id: selectedChatId,
+        remote_jid: '',
+        message_id: '',
+        from_me: true,
+        content: caption || file.name,
+        type: mediaType,
+        media_url: url,
+        timestamp: new Date().toISOString(),
+        status: 'pending',
+        created_at: new Date().toISOString(),
+      };
+
+      queryClient.setQueryData<Message[]>(['messages', selectedChatId], (old = []) => [...old, optimisticMedia]);
+
+      // 4. Enviar via WhatsApp
       sendMessage({
         to: resolvedPhone,
         content: caption || file.name,

@@ -506,7 +506,7 @@ export function ConversationSidebar({
   return (
     <div
       ref={sidebarRef}
-      className="w-70 min-w-62.5 max-w-xs shrink-0 flex flex-col bg-white border-r border-gray-200 h-full overflow-hidden"
+      className="w-[280px] min-w-[260px] max-w-xs shrink-0 flex flex-col bg-white border-r border-gray-200 h-full overflow-hidden"
     >
       {/* ── Barra de busca inline (topo da sidebar, sem header duplicado) ── */}
       <div className="flex items-center gap-2 px-3 pt-3 pb-2 shrink-0 bg-white">

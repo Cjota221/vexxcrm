@@ -340,24 +340,66 @@ export class ContactCenterService {
 
     if (!product) throw new Error('Produto não encontrado');
 
-    // Montar mensagem
-    let message = product.chat_template || `*${product.name}*\n\n${product.description || ''}`;
+    // Montar mensagem formatada estilo WhatsApp
+    let message = '';
 
-    if (includePrice) {
-      const price = product.compare_at_price && product.compare_at_price > product.price
-        ? `💰 R$ ${product.price.toFixed(2)} ~R$ ${product.compare_at_price.toFixed(2)}~`
-        : `💰 R$ ${product.price.toFixed(2)}`;
-      message += `\n\n${price}`;
+    // Nome do produto em destaque
+    if (product.chat_template) {
+      message = product.chat_template;
+    } else {
+      message = `🛍️ *${product.name}*`;
+      if (product.description) {
+        message += `\n\n${product.description}`;
+      }
     }
 
+    // Preço
+    if (includePrice) {
+      const price = product.compare_at_price && product.compare_at_price > product.price
+        ? `\n\n💰 *R$ ${product.price.toFixed(2)}* ~R$ ${product.compare_at_price.toFixed(2)}~`
+        : `\n\n💰 *R$ ${product.price.toFixed(2)}*`;
+      message += price;
+    }
+
+    // Estoque
     if (product.stock !== null && product.stock !== undefined) {
       message += product.stock > 0
-        ? `\n📦 ${product.stock} disponível`
+        ? `\n📦 ${product.stock} em estoque`
         : `\n⚠️ Produto esgotado`;
     }
 
-    if (includeLink && product.checkout_url) {
-      message += `\n\n🛒 Comprar: ${product.checkout_url}`;
+    // SKU
+    if (product.sku) {
+      message += `\n🏷️ SKU: ${product.sku}`;
+    }
+
+    // Link direto do produto
+    if (includeLink) {
+      let productLink = product.checkout_url;
+
+      // Gerar link dinâmico se não tiver checkout_url
+      if (!productLink) {
+        // Buscar site_url do tenant
+        const { data: tenant } = await this.supabase
+          .from('tenants')
+          .select('config')
+          .eq('id', this.tenantId)
+          .single();
+
+        const siteUrl = (tenant?.config as Record<string, unknown>)?.facilzap
+          ? ((tenant?.config as Record<string, unknown>)?.facilzap as Record<string, string>)?.site_url
+          : null;
+
+        if (siteUrl) {
+          // Construir link baseado no external_id (FacilZap) ou slug/id
+          const productSlug = product.external_id || product.id;
+          productLink = `${siteUrl}/produto/${productSlug}`;
+        }
+      }
+
+      if (productLink) {
+        message += `\n\n🛒 *Comprar agora:*\n${productLink}`;
+      }
     }
 
     // Registrar envio

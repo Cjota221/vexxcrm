@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
+import { PhoneNormalizer } from '@/lib/phone-normalizer';
 import {
   resolverBlocos,
   Bloco,
@@ -122,6 +123,82 @@ export async function POST(request: NextRequest, { params }: { params: Params })
           .from('campaign_jobs')
           .update({ status: 'enviado', enviado_em: new Date().toISOString(), tentativas: 1 })
           .eq('id', job.id);
+
+        // ━━━ UPSERT CONTATO + GRAVAR MENSAGEM NO BANCO ━━━
+        // Garante que o contato existe e a mensagem enviada aparece no painel
+        try {
+          const phoneNorm = PhoneNormalizer.canonical(job.contato_telefone);
+          const phoneDisplay = PhoneNormalizer.normalize(job.contato_telefone);
+
+          // Upsert cliente
+          const { data: client } = await supabase
+            .from('clients')
+            .upsert(
+              {
+                tenant_id: tenantId,
+                phone: phoneDisplay,
+                phone_normalized: phoneNorm,
+                name: job.contato_nome || phoneDisplay,
+              },
+              { onConflict: 'tenant_id,phone_normalized', ignoreDuplicates: false }
+            )
+            .select('id')
+            .single();
+
+          if (client) {
+            // Buscar ou criar conversa
+            let convId: string | null = null;
+            const { data: conv } = await supabase
+              .from('conversations')
+              .select('id')
+              .eq('tenant_id', tenantId)
+              .eq('client_id', client.id)
+              .eq('channel', 'whatsapp')
+              .single();
+
+            if (conv) {
+              convId = conv.id;
+            } else {
+              const { data: newConv } = await supabase
+                .from('conversations')
+                .insert({ tenant_id: tenantId, client_id: client.id, channel: 'whatsapp', status: 'open' })
+                .select('id')
+                .single();
+              convId = newConv?.id || null;
+            }
+
+            if (convId) {
+              // Extrair conteúdo resumido dos blocos para salvar
+              const textoResumo = blocosResolvidos
+                .filter(b => b.tipo === 'texto' || b.tipo === 'cta')
+                .map(b => b.conteudo.texto_formatado || b.conteudo.texto_raw || b.conteudo.texto_botao || '')
+                .filter(Boolean)
+                .join('\n')
+                .substring(0, 500) || `[Campanha: ${campanha.name}]`;
+
+              const primeiraMedia = blocosResolvidos.find(b => ['imagem', 'video', 'audio'].includes(b.tipo));
+              const msgType = primeiraMedia ? primeiraMedia.tipo === 'imagem' ? 'image' : primeiraMedia.tipo : 'text';
+
+              await supabase
+                .from('messages')
+                .insert({
+                  tenant_id: tenantId,
+                  conversation_id: convId,
+                  client_id: client.id,
+                  direction: 'outbound',
+                  sender_name: 'Campanha',
+                  content: textoResumo,
+                  type: msgType,
+                  media_url: primeiraMedia?.conteudo.url || null,
+                  status: 'sent',
+                  created_at: new Date().toISOString(),
+                });
+            }
+          }
+        } catch (upsertErr) {
+          // Não falhar o envio se o upsert/gravação falhar
+          console.warn(`[DISPATCH_BATCH] Upsert/DB para ${job.contato_telefone}:`, upsertErr);
+        }
 
         // Atualizar contadores (RPC ou fallback direto)
         try {
