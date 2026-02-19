@@ -525,14 +525,35 @@ export async function executeSentinelaFullScan(
     }
   }
 
-  // ─── Batch upsert todos os updates de uma vez ───
-  for (let i = 0; i < clientUpdates.length; i += 100) {
-    const batch = clientUpdates.slice(i, i + 100);
-    const { error: upsertErr } = await supabase
-      .from('clients')
-      .upsert(batch, { onConflict: 'id' });
-    if (upsertErr) {
-      erros.push(`Erro batch update: ${upsertErr.message}`);
+  // ─── Batch UPDATE (nunca INSERT) — atualiza apenas campos de saúde ───
+  // Usamos .update().eq('id') em vez de .upsert() para evitar violação
+  // da constraint NOT NULL de 'phone' quando o cliente já existe no banco.
+  const CHUNK = 50;
+  for (let i = 0; i < clientUpdates.length; i += CHUNK) {
+    const batch = clientUpdates.slice(i, i + CHUNK);
+    const results = await Promise.allSettled(
+      batch.map(u =>
+        supabase
+          .from('clients')
+          .update({
+            custom_fields: u.custom_fields,
+            status: u.status,
+            ltv: u.ltv,
+            avg_ticket: u.avg_ticket,
+            total_orders: u.total_orders,
+            last_order_at: u.last_order_at,
+            updated_at: u.updated_at,
+          })
+          .eq('id', u.id)
+          .eq('tenant_id', u.tenant_id)
+      )
+    );
+    for (const r of results) {
+      if (r.status === 'rejected') {
+        erros.push(`Erro batch update: ${String(r.reason)}`);
+      } else if (r.value.error) {
+        erros.push(`Erro batch update: ${r.value.error.message}`);
+      }
     }
   }
 
