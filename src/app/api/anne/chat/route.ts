@@ -1,25 +1,28 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { chat } from '@/lib/services/anne.service';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limiter';
+import { buildSystemPrompt } from '@/lib/anne-prompt';
+import type { AIProvider } from '@/lib/services/anne.service';
+
+/** Máximo de mensagens do histórico enviadas à IA (controla custo de tokens) */
+const MAX_HISTORY = 10;
 
 /**
  * POST /api/anne/chat
- * Chat com agente Anne (IA multi-provedor).
+ * Chat com agente Anne (IA multi-provedor com fallback automático).
  *
  * Body: { message: string, context?: { client_id?: string, chat_history?: [] } }
- * Responde com: { data: { reply, usage } }
+ * Responde com: { data: { reply, usage, provider_used } }
  */
 export async function POST(request: NextRequest) {
   try {
-    // ── Auth ────────────────────────────────────
-    // Usar helper consolidado (middleware injeta x-tenant-id/x-user-id)
     const { tenantId, profile } = await getTenantFromRequest(request);
     const supabase = createServerSupabaseClient();
 
     // ── Rate limiting ──────────────────────────
-  const rl = checkRateLimit(`anne-chat:${tenantId}`, RATE_LIMITS.ANNE_CHAT);
+    const rl = checkRateLimit(`anne-chat:${tenantId}`, RATE_LIMITS.ANNE_CHAT);
     if (!rl.allowed) {
       return NextResponse.json({
         data: {
@@ -51,10 +54,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Mensagem é obrigatória' }, { status: 400 });
     }
 
-    // ── Construir contexto extra ───────────────
+    // ── Construir contexto extra do cliente ────
     const extraContext: Record<string, unknown> = {};
+    let clientName: string | undefined;
+    let rfmSegment: string | undefined;
 
-    // Se tiver client_id, buscar dados do cliente
     if (context?.client_id) {
       const { data: client } = await supabase
         .from('clients')
@@ -64,158 +68,151 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (client) {
+        clientName = client.name;
+        rfmSegment = client.rfm_segment;
         extraContext.cliente = {
           nome: client.name,
           telefone: client.phone,
           email: client.email,
           total_pedidos: client.total_orders,
-          total_gasto: client.total_spent,
+          total_gasto: `R$ ${(client.total_spent || 0).toFixed(2)}`,
           segmento_rfm: client.rfm_segment,
           ultimo_pedido: client.last_order_at,
           tags: client.tags,
         };
       }
 
-      // Últimos pedidos do cliente
+      // Últimos 5 pedidos com status — Anne orienta pagamentos pendentes
       const { data: orders } = await supabase
         .from('orders')
-        .select('id, status, total, created_at')
+        .select('id, status, total, created_at, items_count')
         .eq('client_id', context.client_id)
         .eq('tenant_id', profile.tenant_id)
         .order('created_at', { ascending: false })
         .limit(5);
 
       if (orders?.length) {
-        extraContext.ultimos_pedidos = orders;
+        extraContext.ultimos_pedidos = orders.map(o => ({
+          id: o.id,
+          status: o.status,
+          total: `R$ ${(o.total || 0).toFixed(2)}`,
+          data: o.created_at,
+          itens: o.items_count,
+        }));
       }
     }
 
-    // Histórico da conversa (se enviado pelo frontend)
-    const chatHistory = (context?.chat_history || []).map((m: { role: string; content: string }) => ({
-      role: m.role as 'user' | 'assistant',
-      content: m.content,
-    }));
+    // ── Histórico — máximo MAX_HISTORY mensagens ──
+    // Slica pelo final: garante as mensagens mais recentes e limita tokens.
+    const rawHistory = (context?.chat_history || []) as Array<{ role: string; content: string }>;
+    const chatHistory = rawHistory
+      .slice(-MAX_HISTORY)
+      .map(m => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      }));
 
-    // ── Personalizar system prompt ─────────────
-    // Hierarquia: system_prompt do banco > prompt padrão do VEXX CRM
+    // ── System Prompt via DNA centralizado ────────
+    // buildSystemPrompt injeta {{nome_loja}}, {{nome_atendente}}, etc.
+    // Se openai_system_prompt for null → usa DEFAULT_ANNE_PROMPT (Prompt de Fábrica).
     const tenantName = tenant.name || 'VEXX CRM';
     const attendantName = profile.full_name || 'Atendente';
 
-    const defaultPrompt = `Você é a **Anne**, assistente de inteligência artificial do **${tenantName}** — uma plataforma SaaS de gestão de vendas via WhatsApp para e-commerces.
-
-## Sua Identidade
-- Nome: Anne
-- Papel: Copiloto comercial inteligente dos atendentes de vendas
-- Tom: profissional, amigável e direto. Use emojis com moderação (✅ 📊 🎯 💡 ⚠️) para facilitar a leitura
-- Idioma: SEMPRE português brasileiro
-- Loja que você atende: **${tenantName}**
-- Atendente consultando você agora: **${attendantName}**
-
-## O que você faz
-1. **Análise de Clientes** — Interpreta segmentos RFM (Champions, Loyal, At Risk, Hibernating, etc.), probabilidade de churn, LTV projetado e flags (VIP, risco, upsell)
-2. **Sugestões de Ação** — Recomenda abordagens de venda, retenção, upsell e reativação com base nos dados do cliente
-3. **Suporte ao Atendente** — Ajuda a redigir mensagens para WhatsApp, tirar dúvidas sobre pedidos, status de entregas e cupons
-4. **Insights Comerciais** — Resume métricas do dashboard, identifica tendências e sugere campanhas
-5. **Respostas Rápidas** — Gera templates de mensagens personalizadas para o atendente copiar e enviar ao cliente
-
-## Regras Críticas
-- NUNCA invente dados. Se não tiver informação suficiente, diga "não tenho essa informação no momento"
-- NUNCA exponha dados sensíveis (tokens, API keys, senhas)
-- Se alguém perguntar "com quem estou falando?" ou "quem é você?", responda: "Sou a Anne, assistente de IA da **${tenantName}**. Como posso ajudar?"
-- Se receber contexto de um cliente (nome, pedidos, segmento RFM), USE ativamente para personalizar a resposta
-- Quando sugerir mensagens para enviar ao cliente, formate entre aspas ou em bloco de texto claramente separado
-- Seja concisa: respostas de 2-4 parágrafos no máximo, a menos que o atendente peça detalhes
-- Se o atendente perguntar algo fora do escopo (ex: programação, receitas), redirecione educadamente para o foco comercial
-
-## Segmentos RFM — Referência
-| Segmento | Significado | Ação sugerida |
-|----------|-------------|---------------|
-| Champions | Compra frequente, gasta muito, recente | Recompensar, pedir review, programa VIP |
-| Loyal | Compra com frequência | Upsell, programa de fidelidade |
-| Potential Loyalist | Comprou recentemente, boa frequência | Nutrir relacionamento |
-| New Customers | Primeira compra recente | Boas-vindas, onboarding |
-| Promising | Comprou recentemente mas pouco | Incentivar segunda compra |
-| Need Attention | Acima da média mas esfriando | Oferta personalizada, reengajar |
-| About to Sleep | Abaixo da média, sumindo | Campanha de reativação urgente |
-| At Risk | Gastava muito, sumiu | Win-back com desconto agressivo |
-| Can't Lose | Era top cliente, parou | Contato pessoal, desconto exclusivo |
-| Hibernating | Muito tempo sem comprar | Última tentativa de reativação |
-| Lost | Perdido | Apenas se houver oportunidade clara |
-
-## Contexto Dinâmico
-Se dados do cliente forem fornecidos no contexto, estruture sua resposta assim:
-1. Resumo rápido do perfil do cliente
-2. Análise/resposta à pergunta do atendente
-3. Sugestão de ação prática (se aplicável)`;
-
-    // Se o tenant configurou um prompt personalizado, usar como base e adicionar
-    // identidade da loja/atendente no início para manter o contexto correto.
-    let systemPrompt: string;
-    if (tenant.openai_system_prompt?.trim()) {
-      systemPrompt = `${tenant.openai_system_prompt.trim()}
-
----
-**Contexto da sessão:**
-- Loja: ${tenantName}
-- Atendente consultando você agora: ${attendantName}
-- Se perguntado sobre sua identidade, você é a Anne, assistente de IA da ${tenantName}.`;
-    } else {
-      systemPrompt = defaultPrompt;
-    }
-
-    // ── Chamar IA ──────────────────────────────
-    // Usar modelo e provedor configurados pelo tenant ou fallback
-    const aiModel = tenant.openai_model || 'gpt-4o-mini';
-    const aiProvider = tenant.openai_provider || 'openai';
-    const aiBaseUrl = tenant.openai_base_url || undefined;
-
-    const response = await chat(
+    const systemPrompt = buildSystemPrompt(
       {
-        apiKey: tenant.openai_api_key,
-        model: aiModel,
-        systemPrompt,
-        maxTokens: 500,
-        provider: aiProvider,
-        baseUrl: aiBaseUrl,
+        nome_loja: tenantName,
+        nome_atendente: attendantName,
+        nome_cliente: clientName,
+        segmento_rfm: rfmSegment,
       },
-      message,
-      chatHistory,
-      Object.keys(extraContext).length > 0 ? extraContext : undefined
+      tenant.openai_system_prompt   // null → Prompt de Fábrica
     );
 
+    // ── Config do provedor principal ────────────
+    const aiModel = tenant.openai_model || 'gpt-4o-mini';
+    const aiProvider = (tenant.openai_provider || 'openai') as AIProvider;
+    const aiBaseUrl = tenant.openai_base_url || undefined;
+
+    // ── Cadeia de fallback ──────────────────────
+    // 1º: provedor configurado pelo tenant
+    // 2º: OpenAI gpt-4o-mini (só se o provedor principal não for OpenAI)
+    const FALLBACK_CHAIN: Array<{ provider: AIProvider; model: string; useCustomBaseUrl: boolean }> = [
+      { provider: aiProvider, model: aiModel, useCustomBaseUrl: true },
+    ];
+    if (aiProvider !== 'openai') {
+      FALLBACK_CHAIN.push({ provider: 'openai', model: 'gpt-4o-mini', useCustomBaseUrl: false });
+    }
+
+    let lastError: Error | null = null;
+
+    for (const attempt of FALLBACK_CHAIN) {
+      try {
+        const response = await chat(
+          {
+            apiKey: tenant.openai_api_key,
+            model: attempt.model,
+            systemPrompt,
+            maxTokens: 600,
+            provider: attempt.provider,
+            baseUrl: attempt.useCustomBaseUrl ? aiBaseUrl : undefined,
+          },
+          message,
+          chatHistory,
+          Object.keys(extraContext).length > 0 ? extraContext : undefined
+        );
+
+        return NextResponse.json({
+          data: {
+            reply: response.reply,
+            usage: response.usage,
+            provider_used: attempt.provider,
+            actions: [],
+          },
+        });
+
+      } catch (err) {
+        lastError = err as Error;
+        const msg = lastError.message || '';
+
+        // Erros de autenticação — configuração errada, fallback não resolve
+        if (msg.includes('Incorrect API key') || msg.includes('invalid_api_key') || msg.includes('authentication')) {
+          return NextResponse.json({
+            data: {
+              reply: '⚠️ A API Key configurada é inválida. Verifique em **Configurações → Anne (IA)**.',
+              actions: [],
+            },
+          });
+        }
+
+        // Saldo esgotado — fallback não resolve o mesmo problema
+        if (msg.includes('quota') || msg.includes('insufficient_quota')) {
+          return NextResponse.json({
+            data: {
+              reply: '⚠️ Saldo da API esgotado. Verifique seu plano em **Configurações → Anne (IA)**.',
+              actions: [],
+            },
+          });
+        }
+
+        // Outros erros (timeout, 5xx, rate_limit transitório) → tenta próximo
+        console.warn(`[Anne] Falha no provedor ${attempt.provider}/${attempt.model}: ${msg}. Tentando fallback...`);
+      }
+    }
+
+    // Todos os provedores da cadeia falharam
+    console.error('❌ Anne chat: todos os provedores falharam.', lastError?.message);
     return NextResponse.json({
       data: {
-        reply: response.reply,
-        usage: response.usage,
+        reply: '❌ Não consegui processar sua mensagem agora. Por favor, tente novamente em alguns instantes.',
         actions: [],
       },
     });
+
   } catch (error) {
-    console.error('❌ Anne chat error:', error);
-
-    // Erro específico de API key inválida
-    const errorMsg = (error as Error).message || '';
-    if (errorMsg.includes('Incorrect API key') || errorMsg.includes('invalid_api_key')) {
-      return NextResponse.json({
-        data: {
-          reply: '⚠️ A API Key configurada é inválida. Verifique em **Configurações → Anne (IA)**.',
-          actions: [],
-        },
-      });
-    }
-
-    if (errorMsg.includes('quota') || errorMsg.includes('rate_limit')) {
-      return NextResponse.json({
-        data: {
-          reply: '⚠️ Limite de uso da API atingido. Aguarde um momento ou verifique seu plano.',
-          actions: [],
-        },
-      });
-    }
-
+    console.error('❌ Anne chat error (fatal):', error);
     return NextResponse.json({
       data: {
-        reply: '❌ Desculpe, ocorreu um erro ao processar sua mensagem. Tente novamente.',
+        reply: '❌ Ocorreu um erro interno. Tente novamente.',
         actions: [],
       },
     });

@@ -40,6 +40,7 @@ import { BulkSyncPanel } from '@/components/settings/BulkSyncPanel';
 import { useAuthStore } from '@/store/auth';
 import { useQuery } from '@tanstack/react-query';
 import type { TenantConfig } from '@/types';
+import { DEFAULT_ANNE_PROMPT_UI } from '@/lib/anne-prompt';
 
 type SettingsTab = 'profile' | 'integrations' | 'data' | 'maintenance';
 
@@ -376,7 +377,7 @@ function AnneSettings({ config }: { config?: TenantConfig }) {
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState(openai?.base_url || '');
   const [model, setModel] = useState(openai?.model || 'gpt-4o-mini');
-  const [systemPrompt, setSystemPrompt] = useState(openai?.system_prompt || '');
+  const [systemPrompt, setSystemPrompt] = useState(openai?.system_prompt || DEFAULT_ANNE_PROMPT_UI);
 
   const providerInfo = AI_PROVIDER_INFO[provider] || AI_PROVIDER_INFO.custom;
 
