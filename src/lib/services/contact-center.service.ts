@@ -340,38 +340,56 @@ export class ContactCenterService {
 
     if (!product) throw new Error('Produto não encontrado');
 
-    // Buscar variações disponíveis nos order_items mais recentes deste produto
-    // As grades/numerações ficam em order_items.metadata.variacao
-    let variacoes: { nome: string; qtd: number }[] = [];
-    try {
-      const { data: recentItems } = await this.supabase
-        .from('order_items')
-        .select('metadata, quantity')
-        .eq('tenant_id', this.tenantId)
-        .or(`product_sku.eq.${product.sku || '__none__'},product_name.ilike.%${product.name}%`)
-        .order('created_at' as any, { ascending: false })
-        .limit(200);
+    // ── Buscar variações ──────────────────────────────────────────────────
+    // FONTE 1 (preferencial): custom_fields.variations — salvo no sync via /produtos FacilZap
+    // Contém { id, name, sku, stock, price, is_active }
+    // FONTE 2 (fallback): order_items.metadata.variacao — pedidos anteriores
+    let variacoes: { nome: string; stock?: number }[] = [];
 
-      if (recentItems && recentItems.length > 0) {
-        const varMap: Record<string, number> = {};
-        for (const item of recentItems) {
-          const meta = (item.metadata as Record<string, unknown>) || {};
-          const v = String(meta.variacao || meta.variation || '').trim();
-          if (v) {
-            varMap[v] = (varMap[v] || 0) + (Number(item.quantity) || 1);
-          }
-        }
-        // Ordenar numericamente se possível (33, 34, 35...) senão alfabético
-        variacoes = Object.entries(varMap)
-          .map(([nome, qtd]) => ({ nome, qtd }))
+    try {
+      const customFields = (product.custom_fields as Record<string, unknown>) || {};
+      const savedVariations = customFields.variations as Array<{
+        id: number; name: string; sku: string; stock: number; price: number; is_active: boolean;
+      }> | undefined;
+
+      if (savedVariations && savedVariations.length > 0) {
+        // Usar variações salvas pelo sync — ordenar numericamente (grades de calçados/roupas)
+        variacoes = savedVariations
+          .filter(v => v.is_active !== false)
+          .map(v => ({ nome: v.name, stock: v.stock }))
           .sort((a, b) => {
             const na = parseFloat(a.nome), nb = parseFloat(b.nome);
             if (!isNaN(na) && !isNaN(nb)) return na - nb;
             return a.nome.localeCompare(b.nome);
           });
+      } else {
+        // Fallback: buscar nos order_items mais recentes
+        const { data: recentItems } = await this.supabase
+          .from('order_items')
+          .select('metadata, quantity')
+          .eq('tenant_id', this.tenantId)
+          .or(`product_sku.eq.${product.sku || '__none__'},product_name.ilike.%${product.name}%`)
+          .order('created_at' as any, { ascending: false })
+          .limit(200);
+
+        if (recentItems && recentItems.length > 0) {
+          const varSet = new Set<string>();
+          for (const item of recentItems) {
+            const meta = (item.metadata as Record<string, unknown>) || {};
+            const v = String(meta.variacao || meta.variation || '').trim();
+            if (v) varSet.add(v);
+          }
+          variacoes = Array.from(varSet)
+            .map(nome => ({ nome }))
+            .sort((a, b) => {
+              const na = parseFloat(a.nome), nb = parseFloat(b.nome);
+              if (!isNaN(na) && !isNaN(nb)) return na - nb;
+              return a.nome.localeCompare(b.nome);
+            });
+        }
       }
     } catch {
-      // ignorar erro de variações — não impede o envio
+      // ignorar — não impede o envio
     }
 
     // Montar mensagem formatada estilo WhatsApp
@@ -394,11 +412,17 @@ export class ContactCenterService {
         }
       }
 
-      // Variações/grades com quantidade disponível
+      // Variações/grades com estoque
       if (variacoes.length > 0) {
         message += `\n\n📐 *Numerações disponíveis:*`;
         for (const v of variacoes) {
-          message += `\n• ${v.nome}`;
+          if (v.stock !== undefined && v.stock !== null && v.stock > 0) {
+            message += `\n• ${v.nome} — ${v.stock} par${v.stock !== 1 ? 'es' : ''}`;
+          } else if (v.stock === undefined) {
+            // Fallback (sem info de estoque por variação)
+            message += `\n• ${v.nome}`;
+          }
+          // Se stock === 0: omitir (sem estoque)
         }
       } else if (product.stock !== null && product.stock !== undefined) {
         // Fallback: estoque total
