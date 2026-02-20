@@ -176,32 +176,49 @@ export function useMessages(clientId: string | null) {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages', filter: `client_id=eq.${clientId}` },
         (payload) => {
-          const incoming = payload.new as Message;
+          const raw = payload.new as Record<string, unknown>;
+          // Supabase Realtime entrega o dado cru do banco (direction, external_id, created_at).
+          // A API REST traduz para (from_me, message_id, timestamp) — fazemos o mesmo aqui.
+          const incoming: Message = {
+            id: raw.id as string,
+            tenant_id: raw.tenant_id as string,
+            client_id: raw.client_id as string,
+            remote_jid: raw.sender_phone ? `${raw.sender_phone}@s.whatsapp.net` : '',
+            message_id: (raw.external_id as string) || (raw.id as string),
+            from_me: raw.direction === 'outbound',
+            content: (raw.content as string) || '',
+            type: raw.type as Message['type'],
+            media_url: raw.media_url as string | undefined,
+            media_type: raw.media_mime_type as string | undefined,
+            media_size: raw.media_size as number | undefined,
+            timestamp: raw.created_at as string,
+            status: raw.status as Message['status'],
+            metadata: (raw.metadata as Record<string, unknown>) || {},
+            created_at: raw.created_at as string,
+          };
+
           queryClient.setQueryData<Message[]>(['messages', clientId], (old = []) => {
             // Dedup: não adicionar se já existe por id ou por correlação optimistic
-            const exists = old.some(m =>
-              m.id === incoming.id ||
-              ((m as any)._optimistic &&
-                m.from_me && incoming.from_me &&
-                m.content === incoming.content &&
-                Math.abs(new Date(m.timestamp).getTime() - new Date(incoming.timestamp).getTime()) < 30_000)
-            );
+            const isOptimisticMatch = (m: Message) =>
+              (m as any)._optimistic === true &&
+              m.from_me === incoming.from_me &&
+              m.content === incoming.content &&
+              Math.abs(
+                new Date(m.created_at).getTime() -
+                new Date(incoming.created_at).getTime()
+              ) < 30_000;
+
+            const exists = old.some(m => m.id === incoming.id || isOptimisticMatch(m));
             if (exists) {
-              // Substituir optimistic pela mensagem real
-              return old.map(m =>
-                ((m as any)._optimistic &&
-                  m.from_me && incoming.from_me &&
-                  m.content === incoming.content)
-                  ? { ...incoming, _optimistic: false }
-                  : m
-              ).sort((a, b) =>
-                new Date(a.timestamp ?? a.created_at).getTime() -
-                new Date(b.timestamp ?? b.created_at).getTime()
-              );
+              // Substituir optimistic pela mensagem real confirmada
+              return old
+                .map(m => isOptimisticMatch(m) ? { ...incoming, _optimistic: false } : m)
+                .sort((a, b) =>
+                  new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                );
             }
             return [...old, incoming].sort((a, b) =>
-              new Date(a.timestamp ?? a.created_at).getTime() -
-              new Date(b.timestamp ?? b.created_at).getTime()
+              new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
             );
           });
           // Invalidar lista de chats para reordenar

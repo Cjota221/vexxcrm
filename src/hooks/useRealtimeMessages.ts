@@ -43,21 +43,44 @@ export function useRealtimeMessages() {
         switch (type) {
           case 'new_message': {
             const payload = data as NewMessageEvent;
-            // Invalidar query de mensagens para recarregar
-            queryClient.invalidateQueries({
-              queryKey: ['messages', payload.client_id],
-            });
-            // Invalidar lista de chats (reordenar)
+            // Injetar mensagem DIRETAMENTE no cache — sem invalidar (sem refetch).
+            // Invalidar causaria um fetch que pode apagar mensagens otimistas pendentes.
+            queryClient.setQueryData<import('@/types').Message[]>(
+              ['messages', payload.client_id],
+              (old = []) => {
+                // Evitar duplicata se a mensagem já está no cache (ex: chegou pelo Realtime do Supabase)
+                if (old.some(m => m.id === payload.message?.id)) return old;
+                // Remover otimista confirmado pelo mesmo external_id / content + timestamp próximo
+                const without = old.filter(m => {
+                  if (!(m as any)._optimistic) return true;
+                  const sameContent = m.content === payload.message?.content;
+                  const timeDiff = Math.abs(
+                    new Date(m.created_at).getTime() - new Date(payload.message?.created_at ?? 0).getTime()
+                  );
+                  return !(sameContent && timeDiff < 30_000);
+                });
+                return [...without, payload.message].sort(
+                  (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                );
+              }
+            );
+            // Reordenar lista de chats (ok invalidar — não afeta mensagens)
             queryClient.invalidateQueries({ queryKey: ['chats'] });
             break;
           }
 
           case 'message_status': {
             const payload = data as MessageStatusEvent;
-            // Atualizar status na cache
-            queryClient.invalidateQueries({
-              queryKey: ['messages', payload.client_id],
-            });
+            // Atualizar status CIRURGICAMENTE no cache — sem invalidar (sem refetch)
+            queryClient.setQueryData<import('@/types').Message[]>(
+              ['messages', payload.client_id],
+              (old = []) =>
+                old.map(m =>
+                  m.id === payload.message_id
+                    ? { ...m, status: payload.status }
+                    : m
+                )
+            );
             break;
           }
 
