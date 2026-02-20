@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     const config = getTenantEvolutionConfig(tenantId);
 
     const body = await request.json();
-    const { to, content, type = 'text', mediaUrl, caption } = body;
+    const { to, content, type = 'text', mediaUrl, caption, clientId: clientIdFromBody } = body;
 
     if (!to || !content) {
       return NextResponse.json(
@@ -74,53 +74,66 @@ export async function POST(request: NextRequest) {
     // Salvar mensagem no banco de dados
     const supabase = createServerSupabaseClient();
 
-    // Buscar ou CRIAR cliente (upsert para garantir que existe)
+    // Buscar cliente
+    // Se o front-end passou clientId (selectedChatId = UUID real), usar direto.
+    // Garante que a mensagem fica na mesma conversa que está aberta no chat.
     let clientId: string;
-    const { data: existingClient } = await supabase
-      .from('clients')
-      .select('id')
-      .eq('tenant_id', tenantId)
-      .eq('phone_normalized', PhoneNormalizer.canonical(to))
-      .single();
 
-    if (existingClient) {
-      clientId = existingClient.id;
-    } else {
-      // Criar cliente novo automaticamente
-      const phoneDisplay = PhoneNormalizer.normalize(to);
-      const { data: newClient, error: clientErr } = await supabase
-        .from('clients')
-        .upsert(
-          {
-            tenant_id: tenantId,
-            phone: phoneDisplay,
-            phone_normalized: PhoneNormalizer.canonical(to),
-            name: phoneDisplay, // Nome será atualizado quando responder
-          },
-          { onConflict: 'tenant_id,phone_normalized', ignoreDuplicates: false }
-        )
-        .select('id')
+    if (clientIdFromBody) {
+      const { data: validClient } = await supabase
+        .from('clients').select('id')
+        .eq('tenant_id', tenantId).eq('id', clientIdFromBody).single();
+      if (validClient) {
+        clientId = validClient.id;
+        console.log(`[Send] clientId do body: ${clientId}`);
+      }
+    }
+
+    if (!clientId!) {
+      // Fallback: buscar por phone_normalized
+      const { data: byPhone } = await supabase
+        .from('clients').select('id')
+        .eq('tenant_id', tenantId)
+        .eq('phone_normalized', PhoneNormalizer.canonical(to))
         .single();
 
-      if (clientErr || !newClient) {
-        console.error('[Send] Erro ao criar cliente:', clientErr);
-        return NextResponse.json(
-          { error: 'Erro ao criar contato' },
-          { status: 500 }
-        );
+      if (byPhone) {
+        clientId = byPhone.id;
+        console.log(`[Send] clientId por phone: ${clientId}`);
+      } else {
+        // Criar cliente novo
+        const phoneDisplay = PhoneNormalizer.normalize(to);
+        const { data: newClient, error: clientErr } = await supabase
+          .from('clients')
+          .upsert(
+            { tenant_id: tenantId, phone: phoneDisplay, phone_normalized: PhoneNormalizer.canonical(to), name: phoneDisplay },
+            { onConflict: 'tenant_id,phone_normalized', ignoreDuplicates: false }
+          )
+          .select('id').single();
+        if (clientErr || !newClient) {
+          console.error('[Send] Erro ao criar cliente:', clientErr);
+          return NextResponse.json({ error: 'Erro ao criar contato' }, { status: 500 });
+        }
+        clientId = newClient.id;
+        console.log(`[Send] clientId novo: ${clientId}`);
       }
-      clientId = newClient.id;
     }
 
     // Buscar ou criar conversa
+    // IMPORTANTE: usar order + limit 1 igual ao GET /api/messages/[clientId]
+    // para garantir que salvamos na MESMA conversa que o front-end está exibindo.
+    // .single() falha quando há múltiplas conversas (retorna erro 406).
     let conversationId: string;
-    const { data: existingConv } = await supabase
+    const { data: existingConvs } = await supabase
       .from('conversations')
       .select('id')
       .eq('tenant_id', tenantId)
       .eq('client_id', clientId)
       .eq('channel', 'whatsapp')
-      .single();
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .limit(1);
+
+    const existingConv = existingConvs?.[0] ?? null;
 
     if (existingConv) {
       conversationId = existingConv.id;

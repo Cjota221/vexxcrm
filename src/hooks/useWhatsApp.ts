@@ -190,7 +190,7 @@ export function useSendMessage() {
   return useMutation({
     mutationFn: async (payload: {
       to: string; content: string; type?: string; mediaUrl?: string; caption?: string;
-      _clientId?: string; _queryClientId?: string;
+      clientId?: string; _clientId?: string; _queryClientId?: string;
     }) => {
       const { _clientId: _, _queryClientId: __, ...body } = payload;
       const response = await api.post<{ success: boolean; message: Message; messageId: string; }>('/api/whatsapp/send', body);
