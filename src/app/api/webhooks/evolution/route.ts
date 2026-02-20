@@ -390,10 +390,16 @@ async function handleMessageStatus(
   payload: EvolutionWebhookPayload
 ) {
   const { data } = payload;
-  const messageId = data.key.id;
-  const status = data.status;
 
-  if (!status) return;
+  // A Evolution API às vezes envia messages.update sem data.key (ex: receipt updates)
+  // Guardar defensivamente para não crashar
+  const messageId = data?.key?.id;
+  const status = data?.status;
+
+  if (!messageId || !status) {
+    console.log(`[Webhook] messages.update sem key.id ou status — ignorando. data keys: ${Object.keys(data || {}).join(',')}`);
+    return;
+  }
 
   // Mapear status da Evolution para o nosso
   const statusMap: Record<string, string> = {

@@ -226,6 +226,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Atualizar last_message na conversa (para reordenação na lista de chats)
+    console.log(`[Send] ✅ Mensagem salva — id: ${savedMessage.id} | external_id: ${savedMessage.external_id} | conv: ${conversationId} | client: ${clientId}`);
     await supabase
       .from('conversations')
       .update({
