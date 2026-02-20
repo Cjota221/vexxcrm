@@ -227,6 +227,10 @@ export function useSendMessage() {
             return { ...data.message, _optimistic: false, _clientId: undefined };
           })
         );
+        // Forçar refetch imediato para sincronizar com o banco e garantir persistência
+        setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: ['messages', queryClientId] });
+        }, 1_500);
       } else {
         // data.message é null → INSERT falhou ou webhook chegou antes.
         // Marcar como 'sent' mas manter otimista e forçar refetch imediato

@@ -238,9 +238,31 @@ export async function POST(request: NextRequest) {
       .eq('id', conversationId)
       .eq('tenant_id', tenantId);
 
+    // Traduzir para o formato Message do TypeScript — igual ao GET /api/messages/[clientId]
+    // Garante que o front-end (onSuccess) recebe from_me, timestamp, message_id corretos
+    const translatedMessage = {
+      id: savedMessage.id,
+      tenant_id: savedMessage.tenant_id,
+      client_id: savedMessage.client_id || clientId,
+      remote_jid: savedMessage.sender_phone
+        ? `${savedMessage.sender_phone}@s.whatsapp.net`
+        : '',
+      message_id: savedMessage.external_id || savedMessage.id,
+      from_me: true,   // sempre outbound no send
+      content: savedMessage.content || '',
+      type: savedMessage.type,
+      media_url: savedMessage.media_url || undefined,
+      media_type: savedMessage.media_mime_type || undefined,
+      media_size: savedMessage.media_size || undefined,
+      timestamp: savedMessage.created_at,
+      status: savedMessage.status,
+      metadata: savedMessage.metadata || {},
+      created_at: savedMessage.created_at,
+    };
+
     return NextResponse.json({
       success: true,
-      message: savedMessage,
+      message: translatedMessage,
       messageId,
     });
 
