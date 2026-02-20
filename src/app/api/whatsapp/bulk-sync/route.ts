@@ -6,6 +6,7 @@ import {
   getTenantEvolutionConfig,
   fetchChats,
   fetchMessages,
+  fetchProfilePicUrl,
   type EvolutionChat,
   type EvolutionMessage,
 } from '@/lib/services/evolution.service';
@@ -201,6 +202,43 @@ export async function POST(request: NextRequest) {
 }
 
 /**
+ * Faz download da foto de perfil e salva permanentemente no Supabase Storage.
+ * Retorna URL permanente (Storage) ou null se falhar.
+ * NUNCA salva URLs mmg.whatsapp.net que expiram em 24-48h.
+ */
+async function cacheProfilePicBulk(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+  clientId: string,
+  picUrl: string | null | undefined
+): Promise<string | null> {
+  if (!picUrl) return null;
+  // Só fazer cache de URLs temporárias do WhatsApp (mmg.whatsapp.net, pps.whatsapp.net, etc.)
+  // URLs do Supabase Storage já são permanentes — não reprocessar
+  if (picUrl.includes('supabase.co/storage')) return picUrl;
+
+  try {
+    const res = await fetch(picUrl, { redirect: 'follow' });
+    if (!res.ok) return null;
+
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const contentType = res.headers.get('content-type') || 'image/jpeg';
+    const ext = contentType.includes('png') ? 'png' : 'jpg';
+    const path = `${tenantId}/clients/${clientId}.${ext}`;
+
+    await supabase.storage.from('avatars').upload(path, buffer, {
+      contentType,
+      upsert: true,
+    });
+
+    const { data: pub } = supabase.storage.from('avatars').getPublicUrl(path);
+    return pub.publicUrl || null;
+  } catch {
+    return null; // silencioso — a foto é opcional
+  }
+}
+
+/**
  * Sincroniza UM chat completo — paginando TODAS as mensagens.
  * Diferente da versão anterior, não para na page 1.
  */
@@ -248,6 +286,8 @@ async function syncOneChatFull(
     client = existingClient;
   } else {
     // Não existe: criar novo com formato normalizado (COM 9)
+    // Fazer cache permanente da foto ANTES de salvar (URL do WhatsApp expira em 24-48h)
+    // Usamos um ID temporário para o path do Storage — depois atualizamos
     const { data: newClient, error: clientErr } = await supabase
       .from('clients')
       .insert({
@@ -255,7 +295,7 @@ async function syncOneChatFull(
         phone: phoneDisplay,
         phone_normalized: phoneWithNine, // Usar COM 9 para novos
         name: pushName,
-        avatar_url: chat.profilePicUrl || null,
+        avatar_url: null, // Preenchido abaixo após cache
         source: 'whatsapp',
       })
       .select('id, created_at')
@@ -278,6 +318,20 @@ async function syncOneChatFull(
     } else {
       client = newClient;
       clientCreated = true;
+
+      // Fazer cache permanente da foto de perfil (fire-and-forget, não bloqueia sync)
+      if (chat.profilePicUrl) {
+        void cacheProfilePicBulk(supabase, tenantId, newClient.id, chat.profilePicUrl)
+          .then(permanentUrl => {
+            if (permanentUrl) {
+              void supabase
+                .from('clients')
+                .update({ avatar_url: permanentUrl })
+                .eq('id', newClient.id)
+                .eq('tenant_id', tenantId);
+            }
+          });
+      }
     }
   }
 
