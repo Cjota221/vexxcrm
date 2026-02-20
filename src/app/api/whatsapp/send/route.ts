@@ -143,38 +143,48 @@ export async function POST(request: NextRequest) {
       conversationId = newConv.id;
     }
 
-    // Salvar mensagem enviada (upsert por external_id para evitar duplicata com webhook)
-    // ignoreDuplicates: false → se webhook chegou primeiro, faz UPDATE e retorna a linha
-    // NOTA: o Supabase às vezes retorna null em `.single()` quando o upsert faz UPDATE
-    // (não INSERT). Nesse caso buscamos a linha explicitamente por external_id.
+    // Salvar mensagem enviada.
+    // Estratégia: INSERT direto. Se o webhook chegou antes (erro 23505 = duplicata),
+    // buscar a linha existente pelo external_id. Evita dependência de named constraint
+    // (o índice parcial WHERE external_id IS NOT NULL não funciona com onConflict no PostgREST).
+    const msgPayload = {
+      tenant_id: tenantId,
+      conversation_id: conversationId,
+      client_id: clientId,
+      external_id: messageId,   // ← ID da Evolution API = chave de dedup
+      direction: 'outbound' as const,
+      sender_name: 'Atendente',
+      sender_phone: null,
+      content,
+      type,
+      media_url: mediaUrl || null,
+      status: 'sent',
+      created_at: new Date().toISOString(),
+    };
+
     let { data: savedMessage, error: msgError } = await supabase
       .from('messages')
-      .upsert(
-        {
-          tenant_id: tenantId,
-          conversation_id: conversationId,
-          client_id: clientId,
-          external_id: messageId,   // ← ID da Evolution API = chave de dedup
-          direction: 'outbound',    // campo real no banco (não from_me)
-          sender_name: 'Atendente',
-          sender_phone: null,
-          content,
-          type,
-          media_url: mediaUrl || null,
-          status: 'sent',
-          created_at: new Date().toISOString(),
-        },
-        { onConflict: 'tenant_id,external_id', ignoreDuplicates: false }
-      )
+      .insert(msgPayload)
       .select()
       .single();
 
     if (msgError) {
-      console.error('[Send] Erro ao salvar mensagem:', msgError);
+      if (msgError.code === '23505') {
+        // Duplicata: webhook chegou antes → buscar linha existente
+        console.log(`[Send] Duplicata detectada (23505) — buscando por external_id: ${messageId}`);
+        const { data: fetched } = await supabase
+          .from('messages')
+          .select()
+          .eq('tenant_id', tenantId)
+          .eq('external_id', messageId)
+          .single();
+        if (fetched) savedMessage = fetched;
+      } else {
+        console.error('[Send] Erro ao salvar mensagem:', msgError);
+      }
     }
 
-    // Fallback: se o upsert fez UPDATE (webhook chegou antes) o Supabase pode retornar null.
-    // Buscar a linha pelo external_id para garantir que o front-end receba o id real.
+    // Fallback adicional: INSERT retornou null sem erro (caso raro)
     if (!savedMessage && !msgError) {
       const { data: fetched } = await supabase
         .from('messages')
@@ -184,7 +194,7 @@ export async function POST(request: NextRequest) {
         .single();
       if (fetched) {
         savedMessage = fetched;
-        console.log(`[Send] Upsert retornou null (webhook chegou primeiro) — buscado por external_id: ${messageId}`);
+        console.log(`[Send] INSERT retornou null — buscado por external_id: ${messageId}`);
       }
     }
 
