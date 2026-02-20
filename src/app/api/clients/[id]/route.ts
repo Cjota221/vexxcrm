@@ -145,22 +145,62 @@ export async function GET(
     // Se temos um client.id real, buscar pedidos diretamente
     if (client.id) {
       orders = await fetchOrdersWithItems([client.id]);
+      console.log(`[clients/${id}] Pedidos por client.id (${client.id}): ${orders.length}`);
     }
 
-    // Fallback: Se não encontrou pedidos mas temos phone_canonical,
-    // tentar buscar clientes com mesmo telefone que tenham pedidos
-    if (orders.length === 0 && client.phone_canonical) {
-      const { data: clientsWithSamePhone } = await supabase
-        .from('clients')
-        .select('id')
-        .eq('tenant_id', tenantId)
-        .eq('phone_canonical', client.phone_canonical);
+    // Fallback 1: buscar outros clientes com o mesmo telefone (duplicatas de importação)
+    if (orders.length === 0) {
+      const phone = client.phone_canonical || client.phone_normalized;
+      if (phone) {
+        const { data: clientsWithSamePhone } = await supabase
+          .from('clients')
+          .select('id')
+          .eq('tenant_id', tenantId)
+          .or(`phone_canonical.eq.${phone},phone_normalized.eq.${phone}`);
 
-      if (clientsWithSamePhone && clientsWithSamePhone.length > 0) {
-        const clientIds = clientsWithSamePhone.map((c: any) => c.id);
-        orders = await fetchOrdersWithItems(clientIds);
+        if (clientsWithSamePhone && clientsWithSamePhone.length > 0) {
+          const clientIds = clientsWithSamePhone.map((c: any) => c.id).filter((cid: string) => cid !== client.id);
+          if (clientIds.length > 0) {
+            orders = await fetchOrdersWithItems([client.id, ...clientIds]);
+            console.log(`[clients/${id}] Pedidos via telefone duplicado (${phone}): ${orders.length}`);
+          }
+        }
       }
     }
+
+    // Fallback 2: buscar pedidos pelo external_id do cliente (ID da loja)
+    if (orders.length === 0 && client.external_id) {
+      const { data: ordersExt } = await supabase
+        .from('orders')
+        .select(`id, external_id, order_number, status, payment_status, payment_method,
+          subtotal, discount, shipping, total, tracking_code, metadata,
+          created_at, client_id,
+          order_items(id, product_name, product_sku, quantity, unit_price, total_price, metadata)`)
+        .eq('tenant_id', tenantId)
+        .eq('external_client_id', client.external_id)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (ordersExt && ordersExt.length > 0) {
+        orders = ordersExt.map((o: any) => ({
+          ...o,
+          items: (o.order_items ?? []).map((item: any) => ({
+            product_name: item.product_name,
+            nome: item.product_name,
+            product_sku: item.product_sku,
+            quantity: item.quantity,
+            price: item.unit_price,
+            unit_price: item.unit_price,
+            total_price: item.total_price,
+            metadata: item.metadata,
+          })),
+          order_items: undefined,
+        }));
+        console.log(`[clients/${id}] Pedidos via external_client_id (${client.external_id}): ${orders.length}`);
+      }
+    }
+
+    console.log(`[clients/${id}] Total pedidos retornados: ${orders.length}`);
 
     return NextResponse.json({
       data: {

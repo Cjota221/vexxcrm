@@ -340,45 +340,84 @@ export class ContactCenterService {
 
     if (!product) throw new Error('Produto não encontrado');
 
+    // Buscar variações disponíveis nos order_items mais recentes deste produto
+    // As grades/numerações ficam em order_items.metadata.variacao
+    let variacoes: { nome: string; qtd: number }[] = [];
+    try {
+      const { data: recentItems } = await this.supabase
+        .from('order_items')
+        .select('metadata, quantity')
+        .eq('tenant_id', this.tenantId)
+        .or(`product_sku.eq.${product.sku || '__none__'},product_name.ilike.%${product.name}%`)
+        .order('created_at' as any, { ascending: false })
+        .limit(200);
+
+      if (recentItems && recentItems.length > 0) {
+        const varMap: Record<string, number> = {};
+        for (const item of recentItems) {
+          const meta = (item.metadata as Record<string, unknown>) || {};
+          const v = String(meta.variacao || meta.variation || '').trim();
+          if (v) {
+            varMap[v] = (varMap[v] || 0) + (Number(item.quantity) || 1);
+          }
+        }
+        // Ordenar numericamente se possível (33, 34, 35...) senão alfabético
+        variacoes = Object.entries(varMap)
+          .map(([nome, qtd]) => ({ nome, qtd }))
+          .sort((a, b) => {
+            const na = parseFloat(a.nome), nb = parseFloat(b.nome);
+            if (!isNaN(na) && !isNaN(nb)) return na - nb;
+            return a.nome.localeCompare(b.nome);
+          });
+      }
+    } catch {
+      // ignorar erro de variações — não impede o envio
+    }
+
     // Montar mensagem formatada estilo WhatsApp
     let message = '';
 
-    // Nome do produto em destaque
     if (product.chat_template) {
       message = product.chat_template;
     } else {
+      // Nome em destaque — SEM description para não poluir
       message = `🛍️ *${product.name}*`;
-      if (product.description) {
-        message += `\n\n${product.description}`;
+
+      // Preço
+      if (includePrice) {
+        const price = Number(product.price) || 0;
+        const compareAt = Number(product.compare_at_price) || 0;
+        if (compareAt > price && compareAt > 0) {
+          message += `\n\n💰 *R$ ${price.toFixed(2)}* ~~R$ ${compareAt.toFixed(2)}~~`;
+        } else if (price > 0) {
+          message += `\n\n💰 *R$ ${price.toFixed(2)}*`;
+        }
+      }
+
+      // Variações/grades com quantidade disponível
+      if (variacoes.length > 0) {
+        message += `\n\n📐 *Numerações disponíveis:*`;
+        for (const v of variacoes) {
+          message += `\n• ${v.nome}`;
+        }
+      } else if (product.stock !== null && product.stock !== undefined) {
+        // Fallback: estoque total
+        message += product.stock > 0
+          ? `\n\n📦 ${product.stock} unidades em estoque`
+          : `\n\n⚠️ Produto sem estoque no momento`;
+      }
+
+      // SKU
+      if (product.sku) {
+        message += `\n🏷️ Ref: ${product.sku}`;
       }
     }
 
-    // Preço
-    if (includePrice) {
-      const price = product.compare_at_price && product.compare_at_price > product.price
-        ? `\n\n💰 *R$ ${product.price.toFixed(2)}* ~R$ ${product.compare_at_price.toFixed(2)}~`
-        : `\n\n💰 *R$ ${product.price.toFixed(2)}*`;
-      message += price;
-    }
-
-    // Estoque
-    if (product.stock !== null && product.stock !== undefined) {
-      message += product.stock > 0
-        ? `\n📦 ${product.stock} em estoque`
-        : `\n⚠️ Produto esgotado`;
-    }
-
-    // SKU
-    if (product.sku) {
-      message += `\n🏷️ SKU: ${product.sku}`;
-    }
-
-    // Link direto do produto
+    // Link do produto
     if (includeLink) {
-      let productLink = product.checkout_url;
+      let productLink: string | null = product.checkout_url || null;
 
-      // Gerar link dinâmico se não tiver checkout_url
-      if (!productLink) {
+      if (!productLink && product.external_id) {
         // Buscar site_url do tenant
         const { data: tenant } = await this.supabase
           .from('tenants')
@@ -386,28 +425,27 @@ export class ContactCenterService {
           .eq('id', this.tenantId)
           .single();
 
-        const siteUrl = (tenant?.config as Record<string, unknown>)?.facilzap
-          ? ((tenant?.config as Record<string, unknown>)?.facilzap as Record<string, string>)?.site_url
+        const config = (tenant?.config as Record<string, unknown>) || {};
+        const facilzapConfig = config.facilzap as Record<string, string> | undefined;
+        const siteUrl = facilzapConfig?.site_url
+          ? facilzapConfig.site_url.replace(/\/$/, '')
           : null;
 
         if (siteUrl) {
-          // Construir link baseado no external_id (FacilZap) ou slug/id
-          const productSlug = product.external_id || product.id;
-          productLink = `${siteUrl}/produto/${productSlug}`;
+          // Formato da URL da loja FacilZap: /c/atacado/produto/{external_id}
+          productLink = `${siteUrl}/c/atacado/produto/${product.external_id}`;
         }
       }
 
       if (productLink) {
-        message += `\n\n🛒 *Comprar agora:*\n${productLink}`;
+        message += `\n\n🛒 *Ver produto:*\n${productLink}`;
       }
     }
 
     // Registrar envio
     await this.supabase
       .from('products')
-      .update({
-        chat_send_count: (product.chat_send_count || 0) + 1,
-      })
+      .update({ chat_send_count: (product.chat_send_count || 0) + 1 })
       .eq('id', productId);
 
     return message;

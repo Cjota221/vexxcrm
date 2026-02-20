@@ -33,20 +33,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Buscar template
+    // Buscar template na tabela correta (message_templates)
     const { data: template, error: tplErr } = await supabase
-      .from('composite_templates')
+      .from('message_templates')
       .select('*')
       .eq('id', templateId)
       .eq('tenant_id', tenantId)
+      .eq('status', 'ativo')
       .single();
 
     if (tplErr || !template) {
+      console.error('[templates/send] Template não encontrado:', templateId, tplErr?.message);
       return NextResponse.json({ error: 'Template não encontrado' }, { status: 404 });
     }
 
     const phoneNormalized = PhoneNormalizer.canonical(to);
-    const blocks: TemplateBlock[] = (template.blocks as TemplateBlock[])
+    // message_templates usa campo `blocos` (não `blocks`)
+    const rawBlocks = (template.blocos ?? template.blocks ?? []) as Array<Record<string, unknown>>;
+    const blocks: TemplateBlock[] = rawBlocks
+      .map((b, i) => ({
+        id: (b.id as string) ?? String(i),
+        type: (b.type ?? b.tipo ?? 'text') as TemplateBlock['type'],
+        order: (b.order as number) ?? i,
+        content: (b.content ?? b.conteudo ?? b.texto) as string | undefined,
+        media_url: (b.media_url ?? b.url) as string | undefined,
+        image_url: (b.image_url) as string | undefined,
+        media_caption: (b.media_caption ?? b.caption ?? b.legenda) as string | undefined,
+        image_caption: (b.image_caption) as string | undefined,
+        link_url: (b.link_url ?? b.url) as string | undefined,
+        link_title: (b.link_title ?? b.titulo) as string | undefined,
+        cta_url: (b.cta_url) as string | undefined,
+        cta_label: (b.cta_label) as string | undefined,
+        delay_ms: (b.delay_ms as number) ?? undefined,
+      } as TemplateBlock))
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
     // Substituir variáveis: {{nome}} → valor
