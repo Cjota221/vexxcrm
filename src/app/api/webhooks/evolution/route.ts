@@ -620,7 +620,14 @@ async function triggerHistoricalSync(
 
       const shouldUpdateAvatar = !existingForAvatar?.avatar_url && !!chat.profilePicUrl;
 
-      const { data: client } = await supabase
+      console.log(
+        `[HistoricalSync][${phoneNormalized}] ` +
+        `avatar_banco=${existingForAvatar?.avatar_url ? existingForAvatar.avatar_url.substring(0, 50) : 'null'} | ` +
+        `profilePicUrl=${chat.profilePicUrl ? chat.profilePicUrl.substring(0, 50) : 'null'} | ` +
+        `shouldUpdateAvatar=${shouldUpdateAvatar}`
+      );
+
+      const { data: client, error: upsertErr } = await supabase
         .from('clients')
         .upsert(
           { 
@@ -634,6 +641,12 @@ async function triggerHistoricalSync(
         )
         .select('id')
         .single();
+
+      if (upsertErr) {
+        console.error(`[HistoricalSync][${phoneNormalized}] ❌ Erro upsert: ${upsertErr.message}`);
+      } else {
+        console.log(`[HistoricalSync][${phoneNormalized}] ✅ Upsert OK — client.id: ${client?.id}`);
+      }
 
       if (!client) continue;
       totalClients++;

@@ -108,17 +108,36 @@ export async function POST(request: NextRequest) {
 
       await Promise.all(
         batch.map(async (client) => {
+          const TAG = `[SyncAvatars][${client.id.slice(0, 8)}][${client.phone_normalized || client.phone}]`;
           try {
             const phone = client.phone_normalized || PhoneNormalizer.canonical(client.phone || '');
-            if (!phone || phone.length < 8) { failed++; return; }
+            if (!phone || phone.length < 8) {
+              console.warn(`${TAG} ❌ Telefone inválido: "${phone}" — pulando`);
+              failed++; return;
+            }
+
+            const jid = `${phone}@s.whatsapp.net`;
+            console.log(`${TAG} avatar_atual: ${client.avatar_url ? client.avatar_url.substring(0, 60) : 'null'}`);
+            console.log(`${TAG} Buscando foto via Evolution API para JID: ${jid}`);
 
             // 1. Buscar URL atual da foto via Evolution API
-            const rawPicUrl = await fetchProfilePicUrl(config, `${phone}@s.whatsapp.net`);
-            if (!rawPicUrl) { failed++; return; }
+            const rawPicUrl = await fetchProfilePicUrl(config, jid);
+            console.log(`${TAG} rawPicUrl da Evolution: ${rawPicUrl ? rawPicUrl.substring(0, 80) : 'null (sem foto)'}`);
+
+            if (!rawPicUrl) {
+              console.warn(`${TAG} ❌ Evolution API não retornou foto — failed++`);
+              failed++; return;
+            }
 
             // 2. Fazer cache permanente no Supabase Storage
+            console.log(`${TAG} Iniciando downloadAndCacheAvatar...`);
             const permanentUrl = await downloadAndCacheAvatar(supabase, tenantId, client.id, rawPicUrl);
-            if (!permanentUrl) { failed++; return; }
+            console.log(`${TAG} permanentUrl: ${permanentUrl ? permanentUrl.substring(0, 80) : 'null (upload falhou)'}`);
+
+            if (!permanentUrl) {
+              console.warn(`${TAG} ❌ Download/upload para Storage falhou — failed++`);
+              failed++; return;
+            }
 
             // 3. Salvar URL permanente no banco
             const { error: updateErr } = await supabase
@@ -128,13 +147,14 @@ export async function POST(request: NextRequest) {
               .eq('tenant_id', tenantId);
 
             if (updateErr) {
-              console.warn(`[SyncAvatars] Erro update cliente ${client.id}:`, updateErr.message);
+              console.error(`${TAG} ❌ Erro ao salvar no banco: ${updateErr.message}`);
               failed++;
             } else {
+              console.log(`${TAG} ✅ avatar_url atualizado com sucesso no banco`);
               updated++;
             }
           } catch (err) {
-            console.warn(`[SyncAvatars] Erro cliente ${client.id}:`, err);
+            console.error(`[SyncAvatars][${client.id}] ❌ Exceção: ${err instanceof Error ? err.message : err}`);
             failed++;
           }
         })
@@ -177,30 +197,45 @@ async function downloadAndCacheAvatar(
   clientId: string,
   picUrl: string
 ): Promise<string | null> {
+  const TAG = `[DownloadCache][${clientId.slice(0, 8)}]`;
+
   // URL do Storage já é permanente — não reprocessar
-  if (picUrl.includes('supabase.co/storage')) return picUrl;
+  if (picUrl.includes('supabase.co/storage')) {
+    console.log(`${TAG} URL já é do Storage — pulando download`);
+    return picUrl;
+  }
 
   try {
+    console.log(`${TAG} Fazendo fetch: ${picUrl.substring(0, 80)}`);
     const res = await fetch(picUrl, { redirect: 'follow' });
-    if (!res.ok) return null;
+    console.log(`${TAG} HTTP status: ${res.status} ${res.statusText}`);
+
+    if (!res.ok) {
+      console.warn(`${TAG} ❌ Fetch falhou (${res.status}) — retornando null`);
+      return null;
+    }
 
     const buffer = Buffer.from(await res.arrayBuffer());
     const contentType = res.headers.get('content-type') || 'image/jpeg';
     const ext = contentType.includes('png') ? 'png' : 'jpg';
     const path = `${tenantId}/clients/${clientId}.${ext}`;
 
+    console.log(`${TAG} Upload para Storage: avatars/${path} — ${buffer.byteLength} bytes (${contentType})`);
+
     const { error: uploadError } = await supabase.storage
       .from('avatars')
       .upload(path, buffer, { contentType, upsert: true });
 
     if (uploadError) {
-      console.warn(`[SyncAvatars] Upload Storage falhou (${path}):`, uploadError.message);
+      console.error(`${TAG} ❌ Upload falhou: ${uploadError.message} — retornando null`);
       return null;
     }
 
     const { data: pub } = supabase.storage.from('avatars').getPublicUrl(path);
+    console.log(`${TAG} ✅ Upload OK — publicUrl: ${pub.publicUrl?.substring(0, 80)}`);
     return pub.publicUrl || null;
-  } catch {
+  } catch (err) {
+    console.error(`${TAG} ❌ Exceção: ${err instanceof Error ? err.message : err} — retornando null`);
     return null;
   }
 }

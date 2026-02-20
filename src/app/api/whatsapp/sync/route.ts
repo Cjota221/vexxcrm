@@ -146,25 +146,43 @@ async function cacheProfilePic(
   tenantId: string,
   clientId: string,
   picUrl: string
-): Promise<string> {
+): Promise<string | null> {
+  const TAG = `[CacheProfilePic][${clientId.slice(0, 8)}]`;
+  console.log(`${TAG} Iniciando download: ${picUrl.substring(0, 80)}...`);
+
   try {
     const res = await fetch(picUrl, { redirect: 'follow' });
-    if (!res.ok) return picUrl;
+    console.log(`${TAG} HTTP status do download: ${res.status} ${res.statusText}`);
+
+    if (!res.ok) {
+      console.warn(`${TAG} ❌ Download falhou (status ${res.status}) — abortando, NÃO salvando URL temporária`);
+      return null; // NUNCA retornar URL temporária como fallback
+    }
 
     const buffer = Buffer.from(await res.arrayBuffer());
     const contentType = res.headers.get('content-type') || 'image/jpeg';
     const ext = contentType.includes('png') ? 'png' : 'jpg';
     const path = `${tenantId}/clients/${clientId}.${ext}`;
 
-    await supabase.storage.from('avatars').upload(path, buffer, {
+    console.log(`${TAG} Fazendo upload para Storage: avatars/${path} (${buffer.byteLength} bytes, ${contentType})`);
+
+    const { error: uploadErr } = await supabase.storage.from('avatars').upload(path, buffer, {
       contentType,
       upsert: true,
     });
 
+    if (uploadErr) {
+      console.error(`${TAG} ❌ Upload falhou: ${uploadErr.message} — abortando, NÃO salvando URL temporária`);
+      return null; // NUNCA retornar URL temporária como fallback
+    }
+
     const { data: pub } = supabase.storage.from('avatars').getPublicUrl(path);
-    return pub.publicUrl || picUrl;
-  } catch {
-    return picUrl; // fallback: URL temporária do WhatsApp
+    const permanentUrl = pub.publicUrl || null;
+    console.log(`${TAG} ✅ Upload OK — URL permanente: ${permanentUrl?.substring(0, 80)}`);
+    return permanentUrl;
+  } catch (err) {
+    console.error(`${TAG} ❌ Exceção: ${err instanceof Error ? err.message : err} — abortando, NÃO salvando URL temporária`);
+    return null; // NUNCA retornar URL temporária como fallback
   }
 }
 
@@ -214,13 +232,21 @@ async function syncOneChat(
 
   // 1a. Buscar foto de perfil — só se o cliente ainda não tiver uma (não-bloqueante)
   let avatarUrl: string | null = existingClient?.avatar_url || null;
+  console.log(`[SyncChat][${phoneNormalized}] avatar_url no banco: ${avatarUrl ? avatarUrl.substring(0, 60) : 'null'}`);
+
   if (!avatarUrl) {
     const rawPic = chat.profilePicUrl || await fetchProfilePicUrl(config, jid).catch(() => null);
+    console.log(`[SyncChat][${phoneNormalized}] rawPic da Evolution: ${rawPic ? rawPic.substring(0, 60) : 'null'}`);
+
     if (rawPic) {
       // Usar ID existente ou gerar placeholder para cache
       const clientIdForCache = existingClient?.id || crypto.randomUUID();
+      console.log(`[SyncChat][${phoneNormalized}] Iniciando cacheProfilePic para clientId: ${clientIdForCache}`);
       avatarUrl = await cacheProfilePic(supabase, tenantId, clientIdForCache, rawPic);
+      console.log(`[SyncChat][${phoneNormalized}] avatarUrl após cache: ${avatarUrl ? avatarUrl.substring(0, 60) : 'null (não salvar no banco)'}`);
     }
+  } else {
+    console.log(`[SyncChat][${phoneNormalized}] ✅ Cliente já tem avatar permanente — pulando fetch`);
   }
 
   // 2. Verificar pedidos vinculados ao cliente
@@ -271,6 +297,9 @@ async function syncOneChat(
   };
   if (avatarUrl) {
     upsertData.avatar_url = avatarUrl;
+    console.log(`[SyncChat][${phoneNormalized}] 📸 Incluindo avatar_url no upsert: ${avatarUrl.substring(0, 60)}`);
+  } else {
+    console.log(`[SyncChat][${phoneNormalized}] ⏭️ Sem avatar_url para salvar no upsert`);
   }
 
   // Colunas opcionais — só incluir se a migration 011 foi aplicada
@@ -293,8 +322,11 @@ async function syncOneChat(
     .single();
 
   if (clientErr || !client) {
+    console.error(`[SyncChat][${phoneNormalized}] ❌ Erro no upsert: ${clientErr?.message}`);
     throw new Error(`Erro ao upsert cliente ${phone}: ${clientErr?.message}`);
   }
+
+  console.log(`[SyncChat][${phoneNormalized}] ✅ Upsert OK — client.id: ${client.id}`);
 
   // Detectar se cliente foi criado agora (created_at nos últimos 5 segundos)
   const clientCreated = (Date.now() - new Date(client.created_at).getTime()) < 5000;
