@@ -71,7 +71,7 @@ export function MediaMessage({
         >
           {/* Skeleton */}
           {!loaded && !imgError && (
-            <div className="w-[280px] h-[200px] bg-gray-200 animate-pulse rounded-xl" />
+            <div className="w-70 h-50 bg-gray-200 animate-pulse rounded-xl" />
           )}
 
           {imgError ? (
@@ -109,7 +109,7 @@ export function MediaMessage({
         </div>
 
         {caption && (
-          <p className={cn('text-[13px] mt-1.5 max-w-[280px] break-words leading-relaxed',
+          <p className={cn('text-[13px] mt-1.5 max-w-70 wrap-break-word leading-relaxed',
             isFromMe ? 'text-[#111b21]' : 'text-[#111B21]'
           )}>
             {caption}
@@ -143,7 +143,7 @@ export function MediaMessage({
         Seu navegador não suporta vídeo.
       </video>
       {caption && (
-        <p className={cn('text-[13px] mt-1 break-words', isFromMe ? 'text-[#111b21]' : 'text-[#111B21]')}>
+        <p className={cn('text-[13px] mt-1 wrap-break-word', isFromMe ? 'text-[#111b21]' : 'text-[#111B21]')}>
           {caption}
         </p>
       )}
@@ -191,14 +191,14 @@ export function DocumentMessage({ url, fileName, mimeType, isFromMe = false }: D
       target="_blank"
       rel="noopener noreferrer"
       className={cn(
-        'flex items-center gap-3 rounded-xl px-3 py-2.5 max-w-[260px]',
+        'flex items-center gap-3 rounded-xl px-3 py-2.5 max-w-65',
         'transition-colors',
         isFromMe
           ? 'bg-black/5 hover:bg-black/10'
           : 'bg-white border border-gray-100 shadow-sm hover:bg-gray-50',
       )}
     >
-      <div className={cn('flex-shrink-0', iconColor)}>
+      <div className={cn('shrink-0', iconColor)}>
         <IconComponent size={28} />
       </div>
       <div className="min-w-0">
