@@ -609,7 +609,17 @@ async function triggerHistoricalSync(
       const phoneDisplay = PhoneNormalizer.normalize(phone);
       const pushName = chat.pushName || chat.lastMessage?.pushName || phoneDisplay;
 
-      // Upsert cliente
+      // Upsert cliente — NUNCA sobrescrever avatar_url que já existe no banco
+      // (URLs do WhatsApp são temporárias; só o sync-avatars/cacheProfilePic salva URLs permanentes)
+      const { data: existingForAvatar } = await supabase
+        .from('clients')
+        .select('id, avatar_url')
+        .eq('tenant_id', tenantId)
+        .eq('phone_normalized', phoneNormalized)
+        .maybeSingle();
+
+      const shouldUpdateAvatar = !existingForAvatar?.avatar_url && !!chat.profilePicUrl;
+
       const { data: client } = await supabase
         .from('clients')
         .upsert(
@@ -618,7 +628,7 @@ async function triggerHistoricalSync(
             phone: phoneDisplay, 
             phone_normalized: phoneNormalized, 
             name: pushName,
-            avatar_url: chat.profilePicUrl || null,
+            ...(shouldUpdateAvatar ? { avatar_url: chat.profilePicUrl } : {}),
           },
           { onConflict: 'tenant_id,phone_normalized', ignoreDuplicates: false }
         )
