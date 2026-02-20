@@ -62,6 +62,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Guardar: se a Evolution API não retornou ID, gerar um ID local temporário.
+    // Sem external_id válido, a deduplicação com o webhook falha e a mensagem fica
+    // duplicada no banco. O ID temporário garante que o upsert salva e o webhook
+    // atualiza via external_id quando chegar.
+    if (!messageId) {
+      messageId = `local_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+      console.warn(`[Send] Evolution API não retornou messageId — usando ID temporário: ${messageId}`);
+    }
+
     // Salvar mensagem no banco de dados
     const supabase = createServerSupabaseClient();
 

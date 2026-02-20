@@ -318,7 +318,21 @@ export async function sendTextMessage(
   }
 
   const data = await safeJson(response, 'Enviar texto');
-  return data.key?.id || '';
+
+  // A Evolution API pode retornar o ID da mensagem em diferentes caminhos
+  // dependendo da versão: data.key.id, data.message.key.id, data.id, etc.
+  const messageId =
+    data?.key?.id ||
+    data?.message?.key?.id ||
+    data?.data?.key?.id ||
+    data?.id ||
+    '';
+
+  if (!messageId) {
+    console.warn('[Evolution] sendTextMessage retornou sem messageId. Resposta:', JSON.stringify(data).substring(0, 200));
+  }
+
+  return messageId;
 }
 
 /**
@@ -354,7 +368,20 @@ export async function sendMediaMessage(
   }
 
   const data = await safeJson(response, 'Enviar mídia');
-  return data.key?.id || '';
+
+  // A Evolution API pode retornar o ID da mensagem em diferentes caminhos
+  const messageId =
+    data?.key?.id ||
+    data?.message?.key?.id ||
+    data?.data?.key?.id ||
+    data?.id ||
+    '';
+
+  if (!messageId) {
+    console.warn('[Evolution] sendMediaMessage retornou sem messageId. Resposta:', JSON.stringify(data).substring(0, 200));
+  }
+
+  return messageId;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
