@@ -51,17 +51,17 @@ export function MessageBubble({ message }: MessageBubbleProps) {
     if (!isFromMe) return null;
     switch (message.status) {
       case 'pending':
-        return <Clock size={12} className="text-white/40" />;
+        return <Clock size={12} className="text-[#111b21]/30" />;
       case 'sent':
-        return <Check size={14} className="text-white/60" />;
+        return <Check size={14} className="text-[#111b21]/50" />;
       case 'delivered':
-        return <CheckCheck size={14} className="text-white/60" />;
+        return <CheckCheck size={14} className="text-[#111b21]/50" />;
       case 'read':
-        return <CheckCheck size={14} className="text-sky-300" />;
+        return <CheckCheck size={14} className="text-[#00a884]" />;
       case 'failed':
-        return <AlertCircle size={13} className="text-red-300" />;
+        return <AlertCircle size={13} className="text-red-500" />;
       default:
-        return <Clock size={12} className="text-white/40" />;
+        return <Clock size={12} className="text-[#111b21]/30" />;
     }
   };
 
@@ -76,7 +76,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         className={cn(
           'max-w-[65%] px-3 py-2 rounded-bubble relative',
           isFromMe
-            ? 'bg-wa-bubble-out text-white rounded-tr-sm'
+            ? 'bg-wa-bubble-out text-wa-text-bubble rounded-tr-sm'
             : 'bg-wa-bubble-in text-wa-text-primary rounded-tl-sm'
         )}
       >
@@ -96,7 +96,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
               <div className={cn(
                 'mt-1.5 p-2 rounded-lg text-[11px] leading-relaxed',
                 isFromMe
-                  ? 'bg-white/10 text-white/80'
+                  ? 'bg-black/5 text-[#111b21]/80'
                   : 'bg-black/5 text-wa-text-secondary'
               )}>
                 <div className="flex items-center gap-1 mb-0.5 opacity-70">
@@ -126,7 +126,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
               <div className={cn(
                 'mt-1.5 p-2 rounded-lg text-[11px] leading-relaxed',
                 isFromMe
-                  ? 'bg-white/10 text-white/80'
+                  ? 'bg-black/5 text-[#111b21]/80'
                   : 'bg-black/5 text-wa-text-secondary'
               )}>
                 <div className="flex items-center gap-1 mb-0.5 opacity-70">
@@ -189,7 +189,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         )}>
           <span className={cn(
             'text-[11px]',
-            isFromMe ? 'text-white/50' : 'text-wa-text-secondary'
+            isFromMe ? 'text-wa-text-time' : 'text-wa-text-secondary'
           )}>
             {formatTime(message.timestamp)}
           </span>

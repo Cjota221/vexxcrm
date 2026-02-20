@@ -93,7 +93,7 @@ export function MediaMessage({
 
         {caption && (
           <p className={cn('text-[13px] mt-1.5 max-w-[280px] break-words leading-relaxed',
-            isFromMe ? 'text-white/90' : 'text-[#111B21]'
+            isFromMe ? 'text-[#111b21]' : 'text-[#111B21]'
           )}>
             {caption}
           </p>
@@ -126,7 +126,7 @@ export function MediaMessage({
         Seu navegador não suporta vídeo.
       </video>
       {caption && (
-        <p className={cn('text-[13px] mt-1 break-words', isFromMe ? 'text-white/90' : 'text-[#111B21]')}>
+        <p className={cn('text-[13px] mt-1 break-words', isFromMe ? 'text-[#111b21]' : 'text-[#111B21]')}>
           {caption}
         </p>
       )}
@@ -177,7 +177,7 @@ export function DocumentMessage({ url, fileName, mimeType, isFromMe = false }: D
         'flex items-center gap-3 rounded-xl px-3 py-2.5 max-w-[260px]',
         'transition-colors',
         isFromMe
-          ? 'bg-white/15 hover:bg-white/25'
+          ? 'bg-black/5 hover:bg-black/10'
           : 'bg-white border border-gray-100 shadow-sm hover:bg-gray-50',
       )}
     >
@@ -186,15 +186,15 @@ export function DocumentMessage({ url, fileName, mimeType, isFromMe = false }: D
       </div>
       <div className="min-w-0">
         <p className={cn('text-[13px] font-medium truncate',
-          isFromMe ? 'text-white' : 'text-[#111B21]'
+          isFromMe ? 'text-[#111b21]' : 'text-[#111B21]'
         )}>
           {fileName ?? 'Documento'}
         </p>
-        <p className={cn('text-[11px]', isFromMe ? 'text-white/60' : 'text-gray-400')}>
+        <p className={cn('text-[11px]', isFromMe ? 'text-[#667781]' : 'text-gray-400')}>
           {ext} · Toque para abrir
         </p>
       </div>
-      <DownloadIcon size={14} className={isFromMe ? 'text-white/50' : 'text-gray-400'} />
+      <DownloadIcon size={14} className={isFromMe ? 'text-[#667781]' : 'text-gray-400'} />
     </a>
   );
 }

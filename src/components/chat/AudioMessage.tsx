@@ -95,7 +95,7 @@ export function AudioMessage({ url, duration, isFromMe = false }: AudioMessagePr
         'flex items-center gap-2.5 rounded-full px-3 py-2 select-none',
         'border',
         isFromMe
-          ? 'bg-white/15 border-white/10'
+          ? 'bg-[#c8f5be] border-[#a8e6a0]'
           : 'bg-white border-gray-100 shadow-sm',
       )}
       style={{ minWidth: 210, maxWidth: 260 }}
@@ -111,7 +111,7 @@ export function AudioMessage({ url, duration, isFromMe = false }: AudioMessagePr
           error
             ? 'bg-gray-300 cursor-not-allowed'
             : isFromMe
-              ? 'bg-white/30 hover:bg-white/50 text-white'
+              ? 'bg-[#00a884] hover:bg-[#008c70] text-white'
               : 'bg-[#25D366] hover:bg-[#1db954] text-white',
         )}
       >
@@ -143,8 +143,8 @@ export function AudioMessage({ url, duration, isFromMe = false }: AudioMessagePr
               className={cn(
                 'flex-1 rounded-full transition-colors duration-75',
                 active
-                  ? isFromMe ? 'bg-white/80' : 'bg-[#25D366]'
-                  : isFromMe ? 'bg-white/30' : 'bg-gray-300',
+                  ? isFromMe ? 'bg-[#00a884]' : 'bg-[#25D366]'
+                  : isFromMe ? 'bg-[#111b21]/20' : 'bg-gray-300',
               )}
               style={{ height: h }}
             />
@@ -156,7 +156,7 @@ export function AudioMessage({ url, duration, isFromMe = false }: AudioMessagePr
       <span
         className={cn(
           'text-[11px] flex-shrink-0 w-9 text-right tabular-nums',
-          isFromMe ? 'text-white/70' : 'text-gray-500',
+          isFromMe ? 'text-[#667781]' : 'text-gray-500',
         )}
       >
         {error ? 'Erro' : formatTime(isPlaying ? currentTime : totalDuration)}
