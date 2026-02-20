@@ -1,68 +1,28 @@
 'use client';
 
-import { useRef, useEffect, useMemo, useState, useCallback } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { MessageCircle, Loader2 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMessages, useSendMessage } from '@/hooks/useWhatsApp';
 import { useChatsStore } from '@/store/chats';
-import { MessageBubble } from './MessageBubble';
+import { VirtualizedMessageList } from './VirtualizedMessageList';
 import { MessageInput } from './MessageInput';
-import { getInitials, getAvatarColor } from '@/lib/utils';
 import { AvatarImage } from '@/components/ui/AvatarImage';
 import { api } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import type { Chat } from '@/types';
-import type { Message, MessageType } from '@/types';
+import type { MessageType } from '@/types';
 
 /**
  * Área principal do chat — mensagens + input.
  * Resolve identidade do cliente via API + cache.
  */
 export function ChatArea() {
-  const { selectedChatId, activeFilter } = useChatsStore();
-  const { data: messages = [], isLoading, isFetching, refetch } = useMessages(selectedChatId);
+  const { selectedChatId } = useChatsStore();
+  const { data: messages = [], isLoading, isFetching } = useMessages(selectedChatId);
   const { mutate: sendMessage, isPending: isSending } = useSendMessage();
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
-  const [isSyncing, setIsSyncing] = useState(false);
-
-  // ── Supabase Realtime — fallback garantido para mensagens novas ──
-  // Assina a tabela `messages` filtrando pelo client_id selecionado.
-  // Isso garante que mesmo quando o SSE cai, as mensagens chegam.
-  useEffect(() => {
-    if (!selectedChatId) return;
-
-    const channel = supabase
-      .channel(`chat-messages-${selectedChatId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `client_id=eq.${selectedChatId}`,
-        },
-        () => {
-          // Nova mensagem detectada — invalidar e refetch imediato
-          setIsSyncing(true);
-          queryClient.invalidateQueries({ queryKey: ['messages', selectedChatId] });
-          queryClient.invalidateQueries({ queryKey: ['chats'] });
-          setTimeout(() => setIsSyncing(false), 1200);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [selectedChatId, queryClient]);
-
-  // Forçar refetch ao trocar de chat
-  useEffect(() => {
-    if (selectedChatId) {
-      refetch();
-    }
-  }, [selectedChatId, refetch]);
+  const [isSyncing] = useState(false);
 
   // Buscar dados do cliente selecionado via API (resolve por ID, telefone ou conversa)
   const { data: clientInfo } = useQuery({
@@ -110,11 +70,6 @@ export function ChatArea() {
     };
   }, [clientInfo, cachedChat]);
 
-  // Auto scroll
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
   // Resolver o telefone do cliente com fallback: clientData > cachedChat > selectedChatId
   const resolvedPhone = clientData?.phone
     || cachedChat?.client?.phone
@@ -129,23 +84,6 @@ export function ChatArea() {
       alert('Número do cliente ainda não carregado. Aguarde um momento e tente novamente.');
       return;
     }
-
-    // Optimistic update: inserir mensagem localmente para aparecer imediatamente
-    const optimisticMsg: Message = {
-      id: `temp-${Date.now()}`,
-      tenant_id: '',
-      client_id: selectedChatId,
-      remote_jid: '',
-      message_id: '',
-      from_me: true,
-      content,
-      type: 'text',
-      timestamp: new Date().toISOString(),
-      status: 'pending',
-      created_at: new Date().toISOString(),
-    };
-
-    queryClient.setQueryData<Message[]>(['messages', selectedChatId], (old = []) => [...old, optimisticMsg]);
 
     sendMessage({
       to: resolvedPhone,
@@ -192,25 +130,7 @@ export function ChatArea() {
       else if (mimeType.startsWith('video/')) mediaType = 'video';
       else if (mimeType.startsWith('audio/')) mediaType = 'audio';
 
-      // 3. Optimistic update: inserir mensagem localmente para aparecer imediatamente
-      const optimisticMedia: Message = {
-        id: `temp-media-${Date.now()}`,
-        tenant_id: '',
-        client_id: selectedChatId,
-        remote_jid: '',
-        message_id: '',
-        from_me: true,
-        content: caption || file.name,
-        type: mediaType,
-        media_url: url,
-        timestamp: new Date().toISOString(),
-        status: 'pending',
-        created_at: new Date().toISOString(),
-      };
-
-      queryClient.setQueryData<Message[]>(['messages', selectedChatId], (old = []) => [...old, optimisticMedia]);
-
-      // 4. Enviar via WhatsApp
+      // 3. Enviar via WhatsApp (useSendMessage faz o optimistic UI)
       sendMessage({
         to: resolvedPhone,
         content: caption || file.name,
@@ -268,28 +188,21 @@ export function ChatArea() {
         )}
       </div>
 
-      {/* Messages area */}
-      <div className="flex-1 overflow-y-auto wa-chat-bg wa-scrollbar px-4 py-3">
-        {isLoading ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3">
-            <Loader2 size={28} className="animate-spin text-wa-accent-green/60" />
-            <p className="text-xs text-wa-text-secondary">Carregando mensagens…</p>
-          </div>
-        ) : messages.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-sm text-wa-text-secondary bg-wa-bg-panel/80 px-4 py-2 rounded-lg">
-              Início da conversa
-            </p>
-          </div>
-        ) : (
-          <>
-            {messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} />
-            ))}
-            <div ref={messagesEndRef} />
-          </>
-        )}
-      </div>
+      {/* Messages area — virtualizada */}
+      {isLoading ? (
+        <div className="flex-1 flex flex-col items-center justify-center bg-wa-bg-conversation gap-3">
+          <Loader2 size={28} className="animate-spin text-wa-accent-green/60" />
+          <p className="text-xs text-wa-text-secondary">Carregando mensagens…</p>
+        </div>
+      ) : messages.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center bg-wa-bg-conversation">
+          <p className="text-sm text-wa-text-secondary bg-wa-bg-panel/80 px-4 py-2 rounded-lg">
+            Início da conversa
+          </p>
+        </div>
+      ) : (
+        <VirtualizedMessageList messages={messages} autoScroll />
+      )}
 
       {/* Message input */}
       <MessageInput onSend={handleSend} onSendMedia={handleSendMedia} isLoading={isSending} disabled={!resolvedPhone} recipientPhone={resolvedPhone || undefined} />

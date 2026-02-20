@@ -1,10 +1,13 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { formatTime } from '@/lib/utils';
-import { Check, CheckCheck, Mic, Eye, ImageOff, RefreshCw, Download } from 'lucide-react';
+import { Check, CheckCheck, Mic, Eye, AlertCircle, Clock } from 'lucide-react';
 import { api } from '@/lib/api';
+import { parseMessageContent } from '@/lib/message-parser';
+import { AudioMessage } from './AudioMessage';
+import { MediaMessage, DocumentMessage } from './MediaMessage';
 import type { Message } from '@/types';
 
 interface MessageBubbleProps {
@@ -22,18 +25,11 @@ export function MessageBubble({ message }: MessageBubbleProps) {
   const transcription = metadata?.transcription as string | undefined;
   const aiDescription = metadata?.ai_description as string | undefined;
   const aiProcessed = metadata?.ai_processed as boolean | undefined;
-  const [mediaError, setMediaError] = useState(false);
   const [isRedownloading, setIsRedownloading] = useState(false);
   const [fixedUrl, setFixedUrl] = useState<string | null>(null);
-  // Garante que o auto-redownload seja tentado apenas 1x por montagem do componente
-  const redownloadAttempted = useRef(false);
 
   const currentMediaUrl = fixedUrl || message.media_url;
 
-  /**
-   * Tenta re-baixar a mídia expirada via Evolution API → Supabase Storage.
-   * Chamado manualmente pelo botão de retry.
-   */
   const handleRedownload = useCallback(async () => {
     if (isRedownloading) return;
     setIsRedownloading(true);
@@ -41,18 +37,9 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       const response = await api.post<{ data: { media_url: string } }>('/api/media/redownload', {
         messageId: message.id,
       });
-
-      if (response.error) {
-        console.warn('[MessageBubble] Re-download falhou:', response.error);
-        return;
-      }
-
+      if (response.error) { console.warn('[MessageBubble] Re-download falhou:', response.error); return; }
       const newUrl = (response.data as any)?.data?.media_url || (response.data as any)?.media_url;
-      if (newUrl) {
-        setFixedUrl(newUrl);
-        setMediaError(false);
-        redownloadAttempted.current = false; // reset para permitir re-tentativa manual
-      }
+      if (newUrl) setFixedUrl(newUrl);
     } catch (err) {
       console.warn('[MessageBubble] Erro no re-download:', err);
     } finally {
@@ -60,18 +47,11 @@ export function MessageBubble({ message }: MessageBubbleProps) {
     }
   }, [message.id, isRedownloading]);
 
-  /**
-   * Ao detectar erro de carregamento de mídia (403 URL expirada),
-   * apenas exibe o fallback com botão de re-download manual.
-   * NÃO faz tentativa automática para evitar spam de requests.
-   */
-  const handleMediaError = useCallback(() => {
-    setMediaError(true);
-  }, []);
-
   const statusIcon = () => {
     if (!isFromMe) return null;
     switch (message.status) {
+      case 'pending':
+        return <Clock size={12} className="text-white/40" />;
       case 'sent':
         return <Check size={14} className="text-white/60" />;
       case 'delivered':
@@ -79,9 +59,9 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       case 'read':
         return <CheckCheck size={14} className="text-sky-300" />;
       case 'failed':
-        return <span className="text-[10px] text-red-300">!</span>;
+        return <AlertCircle size={13} className="text-red-300" />;
       default:
-        return null;
+        return <Clock size={12} className="text-white/40" />;
     }
   };
 
@@ -94,33 +74,23 @@ export function MessageBubble({ message }: MessageBubbleProps) {
     >
       <div
         className={cn(
-          'max-w-[65%] px-3 py-2 rounded-bubble relative shadow-sm',
+          'max-w-[65%] px-3 py-2 rounded-bubble relative',
           isFromMe
-            ? 'bg-wa-bubble-out text-[#111b21] rounded-tr-sm'
-            : 'bg-wa-bubble-in text-[#111b21] rounded-tl-sm border border-gray-100'
+            ? 'bg-wa-bubble-out text-white rounded-tr-sm'
+            : 'bg-wa-bubble-in text-wa-text-primary rounded-tl-sm'
         )}
       >
-        {/* Media content — Imagem */}
+      {/* Media content — Imagem */}
         {message.type === 'image' && (
-          <div className="mb-1">
-            {!currentMediaUrl || mediaError ? (
-              <MediaErrorFallback
-                type="image"
-                isFromMe={isFromMe}
-                isRedownloading={isRedownloading}
-                onRedownload={handleRedownload}
-              />
-            ) : (
-              <div className="rounded-lg overflow-hidden">
-                <img
-                  src={currentMediaUrl}
-                  alt="Imagem"
-                  className="max-w-full rounded-lg"
-                  loading="lazy"
-                  onError={handleMediaError}
-                />
-              </div>
-            )}
+          <div className="mb-1 -mx-1">
+            <MediaMessage
+              url={currentMediaUrl || ''}
+              type="image"
+              caption={message.content}
+              isFromMe={isFromMe}
+              onRedownload={handleRedownload}
+              isRedownloading={isRedownloading}
+            />
             {/* Descrição IA da imagem */}
             {aiDescription && (
               <div className={cn(
@@ -142,17 +112,14 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         {/* Media content — Áudio + Transcrição */}
         {message.type === 'audio' && (
           <div className="mb-1">
-            {!currentMediaUrl || mediaError ? (
-              <MediaErrorFallback
-                type="audio"
-                isFromMe={isFromMe}
-                isRedownloading={isRedownloading}
-                onRedownload={handleRedownload}
-              />
+            {!currentMediaUrl ? (
+              <p className="text-xs opacity-50 py-1">Áudio indisponível</p>
             ) : (
-              <audio controls className="max-w-full" onError={handleMediaError}>
-                <source src={currentMediaUrl} />
-              </audio>
+              <AudioMessage
+                url={currentMediaUrl}
+                duration={(message.metadata as any)?.duration}
+                isFromMe={isFromMe}
+              />
             )}
             {/* Transcrição do áudio (IA) */}
             {transcription && (
@@ -184,52 +151,34 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
         {/* Media content — Vídeo */}
         {message.type === 'video' && (
-          <div className="mb-1 rounded-lg overflow-hidden">
-            {!currentMediaUrl || mediaError ? (
-              <MediaErrorFallback
-                type="video"
-                isFromMe={isFromMe}
-                isRedownloading={isRedownloading}
-                onRedownload={handleRedownload}
-              />
-            ) : (
-              <video controls className="max-w-full rounded-lg" onError={handleMediaError}>
-                <source src={currentMediaUrl} />
-              </video>
-            )}
+          <div className="mb-1 -mx-1">
+            <MediaMessage
+              url={currentMediaUrl || ''}
+              type="video"
+              caption={message.content}
+              isFromMe={isFromMe}
+              onRedownload={handleRedownload}
+              isRedownloading={isRedownloading}
+            />
           </div>
         )}
 
         {/* Media content — Documento */}
         {message.type === 'document' && (
           <div className="mb-1">
-            {!currentMediaUrl || mediaError ? (
-              <MediaErrorFallback
-                type="document"
-                isFromMe={isFromMe}
-                isRedownloading={isRedownloading}
-                onRedownload={handleRedownload}
-              />
-            ) : (
-              <a
-                href={currentMediaUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={cn(
-                  'flex items-center gap-2 p-2 rounded-lg text-xs underline',
-                  isFromMe ? 'bg-white/10 text-white/90' : 'bg-black/5 text-blue-600'
-                )}
-              >
-                📎 Documento
-              </a>
-            )}
+            <DocumentMessage
+              url={currentMediaUrl || ''}
+              fileName={(message.metadata as any)?.fileName || message.content || 'Documento'}
+              mimeType={(message.metadata as any)?.mimeType || 'application/octet-stream'}
+              isFromMe={isFromMe}
+            />
           </div>
         )}
 
         {/* Text content */}
-        {message.content && (
-          <p className="text-sm whitespace-pre-wrap break-words leading-relaxed text-[#111b21]">
-            {message.content.replace(/\\n/g, '\n')}
+        {message.content && message.type !== 'image' && message.type !== 'video' && (
+          <p className="text-sm wrap-break-word leading-relaxed">
+            {parseMessageContent(message.content)}
           </p>
         )}
 
@@ -238,82 +187,15 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           'flex items-center gap-1 mt-1',
           isFromMe ? 'justify-end' : 'justify-end'
         )}>
-          <span className="text-[11px] text-[#667781]">
+          <span className={cn(
+            'text-[11px]',
+            isFromMe ? 'text-white/50' : 'text-wa-text-secondary'
+          )}>
             {formatTime(message.timestamp)}
           </span>
           {statusIcon()}
         </div>
       </div>
-    </div>
-  );
-}
-
-/**
- * Fallback visual quando uma mídia retorna 403 (URL expirada).
- * Oferece botão de re-download via Evolution API → Supabase Storage.
- */
-function MediaErrorFallback({
-  type,
-  isFromMe,
-  isRedownloading,
-  onRedownload,
-}: {
-  type: string;
-  isFromMe: boolean;
-  isRedownloading: boolean;
-  onRedownload: () => void;
-}) {
-  const labels: Record<string, string> = {
-    image: '🖼️ Imagem',
-    video: '🎥 Vídeo',
-    audio: '🎵 Áudio',
-    document: '📎 Documento',
-  };
-
-  return (
-    <div
-      className={cn(
-        'flex flex-col items-center gap-2 p-4 rounded-lg',
-        isFromMe ? 'bg-white/10' : 'bg-black/5'
-      )}
-    >
-      <ImageOff
-        size={24}
-        className={cn(
-          isFromMe ? 'text-white/40' : 'text-wa-text-secondary'
-        )}
-      />
-      <p
-        className={cn(
-          'text-[11px] text-center',
-          isFromMe ? 'text-white/50' : 'text-wa-text-secondary'
-        )}
-      >
-        {labels[type] || 'Mídia'} indisponível
-      </p>
-      <button
-        onClick={onRedownload}
-        disabled={isRedownloading}
-        className={cn(
-          'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium transition-all',
-          isFromMe
-            ? 'bg-white/20 text-white/80 hover:bg-white/30'
-            : 'bg-black/10 text-wa-text-primary hover:bg-black/15',
-          isRedownloading && 'opacity-50 cursor-not-allowed'
-        )}
-      >
-        {isRedownloading ? (
-          <>
-            <RefreshCw size={12} className="animate-spin" />
-            Baixando...
-          </>
-        ) : (
-          <>
-            <Download size={12} />
-            Re-baixar
-          </>
-        )}
-      </button>
     </div>
   );
 }
