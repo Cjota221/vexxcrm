@@ -13,6 +13,10 @@ import type { NewMessageEvent, MessageStatusEvent, TypingIndicatorEvent, Connect
  *
  * Conecta ao endpoint /api/sse e atualiza React Query cache
  * automaticamente ao receber eventos.
+ *
+ * NOTA: Em ambientes CDN/Netlify, SSE pode ser bloqueado (403/ERR_HTTP2).
+ * Nesse caso, a detecção de falha rápida (<2s) desabilita SSE para a sessão
+ * inteira — o Supabase Realtime (em useMessages) já cobre as mensagens.
  */
 export function useRealtimeMessages() {
   const queryClient = useQueryClient();
@@ -20,6 +24,8 @@ export function useRealtimeMessages() {
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const isMountedRef = useRef(true);
+  // Flag de sessão: SSE bloqueado neste ambiente (CDN/proxy) — não tentar mais
+  const sseBlockedRef = useRef(false);
   const MAX_RECONNECT_ATTEMPTS = 5;
   const { setSSEStatus } = useConnectionStore();
   const { setTyping } = useChatsStore();
@@ -141,6 +147,9 @@ export function useRealtimeMessages() {
   );
 
   const connect = useCallback(async () => {
+    // SSE foi bloqueado pelo CDN/proxy nesta sessão — não tentar
+    if (sseBlockedRef.current) return;
+
     // Limpar conexão anterior
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
@@ -156,19 +165,17 @@ export function useRealtimeMessages() {
     }
 
     if (!token) {
-      console.warn('⚠️ SSE: Sem token, adiando conexão...');
-      reconnectTimeoutRef.current = setTimeout(() => {
-        connect();
-      }, 3000);
+      reconnectTimeoutRef.current = setTimeout(() => { connect(); }, 3000);
       return;
     }
 
+    const connectTime = Date.now();
     const eventSource = new EventSource(`/api/sse?token=${encodeURIComponent(token)}`);
     eventSourceRef.current = eventSource;
 
     eventSource.onopen = () => {
       setSSEStatus('connected');
-      reconnectAttemptsRef.current = 0; // Reset backoff ao conectar com sucesso
+      reconnectAttemptsRef.current = 0;
     };
 
     eventSource.onmessage = handleEvent;
@@ -177,29 +184,26 @@ export function useRealtimeMessages() {
       setSSEStatus('disconnected');
       eventSource.close();
 
+      const elapsed = Date.now() - connectTime;
+
+      // Conexão recusada em <2s = bloqueio de CDN/proxy (Netlify, Vercel, etc.)
+      // Supabase Realtime em useMessages já cobre as mensagens — não há retry.
+      if (elapsed < 2000) {
+        sseBlockedRef.current = true; // bloquear para o resto da sessão
+        setSSEStatus('disconnected');
+        return;
+      }
+
       // Backoff exponencial: 1s, 2s, 4s, 8s, 16s, 30s (cap)
       if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
-        const baseDelay = Math.min(
-          1000 * Math.pow(2, reconnectAttemptsRef.current),
-          30_000
-        );
-        // Jitter ±20% para evitar thundering herd
+        const baseDelay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30_000);
         const jitter = baseDelay * 0.2 * (Math.random() - 0.5);
         const delay = Math.round(baseDelay + jitter);
-
-        if (process.env.NODE_ENV === 'development') {
-          console.debug(`[SSE] retry ${reconnectAttemptsRef.current + 1}/${MAX_RECONNECT_ATTEMPTS} em ${delay}ms`);
-        }
         reconnectAttemptsRef.current++;
-
         reconnectTimeoutRef.current = setTimeout(() => {
           if (isMountedRef.current) connect();
         }, delay);
       } else {
-        // Esgotou tentativas — aguardar token refresh do Supabase (onAuthStateChange)
-        if (process.env.NODE_ENV === 'development') {
-          console.debug('[SSE] tentativas esgotadas — aguardando TOKEN_REFRESHED');
-        }
         setSSEStatus('disconnected');
       }
     };

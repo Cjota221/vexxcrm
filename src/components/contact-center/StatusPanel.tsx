@@ -70,8 +70,11 @@ export function StatusPanel({ open, onClose }: StatusPanelProps) {
   // ── Postar status ──────────────────────────────────────────
   const postMutation = useMutation({
     mutationFn: async (payload: Record<string, unknown>) => {
-      const res = await api.post('/api/whatsapp/stories', payload);
-      if (res.error) throw new Error(res.error);
+      const res = await api.post<{ error?: string; detail?: string }>('/api/whatsapp/stories', payload);
+      if (res.error) {
+        const detail = (res.data as any)?.detail;
+        throw new Error(detail ? `${res.error}: ${detail}` : res.error);
+      }
       return res.data;
     },
     onSuccess: () => {
@@ -118,7 +121,7 @@ export function StatusPanel({ open, onClose }: StatusPanelProps) {
       postMutation.mutate({
         type: composeType,
         media_url: mediaUrl,
-        caption: caption.trim() || undefined,
+        caption: caption.trim() || '',  // nunca undefined — Evolution API rejeita campo ausente
       });
     }
   };

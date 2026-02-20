@@ -44,10 +44,15 @@ export async function POST(request: NextRequest) {
       if (!body.media_url) {
         return NextResponse.json({ error: 'URL da mídia é obrigatória' }, { status: 400 });
       }
+      // Evolution API v2 DTO: `content` é sempre o campo da mídia.
+      // Para imagem/vídeo, `content` recebe a URL pública.
+      // `type` deve ser "image" | "video".
       payload = {
-        type: body.type,
-        content: body.media_url,
-        caption: body.caption || undefined,
+        type: body.type,             // "image" | "video"
+        content: body.media_url,     // URL pública — campo é `content`, não `media_url`
+        caption: body.caption ?? '',
+        backgroundColor: '#000000',
+        font: 0,
         allContacts: true,
         statusJidList: [],
       };
@@ -67,9 +72,18 @@ export async function POST(request: NextRequest) {
 
     if (!response.ok) {
       const errText = await response.text().catch(() => '');
-      console.error('[STORIES_POST]', response.status, errText.substring(0, 200));
+      console.error('[STORIES_POST] Evolution API error:', response.status);
+      console.error('[STORIES_POST] Payload enviado:', JSON.stringify(payload));
+      console.error('[STORIES_POST] Resposta da API:', errText.substring(0, 500));
+      // Tentar parsear o JSON de erro da Evolution API para retornar detalhe útil
+      let detail = errText.substring(0, 300);
+      try {
+        const errJson = JSON.parse(errText);
+        detail = errJson.message || errJson.error || errJson.response?.message || detail;
+        if (Array.isArray(detail)) detail = detail.join('; ');
+      } catch { /* não é JSON */ }
       return NextResponse.json(
-        { error: `Erro ao postar status: HTTP ${response.status}` },
+        { error: `Erro ao postar status: HTTP ${response.status}`, detail },
         { status: response.status }
       );
     }

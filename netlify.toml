@@ -25,6 +25,12 @@
 [functions."api/cron/campaign-dispatcher"]
   timeout = 26
 
+# SSE: timeout máximo permitido pelo Netlify (26s no plano free)
+# Em produção no plano pago pode ser até 10min. O hook detecta queda <2s e
+# usa apenas Supabase Realtime como fallback.
+[functions."api/sse"]
+  timeout = 26
+
 # ─── Scheduled Functions (Netlify) ───────────────────────────────────────────
 # Dispara o motor de campanhas a cada minuto.
 # Documentação: https://docs.netlify.com/functions/scheduled-functions/
@@ -43,3 +49,11 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+# Headers para SSE — desabilitar buffering do proxy Netlify
+[[headers]]
+  for = "/api/sse"
+  [headers.values]
+    Cache-Control = "no-cache, no-transform"
+    X-Accel-Buffering = "no"
+    Content-Type = "text/event-stream"
