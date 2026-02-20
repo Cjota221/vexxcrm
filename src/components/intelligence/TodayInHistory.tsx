@@ -77,7 +77,7 @@ export function TodayInHistory() {
       const res = await fetch('/api/whatsapp/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: sendModal.client.phone, content: sendMsg, type: 'text' }),
+        body: JSON.stringify({ to: sendModal.client.phone, content: sendMsg, type: 'text', clientId: sendModal.client.client_id }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erro');
