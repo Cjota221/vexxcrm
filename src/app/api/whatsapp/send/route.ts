@@ -171,7 +171,7 @@ export async function POST(request: NextRequest) {
     if (msgError) {
       if (msgError.code === '23505') {
         // Duplicata: webhook chegou antes → buscar linha existente
-        console.log(`[Send] Duplicata detectada (23505) — buscando por external_id: ${messageId}`);
+        console.log(`[Send] Duplicata (23505) — buscando por external_id: ${messageId}`);
         const { data: fetched } = await supabase
           .from('messages')
           .select()
@@ -180,11 +180,13 @@ export async function POST(request: NextRequest) {
           .single();
         if (fetched) savedMessage = fetched;
       } else {
-        console.error('[Send] Erro ao salvar mensagem:', msgError);
+        // Logar erro completo para diagnóstico
+        console.error(`[Send] ERRO INSERT mensagem — code: ${msgError.code} | message: ${msgError.message} | details: ${msgError.details} | hint: ${msgError.hint}`);
+        console.error(`[Send] Payload que falhou:`, JSON.stringify(msgPayload));
       }
     }
 
-    // Fallback adicional: INSERT retornou null sem erro (caso raro)
+    // Fallback: INSERT retornou null sem erro (caso raro no Supabase)
     if (!savedMessage && !msgError) {
       const { data: fetched } = await supabase
         .from('messages')
@@ -194,23 +196,33 @@ export async function POST(request: NextRequest) {
         .single();
       if (fetched) {
         savedMessage = fetched;
-        console.log(`[Send] INSERT retornou null — buscado por external_id: ${messageId}`);
+        console.log(`[Send] INSERT retornou null — recuperado por external_id: ${messageId}`);
       }
     }
 
-    // Atualizar last_message na conversa (para reordenação na lista de chats)
-    if (savedMessage) {
-      await supabase
-        .from('conversations')
-        .update({
-          last_message_at: savedMessage.created_at,
-          last_message_text: content?.substring(0, 120) || '',
-          last_message_from_me: true,
-          status: 'open',
-        })
-        .eq('id', conversationId)
-        .eq('tenant_id', tenantId);
+    // Se ainda não tem mensagem salva, a Evolution API enviou mas o banco falhou
+    // Retornar erro explícito para o front-end tratar (não sumir silenciosamente)
+    if (!savedMessage) {
+      console.error(`[Send] Mensagem enviada pela Evolution mas NÃO salva no banco. messageId=${messageId}, tenantId=${tenantId}, conversationId=${conversationId}`);
+      return NextResponse.json({
+        success: true,        // whatsapp enviou
+        message: null,
+        messageId,
+        warning: 'Mensagem enviada mas não registrada no histórico. Recarregue a conversa.',
+      });
     }
+
+    // Atualizar last_message na conversa (para reordenação na lista de chats)
+    await supabase
+      .from('conversations')
+      .update({
+        last_message_at: savedMessage.created_at,
+        last_message_text: content?.substring(0, 120) || '',
+        last_message_from_me: true,
+        status: 'open',
+      })
+      .eq('id', conversationId)
+      .eq('tenant_id', tenantId);
 
     return NextResponse.json({
       success: true,
