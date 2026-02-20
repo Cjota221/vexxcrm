@@ -55,6 +55,9 @@ export async function GET(
     }
 
     // 2. Buscar mensagens da conversa
+    // CRÍTICO: ORDER DESC + LIMIT para pegar as N mais RECENTES.
+    // Se order fosse ASC, com +100 mensagens a nova mensagem (mais recente)
+    // ficaria fora do limit e nunca apareceria no chat.
     let query = supabase
       .from('messages')
       .select(`
@@ -80,15 +83,18 @@ export async function GET(
       `)
       .eq('tenant_id', tenantId)
       .eq('conversation_id', conversation.id)
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: false })
       .limit(limit);
 
-    // Cursor-based pagination
+    // Cursor-based pagination (paginação para trás no histórico)
     if (before) {
       query = query.lt('created_at', before);
     }
 
-    const { data: messages, error } = await query;
+    const { data: messagesDesc, error } = await query;
+
+    // Inverter para exibição cronológica (mais antiga primeiro)
+    const messages = messagesDesc ? [...messagesDesc].reverse() : [];
 
     if (error) {
       console.error('❌ Messages API error:', error);
@@ -98,7 +104,7 @@ export async function GET(
       );
     }
 
-    console.log(`[Messages GET] conv=${conversation.id} → ${messages?.length ?? 0} mensagens retornadas | último: ${messages?.[messages.length - 1]?.id ?? 'nenhum'}`);
+    console.log(`[Messages GET] conv=${conversation.id} → ${messages?.length ?? 0} mensagens retornadas | mais recente: ${messages?.[messages.length - 1]?.id ?? 'nenhum'}`);
 
     // 3. Traduzir para o formato Message do TypeScript
     // O front-end espera: from_me, message_id, remote_jid, timestamp
