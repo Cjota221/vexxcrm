@@ -102,10 +102,23 @@ export async function GET(request: NextRequest) {
     const { profile } = await getTenantFromRequest(request);
     const config = getTenantEvolutionConfig(profile.tenant_id);
 
-    // Tentar diferentes endpoints da Evolution API para status
-    const endpoints = [
-      { url: `${config.apiUrl}/chat/findStatusMessage/${config.instanceName}`, method: 'POST', body: '{}' },
-      { url: `${config.apiUrl}/status/findStatusMessage/${config.instanceName}`, method: 'GET', body: undefined },
+    // Tentar diferentes endpoints conforme a versão da Evolution API.
+    // Ordem: v2 GET first (sem body), depois v1 POST com body mínimo.
+    // Em caso de 400/404/405 — pular silenciosamente e retornar lista vazia.
+    const endpoints: Array<{ url: string; method: string; body?: string }> = [
+      {
+        url: `${config.apiUrl}/chat/findStatusMessage/${config.instanceName}`,
+        method: 'GET',
+      },
+      {
+        url: `${config.apiUrl}/status/findStatusMessage/${config.instanceName}`,
+        method: 'GET',
+      },
+      {
+        url: `${config.apiUrl}/chat/findStatusMessage/${config.instanceName}`,
+        method: 'POST',
+        body: JSON.stringify({ limit: 50 }),
+      },
     ];
 
     for (const ep of endpoints) {
@@ -119,6 +132,11 @@ export async function GET(request: NextRequest) {
           ...(ep.body ? { body: ep.body } : {}),
         });
 
+        // 400/404/405: endpoint não existe nesta versão — tentar próximo
+        if (response.status === 400 || response.status === 404 || response.status === 405) {
+          continue;
+        }
+
         if (response.ok) {
           const data = await response.json();
           return NextResponse.json({ status_list: normalizeStatusList(data) });
@@ -128,6 +146,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Nenhum endpoint disponível — retornar lista vazia (não é erro crítico)
     return NextResponse.json({
       status_list: [],
       aviso: 'Endpoint de status não disponível nesta versão da Evolution API',

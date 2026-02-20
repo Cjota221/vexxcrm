@@ -26,7 +26,12 @@ export function useRealtimeMessages() {
   const isMountedRef = useRef(true);
   // Flag de sessão: SSE bloqueado neste ambiente (CDN/proxy) — não tentar mais
   const sseBlockedRef = useRef(false);
+  // Contagem de falhas rápidas consecutivas (< 30s após abrir) para detectar HTTP2 block
+  const quickFailCountRef = useRef(0);
+  const lastEventTimeRef = useRef(0);
   const MAX_RECONNECT_ATTEMPTS = 5;
+  // Após 3 falhas rápidas consecutivas (< 30s sem receber evento), bloquear SSE
+  const MAX_QUICK_FAILS = 3;
   const { setSSEStatus } = useConnectionStore();
   const { setTyping } = useChatsStore();
 
@@ -176,20 +181,33 @@ export function useRealtimeMessages() {
     eventSource.onopen = () => {
       setSSEStatus('connected');
       reconnectAttemptsRef.current = 0;
+      lastEventTimeRef.current = Date.now();
     };
 
-    eventSource.onmessage = handleEvent;
+    eventSource.onmessage = (ev) => {
+      lastEventTimeRef.current = Date.now(); // registrar quando chegou o último evento
+      quickFailCountRef.current = 0;          // conexão estável — zerar contador de falhas rápidas
+      handleEvent(ev);
+    };
 
     eventSource.onerror = () => {
       setSSEStatus('disconnected');
       eventSource.close();
 
       const elapsed = Date.now() - connectTime;
+      const timeSinceLastEvent = Date.now() - (lastEventTimeRef.current || connectTime);
 
-      // Conexão recusada em <2s = bloqueio de CDN/proxy (Netlify, Vercel, etc.)
-      // Supabase Realtime em useMessages já cobre as mensagens — não há retry.
-      if (elapsed < 2000) {
-        sseBlockedRef.current = true; // bloquear para o resto da sessão
+      // Caso 1: Bloqueio imediato de CDN (< 2s para falhar) — Auth 403, CORS, etc.
+      // Caso 2: ERR_HTTP2_PROTOCOL_ERROR — abre com 200, cai em < 30s SEM nenhum evento
+      //         (o Netlify free aceita a conexão mas quebra o stream HTTP/2 logo depois)
+      const isQuickFail = elapsed < 2000 || (timeSinceLastEvent < 30_000 && lastEventTimeRef.current === 0);
+      if (isQuickFail) {
+        quickFailCountRef.current++;
+      }
+
+      if (elapsed < 2000 || quickFailCountRef.current >= MAX_QUICK_FAILS) {
+        // Bloquear SSE para a sessão — Supabase Realtime cobre as mensagens
+        sseBlockedRef.current = true;
         setSSEStatus('disconnected');
         return;
       }
