@@ -36,9 +36,9 @@ export async function GET(
     const before = searchParams.get('before');
 
     // 1. Buscar a conversa deste cliente (suporta múltiplas conversas — pega a mais recente)
-    const { data: conversations } = await supabase
+    const { data: conversations, error: convError } = await supabase
       .from('conversations')
-      .select('id')
+      .select('id, last_message_at')
       .eq('tenant_id', tenantId)
       .eq('client_id', clientId)
       .eq('channel', 'whatsapp')
@@ -46,6 +46,8 @@ export async function GET(
       .limit(1);
 
     const conversation = conversations?.[0] || null;
+
+    console.log(`[Messages GET] clientId=${clientId} | tenant=${tenantId} | conv=${conversation?.id ?? 'NENHUMA'} | convErr=${convError?.message ?? 'ok'}`);
 
     if (!conversation) {
       // Sem conversa ainda — retornar array vazio (não é erro)
@@ -95,6 +97,8 @@ export async function GET(
         { status: 500 }
       );
     }
+
+    console.log(`[Messages GET] conv=${conversation.id} → ${messages?.length ?? 0} mensagens retornadas | último: ${messages?.[messages.length - 1]?.id ?? 'nenhum'}`);
 
     // 3. Traduzir para o formato Message do TypeScript
     // O front-end espera: from_me, message_id, remote_jid, timestamp
