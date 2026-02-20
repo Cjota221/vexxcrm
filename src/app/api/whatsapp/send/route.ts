@@ -53,6 +53,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      console.log(`[Send] Enviando mídia — type: ${type} | url: ${mediaUrl?.substring(0, 80)}...`);
       messageId = await sendMediaMessage(
         config,
         phoneNormalized,
@@ -60,6 +61,7 @@ export async function POST(request: NextRequest) {
         caption || content,
         type as 'image' | 'video' | 'audio' | 'document'
       );
+      console.log(`[Send] Mídia enviada — messageId: ${messageId || 'VAZIO'}`);
     }
 
     // Guardar: se a Evolution API não retornou ID, gerar um ID local temporário.

@@ -345,7 +345,12 @@ export async function sendMediaMessage(
   caption?: string,
   mediaType: 'image' | 'video' | 'audio' | 'document' = 'image'
 ): Promise<string> {
-  // Evolution API usa /message/sendMedia para todos os tipos de mídia
+  // Áudio usa endpoint dedicado na Evolution API (envia como nota de voz PTT)
+  if (mediaType === 'audio') {
+    return sendAudioMessage(config, to, mediaUrl);
+  }
+
+  // Evolution API usa /message/sendMedia para imagem, vídeo e documento
   const endpoint = `${config.apiUrl}/message/sendMedia/${config.instanceName}`;
 
   const response = await fetch(endpoint, {
@@ -363,8 +368,9 @@ export async function sendMediaMessage(
   });
 
   if (!response.ok) {
-    const error = await safeJson(response, 'Enviar mídia').catch(() => ({}));
-    throw new Error(error.message || 'Erro ao enviar mídia');
+    const errorBody = await safeJson(response, 'Enviar mídia').catch(() => ({}));
+    console.error(`[Evolution] sendMedia falhou — status: ${response.status} | body:`, JSON.stringify(errorBody).substring(0, 300));
+    throw new Error(errorBody.message || `Erro ao enviar mídia (${response.status})`);
   }
 
   const data = await safeJson(response, 'Enviar mídia');
@@ -379,6 +385,52 @@ export async function sendMediaMessage(
 
   if (!messageId) {
     console.warn('[Evolution] sendMediaMessage retornou sem messageId. Resposta:', JSON.stringify(data).substring(0, 200));
+  }
+
+  return messageId;
+}
+
+/**
+ * Envia áudio como nota de voz (PTT) via Evolution API.
+ * Usa /message/sendWhatsAppAudio que codifica como opus/ogg para o WhatsApp.
+ */
+export async function sendAudioMessage(
+  config: EvolutionAPIConfig,
+  to: string,
+  audioUrl: string,
+): Promise<string> {
+  const endpoint = `${config.apiUrl}/message/sendWhatsAppAudio/${config.instanceName}`;
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': config.apiKey,
+    },
+    body: JSON.stringify({
+      number: to,
+      audio: audioUrl,
+      encoding: true,   // Evolution converte para opus se necessário
+    }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await safeJson(response, 'Enviar áudio').catch(() => ({}));
+    console.error(`[Evolution] sendAudio falhou — status: ${response.status} | body:`, JSON.stringify(errorBody).substring(0, 300));
+    throw new Error(errorBody.message || `Erro ao enviar áudio (${response.status})`);
+  }
+
+  const data = await safeJson(response, 'Enviar áudio');
+
+  const messageId =
+    data?.key?.id ||
+    data?.message?.key?.id ||
+    data?.data?.key?.id ||
+    data?.id ||
+    '';
+
+  if (!messageId) {
+    console.warn('[Evolution] sendAudio retornou sem messageId. Resposta:', JSON.stringify(data).substring(0, 200));
   }
 
   return messageId;

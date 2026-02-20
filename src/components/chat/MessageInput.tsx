@@ -165,8 +165,10 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
       mediaRecorder.onstop = () => {
         const mimeType = mediaRecorder.mimeType || 'audio/ogg';
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
-        const ext = mimeType.includes('ogg') ? 'ogg' : 'webm';
-        const file = new File([blob], `audio-${Date.now()}.${ext}`, { type: mimeType });
+        // Normalizar MIME — remover parâmetros como "; codecs=opus"
+        const baseMime = mimeType.split(';')[0].trim();
+        const ext = baseMime.includes('ogg') ? 'ogg' : baseMime.includes('mp4') ? 'm4a' : 'webm';
+        const file = new File([blob], `audio-${Date.now()}.${ext}`, { type: baseMime });
 
         // Parar todas as tracks do stream
         stream.getTracks().forEach(track => track.stop());
