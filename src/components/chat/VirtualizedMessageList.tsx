@@ -91,23 +91,32 @@ export function VirtualizedMessageList({
     if (newCount <= prevCount) return;
     if (!isScrolledToBottomRef.current) return;
 
-    // Aguardar virtualizer medir o novo item antes de scrollar
-    requestAnimationFrame(() => {
-      const lastIndex = items.length - 1;
-      if (lastIndex >= 0) {
-        virtualizer.scrollToIndex(lastIndex, { align: 'end', behavior: 'smooth' });
+    // Rolar para o fundo via scrollTop direto — evita falha do scrollToIndex
+    // com itens de tamanho dinâmico (imagens ainda não carregadas).
+    const scrollToBottom = () => {
+      const el = parentRef.current;
+      if (el) {
+        el.scrollTop = el.scrollHeight;
+        isScrolledToBottomRef.current = true;
       }
+    };
+
+    // Duplo rAF: 1º frame o React renderiza, 2º frame o DOM mede as alturas
+    requestAnimationFrame(() => {
+      requestAnimationFrame(scrollToBottom);
     });
-  }, [messages.length, items.length, autoScroll, virtualizer]);
+  }, [messages.length, items.length, autoScroll]);
 
   // Scroll inicial para o fundo na montagem
   useEffect(() => {
     const el = parentRef.current;
     if (!el) return;
-    // ScrollTop direto (sem animação) para evitar flash na montagem
+    // Duplo rAF para garantir que o virtualizer mediu os itens
     requestAnimationFrame(() => {
-      el.scrollTop = el.scrollHeight;
-      isScrolledToBottomRef.current = true;
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+        isScrolledToBottomRef.current = true;
+      });
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // só na montagem

@@ -7,7 +7,7 @@
  * Skeleton enquanto carrega. Fallback elegante para URL expirada.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import Lightbox from 'yet-another-react-lightbox';
 import Zoom from 'yet-another-react-lightbox/plugins/zoom';
 import Download from 'yet-another-react-lightbox/plugins/download';
@@ -34,10 +34,27 @@ export function MediaMessage({
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const autoRedownloadedRef = useRef(false);
+
+  // Quando a URL muda (re-download bem sucedido), resetar estado de erro
+  useEffect(() => {
+    setImgError(false);
+    setLoaded(false);
+    autoRedownloadedRef.current = false;
+  }, [url]);
 
   const openLightbox = useCallback(() => {
     if (!imgError) setLightboxOpen(true);
   }, [imgError]);
+
+  // Ao receber erro 403, tenta re-download automático UMA vez
+  const handleImgError = useCallback(() => {
+    setImgError(true);
+    if (!autoRedownloadedRef.current && onRedownload && !isRedownloading) {
+      autoRedownloadedRef.current = true;
+      onRedownload();
+    }
+  }, [onRedownload, isRedownloading]);
 
   if (type === 'image') {
     return (
@@ -69,7 +86,7 @@ export function MediaMessage({
               src={thumbnailUrl ?? url}
               alt={caption ?? 'Imagem'}
               onLoad={() => setLoaded(true)}
-              onError={() => setImgError(true)}
+              onError={handleImgError}
               loading="lazy"
               style={{
                 width: '100%',
