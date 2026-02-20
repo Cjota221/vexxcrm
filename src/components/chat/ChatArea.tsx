@@ -89,6 +89,7 @@ export function ChatArea() {
       to: resolvedPhone,
       content,
       type: 'text',
+      _queryClientId: selectedChatId, // UUID real — garante optimistic na query certa
     });
   };
 
@@ -137,6 +138,7 @@ export function ChatArea() {
         type: mediaType,
         mediaUrl: url,
         caption: caption || undefined,
+        _queryClientId: selectedChatId, // UUID real — garante optimistic na query certa
       });
     } catch (err) {
       console.error('[ChatArea] Erro ao enviar mídia:', err);

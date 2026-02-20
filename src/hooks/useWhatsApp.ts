@@ -240,8 +240,9 @@ export function useSendMessage() {
       mediaUrl?: string;
       caption?: string;
       _clientId?: string;  // correlação optimistic (interno)
+      _queryClientId?: string; // UUID do cliente — chave real da query cache
     }) => {
-      const { _clientId: _, ...body } = payload;
+      const { _clientId: _, _queryClientId: __, ...body } = payload;
       const response = await api.post<{
         success: boolean;
         message: Message;
@@ -253,21 +254,23 @@ export function useSendMessage() {
 
     // OPTIMISTIC: mensagem aparece IMEDIATAMENTE na UI
     onMutate: async (payload) => {
-      const clientId = payload.to; // usar telefone como correlação
+      // _queryClientId é o UUID real do cliente (chave do cache React Query).
+      // Se não vier, tenta usar payload.to como fallback (comportamento anterior).
+      const queryClientId = payload._queryClientId || payload.to;
 
-      // Cancelar queries em flight
-      await queryClient.cancelQueries({ queryKey: ['messages'] });
+      // Cancelar apenas a query desta conversa para não afetar outras
+      await queryClient.cancelQueries({ queryKey: ['messages', queryClientId] });
 
-      // Snapshot para rollback
-      const previousMessages = queryClient.getQueryData<Message[]>(['messages']);
+      // Snapshot para rollback preciso
+      const previousMessages = queryClient.getQueryData<Message[]>(['messages', queryClientId]);
 
       const tempId = `opt_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       const optimistic: Message = {
         id: tempId,
         tenant_id: '',
-        client_id: '',
+        client_id: queryClientId,
         remote_jid: '',
-        message_id: '',
+        message_id: tempId,
         from_me: true,
         content: payload.content,
         type: (payload.type as any) ?? 'text',
@@ -279,40 +282,48 @@ export function useSendMessage() {
         _clientId: tempId,
       } as Message & { _optimistic: boolean; _clientId: string };
 
-      // Inserir em TODAS as queries de messages que podem estar ativas
-      queryClient.getQueriesData<Message[]>({ queryKey: ['messages'] }).forEach(([key]) => {
-        queryClient.setQueryData<Message[]>(key, (old = []) => [...old, optimistic]);
-      });
+      // Inserir apenas na query correta (pela chave real do cliente)
+      queryClient.setQueryData<Message[]>(['messages', queryClientId], (old = []) =>
+        [...old, optimistic]
+      );
 
-      return { previousMessages, tempId };
+      return { previousMessages, tempId, queryClientId };
     },
 
     onSuccess: (data, _payload, context) => {
-      if (!data?.message) return;
-      // Substituir optimistic pela mensagem real do servidor
-      queryClient.getQueriesData<Message[]>({ queryKey: ['messages'] }).forEach(([key]) => {
-        queryClient.setQueryData<Message[]>(key, (old = []) =>
-          old.map(m =>
-            (m as any)._clientId === context?.tempId
-              ? { ...data.message, _optimistic: false }
-              : m
-          )
-        );
-      });
+      const { tempId, queryClientId } = context ?? {};
+
+      // Promover optimistic → 'sent' independentemente de data.message
+      // (o webhook pode ter chegado primeiro e o upsert retornou null)
+      queryClient.setQueryData<Message[]>(['messages', queryClientId], (old = []) =>
+        old.map(m => {
+          if ((m as any)._clientId !== tempId) return m;
+          // Se o servidor retornou a mensagem completa, usar ela; senão manter o otimista como 'sent'
+          if (data?.message) return { ...data.message, _optimistic: false };
+          return { ...m, status: 'sent' as const, _optimistic: false };
+        })
+      );
+
+      // Atualizar lista de chats (reordenar por última mensagem)
       queryClient.invalidateQueries({ queryKey: ['chats'] });
     },
 
     onError: (_error, _payload, context) => {
-      // Marcar como failed (não remover — usuário vê o botão de retry)
-      queryClient.getQueriesData<Message[]>({ queryKey: ['messages'] }).forEach(([key]) => {
-        queryClient.setQueryData<Message[]>(key, (old = []) =>
-          old.map(m =>
-            (m as any)._clientId === context?.tempId
-              ? { ...m, status: 'failed' as const }
-              : m
-          )
-        );
-      });
+      const { previousMessages, queryClientId } = context ?? {};
+
+      // Rollback exato para o estado antes do envio
+      if (previousMessages !== undefined) {
+        queryClient.setQueryData<Message[]>(['messages', queryClientId], previousMessages);
+      }
+
+      // Marcar como failed para mostrar botão de retry
+      queryClient.setQueryData<Message[]>(['messages', queryClientId], (old = []) =>
+        old.map(m =>
+          (m as any)._clientId === context?.tempId
+            ? { ...m, status: 'failed' as const }
+            : m
+        )
+      );
     },
   });
 }

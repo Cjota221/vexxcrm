@@ -135,6 +135,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Salvar mensagem enviada (upsert por external_id para evitar duplicata com webhook)
+    // ignoreDuplicates: false → se webhook chegou primeiro, faz UPDATE e retorna a linha
     const { data: savedMessage, error: msgError } = await supabase
       .from('messages')
       .upsert(
@@ -144,6 +145,7 @@ export async function POST(request: NextRequest) {
           client_id: clientId,
           external_id: messageId,   // ← ID da Evolution API = chave de dedup
           direction: 'outbound',
+          from_me: true,
           sender_name: 'Atendente',
           sender_phone: null,
           content,
@@ -152,13 +154,27 @@ export async function POST(request: NextRequest) {
           status: 'sent',
           created_at: new Date().toISOString(),
         },
-        { onConflict: 'tenant_id,external_id', ignoreDuplicates: true }
+        { onConflict: 'tenant_id,external_id', ignoreDuplicates: false }
       )
       .select()
       .single();
 
     if (msgError) {
       console.error('[Send] Erro ao salvar mensagem:', msgError);
+    }
+
+    // Atualizar last_message na conversa (para reordenação na lista de chats)
+    if (savedMessage) {
+      await supabase
+        .from('conversations')
+        .update({
+          last_message_at: savedMessage.created_at,
+          last_message_text: content?.substring(0, 120) || '',
+          last_message_from_me: true,
+          status: 'open',
+        })
+        .eq('id', conversationId)
+        .eq('tenant_id', tenantId);
     }
 
     return NextResponse.json({
