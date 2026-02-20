@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Paperclip, Smile, Mic, X, Image, FileText, Video, Loader2, Zap, Square } from 'lucide-react';
+import { Send, Paperclip, Smile, Mic, X, Image, FileText, Video, Loader2, Zap, Square, MapPin, Coins, User, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TemplatesFloatingPanel } from './TemplatesFloatingPanel';
 
@@ -12,6 +12,8 @@ interface MessageInputProps {
   disabled?: boolean;
   /** Telefone do destinatário — necessário para envio de templates multi-bubble */
   recipientPhone?: string;
+  /** Nome do cliente — usado na mensagem Pix */
+  recipientName?: string;
 }
 
 const ACCEPTED_TYPES: Record<string, string> = {
@@ -36,15 +38,23 @@ const MAX_FILE_SIZE = 16 * 1024 * 1024; // 16MB
 /**
  * Input de mensagem com auto-resize estilo WhatsApp + envio de mídia.
  */
-export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipientPhone }: MessageInputProps) {
+export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipientPhone, recipientName }: MessageInputProps) {
   const [text, setText] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
   const [caption, setCaption] = useState('');
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [pixModalOpen, setPixModalOpen] = useState(false);
+  const [pixKey, setPixKey] = useState('');
+  const [pixKeyType, setPixKeyType] = useState<'cpf' | 'cnpj' | 'email' | 'telefone' | 'aleatoria'>('aleatoria');
+  const [pixAmount, setPixAmount] = useState('');
+  const [pixName, setPixName] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileDocInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const attachMenuRef = useRef<HTMLDivElement>(null);
 
   // ── Audio recording state ──
   const [isRecording, setIsRecording] = useState(false);
@@ -67,6 +77,18 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
       if (filePreview) URL.revokeObjectURL(filePreview);
     };
   }, [filePreview]);
+
+  // Fechar menu de anexos ao clicar fora
+  useEffect(() => {
+    if (!attachMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (attachMenuRef.current && !attachMenuRef.current.contains(e.target as Node)) {
+        setAttachMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [attachMenuOpen]);
 
   // Escuta evento vexx:open-chat para focar o input e opcionalmente preencher texto
   useEffect(() => {
@@ -140,6 +162,48 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
     setFilePreview(null);
     setCaption('');
   }, []);
+
+  // Enviar localização atual via texto formatado
+  const handleSendLocation = useCallback(() => {
+    setAttachMenuOpen(false);
+    if (!navigator.geolocation) {
+      alert('Seu navegador não suporta geolocalização.');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        const mapsUrl = `https://maps.google.com/?q=${latitude},${longitude}`;
+        onSend(`📍 *Localização compartilhada*\n${mapsUrl}`);
+      },
+      () => {
+        alert('Não foi possível obter sua localização. Verifique as permissões do navegador.');
+      }
+    );
+  }, [onSend]);
+
+  // Montar mensagem Pix formatada
+  const handleSendPix = useCallback(() => {
+    if (!pixKey.trim()) return;
+    const keyTypeLabel: Record<string, string> = {
+      cpf: 'CPF',
+      cnpj: 'CNPJ',
+      email: 'E-mail',
+      telefone: 'Telefone',
+      aleatoria: 'Chave aleatória',
+    };
+    let msg = `💳 *Chave Pix*\n`;
+    msg += `🔑 Tipo: ${keyTypeLabel[pixKeyType]}\n`;
+    msg += `📋 Chave: \`${pixKey.trim()}\``;
+    if (pixName.trim()) msg += `\n👤 Titular: ${pixName.trim()}`;
+    if (pixAmount.trim()) msg += `\n💰 Valor: R$ ${pixAmount.trim()}`;
+    msg += `\n\n_Copie a chave acima para realizar o pagamento._`;
+    onSend(msg);
+    setPixModalOpen(false);
+    setPixKey('');
+    setPixAmount('');
+    setPixName('');
+  }, [pixKey, pixKeyType, pixAmount, pixName, onSend]);
 
   // ── Audio recording handlers ──
   const startRecording = useCallback(async () => {
@@ -330,24 +394,200 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
         />
       )}
 
+      {/* ── Modal Pix ── */}
+      {pixModalOpen && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/40 z-50 backdrop-blur-sm"
+            onClick={() => setPixModalOpen(false)}
+          />
+          <div className="fixed inset-0 z-51 flex items-end sm:items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+              <div className="px-5 py-4 bg-linear-to-r from-crm-primary to-[#0a2540] flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Coins size={18} className="text-white" />
+                  <h3 className="text-sm font-bold text-white">Compartilhar Chave Pix</h3>
+                </div>
+                <button onClick={() => setPixModalOpen(false)} className="p-1 hover:bg-white/20 rounded-lg">
+                  <X size={16} className="text-white" />
+                </button>
+              </div>
+              <div className="p-5 space-y-3">
+                {/* Tipo de chave */}
+                <div>
+                  <label className="text-xs font-medium text-gray-500 mb-1 block">Tipo de chave</label>
+                  <select
+                    value={pixKeyType}
+                    onChange={e => setPixKeyType(e.target.value as typeof pixKeyType)}
+                    className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-crm-primary/30"
+                  >
+                    <option value="cpf">CPF</option>
+                    <option value="cnpj">CNPJ</option>
+                    <option value="email">E-mail</option>
+                    <option value="telefone">Telefone</option>
+                    <option value="aleatoria">Chave aleatória</option>
+                  </select>
+                </div>
+                {/* Chave */}
+                <div>
+                  <label className="text-xs font-medium text-gray-500 mb-1 block">Chave Pix</label>
+                  <input
+                    type="text"
+                    value={pixKey}
+                    onChange={e => setPixKey(e.target.value)}
+                    placeholder={
+                      pixKeyType === 'cpf' ? '000.000.000-00' :
+                      pixKeyType === 'cnpj' ? '00.000.000/0000-00' :
+                      pixKeyType === 'email' ? 'email@exemplo.com' :
+                      pixKeyType === 'telefone' ? '+55 (11) 99999-9999' :
+                      'Cole a chave aleatória aqui'
+                    }
+                    className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-crm-primary/30"
+                    autoFocus
+                  />
+                </div>
+                {/* Titular (opcional) */}
+                <div>
+                  <label className="text-xs font-medium text-gray-500 mb-1 block">Titular <span className="text-gray-300">(opcional)</span></label>
+                  <input
+                    type="text"
+                    value={pixName}
+                    onChange={e => setPixName(e.target.value)}
+                    placeholder={recipientName || 'Nome do recebedor'}
+                    className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-crm-primary/30"
+                  />
+                </div>
+                {/* Valor (opcional) */}
+                <div>
+                  <label className="text-xs font-medium text-gray-500 mb-1 block">Valor <span className="text-gray-300">(opcional)</span></label>
+                  <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-crm-primary/30">
+                    <span className="px-3 text-sm text-gray-400 bg-gray-50 border-r border-gray-200 py-2">R$</span>
+                    <input
+                      type="text"
+                      value={pixAmount}
+                      onChange={e => setPixAmount(e.target.value.replace(/[^0-9,.]/g, ''))}
+                      placeholder="0,00"
+                      className="flex-1 text-sm px-3 py-2 focus:outline-none bg-transparent"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-3 pt-1">
+                  <button
+                    onClick={() => setPixModalOpen(false)}
+                    className="flex-1 py-2.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleSendPix}
+                    disabled={!pixKey.trim()}
+                    className="flex-1 py-2.5 text-sm font-semibold text-white bg-crm-primary rounded-xl hover:bg-[#163058] disabled:opacity-40"
+                  >
+                    Enviar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
       <div className="flex items-end gap-2">
         {/* Emoji */}
         <button className="p-2 text-wa-text-secondary hover:text-wa-text-primary transition-colors rounded-full hover:bg-wa-bg-hover">
           <Smile size={22} />
         </button>
 
-        {/* Attach */}
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="p-2 text-wa-text-secondary hover:text-wa-text-primary transition-colors rounded-full hover:bg-wa-bg-hover"
-        >
-          <Paperclip size={22} />
-        </button>
+        {/* ── Menu de Anexos ── */}
+        <div ref={attachMenuRef} className="relative">
+          <button
+            onClick={() => setAttachMenuOpen(v => !v)}
+            className={cn(
+              'p-2 transition-colors rounded-full',
+              attachMenuOpen
+                ? 'text-crm-primary bg-blue-50'
+                : 'text-wa-text-secondary hover:text-wa-text-primary hover:bg-wa-bg-hover'
+            )}
+            title="Anexar"
+          >
+            <Paperclip size={22} />
+          </button>
+
+          {/* Popup do menu */}
+          {attachMenuOpen && (
+            <div className="absolute bottom-12 left-0 z-40 flex flex-col gap-1 bg-white rounded-2xl shadow-2xl border border-gray-100 p-2 w-52 animate-in slide-in-from-bottom-2 duration-150">
+              {/* Imagem / Vídeo */}
+              <button
+                onClick={() => { setAttachMenuOpen(false); fileInputRef.current?.click(); }}
+                className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-50 text-left w-full transition-colors"
+              >
+                <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center shrink-0">
+                  <Image size={16} className="text-purple-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-800">Fotos e Vídeos</p>
+                  <p className="text-[10px] text-gray-400">JPG, PNG, MP4...</p>
+                </div>
+              </button>
+
+              {/* Documento */}
+              <button
+                onClick={() => { setAttachMenuOpen(false); fileDocInputRef.current?.click(); }}
+                className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-50 text-left w-full transition-colors"
+              >
+                <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
+                  <FileText size={16} className="text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-800">Documento</p>
+                  <p className="text-[10px] text-gray-400">PDF, Word, Excel...</p>
+                </div>
+              </button>
+
+              {/* Localização */}
+              <button
+                onClick={handleSendLocation}
+                className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-50 text-left w-full transition-colors"
+              >
+                <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center shrink-0">
+                  <MapPin size={16} className="text-green-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-800">Localização</p>
+                  <p className="text-[10px] text-gray-400">Enviar minha localização</p>
+                </div>
+              </button>
+
+              {/* Chave Pix */}
+              <button
+                onClick={() => { setAttachMenuOpen(false); setPixName(recipientName || ''); setPixModalOpen(true); }}
+                className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-50 text-left w-full transition-colors"
+              >
+                <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                  <Coins size={16} className="text-amber-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-800">Chave Pix</p>
+                  <p className="text-[10px] text-gray-400">Compartilhar dados de pagamento</p>
+                </div>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Input files ocultos */}
         <input
           ref={fileInputRef}
           type="file"
           onChange={handleFileSelect}
-          accept={Object.keys(ACCEPTED_TYPES).join(',')}
+          accept="image/*,video/*"
+          className="hidden"
+        />
+        <input
+          ref={fileDocInputRef}
+          type="file"
+          onChange={handleFileSelect}
+          accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar"
           className="hidden"
         />
 

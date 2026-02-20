@@ -104,6 +104,14 @@ export async function GET(request: NextRequest) {
           } catch { /* connection closed */ }
         };
 
+        // Listener: presence_update (online / digitando / gravando)
+        const onPresenceUpdate = (data: unknown) => {
+          try {
+            const event = `data: ${JSON.stringify({ type: 'presence_update', data, timestamp: new Date().toISOString() })}\n\n`;
+            controller.enqueue(encoder.encode(event));
+          } catch { /* connection closed */ }
+        };
+
         // Registrar listeners
         eventBus.onTenant('new_message', tenantId, onNewMessage);
         eventBus.onTenant('message_status', tenantId, onMessageStatus);
@@ -111,6 +119,7 @@ export async function GET(request: NextRequest) {
         eventBus.onTenant('connection_update', tenantId, onConnection);
         eventBus.onTenant('media_transcription', tenantId, onMediaTranscription);
         eventBus.onTenant('anne_notification', tenantId, onAnneNotification);
+        eventBus.onTenant('presence_update', tenantId, onPresenceUpdate);
 
         // Cleanup ao desconectar
         request.signal.addEventListener('abort', () => {
@@ -121,6 +130,7 @@ export async function GET(request: NextRequest) {
           eventBus.offTenant('connection_update', tenantId, onConnection);
           eventBus.offTenant('media_transcription', tenantId, onMediaTranscription);
           eventBus.offTenant('anne_notification', tenantId, onAnneNotification);
+          eventBus.offTenant('presence_update', tenantId, onPresenceUpdate);
           try { controller.close(); } catch { /* already closed */ }
         });
 

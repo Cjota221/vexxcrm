@@ -95,6 +95,10 @@ export async function POST(request: NextRequest) {
         await handleConnectionUpdate(supabase, tenantId, payload);
         break;
 
+      case 'presence.update':
+        handlePresenceUpdate(tenantId, payload);
+        break;
+
       default:
         console.log(`[Webhook] Evento ignorado: ${event}`);
     }
@@ -833,4 +837,49 @@ async function triggerHistoricalSync(
     clients: totalClients,
     messages: totalMessages,
   });
+}
+
+/**
+ * Processa eventos de presença (online / digitando / gravando).
+ * Evolution API envia: { event: 'presence.update', data: { id: 'phone@s.whatsapp.net', presences: { 'phone@s.whatsapp.net': { lastKnownPresence: 'available'|'unavailable'|'composing'|'recording' } } } }
+ */
+function handlePresenceUpdate(
+  tenantId: string,
+  payload: EvolutionWebhookPayload
+) {
+  try {
+    const data = payload.data as Record<string, unknown>;
+    const jid = data.id as string;
+    if (!jid) return;
+
+    const phone = jid.replace('@s.whatsapp.net', '').replace('@lid', '');
+    const presences = (data.presences as Record<string, { lastKnownPresence: string }>) || {};
+    const presenceKey = Object.keys(presences)[0];
+    const presence = presenceKey ? presences[presenceKey]?.lastKnownPresence : null;
+
+    if (!presence) return;
+
+    // Mapear para estado legível
+    const statusMap: Record<string, string> = {
+      available: 'online',
+      unavailable: 'offline',
+      composing: 'typing',
+      recording: 'recording',
+    };
+
+    const mappedStatus = statusMap[presence] || presence;
+
+    console.log(`[Webhook] presence.update — ${phone} → ${mappedStatus}`);
+
+    // Emitir via SSE para atualizar UI em tempo real
+    eventBus.emitToTenant('presence_update', tenantId, {
+      phone,
+      jid,
+      status: mappedStatus,
+      // TTL: presença expira em 10s (disponível/offline) ou 15s (digitando/gravando)
+      expires_at: Date.now() + (['typing', 'recording'].includes(mappedStatus) ? 15_000 : 10_000),
+    });
+  } catch (err) {
+    console.warn('[Webhook] Erro ao processar presence.update:', err);
+  }
 }

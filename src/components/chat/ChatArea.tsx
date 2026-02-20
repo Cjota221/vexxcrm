@@ -5,11 +5,13 @@ import { MessageCircle, Loader2 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMessages, useSendMessage } from '@/hooks/useWhatsApp';
 import { useChatsStore } from '@/store/chats';
+import { usePresence } from '@/hooks/usePresence';
 import { VirtualizedMessageList } from './VirtualizedMessageList';
 import { MessageInput } from './MessageInput';
 import { AvatarImage } from '@/components/ui/AvatarImage';
 import { api } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
+import { cn } from '@/lib/utils';
 import type { Chat } from '@/types';
 import type { MessageType } from '@/types';
 
@@ -76,6 +78,9 @@ export function ChatArea() {
     || cachedChat?.client?.phone_normalized
     || (selectedChatId?.includes('@') ? selectedChatId.split('@')[0] : selectedChatId)
     || '';
+
+  // Presença do contato (online / digitando / gravando)
+  const { label: presenceLabel, status: presenceStatus } = usePresence(resolvedPhone);
 
   const handleSend = (content: string) => {
     if (!selectedChatId) return;
@@ -169,19 +174,37 @@ export function ChatArea() {
     <div className="flex-1 flex flex-col h-full">
       {/* Chat header */}
       <div className="h-14 bg-wa-bg-panel border-b border-wa-border flex items-center px-4 gap-3 shrink-0">
-        <AvatarImage
-          src={clientData?.avatar_url}
-          name={clientData?.name || selectedChatId || '?'}
-          size={40}
-          rounded="full"
-        />
+        <div className="relative shrink-0">
+          <AvatarImage
+            src={clientData?.avatar_url}
+            name={clientData?.name || selectedChatId || '?'}
+            size={40}
+            rounded="full"
+          />
+          {/* Bolinha verde de online */}
+          {presenceStatus === 'online' && (
+            <span className="absolute bottom-0 right-0 w-3 h-3 bg-[#25d366] rounded-full border-2 border-wa-bg-panel" />
+          )}
+        </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-wa-text-primary truncate">
             {clientData?.name || 'Cliente'}
           </p>
-          <p className="text-xs text-wa-text-secondary truncate">
-            {clientData?.phone || ''}
-          </p>
+          {/* Presença: digitando / gravando / online / telefone */}
+          {presenceLabel ? (
+            <p className={cn(
+              'text-xs truncate animate-pulse',
+              presenceStatus === 'typing' || presenceStatus === 'recording'
+                ? 'text-[#25d366]'
+                : 'text-wa-text-secondary'
+            )}>
+              {presenceLabel}
+            </p>
+          ) : (
+            <p className="text-xs text-wa-text-secondary truncate">
+              {clientData?.phone || ''}
+            </p>
+          )}
         </div>
         {/* Indicador de sincronização discreto */}
         {(isSyncing || (isFetching && !isLoading)) && (
@@ -209,7 +232,7 @@ export function ChatArea() {
       )}
 
       {/* Message input */}
-      <MessageInput onSend={handleSend} onSendMedia={handleSendMedia} isLoading={isSending} disabled={!resolvedPhone} recipientPhone={resolvedPhone || undefined} />
+      <MessageInput onSend={handleSend} onSendMedia={handleSendMedia} isLoading={isSending} disabled={!resolvedPhone} recipientPhone={resolvedPhone || undefined} recipientName={clientData?.name || undefined} />
     </div>
   );
 }
