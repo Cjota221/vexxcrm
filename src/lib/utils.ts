@@ -65,8 +65,11 @@ export function formatDate(date: string | Date): string {
  * @example
  * formatTime('2026-01-15T10:30:00') → '10:30'
  */
-export function formatTime(date: string | Date): string {
-  return new Date(date).toLocaleTimeString('pt-BR', {
+export function formatTime(date: string | Date | null | undefined): string {
+  if (!date) return '--:--';
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return '--:--';
+  return d.toLocaleTimeString('pt-BR', {
     hour: '2-digit',
     minute: '2-digit',
   });

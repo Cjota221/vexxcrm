@@ -219,19 +219,29 @@ export function useSendMessage() {
     onSuccess: (data, _payload, context) => {
       const { tempId, queryClientId } = context ?? {};
 
-      queryClient.setQueryData<Message[]>(['messages', queryClientId], (old = []) =>
-        old.map(m => {
-          if ((m as any)._clientId !== tempId) return m;
-
-          // Servidor retornou mensagem completa com id real  promover
-          if (data?.message?.id) return { ...data.message, _optimistic: false, _clientId: undefined };
-
-          // FIX: data.message é null (upsert fez UPDATE  webhook chegou antes).
-          // Manter _optimistic: true para o refetch de 8s não descartar a mensagem.
-          // O Realtime (postgres_changes INSERT) irá substituir pela mensagem real.
-          return { ...m, status: 'sent' as const, _optimistic: true };
-        })
-      );
+      if (data?.message?.id) {
+        // Servidor retornou mensagem completa com id real → promover otimista
+        queryClient.setQueryData<Message[]>(['messages', queryClientId], (old = []) =>
+          old.map(m => {
+            if ((m as any)._clientId !== tempId) return m;
+            return { ...data.message, _optimistic: false, _clientId: undefined };
+          })
+        );
+      } else {
+        // data.message é null → INSERT falhou ou webhook chegou antes.
+        // Marcar como 'sent' mas manter otimista e forçar refetch imediato
+        // para tentar pegar do banco (webhook pode ter salvo).
+        queryClient.setQueryData<Message[]>(['messages', queryClientId], (old = []) =>
+          old.map(m => {
+            if ((m as any)._clientId !== tempId) return m;
+            return { ...m, status: 'sent' as const, _optimistic: true };
+          })
+        );
+        // Refetch imediato para buscar do banco (o webhook pode ter salvo já)
+        setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: ['messages', queryClientId] });
+        }, 2_000);
+      }
 
       queryClient.invalidateQueries({ queryKey: ['chats'] });
     },

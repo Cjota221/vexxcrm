@@ -191,7 +191,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             'text-[11px]',
             isFromMe ? 'text-wa-text-time' : 'text-wa-text-secondary'
           )}>
-            {formatTime(message.timestamp)}
+            {formatTime(message.timestamp ?? message.created_at)}
           </span>
           {statusIcon()}
         </div>
