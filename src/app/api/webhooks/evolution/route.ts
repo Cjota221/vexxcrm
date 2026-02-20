@@ -22,6 +22,9 @@ import type { EvolutionWebhookPayload } from '@/types';
  */
 export async function POST(request: NextRequest) {
   try {
+    // ━━━ LOG IMEDIATO — confirma que o webhook chegou ao servidor ━━━
+    console.log(`[Webhook] ▶ POST recebido — ${new Date().toISOString()} | URL: ${request.url}`);
+
     // 1. Validar origem — webhook secret ou IP whitelist
     const webhookSecret = process.env.EVOLUTION_WEBHOOK_SECRET;
     const apiKeyHeader = request.headers.get('x-webhook-secret') || request.headers.get('apikey') || '';
@@ -38,6 +41,8 @@ export async function POST(request: NextRequest) {
 
     const payload: EvolutionWebhookPayload = await request.json();
     const { event, instance } = payload;
+
+    console.log(`[Webhook] 📨 Evento: ${event} | Instância: ${instance} | Tenant param: ${request.nextUrl.searchParams.get('tenant_id') || 'N/A'}`);
 
     // 2. Identificar tenant — prioridade: query param, depois lookup por instância
     const supabase = createServerSupabaseClient();

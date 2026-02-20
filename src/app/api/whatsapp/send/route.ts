@@ -145,7 +145,9 @@ export async function POST(request: NextRequest) {
 
     // Salvar mensagem enviada (upsert por external_id para evitar duplicata com webhook)
     // ignoreDuplicates: false → se webhook chegou primeiro, faz UPDATE e retorna a linha
-    const { data: savedMessage, error: msgError } = await supabase
+    // NOTA: o Supabase às vezes retorna null em `.single()` quando o upsert faz UPDATE
+    // (não INSERT). Nesse caso buscamos a linha explicitamente por external_id.
+    let { data: savedMessage, error: msgError } = await supabase
       .from('messages')
       .upsert(
         {
@@ -169,6 +171,21 @@ export async function POST(request: NextRequest) {
 
     if (msgError) {
       console.error('[Send] Erro ao salvar mensagem:', msgError);
+    }
+
+    // Fallback: se o upsert fez UPDATE (webhook chegou antes) o Supabase pode retornar null.
+    // Buscar a linha pelo external_id para garantir que o front-end receba o id real.
+    if (!savedMessage && !msgError) {
+      const { data: fetched } = await supabase
+        .from('messages')
+        .select()
+        .eq('tenant_id', tenantId)
+        .eq('external_id', messageId)
+        .single();
+      if (fetched) {
+        savedMessage = fetched;
+        console.log(`[Send] Upsert retornou null (webhook chegou primeiro) — buscado por external_id: ${messageId}`);
+      }
     }
 
     // Atualizar last_message na conversa (para reordenação na lista de chats)

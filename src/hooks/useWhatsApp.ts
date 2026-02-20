@@ -140,11 +140,11 @@ export function useMessages(clientId: string | null) {
       const cached = queryClient.getQueryData<Message[]>(['messages', clientId]) ?? [];
       const pendingOptimistics = cached.filter((m) => (m as any)._optimistic === true);
 
-      // Mergear: banco + otimistas que não existem ainda no resultado do banco
+      // Mergear: banco + otimistas que não existem ainda no resultado do banco.
+      // Dedup APENAS por id — não por conteúdo (mensagens repetidas são válidas).
       const serverIds = new Set(fromServer.map(m => m.id));
-      const serverContents = new Set(fromServer.map(m => m.content));
       const orphanOptimistics = pendingOptimistics.filter(
-        opt => !serverIds.has(opt.id) && !serverContents.has(opt.content)
+        opt => !serverIds.has(opt.id)
       );
 
       const merged = [...fromServer, ...orphanOptimistics];
@@ -324,13 +324,16 @@ export function useSendMessage() {
     onSuccess: (data, _payload, context) => {
       const { tempId, queryClientId } = context ?? {};
 
-      // Promover optimistic → 'sent' independentemente de data.message
-      // (o webhook pode ter chegado primeiro e o upsert retornou null)
+      // Promover optimistic → mensagem real.
+      // CRÍTICO: substituir o id temporário (opt_xxx) pelo id real do banco.
+      // Sem isso, o refetch de 8s retorna a mensagem com id real e o filtro de
+      // orphanOptimistics não detecta a duplicata → mensagem some ou duplica.
       queryClient.setQueryData<Message[]>(['messages', queryClientId], (old = []) =>
         old.map(m => {
           if ((m as any)._clientId !== tempId) return m;
-          // Se o servidor retornou a mensagem completa, usar ela; senão manter o otimista como 'sent'
-          if (data?.message) return { ...data.message, _optimistic: false };
+          // Se o servidor retornou a mensagem completa, usar ela (com id real do banco)
+          if (data?.message?.id) return { ...data.message, _optimistic: false };
+          // Fallback: manter otimista mas marcar como 'sent' e limpar flag
           return { ...m, status: 'sent' as const, _optimistic: false };
         })
       );
