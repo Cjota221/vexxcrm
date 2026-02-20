@@ -132,9 +132,23 @@ export function useMessages(clientId: string | null) {
       const response = await api.get<{ data: Message[] } | Message[]>(`/api/messages/${clientId}`);
       if (response.error) throw new Error(response.error);
       const raw = response.data as any;
-      const msgs: Message[] = Array.isArray(raw) ? raw : (raw?.data ?? []);
-      // Ordenar por timestamp ao buscar
-      return msgs.sort((a, b) =>
+      const fromServer: Message[] = Array.isArray(raw) ? raw : (raw?.data ?? []);
+
+      // Preservar mensagens otimistas pendentes que ainda não chegaram no banco.
+      // Isso evita que o refetch de 8s apague mensagens enviadas mas ainda não
+      // confirmadas pelo servidor (race condition: envio → banco → refetch).
+      const cached = queryClient.getQueryData<Message[]>(['messages', clientId]) ?? [];
+      const pendingOptimistics = cached.filter((m) => (m as any)._optimistic === true);
+
+      // Mergear: banco + otimistas que não existem ainda no resultado do banco
+      const serverIds = new Set(fromServer.map(m => m.id));
+      const serverContents = new Set(fromServer.map(m => m.content));
+      const orphanOptimistics = pendingOptimistics.filter(
+        opt => !serverIds.has(opt.id) && !serverContents.has(opt.content)
+      );
+
+      const merged = [...fromServer, ...orphanOptimistics];
+      return merged.sort((a, b) =>
         new Date(a.timestamp ?? a.created_at).getTime() -
         new Date(b.timestamp ?? b.created_at).getTime()
       );

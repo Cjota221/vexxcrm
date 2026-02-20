@@ -144,8 +144,7 @@ export async function POST(request: NextRequest) {
           conversation_id: conversationId,
           client_id: clientId,
           external_id: messageId,   // ← ID da Evolution API = chave de dedup
-          direction: 'outbound',
-          from_me: true,
+          direction: 'outbound',    // campo real no banco (não from_me)
           sender_name: 'Atendente',
           sender_phone: null,
           content,
