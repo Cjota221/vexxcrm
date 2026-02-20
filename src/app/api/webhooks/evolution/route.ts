@@ -161,6 +161,22 @@ async function handleNewMessage(
   else if (messageContent.stickerMessage) type = 'sticker';
 
   // Upsert cliente (criar se não existir)
+  // Para mensagens fromMe: não sobrescrever nome com pushName vazio/Desconhecido
+  // O pushName em mensagens enviadas por nós é o nome do atendente, não do cliente
+  const safePushName = (!fromMe && pushName && pushName !== 'Desconhecido') ? pushName : undefined;
+
+  // Verificar se cliente já existe para preservar nome_manual e avatar
+  const { data: existingClient } = await supabase
+    .from('clients')
+    .select('id, name, name_manual, avatar_url')
+    .eq('tenant_id', tenantId)
+    .eq('phone_normalized', phoneNormalized)
+    .maybeSingle();
+
+  const upsertName = existingClient?.name_manual
+    ? existingClient.name_manual          // nunca sobrescrever nome editado manualmente
+    : (safePushName || existingClient?.name || phoneDisplay);
+
   const { data: client, error: clientError } = await supabase
     .from('clients')
     .upsert(
@@ -168,7 +184,7 @@ async function handleNewMessage(
         tenant_id: tenantId,
         phone: phoneDisplay,
         phone_normalized: phoneNormalized,
-        name: pushName,
+        name: upsertName,
       },
       {
         onConflict: 'tenant_id,phone_normalized',
@@ -184,14 +200,18 @@ async function handleNewMessage(
   }
 
   // Buscar ou criar conversation para este cliente
+  // IMPORTANTE: usar order+limit (não .single()) para suportar múltiplas conversas
   let conversationId: string;
-  const { data: existingConv } = await supabase
+  const { data: existingConvs } = await supabase
     .from('conversations')
     .select('id')
     .eq('tenant_id', tenantId)
     .eq('client_id', client.id)
     .eq('channel', 'whatsapp')
-    .single();
+    .order('last_message_at', { ascending: false, nullsFirst: false })
+    .limit(1);
+
+  const existingConv = existingConvs?.[0] ?? null;
 
   if (existingConv) {
     conversationId = existingConv.id;
