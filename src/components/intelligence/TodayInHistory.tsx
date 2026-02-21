@@ -9,11 +9,12 @@
  * Botão WhatsApp: abre modal interno com sugestão de mensagem da Anne — sem link externo.
  */
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { History, ChevronDown, ChevronRight, Star, MessageCircle, Loader2, CalendarDays, Repeat2, Send, X, Bot } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatCurrency, cn } from '@/lib/utils';
+import { VariablePicker, BASIC_VARIABLES } from '@/components/ui/VariablePicker';
 
 /* ─── Tipos ───────────────────────────────────── */
 
@@ -60,6 +61,7 @@ export function TodayInHistory() {
     yearLabel: string;
   } | null>(null);
   const [sendMsg, setSendMsg] = useState('');
+  const sendMsgRef = useRef<HTMLTextAreaElement>(null);
   const [isSending, setIsSending] = useState(false);
   const [sendResult, setSendResult] = useState<string | null>(null);
 
@@ -291,10 +293,17 @@ export function TodayInHistory() {
                 </div>
 
                 <textarea
+                  ref={sendMsgRef}
                   rows={5}
                   className="w-full text-sm border border-gray-200 rounded-xl p-3 resize-none focus:outline-none focus:ring-2 focus:ring-green-500/30"
                   value={sendMsg}
                   onChange={(e) => setSendMsg(e.target.value)}
+                />
+                <VariablePicker
+                  textareaRef={sendMsgRef}
+                  value={sendMsg}
+                  onChange={setSendMsg}
+                  variables={BASIC_VARIABLES}
                 />
 
                 {sendResult && (

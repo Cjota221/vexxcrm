@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   X,
@@ -25,6 +25,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { formatCurrency, formatRelativeTime, cn } from '@/lib/utils';
+import { VariablePicker, CAMPAIGN_VARIABLES } from '@/components/ui/VariablePicker';
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    TIPOS
@@ -160,6 +161,7 @@ export function ClientListDrawer({
   const [isSending, setIsSending] = useState(false);
   const [sendResult, setSendResult] = useState<{ sent: number; failed: number; errors: string[] } | null>(null);
   const [customMessage, setCustomMessage] = useState('');
+  const customMessageRef = useRef<HTMLTextAreaElement>(null);
 
   if (!isOpen) return null;
 
@@ -574,11 +576,19 @@ export function ClientListDrawer({
                     Personalizar mensagem (opcional)
                   </label>
                   <textarea
+                    ref={customMessageRef}
                     rows={4}
                     className="w-full text-sm border border-gray-200 rounded-xl p-3 resize-none focus:outline-none focus:ring-2 focus:ring-green-500/30"
                     placeholder={`Deixe em branco para usar o template acima.\n\nUse {nome} para o nome do cliente.`}
                     value={customMessage}
                     onChange={(e) => setCustomMessage(e.target.value)}
+                  />
+                  <VariablePicker
+                    textareaRef={customMessageRef}
+                    value={customMessage}
+                    onChange={setCustomMessage}
+                    variables={CAMPAIGN_VARIABLES}
+                    className="mt-1.5"
                   />
                 </div>
 

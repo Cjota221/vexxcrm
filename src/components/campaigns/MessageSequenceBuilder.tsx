@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import {
   Plus,
   Trash2,
@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { VariablePicker, CAMPAIGN_VARIABLES } from '@/components/ui/VariablePicker';
 import type { CampaignBlock } from '@/types';
 
 interface MessageSequenceBuilderProps {
@@ -86,12 +87,9 @@ export function MessageSequenceBuilder({ blocks, onChange, readOnly = false }: M
               </div>
 
               {block.type === 'text' && (
-                <textarea
+                <TextBlockEditor
                   value={block.content || ''}
-                  onChange={(e) => updateBlock(block.id, { content: e.target.value })}
-                  placeholder="Digite a mensagem..."
-                  className="w-full text-sm border border-surface-200 rounded-lg p-2 resize-none focus:outline-none focus:ring-2 focus:ring-crm-primary/30"
-                  rows={3}
+                  onChange={(v: string) => updateBlock(block.id, { content: v })}
                   readOnly={readOnly}
                 />
               )}
@@ -165,6 +163,43 @@ export function MessageSequenceBuilder({ blocks, onChange, readOnly = false }: M
             </button>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Sub-componente: editor de bloco de texto com VariablePicker
+   ───────────────────────────────────────────────────────────── */
+function TextBlockEditor({
+  value,
+  onChange,
+  readOnly = false,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  readOnly?: boolean;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  return (
+    <div className="space-y-1.5">
+      <textarea
+        ref={ref}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Digite a mensagem..."
+        className="w-full text-sm border border-surface-200 rounded-lg p-2 resize-none focus:outline-none focus:ring-2 focus:ring-crm-primary/30"
+        rows={3}
+        readOnly={readOnly}
+      />
+      {!readOnly && (
+        <VariablePicker
+          textareaRef={ref}
+          value={value}
+          onChange={onChange}
+          variables={CAMPAIGN_VARIABLES}
+        />
       )}
     </div>
   );
