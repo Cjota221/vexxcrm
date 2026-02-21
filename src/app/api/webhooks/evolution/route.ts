@@ -227,14 +227,15 @@ async function handleNewMessage(
   // Regras de resolução do nome (ordem de prioridade):
   // 1. name_manual (editado pelo atendente) → nunca sobrescrever
   // 2. pushName válido do cliente (não fromMe, não é nome da instância)
-  // 3. Nome atual do banco (se já existe e não é telefone)
-  // 4. Telefone formatado (fallback)
+  // 3. Nome atual do banco (se já existe e não é telefone) → PROTEGE contra disparo fromMe
+  // 4. Telefone formatado (fallback apenas para clientes novos sem nenhum nome)
   let resolvedName: string;
   if (existingClient?.name_manual) {
     resolvedName = existingClient.name_manual;
   } else if (!fromMe && pushName && !isInstanceName(pushName)) {
     resolvedName = pushName.trim();
   } else if (existingClient?.name && !/^\d/.test(existingClient.name)) {
+    // Nome já salvo no banco é real (não começa com dígito) → preservar mesmo em fromMe
     resolvedName = existingClient.name;
   } else {
     resolvedName = phoneDisplay;

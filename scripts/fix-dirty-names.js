@@ -54,12 +54,16 @@ const DRY_RUN = process.argv.includes('--dry-run');
 // Adicione aqui outros nomes de instância que queira limpar
 const DIRTY_NAMES = [
   'Cjota Rasteirinhas',
+  'J Rasteirinhas',
   'Cjota',
   'Rasteirinhas',
+  'Você',
+  'voce',
   'vexx',
   'VEXX',
   'Atendimento',
   'Suporte',
+  'Loja',
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

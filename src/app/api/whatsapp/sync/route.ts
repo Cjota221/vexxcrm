@@ -281,12 +281,19 @@ async function syncOneChat(
     nameFromOrder = order?.customer_name || null;
   }
 
-  // 3. Aplicar hierarquia: Nome Manual > Nome do Pedido > PushName > Telefone
+  // 3. Aplicar hierarquia: Nome Manual > Nome do Pedido > PushName > Nome Existente > Telefone
+  // IMPORTANTE: nunca sobrescrever um nome real já salvo no banco com phoneDisplay.
+  // Isso evita que disparos (fromMe=true) apaguem o nome do cliente, pois
+  // nesses casos safePushName fica vazio (filtrado como nome da instância).
+  const existingName = existingClient?.name || null;
+  const existingNameIsReal = existingName ? !/^\d/.test(existingName) : false;
+
   const resolvedName =
-    nameManual ||          // 1º — edição manual do atendente (nunca sobrescrever)
-    nameFromOrder ||       // 2º — nome real do pedido (FacilZap)
-    safePushName ||        // 3º — pushName do WhatsApp (contato real)
-    phoneDisplay;          // 4º — fallback: número formatado
+    nameManual ||                                      // 1º — edição manual (nunca sobrescrever)
+    nameFromOrder ||                                   // 2º — nome real do pedido (FacilZap)
+    safePushName ||                                    // 3º — pushName de mensagem recebida
+    (existingNameIsReal ? existingName! : null) ||     // 4º — nome já salvo no banco (protege de disparo)
+    phoneDisplay;                                      // 5º — último recurso: número formatado
 
   // 4. Upsert cliente com nome resolvido
   const upsertData: Record<string, unknown> = {

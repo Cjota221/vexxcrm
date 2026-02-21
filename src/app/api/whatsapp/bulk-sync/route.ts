@@ -267,7 +267,19 @@ async function syncOneChatFull(
   const phoneWithNine = PhoneNormalizer.normalize(phone);  // COM 9º dígito: 5562999998888
   const phoneWithoutNine = PhoneNormalizer.canonical(phone); // SEM 9º dígito: 556299998888
   const phoneDisplay = phoneWithNine;
-  const pushName = chat.pushName || chat.lastMessage?.pushName || phoneDisplay;
+  const rawPushName = chat.pushName || chat.lastMessage?.pushName || '';
+  // Rejeitar pushName se for nome da instância (ex: "Cjota Rasteirinhas", "Você")
+  // Chat do disparo (fromMe=true): lastMessage.pushName é o nome da LOJA, não do cliente
+  const instanceNameBulk = config.instanceName?.toLowerCase() || '';
+  const BULK_BLACKLIST = ['cjota rasteirinhas', 'cjota', 'você', 'voce', 'loja', 'atendente'];
+  const isPushNameInstance =
+    !rawPushName ||
+    rawPushName.trim() === '' ||
+    rawPushName.toLowerCase() === instanceNameBulk ||
+    BULK_BLACKLIST.some(b => rawPushName.toLowerCase().includes(b)) ||
+    (/^\d+$/.test(rawPushName.replace(/\D/g, '')) && rawPushName.replace(/\D/g, '').length >= 8);
+  const safePushNameBulk = isPushNameInstance ? '' : rawPushName.trim();
+  const pushName = safePushNameBulk || phoneDisplay;
 
   // 1. Buscar cliente existente por QUALQUER variação do telefone
   let client: { id: string; created_at: string } | null = null;
