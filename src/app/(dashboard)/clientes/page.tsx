@@ -1,12 +1,11 @@
 ﻿'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import {
   Download,
   Users,
-  TrendingUp,
-  AlertTriangle,
   ChevronLeft,
   ChevronRight,
   MessageCircle,
@@ -17,15 +16,23 @@ import {
   X,
   UserCheck,
   UserX,
+  Zap,
+  MapPin,
+  Search,
+  Loader2,
 } from 'lucide-react';
 import { useClients } from '@/hooks/useClients';
+import { useClientStats } from '@/hooks/useClientStats';
 import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { SentinelaButton } from '@/components/crm/SentinelaButton';
+import { api } from '@/lib/api';
 import { formatCurrency, formatRelativeTime, getInitials, getAvatarColor, debounce } from '@/lib/utils';
 import type { ClientStatus } from '@/types';
+
+/* ─── Mapas de status e origem ────────────────────── */
 
 const STATUS_MAP: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'neutral' }> = {
   novo:     { label: 'Novo',       variant: 'info' },
@@ -48,6 +55,246 @@ const SOURCE_MAP: Record<string, { label: string; icon: string; color: string }>
 
 const PER_PAGE_OPTIONS = [50, 100, 200];
 
+/* ─── Tipos do painel lateral ─────────────────────── */
+
+interface PanelFilter {
+  type: 'source' | 'state';
+  value: string;
+  label: string;
+  count: number;
+}
+
+interface PanelClient {
+  id: string;
+  name: string | null;
+  phone: string;
+  status: string;
+  source: string;
+  address_state: string | null;
+  ltv: number;
+  total_orders: number;
+  last_order_at: string | null;
+}
+
+/* ─── Componente do painel lateral ─────────────────── */
+
+function GroupPanel({
+  filter,
+  onClose,
+}: {
+  filter: PanelFilter;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [panelSearch, setPanelSearch] = useState('');
+  const [panelPage, setPanelPage] = useState(1);
+  const debouncedSearch = useRef(panelSearch);
+
+  const handleSearch = useCallback(
+    debounce((v: string) => {
+      debouncedSearch.current = v;
+      setPanelPage(1);
+    }, 300),
+    []
+  );
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['client-group', filter.type, filter.value, panelSearch, panelPage],
+    queryFn: async () => {
+      const params: Record<string, string> = {
+        type: filter.type,
+        value: filter.value,
+        page: String(panelPage),
+        per_page: '50',
+      };
+      if (panelSearch) params.search = panelSearch;
+      const res = await api.get<{ data: PanelClient[]; total: number; total_pages: number }>(
+        '/api/clients/group',
+        params
+      );
+      if (res.error) throw new Error(res.error);
+      const raw = res.data as any;
+      if (raw && 'data' in raw) return raw;
+      return { data: [], total: 0, total_pages: 1 };
+    },
+    staleTime: 60_000,
+  });
+
+  const clients: PanelClient[] = data?.data ?? [];
+  const totalPages = data?.total_pages ?? 1;
+
+  const handleExportCSV = () => {
+    if (!clients.length) return;
+    const csv = [
+      'Nome,Telefone,Status,Origem',
+      ...clients.map((c) =>
+        `"${c.name ?? ''}","${c.phone ?? ''}","${c.status ?? ''}","${c.source ?? ''}"`
+      ),
+    ].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `clientes-${filter.value}-${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDisparo = () => {
+    const phones = clients
+      .map((c) => c.phone)
+      .filter(Boolean)
+      .join(',');
+    router.push(`/disparo-rapido?phones=${encodeURIComponent(phones)}&count=${filter.count}`);
+  };
+
+  const labelType = filter.type === 'source' ? 'Origem' : 'Estado';
+  const SOURCE_LABEL: Record<string, string> = {
+    __all__:  'Todos os contatos',
+    whatsapp: 'WhatsApp',
+    facilzap: 'FacilZap',
+    import: 'Importação',
+    manual: 'Manual',
+    campaign: 'Campanha',
+  };
+  const displayLabel =
+    filter.type === 'source'
+      ? SOURCE_LABEL[filter.value] ?? filter.value
+      : `Estado — ${filter.value}`;
+
+  return (
+    <>
+      {/* Overlay */}
+      <div
+        className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40"
+        onClick={onClose}
+      />
+
+      {/* Painel */}
+      <div className="fixed right-0 top-0 h-full w-full max-w-md bg-white z-50 flex flex-col shadow-2xl">
+        {/* Header */}
+        <div className="px-5 py-4 bg-crm-primary flex items-center justify-between shrink-0">
+          <div>
+            <p className="text-[11px] text-white/60 uppercase tracking-wider font-medium">{labelType}</p>
+            <h3 className="text-base font-bold text-white">{displayLabel}</h3>
+            <p className="text-xs text-white/70">{filter.count.toLocaleString('pt-BR')} contatos</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-white/20 rounded-xl transition-colors"
+          >
+            <X size={18} className="text-white" />
+          </button>
+        </div>
+
+        {/* Busca interna */}
+        <div className="px-4 py-3 border-b border-gray-100 shrink-0">
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Buscar por nome ou telefone..."
+              className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-crm-primary/20"
+              onChange={(e) => {
+                setPanelSearch(e.target.value);
+                handleSearch(e.target.value);
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Lista */}
+        <div className="flex-1 overflow-y-auto">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 size={20} className="animate-spin text-crm-primary" />
+            </div>
+          ) : clients.length === 0 ? (
+            <div className="text-center py-12 text-gray-400 text-sm">
+              Nenhum contato encontrado
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-50">
+              {clients.map((c) => {
+                const hasNoName = !c.name || c.name.trim() === '';
+                const status = STATUS_MAP[c.status] ?? { label: c.status || '—', variant: 'neutral' as const };
+                const src = SOURCE_MAP[c.source] ?? SOURCE_MAP['whatsapp'];
+                return (
+                  <div
+                    key={c.id}
+                    className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors"
+                    onClick={() => { router.push(`/clientes/${c.id}`); onClose(); }}
+                  >
+                    <div
+                      className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0"
+                      style={{ backgroundColor: getAvatarColor(c.id) }}
+                    >
+                      {hasNoName ? '?' : getInitials(c.name!)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      {hasNoName ? (
+                        <p className="text-sm text-gray-400 italic">Sem nome</p>
+                      ) : (
+                        <p className="text-sm font-semibold text-gray-800 truncate">{c.name}</p>
+                      )}
+                      <p className="text-xs text-gray-400 font-mono">{c.phone}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <Badge variant={status.variant}>{status.label}</Badge>
+                      <span className={`inline-flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full border ${src.color}`}>
+                        {src.label}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Paginação do painel */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 py-3 px-4 border-t border-gray-100">
+              <button
+                onClick={() => setPanelPage((p) => Math.max(1, p - 1))}
+                disabled={panelPage === 1}
+                className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <span className="text-xs text-gray-500">
+                Pág. {panelPage}/{totalPages}
+              </span>
+              <button
+                onClick={() => setPanelPage((p) => Math.min(totalPages, p + 1))}
+                disabled={panelPage === totalPages}
+                className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Rodapé com ações */}
+        <div className="px-4 py-3 border-t border-gray-100 flex gap-2 shrink-0">
+          <button
+            onClick={handleDisparo}
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold rounded-xl bg-crm-primary text-white hover:bg-crm-primary/90 transition-colors"
+          >
+            <Megaphone size={14} /> Disparar para esse grupo
+          </button>
+          <button
+            onClick={handleExportCSV}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+          >
+            <Download size={14} /> CSV
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function ClientesPage() {
   const router = useRouter();
 
@@ -60,8 +307,14 @@ export default function ClientesPage() {
   const [currentPage, setCurrentPage]     = useState(1);
   const [perPage, setPerPage]             = useState(200);
 
+  // Painel lateral
+  const [activePanel, setActivePanel] = useState<PanelFilter | null>(null);
+
   // Selecao
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Stats (uma única query)
+  const { data: stats, isLoading: statsLoading } = useClientStats();
 
   const { data, isLoading } = useClients({
     search: search || undefined,
@@ -133,81 +386,159 @@ export default function ClientesPage() {
 
   return (
     <div className="space-y-6 pb-24">
+      {/* Painel lateral */}
+      {activePanel && (
+        <GroupPanel filter={activePanel} onClose={() => setActivePanel(null)} />
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-txt-primary">Clientes</h1>
-          <p className="text-sm text-txt-secondary mt-1">{total.toLocaleString('pt-BR')} clientes no total</p>
+          <p className="text-sm text-txt-secondary mt-1">{(stats?.total ?? total).toLocaleString('pt-BR')} clientes no total</p>
         </div>
         <SentinelaButton />
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <Card>
-          <div className="p-4 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-crm-primary/10 flex items-center justify-center shrink-0">
-              <Users size={18} className="text-crm-primary" />
-            </div>
-            <div>
-              <p className="text-xs text-txt-secondary">Total</p>
-              <p className="text-lg font-bold text-txt-primary">{total.toLocaleString('pt-BR')}</p>
-            </div>
-          </div>
-        </Card>
-        <Card>
-          <div className="p-4 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-yellow-500/10 flex items-center justify-center shrink-0">
-              <TrendingUp size={18} className="text-yellow-600" />
-            </div>
-            <div>
-              <p className="text-xs text-txt-secondary">VIP</p>
-              <p className="text-lg font-bold text-txt-primary">
-                {clients.filter((c: any) => c.status === 'vip').length}
-              </p>
-            </div>
-          </div>
-        </Card>
-        <Card>
-          <div className="p-4 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-red-500/10 flex items-center justify-center shrink-0">
-              <AlertTriangle size={18} className="text-red-500" />
-            </div>
-            <div>
-              <p className="text-xs text-txt-secondary">Em Risco</p>
-              <p className="text-lg font-bold text-txt-primary">
-                {clients.filter((c: any) => c.status === 'risco' || c.status === 'at_risk').length}
-              </p>
-            </div>
-          </div>
-        </Card>
-        <Card>
-          <div className="p-4 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-green-500/10 flex items-center justify-center shrink-0">
-              <MessageCircle size={18} className="text-green-600" />
-            </div>
-            <div>
-              <p className="text-xs text-txt-secondary">Via WhatsApp</p>
-              <p className="text-lg font-bold text-txt-primary">
-                {clients.filter((c: any) => c.source === 'whatsapp' || c.source === 'facilzap').length}
-              </p>
-            </div>
-          </div>
-        </Card>
-        <Card>
-          <div className="p-4 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-blue-500/10 flex items-center justify-center shrink-0">
-              <FileUp size={18} className="text-blue-600" />
-            </div>
-            <div>
-              <p className="text-xs text-txt-secondary">Importados</p>
-              <p className="text-lg font-bold text-txt-primary">
-                {clients.filter((c: any) => c.source === 'import').length}
-              </p>
-            </div>
-          </div>
-        </Card>
+      {/* ── Origem dos Contatos ──────────────────────────── */}
+      <div>
+        <h2 className="text-xs font-bold text-txt-secondary uppercase tracking-wider mb-3">
+          Origem dos Contatos
+        </h2>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {/* Card Total */}
+          {(() => {
+            const totalStats = stats?.total ?? 0;
+            return (
+              <button
+                onClick={() => setActivePanel({ type: 'source', value: '__all__', label: 'Todos', count: totalStats })}
+                className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 text-left hover:shadow-md hover:border-crm-primary/30 transition-all group"
+              >
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-9 h-9 rounded-xl bg-crm-primary/10 flex items-center justify-center">
+                    <Users size={18} className="text-crm-primary" />
+                  </div>
+                  <span className="text-xs font-medium text-txt-secondary group-hover:text-crm-primary transition-colors">Total</span>
+                </div>
+                <p className="text-2xl font-black text-txt-primary">{statsLoading ? '—' : totalStats.toLocaleString('pt-BR')}</p>
+                <div className="mt-2 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-crm-primary rounded-full w-full" />
+                </div>
+              </button>
+            );
+          })()}
+
+          {/* Cards por source */}
+          {[
+            { key: 'whatsapp', label: 'WhatsApp', icon: <MessageCircle size={18} className="text-green-600" />, bg: 'bg-green-500/10', bar: 'bg-green-500' },
+            { key: 'facilzap', label: 'FacilZap',  icon: <Zap size={18} className="text-emerald-600" />,         bg: 'bg-emerald-500/10', bar: 'bg-emerald-500' },
+            { key: 'import',   label: 'Importação', icon: <FileUp size={18} className="text-blue-600" />,         bg: 'bg-blue-500/10', bar: 'bg-blue-500' },
+          ].map(({ key, label, icon, bg, bar }) => {
+            const count = stats?.by_source.find((s) => s.source === key)?.count ?? 0;
+            const pct = stats?.total ? (count / stats.total) * 100 : 0;
+            return (
+              <button
+                key={key}
+                onClick={() =>
+                  setActivePanel({ type: 'source', value: key, label, count })
+                }
+                className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 text-left hover:shadow-md hover:border-crm-primary/30 transition-all group"
+              >
+                <div className="flex items-center gap-3 mb-3">
+                  <div className={`w-9 h-9 rounded-xl ${bg} flex items-center justify-center`}>{icon}</div>
+                  <span className="text-xs font-medium text-txt-secondary group-hover:text-crm-primary transition-colors">{label}</span>
+                </div>
+                <p className="text-2xl font-black text-txt-primary">{statsLoading ? '—' : count.toLocaleString('pt-BR')}</p>
+                <div className="mt-2 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div className={`h-full ${bar} rounded-full transition-all`} style={{ width: `${pct}%` }} />
+                </div>
+                <p className="text-[10px] text-txt-secondary mt-1">{pct.toFixed(1)}% do total</p>
+              </button>
+            );
+          })}
+        </div>
       </div>
+
+      {/* ── Distribuição por Estado ──────────────────────── */}
+      {(stats?.by_state?.length ?? 0) > 0 && (
+        <div>
+          <h2 className="text-xs font-bold text-txt-secondary uppercase tracking-wider mb-3">
+            Distribuição por Estado
+          </h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Ranking (lista) */}
+            <Card>
+              <div className="p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <MapPin size={14} className="text-txt-secondary" />
+                  <span className="text-xs font-semibold text-txt-secondary uppercase tracking-wide">Ranking</span>
+                </div>
+                <div className="space-y-2">
+                  {(stats?.by_state ?? []).map(({ state, count }) => {
+                    const pct = stats?.total ? (count / stats.total) * 100 : 0;
+                    return (
+                      <button
+                        key={state}
+                        onClick={() => setActivePanel({ type: 'state', value: state, label: state, count })}
+                        className="w-full flex items-center gap-3 group hover:bg-surface-50 rounded-xl px-2 py-1.5 transition-colors"
+                      >
+                        <span className="text-xs font-bold text-txt-primary w-7 shrink-0 text-left">{state}</span>
+                        <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-crm-primary rounded-full transition-all group-hover:bg-crm-primary/80"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <span className="text-xs font-semibold text-txt-primary w-10 text-right shrink-0">
+                          {count.toLocaleString('pt-BR')}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </Card>
+
+            {/* Grid de cards de estado (top 12) */}
+            <Card>
+              <div className="p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <MapPin size={14} className="text-txt-secondary" />
+                  <span className="text-xs font-semibold text-txt-secondary uppercase tracking-wide">Top estados</span>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {(stats?.by_state ?? []).slice(0, 12).map(({ state, count }) => {
+                    const maxCount = stats?.by_state[0]?.count ?? 1;
+                    const intensity = Math.max(0.08, count / maxCount);
+                    return (
+                      <button
+                        key={state}
+                        onClick={() => setActivePanel({ type: 'state', value: state, label: state, count })}
+                        className="flex flex-col items-center justify-center rounded-xl py-2.5 px-1 transition-all hover:scale-105 hover:shadow-md"
+                        style={{ backgroundColor: `rgba(30, 58, 95, ${intensity})` }}
+                        title={`${state}: ${count} clientes`}
+                      >
+                        <span
+                          className="text-sm font-black"
+                          style={{ color: intensity > 0.4 ? 'white' : '#1e3a5f' }}
+                        >
+                          {state}
+                        </span>
+                        <span
+                          className="text-[10px] font-semibold mt-0.5"
+                          style={{ color: intensity > 0.4 ? 'rgba(255,255,255,0.8)' : '#64748b' }}
+                        >
+                          {count.toLocaleString('pt-BR')}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
 
       {/* Filtros */}
       <Card>
