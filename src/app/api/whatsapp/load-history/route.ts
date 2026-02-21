@@ -5,7 +5,6 @@ import {
   getTenantEvolutionConfig,
   fetchMessages,
 } from '@/lib/services/evolution.service';
-import { PhoneNormalizer } from '@/lib/phone-normalizer';
 
 /**
  * POST /api/whatsapp/load-history
@@ -64,7 +63,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ loaded: false, reason: 'sem_telefone' });
     }
 
-    const phone = PhoneNormalizer.digitsOnly(client.phone_normalized);
+    const phone = client.phone_normalized.replace(/\D/g, '');
     const jid = `${phone}@s.whatsapp.net`;
 
     // 4. Marcar como "em progresso" imediatamente — evita chamadas paralelas
