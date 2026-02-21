@@ -46,9 +46,14 @@ export async function GET(request: NextRequest) {
 
     const { data: tenant } = await supabase
       .from('tenants')
-      .select('evolution_api_url, evolution_api_key, evolution_instance, facilzap_token, openai_api_key, openai_model, openai_system_prompt, openai_provider, openai_base_url')
+      .select('evolution_api_url, evolution_api_key, evolution_instance, facilzap_token, openai_api_key, openai_model, openai_system_prompt, openai_provider, openai_base_url, config')
       .eq('id', profile.tenant_id)
       .single();
+
+    // config JSONB: contém site_url do FacilZap, pix, etc.
+    const tenantConfig = (tenant?.config as Record<string, unknown>) || {};
+    const facilzapConfig = (tenantConfig.facilzap as Record<string, unknown>) || {};
+    const pixConfig = (tenantConfig.pix as Record<string, unknown>) || {};
 
     // Transformar em formato esperado pelo frontend (keys mascaradas)
     const config = {
@@ -56,7 +61,7 @@ export async function GET(request: NextRequest) {
         enabled: !!tenant?.facilzap_token,
         token: maskKey(tenant?.facilzap_token),
         has_token: !!tenant?.facilzap_token,
-        site_url: '',
+        site_url: (facilzapConfig.site_url as string) || '',
       },
       evolution: {
         status: !!tenant?.evolution_api_url ? 'connected' : 'disconnected',
@@ -74,6 +79,11 @@ export async function GET(request: NextRequest) {
         provider: tenant?.openai_provider || 'openai',
         base_url: tenant?.openai_base_url || '',
       },
+      pix: Object.keys(pixConfig).length > 0 ? {
+        key: (pixConfig.key as string) || '',
+        keyType: (pixConfig.keyType as string) || 'aleatoria',
+        holderName: (pixConfig.holderName as string) || '',
+      } : undefined,
     };
 
     return NextResponse.json(config);
@@ -113,10 +123,36 @@ export async function PUT(request: NextRequest) {
     // Mapear estrutura do frontend para colunas do banco
     const dbUpdate: any = { updated_at: new Date().toISOString() };
 
+    // Campos que vão em colunas dedicadas
     if (configUpdate.facilzap) {
       if (configUpdate.facilzap.token !== undefined) {
         dbUpdate.facilzap_token = configUpdate.facilzap.token;
       }
+    }
+
+    // Campos que vão no JSONB config (site_url, pix, etc.)
+    // Buscar config atual para fazer merge seguro (não sobrescrever outros campos)
+    const { data: currentTenant } = await supabase
+      .from('tenants')
+      .select('config')
+      .eq('id', profile.tenant_id)
+      .single();
+
+    const currentConfig = (currentTenant?.config as Record<string, unknown>) || {};
+
+    if (configUpdate.facilzap?.site_url !== undefined) {
+      const currentFacilzap = (currentConfig.facilzap as Record<string, unknown>) || {};
+      currentConfig.facilzap = { ...currentFacilzap, site_url: configUpdate.facilzap.site_url };
+      dbUpdate.config = currentConfig;
+    }
+
+    if (configUpdate.pix !== undefined) {
+      if (configUpdate.pix === null) {
+        delete currentConfig.pix;
+      } else {
+        currentConfig.pix = configUpdate.pix;
+      }
+      dbUpdate.config = currentConfig;
     }
 
     if (configUpdate.evolution) {
@@ -154,7 +190,7 @@ export async function PUT(request: NextRequest) {
       .from('tenants')
       .update(dbUpdate)
       .eq('id', profile.tenant_id)
-      .select('evolution_api_url, evolution_api_key, evolution_instance, facilzap_token, openai_api_key, openai_model, openai_system_prompt, openai_provider, openai_base_url')
+      .select('evolution_api_url, evolution_api_key, evolution_instance, facilzap_token, openai_api_key, openai_model, openai_system_prompt, openai_provider, openai_base_url, config')
       .single();
 
     if (error) {
@@ -163,12 +199,16 @@ export async function PUT(request: NextRequest) {
     }
 
     // Retornar no formato esperado (keys mascaradas)
+    const savedConfig = (data.config as Record<string, unknown>) || {};
+    const savedFacilzap = (savedConfig.facilzap as Record<string, unknown>) || {};
+    const savedPix = (savedConfig.pix as Record<string, unknown>) || {};
+
     const updatedConfig = {
       facilzap: {
         enabled: !!data.facilzap_token,
         token: maskKey(data.facilzap_token),
         has_token: !!data.facilzap_token,
-        site_url: '',
+        site_url: (savedFacilzap.site_url as string) || '',
       },
       evolution: {
         status: !!data.evolution_api_url ? 'connected' : 'disconnected',
@@ -186,6 +226,11 @@ export async function PUT(request: NextRequest) {
         provider: data.openai_provider || 'openai',
         base_url: data.openai_base_url || '',
       },
+      pix: Object.keys(savedPix).length > 0 ? {
+        key: (savedPix.key as string) || '',
+        keyType: (savedPix.keyType as string) || 'aleatoria',
+        holderName: (savedPix.holderName as string) || '',
+      } : undefined,
     };
 
     return NextResponse.json(updatedConfig);
