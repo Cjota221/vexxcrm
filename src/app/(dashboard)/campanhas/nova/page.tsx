@@ -6,7 +6,7 @@ import {
   ArrowLeft, ArrowRight, Check, Upload, Trash2, GripVertical,
   Image as ImageIcon, Type, Link2, ChevronDown, ChevronUp,
   Plus, Calendar, Users, Zap, Send, Loader2, AlertCircle,
-  Search, Mic, Video, UsersRound, X, ChevronRight,
+  Search, Mic, Video, UsersRound, X, ChevronRight, Database, Filter,
 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -17,7 +17,7 @@ import { supabase } from '@/lib/supabase';
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 type TipoBloco = 'imagem' | 'video' | 'audio' | 'texto' | 'cta';
-type ModoDestinatario = 'inteligencia' | 'manual' | 'grupos';
+type ModoDestinatario = 'inteligencia' | 'toda_base' | 'manual' | 'grupos';
 
 interface Bloco {
   id: string;
@@ -496,6 +496,289 @@ function SeletorContatosManual({ selecionados, onToggle }: SeletorContatosManual
   );
 }
 
+// ─── Seletor Toda a Base ──────────────────────────────────────────────────────
+
+const STATUS_OPCOES = [
+  { value: 'novo',    label: 'Novo',    cor: 'bg-blue-100 text-blue-800 border-blue-200'   },
+  { value: 'ativo',   label: 'Ativo',   cor: 'bg-green-100 text-green-800 border-green-200' },
+  { value: 'vip',     label: 'VIP',     cor: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
+  { value: 'risco',   label: 'Em risco',cor: 'bg-red-100 text-red-800 border-red-200'      },
+  { value: 'inativo', label: 'Inativo', cor: 'bg-gray-100 text-gray-700 border-gray-200'   },
+];
+
+interface ClienteBase {
+  id: string;
+  telefone: string;
+  nome?: string;
+  cidade?: string;
+  estado?: string;
+  total_orders: number;
+}
+
+interface SeletorTodaBaseProps {
+  selecionados: Contato[];
+  onSetSelecionados: (lista: Contato[]) => void;
+}
+
+function SeletorTodaBase({ selecionados, onSetSelecionados }: SeletorTodaBaseProps) {
+  const [busca, setBusca] = useState('');
+  const [statusFiltro, setStatusFiltro] = useState<string>('');
+  const [pedidosFiltro, setPedidosFiltro] = useState<'todos' | 'com' | 'sem'>('todos');
+  const [clientes, setClientes] = useState<ClienteBase[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [carregando, setCarregando] = useState(false);
+  const [carregandoTodos, setCarregandoTodos] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectedIds = useMemo(() => new Set(selecionados.map(c => c.id)), [selecionados]);
+  const LIMIT = 50;
+
+  const buscarClientes = useCallback(async (pg: number, q: string, st: string, ped: string) => {
+    setCarregando(true);
+    try {
+      const params: Record<string, string> = { page: String(pg), limit: String(LIMIT) };
+      if (q.trim()) params.search = q.trim();
+      if (st) params.status = st;
+      if (ped === 'com') params.has_orders = 'true';
+      if (ped === 'sem') params.has_orders = 'false';
+
+      const qs = new URLSearchParams(params).toString();
+      const resp = await fetch(`/api/v2/campanhas/clientes-base?${qs}`);
+      const data = await resp.json() as { clients: ClienteBase[]; total: number; pages: number };
+      setClientes(data.clients ?? []);
+      setTotal(data.total ?? 0);
+      setPages(data.pages ?? 1);
+    } catch {
+      setClientes([]);
+    } finally {
+      setCarregando(false);
+    }
+  }, []);
+
+  // Busca inicial e ao mudar filtros
+  useEffect(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      setPage(1);
+      buscarClientes(1, busca, statusFiltro, pedidosFiltro);
+    }, 300);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [busca, statusFiltro, pedidosFiltro, buscarClientes]);
+
+  // Paginação
+  useEffect(() => {
+    buscarClientes(page, busca, statusFiltro, pedidosFiltro);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
+
+  const toggleCliente = (c: ClienteBase) => {
+    if (selectedIds.has(c.id)) {
+      onSetSelecionados(selecionados.filter(s => s.id !== c.id));
+    } else {
+      onSetSelecionados([...selecionados, {
+        id: c.id, telefone: c.telefone, nome: c.nome,
+        cidade: c.cidade, estado: c.estado,
+      }]);
+    }
+  };
+
+  const selecionarTodaLista = async () => {
+    setCarregandoTodos(true);
+    try {
+      const params: Record<string, string> = { page: '1', limit: '500' };
+      if (busca.trim()) params.search = busca.trim();
+      if (statusFiltro) params.status = statusFiltro;
+      if (pedidosFiltro === 'com') params.has_orders = 'true';
+      if (pedidosFiltro === 'sem') params.has_orders = 'false';
+
+      const qs = new URLSearchParams(params).toString();
+      const resp = await fetch(`/api/v2/campanhas/clientes-base?${qs}`);
+      const data = await resp.json() as { clients: ClienteBase[] };
+      const todos = data.clients ?? [];
+      const novos = todos.filter(c => !selectedIds.has(c.id));
+      onSetSelecionados([
+        ...selecionados,
+        ...novos.map(c => ({ id: c.id, telefone: c.telefone, nome: c.nome, cidade: c.cidade, estado: c.estado })),
+      ]);
+    } catch {
+      // silencia
+    } finally {
+      setCarregandoTodos(false);
+    }
+  };
+
+  const limparSelecao = () => onSetSelecionados([]);
+
+  return (
+    <div className="space-y-3">
+      {/* ── Filtros ── */}
+      <div className="p-3 bg-surface-50 rounded-xl border border-surface-200 space-y-2.5">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-txt-secondary">
+          <Filter size={12} /> Filtros
+        </div>
+
+        {/* Busca */}
+        <div className="relative">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-txt-muted" />
+          <input
+            type="text"
+            value={busca}
+            onChange={e => setBusca(e.target.value)}
+            placeholder="Buscar por nome ou telefone..."
+            className="w-full pl-8 pr-4 py-2 text-sm border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-crm-primary/40 bg-white"
+          />
+        </div>
+
+        {/* Status chips */}
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            onClick={() => setStatusFiltro('')}
+            className={`text-xs px-2.5 py-1 rounded-full border font-medium transition-all ${
+              statusFiltro === ''
+                ? 'bg-crm-primary text-white border-crm-primary'
+                : 'bg-white text-txt-secondary border-surface-300 hover:border-crm-primary/40'
+            }`}
+          >
+            Todos
+          </button>
+          {STATUS_OPCOES.map(s => (
+            <button
+              key={s.value}
+              onClick={() => setStatusFiltro(statusFiltro === s.value ? '' : s.value)}
+              className={`text-xs px-2.5 py-1 rounded-full border font-medium transition-all ${
+                statusFiltro === s.value ? s.cor + ' ring-2 ring-offset-1 ring-crm-primary/30' : 'bg-white text-txt-secondary border-surface-300 hover:border-crm-primary/40'
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Pedidos */}
+        <div className="flex gap-1.5">
+          {([
+            { value: 'todos', label: 'Com e sem pedidos' },
+            { value: 'com',   label: '✅ Com pedidos'    },
+            { value: 'sem',   label: '🆕 Sem pedidos'   },
+          ] as const).map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => setPedidosFiltro(opt.value)}
+              className={`text-xs px-2.5 py-1.5 rounded-lg border font-medium transition-all flex-1 ${
+                pedidosFiltro === opt.value
+                  ? 'border-crm-primary bg-crm-primary/5 text-crm-primary'
+                  : 'border-surface-200 bg-white text-txt-secondary hover:border-crm-primary/40'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Contador + ações ── */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 text-sm text-txt-secondary">
+          {carregando
+            ? <><Loader2 size={13} className="animate-spin" /> Carregando...</>
+            : <><Database size={13} /><span><strong className="text-txt-primary">{total.toLocaleString('pt-BR')}</strong> clientes no filtro</span></>
+          }
+        </div>
+        <div className="flex items-center gap-2">
+          {selecionados.length > 0 && (
+            <button
+              onClick={limparSelecao}
+              className="text-xs px-2.5 py-1.5 rounded-lg border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 transition-colors"
+            >
+              Limpar ({selecionados.length})
+            </button>
+          )}
+          <button
+            onClick={selecionarTodaLista}
+            disabled={carregandoTodos || total === 0}
+            className="text-xs px-3 py-1.5 rounded-lg border border-crm-primary/30 text-crm-primary bg-crm-primary/5 hover:bg-crm-primary/10 transition-colors disabled:opacity-50 flex items-center gap-1"
+          >
+            {carregandoTodos
+              ? <><Loader2 size={11} className="animate-spin" /> Carregando...</>
+              : `Selecionar todos (até 500)`
+            }
+          </button>
+        </div>
+      </div>
+
+      {/* ── Lista ── */}
+      <div className="border border-surface-200 rounded-xl divide-y divide-surface-100 max-h-72 overflow-y-auto">
+        {clientes.length === 0 && !carregando ? (
+          <div className="py-8 text-center text-sm text-txt-muted">
+            {busca || statusFiltro || pedidosFiltro !== 'todos'
+              ? 'Nenhum cliente encontrado com esses filtros'
+              : 'Nenhum cliente na base'
+            }
+          </div>
+        ) : (
+          clientes.map(c => {
+            const sel = selectedIds.has(c.id);
+            return (
+              <button
+                key={c.id}
+                onClick={() => toggleCliente(c)}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-surface-50 transition-colors ${sel ? 'bg-crm-primary/5' : ''}`}
+              >
+                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${sel ? 'bg-crm-primary border-crm-primary' : 'border-surface-300'}`}>
+                  {sel && <Check size={10} className="text-white" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-txt-primary truncate">{c.nome || '(sem nome)'}</p>
+                  <p className="text-xs text-txt-muted">{c.telefone}</p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {c.cidade && <span className="text-xs text-txt-muted">{c.cidade}</span>}
+                  {c.total_orders === 0
+                    ? <span className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded-full border border-blue-100">Sem pedidos</span>
+                    : <span className="text-xs px-1.5 py-0.5 bg-green-50 text-green-700 rounded-full border border-green-100">{c.total_orders} ped.</span>
+                  }
+                </div>
+              </button>
+            );
+          })
+        )}
+      </div>
+
+      {/* ── Paginação ── */}
+      {pages > 1 && (
+        <div className="flex items-center justify-center gap-2 pt-1">
+          <button
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            disabled={page === 1}
+            className="text-xs px-3 py-1.5 rounded-lg border border-surface-200 disabled:opacity-40 hover:bg-surface-50 transition-colors"
+          >
+            ← Anterior
+          </button>
+          <span className="text-xs text-txt-muted">
+            {page} / {pages}
+          </span>
+          <button
+            onClick={() => setPage(p => Math.min(pages, p + 1))}
+            disabled={page === pages}
+            className="text-xs px-3 py-1.5 rounded-lg border border-surface-200 disabled:opacity-40 hover:bg-surface-50 transition-colors"
+          >
+            Próxima →
+          </button>
+        </div>
+      )}
+
+      {/* ── Resumo selecionados ── */}
+      <p className="text-xs text-txt-muted text-center">
+        {selecionados.length > 0
+          ? <span className="text-crm-primary font-medium">{selecionados.length.toLocaleString('pt-BR')} contato{selecionados.length > 1 ? 's' : ''} selecionado{selecionados.length > 1 ? 's' : ''}</span>
+          : 'Selecione os clientes que receberão o disparo'
+        }
+      </p>
+    </div>
+  );
+}
+
 // ─── Seletor de Grupos WhatsApp ────────────────────────────────────────────────
 
 interface SeletorGruposProps {
@@ -853,6 +1136,7 @@ function NovaCampanhaInner() {
       if (!nomeCampanha.trim()) return false;
       if (modoDestinatario === 'grupos') return gruposSelecionados.length > 0;
       if (modoDestinatario === 'manual') return contatos.length > 0;
+      if (modoDestinatario === 'toda_base') return contatos.length > 0;
       return contatos.length > 0 || totalParam > 0; // inteligencia
     }
     if (step === 1) return blocos.length > 0;
@@ -908,9 +1192,10 @@ function NovaCampanhaInner() {
               <h2 className="text-base font-semibold text-txt-primary">Destinatários</h2>
 
               {/* Seletor de modo */}
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {([
                   { modo: 'inteligencia' as ModoDestinatario, icon: <Zap size={15} />, label: 'Inteligência' },
+                  { modo: 'toda_base' as ModoDestinatario, icon: <Database size={15} />, label: 'Toda a Base' },
                   { modo: 'manual' as ModoDestinatario, icon: <Users size={15} />, label: 'Manual' },
                   { modo: 'grupos' as ModoDestinatario, icon: <UsersRound size={15} />, label: 'Grupos WA' },
                 ]).map(({ modo, icon, label }) => (
@@ -952,6 +1237,14 @@ function NovaCampanhaInner() {
                 <SeletorContatosManual
                   selecionados={contatos}
                   onToggle={toggleContato}
+                />
+              )}
+
+              {/* Modo: Toda a Base */}
+              {modoDestinatario === 'toda_base' && (
+                <SeletorTodaBase
+                  selecionados={contatos}
+                  onSetSelecionados={setContatos}
                 />
               )}
 
