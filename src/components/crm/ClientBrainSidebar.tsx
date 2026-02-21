@@ -508,34 +508,52 @@ function OrdersTab({ clientId }: { clientId: string }) {
                     {(o.items as Record<string, unknown>[]).map((item, i) => {
                       const nome = String(item.product_name ?? item.nome ?? item.name ?? 'Produto');
                       const qty = Number(item.quantity ?? item.quantidade ?? 1);
-                      const unitPrice = Number(item.unit_price ?? item.price ?? item.valor ?? 0);
-                      const totalPrice = Number(item.total_price ?? item.total ?? unitPrice * qty);
-                      // Detectar numeração no nome (ex: "Tênis Nike Tam 38" ou variação)
+                      const unitPrice = Number(item.unit_price ?? item.price ?? item.preco_unitario ?? item.valor ?? 0);
+                      const totalPrice = Number(item.total_price ?? item.valor ?? unitPrice * qty);
                       const variacaoRaw = String(item.variacao ?? item.variation ?? item.product_sku ?? '');
                       const numMatch = (nome + ' ' + variacaoRaw).match(/\b(3[3-9]|4[0-8]|[PpMmGg]{1,2}|[Pp]eq|[Mm]ed|[Gg]rand)\b/);
                       const numeracao = numMatch?.[0] ?? null;
+                      const imageUrl = (item.image_url ?? item.imagem ?? null) as string | null;
 
                       return (
-                        <div key={i} className="bg-white rounded-lg border border-gray-100 px-2.5 py-2">
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="text-[11px] text-gray-800 font-medium flex-1 leading-tight">{nome}</p>
-                            <span className="text-[11px] font-bold text-gray-700 shrink-0">{formatCurrency(totalPrice)}</span>
-                          </div>
-                          <div className="flex items-center gap-2 mt-1 flex-wrap">
-                            <span className="text-[9px] text-gray-400">Qtd: <span className="font-semibold text-gray-600">{qty}</span></span>
-                            <span className="text-[9px] text-gray-400">Unit: <span className="font-semibold text-gray-600">{formatCurrency(unitPrice)}</span></span>
-                            {numeracao && (
-                              <span className="text-[9px] font-bold px-1.5 py-0.5 bg-crm-primary/10 text-crm-primary rounded">
-                                Tam {numeracao}
-                              </span>
+                        <div key={i} className="bg-white rounded-lg border border-gray-100 p-2 flex items-start gap-2.5">
+                          {/* Foto do produto */}
+                          <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-gray-100 flex items-center justify-center">
+                            {imageUrl ? (
+                              <img
+                                src={imageUrl}
+                                alt={nome}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = 'none';
+                                }}
+                              />
+                            ) : (
+                              <span className="text-[9px] text-gray-300">📦</span>
                             )}
+                          </div>
+                          {/* Info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-1">
+                              <p className="text-[11px] text-gray-800 font-medium leading-tight line-clamp-2">{nome}</p>
+                              <span className="text-[11px] font-bold text-gray-700 shrink-0 ml-1">{formatCurrency(totalPrice)}</span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1 flex-wrap">
+                              <span className="text-[9px] text-gray-400">Qtd: <span className="font-semibold text-gray-600">{qty}</span></span>
+                              <span className="text-[9px] text-gray-400">Unit: <span className="font-semibold text-gray-600">{formatCurrency(unitPrice)}</span></span>
+                              {numeracao && (
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 bg-crm-primary/10 text-crm-primary rounded">
+                                  Tam {numeracao}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       );
                     })}
                   </div>
                 ) : (
-                  <p className="text-[10px] text-gray-400 mt-2 italic">Itens não sincronizados.</p>
+                  <p className="text-[10px] text-gray-400 mt-2 italic">Nenhum item registrado neste pedido.</p>
                 )}
 
                 {/* Endereço de entrega */}

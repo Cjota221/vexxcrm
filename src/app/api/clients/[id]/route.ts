@@ -82,6 +82,81 @@ export async function GET(
     // Buscar pedidos com itens (JOIN order_items) pelo client_id
     let orders: any[] = [];
 
+    // ── Mapa de produtos: sku → { image_url, name } ──────────────────────────
+    // Usado para injetar foto nos itens do pedido (quando vem do metadata.itens)
+    const { data: productRows } = await supabase
+      .from('products')
+      .select('id, name, sku, external_id, image_url, images')
+      .eq('tenant_id', tenantId);
+
+    const productBySku = new Map<string, any>();
+    const productByExtId = new Map<string, any>();
+    const productByNameNorm = new Map<string, any>();
+    for (const p of productRows ?? []) {
+      if (p.sku)         productBySku.set(p.sku.toLowerCase().trim(), p);
+      if (p.external_id) productByExtId.set(String(p.external_id), p);
+      if (p.name)        productByNameNorm.set(p.name.toLowerCase().trim(), p);
+    }
+
+    /** Resolve imagem de um item de pedido (order_items ou metadata.itens) */
+    const resolveItemImage = (item: any): string | null => {
+      // Já tem imagem no item? usa direto
+      if (item.image_url)                            return item.image_url;
+      if (item.imagem && item.imagem !== 'null')     return item.imagem;
+      if (item.metadata?.image_url)                  return item.metadata.image_url;
+      // Tenta cruzar pelo produto_id / sku / nome
+      const sku = item.product_sku ?? item.sku ?? '';
+      const extId = item.produto_id ? String(item.produto_id) : '';
+      const nome = (item.product_name ?? item.nome ?? item.name ?? '').toLowerCase().trim();
+      const p =
+        (sku  && productBySku.get(sku.toLowerCase().trim()))  ||
+        (extId && productByExtId.get(extId))                   ||
+        (nome  && productByNameNorm.get(nome))                 ||
+        null;
+      if (p?.image_url) return p.image_url;
+      if (p?.images?.length) return p.images[0];
+      return null;
+    };
+
+    /** Normaliza um item vindo de order_items (tabela) */
+    const normalizeOrderItem = (item: any) => ({
+      product_name: item.product_name,
+      nome:         item.product_name,
+      product_sku:  item.product_sku,
+      quantity:     item.quantity,
+      quantidade:   item.quantity,
+      price:        item.unit_price,
+      unit_price:   item.unit_price,
+      preco_unitario: item.unit_price,
+      total_price:  item.total_price,
+      valor:        item.total_price,
+      variacao:     item.metadata?.variacao ?? null,
+      image_url:    resolveItemImage(item),
+      metadata:     item.metadata,
+    });
+
+    /** Normaliza um item vindo de metadata.itens (FacilZap JSON) */
+    const normalizeMetaItem = (item: any) => {
+      const qty  = Number(item.quantidade ?? item.quantity ?? 1);
+      const unit = Number(item.preco_unitario ?? item.valor ?? 0);
+      const tot  = Number(item.valor ?? unit * qty);
+      return {
+        product_name:   item.nome ?? item.name ?? item.product_name ?? 'Produto',
+        nome:           item.nome ?? item.name ?? item.product_name ?? 'Produto',
+        product_sku:    item.sku ?? item.product_sku ?? null,
+        quantity:       qty,
+        quantidade:     qty,
+        price:          unit,
+        unit_price:     unit,
+        preco_unitario: unit,
+        total_price:    tot,
+        valor:          tot,
+        variacao:       item.variacao ?? null,
+        image_url:      resolveItemImage(item),
+        metadata:       null,
+      };
+    };
+
     // Helper: busca pedidos + itens para uma lista de client_ids
     const fetchOrdersWithItems = async (clientIds: string[]) => {
       const { data: rawOrders } = await supabase
@@ -125,21 +200,18 @@ export async function GET(
         .order('created_at', { ascending: false })
         .limit(50);
 
-      // Normalizar: renomear order_items → items
-      return (rawOrders ?? []).map((o: any) => ({
-        ...o,
-        items: (o.order_items ?? []).map((item: any) => ({
-          product_name: item.product_name,
-          nome: item.product_name,
-          product_sku: item.product_sku,
-          quantity: item.quantity,
-          price: item.unit_price,
-          unit_price: item.unit_price,
-          total_price: item.total_price,
-          metadata: item.metadata,
-        })),
-        order_items: undefined,
-      }));
+      return (rawOrders ?? []).map((o: any) => {
+        // Prioridade 1: order_items (tabela)
+        const fromTable = (o.order_items ?? []) as any[];
+        // Prioridade 2: metadata.itens (FacilZap JSON — fallback quando tabela vazia)
+        const fromMeta  = (o.metadata?.itens ?? o.metadata?.items ?? []) as any[];
+
+        const items = fromTable.length > 0
+          ? fromTable.map(normalizeOrderItem)
+          : fromMeta.map(normalizeMetaItem);
+
+        return { ...o, items, order_items: undefined };
+      });
     };
 
     // Se temos um client.id real, buscar pedidos diretamente
@@ -182,20 +254,14 @@ export async function GET(
         .limit(50);
 
       if (ordersExt && ordersExt.length > 0) {
-        orders = ordersExt.map((o: any) => ({
-          ...o,
-          items: (o.order_items ?? []).map((item: any) => ({
-            product_name: item.product_name,
-            nome: item.product_name,
-            product_sku: item.product_sku,
-            quantity: item.quantity,
-            price: item.unit_price,
-            unit_price: item.unit_price,
-            total_price: item.total_price,
-            metadata: item.metadata,
-          })),
-          order_items: undefined,
-        }));
+        orders = ordersExt.map((o: any) => {
+          const fromTable = (o.order_items ?? []) as any[];
+          const fromMeta  = (o.metadata?.itens ?? o.metadata?.items ?? []) as any[];
+          const items = fromTable.length > 0
+            ? fromTable.map(normalizeOrderItem)
+            : fromMeta.map(normalizeMetaItem);
+          return { ...o, items, order_items: undefined };
+        });
         console.log(`[clients/${id}] Pedidos via external_client_id (${client.external_id}): ${orders.length}`);
       }
     }
