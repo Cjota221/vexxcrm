@@ -233,9 +233,11 @@ export function AnneFAB({ clientId }: { clientId?: string }) {
       <button
         onClick={() => setIsOpen(true)}
         className={cn(
+          // Mobile: oculto — a Anne fica na aba lateral da Central de Atendimento
+          'hidden md:flex',
           'fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full shadow-xl transition-all duration-300',
           'bg-linear-to-br from-crm-primary to-crm-secondary',
-          'flex items-center justify-center',
+          'items-center justify-center',
           'hover:scale-110 hover:shadow-2xl active:scale-95',
           'ring-4 ring-white/20'
         )}
@@ -255,7 +257,7 @@ export function AnneFAB({ clientId }: { clientId?: string }) {
   if (isMinimized) {
     return (
       <div
-        className="fixed bottom-6 right-6 z-50 bg-white rounded-2xl shadow-xl border border-gray-200 flex items-center gap-3 px-4 py-3 cursor-pointer hover:shadow-2xl transition-all"
+        className="hidden md:flex fixed bottom-6 right-6 z-50 bg-white rounded-2xl shadow-xl border border-gray-200 items-center gap-3 px-4 py-3 cursor-pointer hover:shadow-2xl transition-all"
         onClick={() => setIsMinimized(false)}
       >
         <div className="w-8 h-8 rounded-full bg-linear-to-br from-crm-primary to-crm-secondary flex items-center justify-center">
@@ -272,7 +274,7 @@ export function AnneFAB({ clientId }: { clientId?: string }) {
 
   /* ── FAB aberto ───────────────────────────────────── */
   return (
-    <div className="fixed bottom-6 right-6 z-50 w-90 flex flex-col bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden"
+    <div className="hidden md:flex fixed bottom-6 right-6 z-50 w-90 flex-col bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden"
       style={{ maxHeight: 'calc(100vh - 7rem)' }}>
 
       {/* Header */}
