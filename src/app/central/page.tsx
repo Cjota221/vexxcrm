@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { ConversationSidebar } from '@/components/contact-center/ConversationSidebar';
 import { ChatArea } from '@/components/chat/ChatArea';
 import { ClientBrainSidebar } from '@/components/crm/ClientBrainSidebar';
+import { AnnePanel } from '@/components/anne/AnnePanel';
 import { KanbanModal } from '@/components/crm/KanbanModal';
 import { CatalogoDrawer } from '@/components/contact-center/CatalogoDrawer';
 import { TransferDialog } from '@/components/contact-center/TransferDialog';
@@ -27,6 +28,7 @@ import {
   Bell,
   X,
   Eye,
+  Bot,
 } from 'lucide-react';
 
 /* Tipo da view mobile */
@@ -96,7 +98,8 @@ export default function CentralAtendimentoPage() {
   const [statusOpen, setStatusOpen] = useState(false);
   const [anneEnabled, setAnneEnabled] = useState(true);
   const [brainOpen, setBrainOpen] = useState(true);
-  const [mobileAnneOpen, setMobileAnneOpen] = useState(false);
+  // Painel lateral direito mobile: null = fechado, 'brain' ou 'anne'
+  const [mobileSidePanel, setMobileSidePanel] = useState<'brain' | 'anne' | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
 
@@ -259,56 +262,82 @@ export default function CentralAtendimentoPage() {
         )}
       </div>
 
-      {/* ━━━ ANNE MOBILE — bolinha flutuante (só aparece quando há chat aberto no mobile) ━━━ */}
+      {/* ━━━ ABA LATERAL DIREITA — Cérebro + Anne (mobile, quando chat aberto) ━━━
+          Dois ícones empilhados colados na borda direita.
+          Clicou → painel desliza da direita para a esquerda.
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       {selectedChatId && mobileView === 'chat' && (
         <div className="md:hidden">
-          {/* Botão flutuante — bolinha da Anne */}
-          <button
-            onClick={() => setMobileAnneOpen(true)}
-            className={cn(
-              'fixed bottom-20 right-4 z-40',
-              'w-12 h-12 rounded-full bg-crm-primary shadow-lg',
-              'flex items-center justify-center',
-              'active:scale-95 transition-transform',
-              'ring-2 ring-white',
-            )}
-            title="Cérebro do Cliente"
-            aria-label="Abrir Cérebro do Cliente"
-          >
-            <Brain size={20} className="text-white" />
-          </button>
+          {/* Aba colada na borda direita */}
+          <div className="fixed right-0 top-1/2 -translate-y-1/2 z-40 flex flex-col gap-0 overflow-hidden rounded-l-2xl shadow-lg">
+            {/* Botão Cérebro */}
+            <button
+              onClick={() => setMobileSidePanel(p => p === 'brain' ? null : 'brain')}
+              className={cn(
+                'flex flex-col items-center justify-center gap-1 px-2.5 py-3 transition-colors',
+                mobileSidePanel === 'brain'
+                  ? 'bg-crm-primary text-white'
+                  : 'bg-white/95 text-crm-primary border-b border-gray-100',
+              )}
+              title="Cérebro do Cliente"
+            >
+              <Brain size={18} />
+              <span className="text-[9px] font-bold leading-none tracking-wide" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
+                Cérebro
+              </span>
+            </button>
+            {/* Botão Anne */}
+            <button
+              onClick={() => setMobileSidePanel(p => p === 'anne' ? null : 'anne')}
+              className={cn(
+                'flex flex-col items-center justify-center gap-1 px-2.5 py-3 transition-colors',
+                mobileSidePanel === 'anne'
+                  ? 'bg-crm-primary text-white'
+                  : 'bg-white/95 text-crm-primary',
+              )}
+              title="Anne — IA"
+            >
+              <Bot size={18} />
+              <span className="text-[9px] font-bold leading-none tracking-wide" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
+                Anne
+              </span>
+            </button>
+          </div>
 
-          {/* Drawer da Anne — slide-up ao clicar na bolinha */}
-          {mobileAnneOpen && (
+          {/* Drawer lateral — desliza da direita */}
+          {mobileSidePanel && (
             <>
               {/* Backdrop */}
               <div
                 className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
-                onClick={() => setMobileAnneOpen(false)}
+                onClick={() => setMobileSidePanel(null)}
               />
-              {/* Painel deslizante */}
-              <div className="fixed bottom-0 left-0 right-0 z-51 bg-white rounded-t-2xl shadow-2xl max-h-[85dvh] flex flex-col animate-in slide-in-from-bottom duration-300">
-                {/* Alça visual */}
-                <div className="flex justify-center pt-3 pb-1 shrink-0">
-                  <div className="w-10 h-1 rounded-full bg-gray-200" />
-                </div>
+              {/* Painel */}
+              <div className="fixed top-0 right-0 bottom-0 z-51 bg-white w-[88vw] max-w-sm shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
                 {/* Cabeçalho */}
-                <div className="flex items-center justify-between px-4 pb-3 pt-1 shrink-0 border-b border-gray-100">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-crm-primary shrink-0">
                   <div className="flex items-center gap-2">
-                    <Brain size={16} className="text-crm-primary" />
-                    <span className="text-sm font-bold text-gray-800">Cérebro do Cliente</span>
+                    {mobileSidePanel === 'brain'
+                      ? <Brain size={16} className="text-white" />
+                      : <Bot size={16} className="text-white" />
+                    }
+                    <span className="text-sm font-bold text-white">
+                      {mobileSidePanel === 'brain' ? 'Cérebro do Cliente' : 'Anne — IA'}
+                    </span>
                   </div>
                   <button
-                    onClick={() => setMobileAnneOpen(false)}
-                    className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200 active:bg-gray-300"
-                    aria-label="Fechar"
+                    onClick={() => setMobileSidePanel(null)}
+                    className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-white hover:bg-white/30 active:bg-white/40"
                   >
                     <X size={15} />
                   </button>
                 </div>
                 {/* Conteúdo rolável */}
                 <div className="flex-1 overflow-y-auto overscroll-contain">
-                  <ClientBrainSidebar onClose={() => setMobileAnneOpen(false)} />
+                  {mobileSidePanel === 'brain'
+                    ? <ClientBrainSidebar onClose={() => setMobileSidePanel(null)} />
+                    : <AnnePanel clientId={selectedChatId} />
+                  }
                 </div>
               </div>
             </>
