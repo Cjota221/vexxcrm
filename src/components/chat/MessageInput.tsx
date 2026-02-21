@@ -210,22 +210,17 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
     setPixIsSending(true);
     setPixSendResult(null);
     try {
-      const res = await fetch('/api/whatsapp/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: recipientPhone,
-          type: 'pix',
-          content: `Chave Pix: ${pixKey.trim()}`,   // fallback para histórico
-          pixKey: pixKey.trim(),
-          pixKeyType,
-          holderName: pixName.trim() || undefined,
-          pixOrganization: pixName.trim() || undefined,
-          clientId: clientId || undefined,
-        }),
+      const { data, error } = await api.post('/api/whatsapp/send', {
+        to: recipientPhone,
+        type: 'pix',
+        content: `Chave Pix: ${pixKey.trim()}`,   // fallback para histórico
+        pixKey: pixKey.trim(),
+        pixKeyType,
+        holderName: pixName.trim() || undefined,
+        pixOrganization: pixName.trim() || undefined,
+        clientId: clientId || undefined,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erro ao enviar');
+      if (error) throw new Error(error);
       setPixSendResult({ ok: true, msg: '✅ Chave Pix enviada com sucesso!' });
       // Fechar modal após 1.5s
       setTimeout(() => {

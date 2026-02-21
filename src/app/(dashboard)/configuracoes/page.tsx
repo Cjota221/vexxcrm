@@ -244,6 +244,8 @@ function ProfileTab({ config }: { config?: TenantConfig }) {
         </div>
       </Card>
 
+      <PixSettings config={config} />
+
       <Card>
         <CardHeader><CardTitle><Palette size={16} /> Preferências</CardTitle></CardHeader>
         <div className="px-6 pb-6 space-y-4">
@@ -316,7 +318,6 @@ function IntegrationsTab({ config }: { config?: TenantConfig }) {
     <div className="space-y-6">
       <WhatsAppSettings config={config} />
       <FacilZapSettings config={config} />
-      <PixSettings config={config} />
       <AnneSettings config={config} />
     </div>
   );
