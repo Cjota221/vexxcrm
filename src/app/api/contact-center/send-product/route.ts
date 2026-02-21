@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createAuthenticatedClient } from '@/lib/supabase';
 import { ContactCenterService } from '@/lib/services/contact-center.service';
-import { sendTextMessage, sendMediaMessage, getTenantEvolutionConfig } from '@/lib/services/evolution.service';
+import { sendTextMessage, getTenantEvolutionConfig } from '@/lib/services/evolution.service';
 import { PhoneNormalizer } from '@/lib/phone-normalizer';
 
 /**
@@ -45,7 +45,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 1. Gerar texto formatado do produto
+    // 1. Buscar site_url do tenant para passar como override (garante que o link seja gerado)
+    const { data: tenantData } = await supabase
+      .from('tenants')
+      .select('config')
+      .eq('id', tenantId)
+      .single();
+    const tenantConfig = (tenantData?.config as Record<string, unknown>) || {};
+    const facilzapConf = tenantConfig.facilzap as Record<string, string> | undefined;
+    const siteUrlOverride = facilzapConf?.site_url || undefined;
+
+    // 2. Gerar texto formatado do produto
     const service = new ContactCenterService(supabase, tenantId);
 
     // Buscar nome do cliente para personalizar a saudação
@@ -60,9 +70,10 @@ export async function POST(request: NextRequest) {
       includePrice: include_price,
       includeLink: include_link,
       clientName: clientForName?.name || undefined,
+      siteUrl: siteUrlOverride,
     });
 
-    // 2. Resolver o telefone do cliente (conversation_id = client_id)
+    // 3. Resolver o telefone do cliente (conversation_id = client_id)
     const { data: client } = await supabase
       .from('clients')
       .select('id, phone, phone_normalized')
@@ -80,34 +91,10 @@ export async function POST(request: NextRequest) {
     const phone = PhoneNormalizer.canonical(client.phone_normalized || client.phone);
     const config = getTenantEvolutionConfig(tenantId);
 
-    // 3. Buscar imagem do produto para enviar junto (se disponível)
-    const { data: product } = await supabase
-      .from('products')
-      .select('image_url')
-      .eq('id', product_id)
-      .single();
+    // 4. Enviar APENAS o texto com link — o WhatsApp gera prévia do produto via og:image
+    const messageId = await sendTextMessage(config, phone, messageText);
 
-    let messageId: string;
-
-    if (product?.image_url) {
-      // Enviar TEXTO primeiro (com o link) para que o WhatsApp gere a prévia do link
-      messageId = await sendTextMessage(config, phone, messageText);
-
-      // Aguardar 900ms para o WhatsApp processar a prévia antes de enviar a imagem
-      await new Promise(r => setTimeout(r, 900));
-
-      // Enviar imagem como mensagem SEPARADA (sem caption — a prévia já está no texto)
-      try {
-        await sendMediaMessage(config, phone, product.image_url, '', 'image');
-      } catch {
-        // Falha na imagem não cancela — o texto com link já foi enviado
-      }
-    } else {
-      // Sem imagem: enviar só texto
-      messageId = await sendTextMessage(config, phone, messageText);
-    }
-
-    // 4. Salvar mensagem no banco
+    // 5. Salvar mensagem no banco
     const { data: conv } = await supabase
       .from('conversations')
       .select('id')

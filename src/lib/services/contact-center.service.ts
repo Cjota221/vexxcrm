@@ -327,9 +327,9 @@ export class ContactCenterService {
   async sendProductToChat(
     conversationId: string,
     productId: string,
-    options: { includePrice?: boolean; includeLink?: boolean; clientName?: string } = {}
+    options: { includePrice?: boolean; includeLink?: boolean; clientName?: string; siteUrl?: string } = {}
   ): Promise<string> {
-    const { includePrice = true, includeLink = true, clientName } = options;
+    const { includePrice = true, includeLink = true, clientName, siteUrl: siteUrlOverride } = options;
 
     // Buscar produto
     const { data: product } = await this.supabase
@@ -447,23 +447,33 @@ export class ContactCenterService {
     if (includeLink) {
       let productLink: string | null = product.checkout_url || null;
 
-      if (!productLink && product.external_id) {
-        // Buscar site_url do tenant
-        const { data: tenant } = await this.supabase
-          .from('tenants')
-          .select('config')
-          .eq('id', this.tenantId)
-          .single();
+      if (!productLink) {
+        // Buscar site_url: primeiro do override (passado direto pelo route), depois do JSONB do tenant
+        let siteUrl: string | null = siteUrlOverride?.replace(/\/$/, '') || null;
 
-        const config = (tenant?.config as Record<string, unknown>) || {};
-        const facilzapConfig = config.facilzap as Record<string, string> | undefined;
-        const siteUrl = facilzapConfig?.site_url
-          ? facilzapConfig.site_url.replace(/\/$/, '')
-          : null;
+        if (!siteUrl) {
+          const { data: tenant } = await this.supabase
+            .from('tenants')
+            .select('config')
+            .eq('id', this.tenantId)
+            .single();
+
+          const config = (tenant?.config as Record<string, unknown>) || {};
+          const facilzapConfig = config.facilzap as Record<string, string> | undefined;
+          siteUrl = facilzapConfig?.site_url
+            ? facilzapConfig.site_url.replace(/\/$/, '')
+            : null;
+
+          console.log('[sendProductToChat] facilzap config:', JSON.stringify(facilzapConfig));
+        }
 
         if (siteUrl) {
-          // URL usa o external_id (ID numérico do produto no FacilZap), ex: /c/atacado/produto/3777713
-          productLink = `${siteUrl}/c/atacado/produto/${product.external_id}`;
+          // Preferência: external_id (ID FacilZap) → sku → id interno
+          const slug = product.external_id || product.sku || product.id;
+          productLink = `${siteUrl}/c/atacado/produto/${slug}`;
+          console.log(`[sendProductToChat] link gerado: ${productLink} (slug=${slug}, external_id=${product.external_id})`);
+        } else {
+          console.warn('[sendProductToChat] site_url não configurado — link não gerado');
         }
       }
 
