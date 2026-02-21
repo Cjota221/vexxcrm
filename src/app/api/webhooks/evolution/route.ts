@@ -2,9 +2,67 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { PhoneNormalizer } from '@/lib/phone-normalizer';
 import { eventBus } from '@/lib/event-bus';
-import { forwardMediaToN8n, getTenantEvolutionConfig, sendTextMessage, fetchChats, fetchMessages, downloadMediaToStorage } from '@/lib/services/evolution.service';
+import { forwardMediaToN8n, getTenantEvolutionConfig, fetchChats, fetchMessages, downloadMediaToStorage, fetchProfilePicUrl } from '@/lib/services/evolution.service';
 import { processPipelineTriggers } from '@/lib/services/pipeline-triggers';
 import type { EvolutionWebhookPayload } from '@/types';
+
+// Nomes conhecidos da instância que NUNCA devem ser salvos como nome de cliente
+const INSTANCE_NAME_BLACKLIST = [
+  'cjota rasteirinhas',
+  'cjota',
+  'você',
+  'voce',
+  'loja',
+  'atendente',
+  'desconhecido',
+];
+
+/**
+ * Verifica se um nome é da instância (não do cliente).
+ * Rejeita: nome vazio, só números, nomes na blacklist.
+ */
+function isInstanceName(name: string): boolean {
+  if (!name || !name.trim()) return true;
+  const lower = name.trim().toLowerCase();
+  if (INSTANCE_NAME_BLACKLIST.some(b => lower.includes(b))) return true;
+  if (/^\d{8,15}$/.test(name.replace(/\D/g, ''))) return true;
+  return false;
+}
+
+/**
+ * Faz cache permanente da foto no Supabase Storage.
+ * Retorna URL permanente ou null se falhar.
+ */
+async function cacheProfilePic(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+  clientId: string,
+  picUrl: string
+): Promise<string | null> {
+  try {
+    const res = await fetch(picUrl, {
+      redirect: 'follow',
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const contentType = res.headers.get('content-type') || 'image/jpeg';
+    const ext = contentType.includes('png') ? 'png' : 'jpg';
+    const path = `${tenantId}/clients/${clientId}.${ext}`;
+
+    const { error: uploadErr } = await supabase.storage
+      .from('avatars')
+      .upload(path, buffer, { contentType, upsert: true });
+
+    if (uploadErr) return null;
+
+    const { data: pub } = supabase.storage.from('avatars').getPublicUrl(path);
+    return pub.publicUrl || null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * POST /api/webhooks/evolution
@@ -122,7 +180,7 @@ async function handleNewMessage(
   const remoteJid = data.key.remoteJid;
   const fromMe = data.key.fromMe;
   const messageId = data.key.id;
-  const pushName = data.pushName || 'Desconhecido';
+  const pushName = data.pushName || '';
 
   // Ignorar mensagens de grupo e broadcast
   if (remoteJid.includes('@g.us') || remoteJid.includes('@broadcast')) return;
@@ -130,24 +188,18 @@ async function handleNewMessage(
   // Extrair telefone do JID
   let phone = remoteJid.replace('@s.whatsapp.net', '').replace('@lid', '');
 
-  // Resolver @lid se necessário
   if (remoteJid.includes('@lid')) {
-    // @lid são IDs internos do WhatsApp Business — salvar com ID como referência
-    console.warn(`[Webhook] JID @lid detectado: ${remoteJid}, salvando com ID de referência`);
-    // Usar o ID numérico como telefone temporário para não perder a mensagem
+    console.warn(`[Webhook] JID @lid detectado: ${remoteJid}`);
     phone = remoteJid.replace('@lid', '');
-    // Se o phone extraído não parece um número de telefone válido, ignorar
     if (phone.length < 8 || phone.length > 15) {
       console.warn(`[Webhook] @lid com ID inválido (${phone}), descartando`);
       return;
     }
   }
 
-  // Normalizar telefone
   const phoneNormalized = PhoneNormalizer.canonical(phone);
   const phoneDisplay = PhoneNormalizer.normalize(phone);
 
-  // Extrair conteúdo da mensagem
   const messageContent = data.message || {};
   const text =
     messageContent.conversation ||
@@ -156,7 +208,6 @@ async function handleNewMessage(
     messageContent.videoMessage?.caption ||
     '';
 
-  // Detectar tipo
   let type: string = 'text';
   if (messageContent.imageMessage) type = 'image';
   else if (messageContent.videoMessage) type = 'video';
@@ -164,12 +215,8 @@ async function handleNewMessage(
   else if (messageContent.documentMessage) type = 'document';
   else if (messageContent.stickerMessage) type = 'sticker';
 
-  // Upsert cliente (criar se não existir)
-  // Para mensagens fromMe: não sobrescrever nome com pushName vazio/Desconhecido
-  // O pushName em mensagens enviadas por nós é o nome do atendente, não do cliente
-  const safePushName = (!fromMe && pushName && pushName !== 'Desconhecido') ? pushName : undefined;
-
-  // Verificar se cliente já existe para preservar nome_manual e avatar
+  // ── FIX NOMES ────────────────────────────────────────────────────────────
+  // Buscar cliente existente ANTES do upsert para preservar nome e avatar
   const { data: existingClient } = await supabase
     .from('clients')
     .select('id, name, name_manual, avatar_url')
@@ -177,9 +224,29 @@ async function handleNewMessage(
     .eq('phone_normalized', phoneNormalized)
     .maybeSingle();
 
-  const upsertName = existingClient?.name_manual
-    ? existingClient.name_manual          // nunca sobrescrever nome editado manualmente
-    : (safePushName || existingClient?.name || phoneDisplay);
+  // Regras de resolução do nome (ordem de prioridade):
+  // 1. name_manual (editado pelo atendente) → nunca sobrescrever
+  // 2. pushName válido do cliente (não fromMe, não é nome da instância)
+  // 3. Nome atual do banco (se já existe e não é telefone)
+  // 4. Telefone formatado (fallback)
+  let resolvedName: string;
+  if (existingClient?.name_manual) {
+    resolvedName = existingClient.name_manual;
+  } else if (!fromMe && pushName && !isInstanceName(pushName)) {
+    resolvedName = pushName.trim();
+  } else if (existingClient?.name && !/^\d/.test(existingClient.name)) {
+    resolvedName = existingClient.name;
+  } else {
+    resolvedName = phoneDisplay;
+  }
+
+  // ── FIX FOTOS ─────────────────────────────────────────────────────────────
+  // Só atualizar avatar se o cliente não tem foto permanente no Storage
+  const hasPermamentAvatar = existingClient?.avatar_url?.includes('supabase.co/storage');
+
+  if (!hasPermamentAvatar && existingClient?.id) {
+    cacheAvatarInBackground(supabase, tenantId, existingClient.id, phoneNormalized).catch(() => {});
+  }
 
   const { data: client, error: clientError } = await supabase
     .from('clients')
@@ -188,7 +255,8 @@ async function handleNewMessage(
         tenant_id: tenantId,
         phone: phoneDisplay,
         phone_normalized: phoneNormalized,
-        name: upsertName,
+        name: resolvedName,
+        // Não incluir avatar_url aqui — só o cacheAvatarInBackground salva
       },
       {
         onConflict: 'tenant_id,phone_normalized',
@@ -382,6 +450,39 @@ async function handleNewMessage(
       senderName: pushName,
       timestamp: savedMessage.created_at,
     }).catch(err => console.warn('[Webhook] Erro no transbordo n8n:', err));
+  }
+}
+
+/**
+ * Busca foto via Evolution API e faz cache permanente no Storage.
+ * Roda em background sem bloquear o webhook.
+ */
+async function cacheAvatarInBackground(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+  clientId: string,
+  phoneNormalized: string
+): Promise<void> {
+  try {
+    const config = getTenantEvolutionConfig(tenantId);
+    const picUrl = await fetchProfilePicUrl(config, `${phoneNormalized}@s.whatsapp.net`);
+    if (!picUrl) return;
+
+    // Só cachear se for URL válida do WhatsApp
+    if (!picUrl.includes('whatsapp') && !picUrl.includes('pps.') && !picUrl.includes('mmg.')) return;
+
+    const permanentUrl = await cacheProfilePic(supabase, tenantId, clientId, picUrl);
+    if (!permanentUrl) return;
+
+    await supabase
+      .from('clients')
+      .update({ avatar_url: permanentUrl })
+      .eq('id', clientId)
+      .eq('tenant_id', tenantId);
+
+    console.log(`[Avatar] Cache permanente salvo para cliente ${clientId}`);
+  } catch (err) {
+    console.warn(`[Avatar] Erro ao cachear foto do cliente ${clientId}:`, err);
   }
 }
 
@@ -622,15 +723,13 @@ async function triggerHistoricalSync(
   supabase: ReturnType<typeof createServerSupabaseClient>,
   tenantId: string
 ) {
-  console.log(`[Sync Auto] Iniciando sync histórico para tenant ${tenantId}...`);
+  console.log(`[Sync Auto] Iniciando para tenant ${tenantId}...`);
 
   const config = getTenantEvolutionConfig(tenantId);
-
-  // Buscar chats mais recentes
   const chats = await fetchChats(config);
   const recentChats = chats
     .sort((a, b) => (b.lastMessage?.messageTimestamp || 0) - (a.lastMessage?.messageTimestamp || 0))
-    .slice(0, 100); // Top 100 mais recentes
+    .slice(0, 100);
 
   let totalMessages = 0;
   let totalClients = 0;
@@ -639,51 +738,63 @@ async function triggerHistoricalSync(
     try {
       const phone = chat.remoteJid.replace('@s.whatsapp.net', '');
       if (phone.length < 8 || phone.length > 15) continue;
-      
+
       const phoneNormalized = PhoneNormalizer.canonical(phone);
       const phoneDisplay = PhoneNormalizer.normalize(phone);
-      const pushName = chat.pushName || chat.lastMessage?.pushName || phoneDisplay;
 
-      // Upsert cliente — NUNCA sobrescrever avatar_url que já existe no banco
-      // (URLs do WhatsApp são temporárias; só o sync-avatars/cacheProfilePic salva URLs permanentes)
-      const { data: existingForAvatar } = await supabase
+      // ── FIX NOMES no sync histórico ───────────────────────────────────────
+      // pushName do chat pode ser o nome da instância quando a última mensagem
+      // foi enviada por nós. Verificar antes de usar.
+      const rawPushName = chat.pushName || chat.lastMessage?.pushName || '';
+      const safePushName = !isInstanceName(rawPushName) ? rawPushName.trim() : '';
+
+      // Buscar cliente existente para preservar nome e avatar
+      const { data: existingClient } = await supabase
         .from('clients')
-        .select('id, avatar_url')
+        .select('id, name, name_manual, avatar_url')
         .eq('tenant_id', tenantId)
         .eq('phone_normalized', phoneNormalized)
         .maybeSingle();
 
-      const shouldUpdateAvatar = !existingForAvatar?.avatar_url && !!chat.profilePicUrl;
+      // Resolver nome com hierarquia
+      let resolvedName: string;
+      if (existingClient?.name_manual) {
+        resolvedName = existingClient.name_manual;
+      } else if (safePushName) {
+        resolvedName = safePushName;
+      } else if (existingClient?.name && !/^\d/.test(existingClient.name)) {
+        resolvedName = existingClient.name;
+      } else {
+        resolvedName = phoneDisplay;
+      }
 
-      console.log(
-        `[HistoricalSync][${phoneNormalized}] ` +
-        `avatar_banco=${existingForAvatar?.avatar_url ? existingForAvatar.avatar_url.substring(0, 50) : 'null'} | ` +
-        `profilePicUrl=${chat.profilePicUrl ? chat.profilePicUrl.substring(0, 50) : 'null'} | ` +
-        `shouldUpdateAvatar=${shouldUpdateAvatar}`
-      );
+      // ── FIX FOTOS no sync histórico ───────────────────────────────────────
+      // Nunca salvar URLs temporárias do WhatsApp diretamente.
+      // Só atualizar avatar se ainda não tem URL permanente no Storage.
+      const hasPermamentAvatar = existingClient?.avatar_url?.includes('supabase.co/storage');
 
       const { data: client, error: upsertErr } = await supabase
         .from('clients')
         .upsert(
-          { 
-            tenant_id: tenantId, 
-            phone: phoneDisplay, 
-            phone_normalized: phoneNormalized, 
-            name: pushName,
-            ...(shouldUpdateAvatar ? { avatar_url: chat.profilePicUrl } : {}),
+          {
+            tenant_id: tenantId,
+            phone: phoneDisplay,
+            phone_normalized: phoneNormalized,
+            name: resolvedName,
+            // Não inclui avatar_url — só cacheAvatarInBackground salva
           },
           { onConflict: 'tenant_id,phone_normalized', ignoreDuplicates: false }
         )
         .select('id')
         .single();
 
-      if (upsertErr) {
-        console.error(`[HistoricalSync][${phoneNormalized}] ❌ Erro upsert: ${upsertErr.message}`);
-      } else {
-        console.log(`[HistoricalSync][${phoneNormalized}] ✅ Upsert OK — client.id: ${client?.id}`);
+      if (upsertErr || !client) continue;
+
+      // Cachear foto em background se não tem permanente
+      if (!hasPermamentAvatar) {
+        cacheAvatarInBackground(supabase, tenantId, client.id, phoneNormalized).catch(() => {});
       }
 
-      if (!client) continue;
       totalClients++;
 
       // Buscar ou criar conversa
@@ -701,10 +812,10 @@ async function triggerHistoricalSync(
       } else {
         const { data: newConv } = await supabase
           .from('conversations')
-          .insert({ 
-            tenant_id: tenantId, 
-            client_id: client.id, 
-            channel: 'whatsapp', 
+          .insert({
+            tenant_id: tenantId,
+            client_id: client.id,
+            channel: 'whatsapp',
             status: 'open',
           })
           .select('id')
@@ -713,7 +824,7 @@ async function triggerHistoricalSync(
         convId = newConv.id;
       }
 
-      // Buscar mensagens com PAGINAÇÃO (até 200 por chat)
+      // Buscar mensagens com paginação
       let page = 1;
       let chatMsgsInserted = 0;
       const PAGE_SIZE = 100;
@@ -723,7 +834,6 @@ async function triggerHistoricalSync(
         const batch = await fetchMessages(config, chat.remoteJid, page, PAGE_SIZE);
         if (batch.records.length === 0) break;
 
-        // Dedup
         const extIds = batch.records.map((m) => m.key.id).filter(Boolean);
         const { data: existing } = await supabase
           .from('messages')
@@ -752,7 +862,6 @@ async function triggerHistoricalSync(
             else if (mc.documentMessage) type = 'document';
             else if (mc.stickerMessage) type = 'sticker';
 
-            // Extrair media_url
             let mediaUrl: string | null = null;
             let mediaMime: string | null = null;
             const mediaObj = (mc.imageMessage || mc.videoMessage || mc.audioMessage || mc.documentMessage) as Record<string, unknown> | undefined;
@@ -787,12 +896,10 @@ async function triggerHistoricalSync(
           }
         }
 
-        // Avançar página se houver mais
         if (page >= batch.pages) break;
         page++;
       }
 
-      // Atualizar last_message na conversa
       if (chatMsgsInserted > 0) {
         const { data: lastMsg } = await supabase
           .from('messages')
@@ -830,9 +937,8 @@ async function triggerHistoricalSync(
     }
   }
 
-  console.log(`[Sync Auto] Concluído: ${totalClients} clientes, ${totalMessages} mensagens sincronizadas`);
+  console.log(`[Sync Auto] Concluído: ${totalClients} clientes, ${totalMessages} mensagens`);
 
-  // Notificar UI
   eventBus.emitToTenant('sync_complete', tenantId, {
     clients: totalClients,
     messages: totalMessages,
