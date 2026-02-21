@@ -25,6 +25,7 @@ import {
   ArrowRight,
   Clock,
   Activity,
+  Coins,
 } from 'lucide-react';
 import { useTenantConfig } from '@/hooks/useTenantConfig';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -315,6 +316,7 @@ function IntegrationsTab({ config }: { config?: TenantConfig }) {
     <div className="space-y-6">
       <WhatsAppSettings config={config} />
       <FacilZapSettings config={config} />
+      <PixSettings config={config} />
       <AnneSettings config={config} />
     </div>
   );
@@ -473,8 +475,147 @@ function WhatsAppSettings({ config }: { config?: TenantConfig }) {
   );
 }
 
-function FacilZapSettings({ config }: { config?: TenantConfig }) {
+function PixSettings({ config }: { config?: TenantConfig }) {
   const { updateConfig, isUpdating } = useTenantConfig();
+  const saved = config?.pix;
+
+  const [pixKey, setPixKey] = useState(saved?.key || '');
+  const [pixKeyType, setPixKeyType] = useState<'cpf' | 'cnpj' | 'email' | 'telefone' | 'aleatoria'>(
+    saved?.keyType || 'aleatoria',
+  );
+  const [holderName, setHolderName] = useState(saved?.holderName || '');
+  const [saveMsg, setSaveMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Sincronizar estado quando config carrega
+  useEffect(() => {
+    if (saved) {
+      setPixKey(saved.key || '');
+      setPixKeyType(saved.keyType || 'aleatoria');
+      setHolderName(saved.holderName || '');
+    }
+  }, [saved]);
+
+  const handleSave = async () => {
+    if (!pixKey.trim()) {
+      setSaveMsg({ type: 'error', text: '❌ Informe a chave Pix antes de salvar.' });
+      return;
+    }
+    try {
+      await updateConfig({ pix: { key: pixKey.trim(), keyType: pixKeyType, holderName: holderName.trim() } });
+      setSaveMsg({ type: 'success', text: '✅ Chave Pix salva! O modal do chat já vai pré-preencher automaticamente.' });
+    } catch (err) {
+      setSaveMsg({ type: 'error', text: `❌ ${err instanceof Error ? err.message : 'Erro ao salvar'}` });
+    } finally {
+      setTimeout(() => setSaveMsg(null), 5000);
+    }
+  };
+
+  const PIX_LABELS: Record<string, string> = {
+    cpf: 'CPF',
+    cnpj: 'CNPJ',
+    email: 'E-mail',
+    telefone: 'Telefone',
+    aleatoria: 'Chave aleatória',
+  };
+
+  const PIX_PLACEHOLDERS: Record<string, string> = {
+    cpf: '000.000.000-00',
+    cnpj: '00.000.000/0001-00',
+    email: 'pagamentos@minhaloja.com.br',
+    telefone: '+55 (11) 99999-9999',
+    aleatoria: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle><Coins size={16} /> Chave Pix da Loja</CardTitle>
+        <Badge variant={saved?.key ? 'success' : 'neutral'}>
+          {saved?.key ? `Configurada · ${PIX_LABELS[saved.keyType] ?? saved.keyType}` : 'Não configurada'}
+        </Badge>
+      </CardHeader>
+      <div className="px-6 pb-6 space-y-4">
+        <p className="text-xs text-txt-secondary">
+          Cadastre a chave Pix da sua loja uma única vez. O botão <strong>Chave Pix</strong> no chat vai
+          pré-preencher automaticamente — sem precisar digitar toda vez.
+          A chave é enviada como <strong>card de contato</strong> no WhatsApp, com o botão nativo
+          "Copiar chave Pix" (igual ao WhatsApp Business).
+        </p>
+
+        {/* Tipo de chave */}
+        <div>
+          <label className="label mb-1.5">Tipo de chave</label>
+          <select
+            className="input"
+            value={pixKeyType}
+            onChange={(e) => setPixKeyType(e.target.value as typeof pixKeyType)}
+          >
+            {Object.entries(PIX_LABELS).map(([val, label]) => (
+              <option key={val} value={val}>{label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Chave */}
+        <Input
+          label="Chave Pix"
+          placeholder={PIX_PLACEHOLDERS[pixKeyType]}
+          value={pixKey}
+          onChange={(e) => setPixKey(e.target.value)}
+        />
+
+        {/* Titular */}
+        <Input
+          label="Nome do titular / loja"
+          placeholder="Minha Loja LTDA"
+          value={holderName}
+          onChange={(e) => setHolderName(e.target.value)}
+        />
+
+        {/* Preview do card que será enviado */}
+        {pixKey.trim() && (
+          <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+            <div className="w-9 h-9 rounded-full bg-amber-200 flex items-center justify-center shrink-0">
+              <span className="text-sm font-bold text-amber-700">
+                {(holderName || 'L')[0].toUpperCase()}
+              </span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-gray-800 truncate">{holderName || 'Nome do titular'}</p>
+              <p className="text-xs text-gray-500 truncate">{pixKey}</p>
+              <span className="inline-block mt-1 text-[10px] px-2 py-0.5 bg-green-100 text-green-700 rounded-full font-medium">
+                Copiar chave Pix
+              </span>
+            </div>
+          </div>
+        )}
+
+        {saveMsg && (
+          <div className={`p-3 rounded-xl text-sm font-medium ${saveMsg.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+            {saveMsg.text}
+          </div>
+        )}
+
+        <div className="flex gap-2 pt-2">
+          <Button variant="primary" onClick={handleSave} disabled={isUpdating || !pixKey.trim()}>
+            <Save size={16} /> {isUpdating ? 'Salvando...' : 'Salvar Chave Pix'}
+          </Button>
+          {saved?.key && (
+            <Button
+              variant="ghost"
+              onClick={() => { setPixKey(''); setHolderName(''); updateConfig({ pix: undefined } as any); }}
+              className="text-red-500 hover:bg-red-50"
+            >
+              <Trash2 size={14} /> Remover
+            </Button>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function FacilZapSettings({ config }: { config?: TenantConfig }) {  const { updateConfig, isUpdating } = useTenantConfig();
   const [token, setToken] = useState('');
   const [siteUrl, setSiteUrl] = useState(config?.facilzap?.site_url || '');
   const handleSave = async () => {

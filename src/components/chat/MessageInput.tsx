@@ -14,6 +14,8 @@ interface MessageInputProps {
   recipientPhone?: string;
   /** Nome do cliente — usado na mensagem Pix */
   recipientName?: string;
+  /** ID do cliente — passado ao enviar Pix para salvar na conversa correta */
+  clientId?: string;
 }
 
 const ACCEPTED_TYPES: Record<string, string> = {
@@ -38,7 +40,7 @@ const MAX_FILE_SIZE = 16 * 1024 * 1024; // 16MB
 /**
  * Input de mensagem com auto-resize estilo WhatsApp + envio de mídia.
  */
-export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipientPhone, recipientName }: MessageInputProps) {
+export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipientPhone, recipientName, clientId }: MessageInputProps) {
   const [text, setText] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
@@ -50,6 +52,8 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
   const [pixKeyType, setPixKeyType] = useState<'cpf' | 'cnpj' | 'email' | 'telefone' | 'aleatoria'>('aleatoria');
   const [pixAmount, setPixAmount] = useState('');
   const [pixName, setPixName] = useState('');
+  const [pixIsSending, setPixIsSending] = useState(false);
+  const [pixSendResult, setPixSendResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileDocInputRef = useRef<HTMLInputElement>(null);
@@ -77,6 +81,26 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
       if (filePreview) URL.revokeObjectURL(filePreview);
     };
   }, [filePreview]);
+
+  // Ao abrir o modal Pix: pré-preencher com a chave salva nas configurações do tenant
+  useEffect(() => {
+    if (!pixModalOpen) return;
+    setPixSendResult(null);
+    fetch('/api/tenants/config')
+      .then(r => r.ok ? r.json() : null)
+      .then((data) => {
+        const pix = data?.pix;
+        if (pix?.key) {
+          setPixKey(pix.key);
+          setPixKeyType(pix.keyType || 'aleatoria');
+          // Titular: preferir config salva; se vazia, manter recipientName
+          setPixName(pix.holderName || recipientName || '');
+        }
+        // Se não há config, manter o que foi definido pelo onClick (recipientName)
+      })
+      .catch(() => {/* silent — usuário pode preencher manualmente */});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pixModalOpen]);
 
   // Fechar menu de anexos ao clicar fora
   useEffect(() => {
@@ -182,28 +206,43 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
     );
   }, [onSend]);
 
-  // Montar mensagem Pix formatada
-  const handleSendPix = useCallback(() => {
-    if (!pixKey.trim()) return;
-    const keyTypeLabel: Record<string, string> = {
-      cpf: 'CPF',
-      cnpj: 'CNPJ',
-      email: 'E-mail',
-      telefone: 'Telefone',
-      aleatoria: 'Chave aleatória',
-    };
-    let msg = `💳 *Chave Pix*\n`;
-    msg += `🔑 Tipo: ${keyTypeLabel[pixKeyType]}\n`;
-    msg += `📋 Chave: \`${pixKey.trim()}\``;
-    if (pixName.trim()) msg += `\n👤 Titular: ${pixName.trim()}`;
-    if (pixAmount.trim()) msg += `\n💰 Valor: R$ ${pixAmount.trim()}`;
-    msg += `\n\n_Copie a chave acima para realizar o pagamento._`;
-    onSend(msg);
-    setPixModalOpen(false);
-    setPixKey('');
-    setPixAmount('');
-    setPixName('');
-  }, [pixKey, pixKeyType, pixAmount, pixName, onSend]);
+  // Envia Pix como card de contato vCard — WhatsApp renderiza com botão "Copiar chave Pix"
+  const handleSendPix = useCallback(async () => {
+    if (!pixKey.trim() || !recipientPhone) return;
+    setPixIsSending(true);
+    setPixSendResult(null);
+    try {
+      const res = await fetch('/api/whatsapp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: recipientPhone,
+          type: 'pix',
+          content: `Chave Pix: ${pixKey.trim()}`,   // fallback para histórico
+          pixKey: pixKey.trim(),
+          pixKeyType,
+          holderName: pixName.trim() || undefined,
+          pixOrganization: pixName.trim() || undefined,
+          clientId: clientId || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erro ao enviar');
+      setPixSendResult({ ok: true, msg: '✅ Chave Pix enviada com sucesso!' });
+      // Fechar modal após 1.5s
+      setTimeout(() => {
+        setPixModalOpen(false);
+        setPixKey('');
+        setPixAmount('');
+        setPixName('');
+        setPixSendResult(null);
+      }, 1500);
+    } catch (err) {
+      setPixSendResult({ ok: false, msg: `❌ ${err instanceof Error ? err.message : 'Erro ao enviar'}` });
+    } finally {
+      setPixIsSending(false);
+    }
+  }, [pixKey, pixKeyType, pixName, pixAmount, recipientPhone, clientId]);
 
   // ── Audio recording handlers ──
   const startRecording = useCallback(async () => {
@@ -471,6 +510,22 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
                     />
                   </div>
                 </div>
+
+                {/* Aviso: envio como card nativo */}
+                <div className="flex items-start gap-2 p-2.5 bg-amber-50 border border-amber-100 rounded-xl">
+                  <Coins size={13} className="text-amber-500 shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-amber-700">
+                    Enviado como <strong>card de contato</strong> — o WhatsApp exibe o botão nativo "Copiar chave Pix".
+                  </p>
+                </div>
+
+                {/* Resultado do envio */}
+                {pixSendResult && (
+                  <div className={`p-3 rounded-xl text-sm font-medium ${pixSendResult.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                    {pixSendResult.msg}
+                  </div>
+                )}
+
                 <div className="flex gap-3 pt-1">
                   <button
                     onClick={() => setPixModalOpen(false)}
@@ -480,10 +535,11 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
                   </button>
                   <button
                     onClick={handleSendPix}
-                    disabled={!pixKey.trim()}
-                    className="flex-1 py-2.5 text-sm font-semibold text-white bg-crm-primary rounded-xl hover:bg-[#163058] disabled:opacity-40"
+                    disabled={!pixKey.trim() || pixIsSending || pixSendResult?.ok}
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-white bg-crm-primary rounded-xl hover:bg-[#163058] disabled:opacity-40"
                   >
-                    Enviar
+                    {pixIsSending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                    {pixIsSending ? 'Enviando...' : 'Enviar Pix'}
                   </button>
                 </div>
               </div>

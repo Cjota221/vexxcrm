@@ -43,11 +43,18 @@ export interface TenantPreferences {
   notifications_enabled: boolean;
 }
 
+export interface TenantConfigPix {
+  key: string;                                                       // Chave Pix da loja
+  keyType: 'cpf' | 'cnpj' | 'email' | 'telefone' | 'aleatoria';   // Tipo da chave
+  holderName: string;                                                // Nome do titular / loja
+}
+
 export interface TenantConfig {
   facilzap?: TenantConfigFacilzap;
   evolution?: TenantConfigEvolution;
   openai?: TenantConfigOpenAI;
   preferences?: TenantPreferences;
+  pix?: TenantConfigPix;
 }
 
 export interface Tenant {

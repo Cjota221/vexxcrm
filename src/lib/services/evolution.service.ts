@@ -437,11 +437,84 @@ export async function sendAudioMessage(
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// ENCAMINHAMENTO DE MÍDIA PARA n8n
+// ENVIO DE CONTATO / PIX
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+/**
+ * Envia contato vCard com chave Pix.
+ *
+ * O WhatsApp renderiza o vCard como um card de contato com o botão
+ * "Copiar chave Pix" quando o campo `email` do contato contém a chave
+ * — comportamento idêntico ao WhatsApp Business nativo.
+ *
+ * Evolution API: POST /message/sendContact/{instanceName}
+ */
+export async function sendContactMessage(
+  config: EvolutionAPIConfig,
+  to: string,
+  contact: {
+    fullName: string;       // Nome do titular
+    organization?: string;  // Nome da loja (exibido como subtítulo)
+    pixKey: string;         // Chave Pix (vai no campo email do vCard)
+    phone?: string;         // Telefone do titular (opcional)
+  }
+): Promise<string> {
+  const endpoint = `${config.apiUrl}/message/sendContact/${config.instanceName}`;
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': config.apiKey,
+    },
+    body: JSON.stringify({
+      number: to,
+      contact: [
+        {
+          fullName: contact.fullName,
+          wuid: contact.phone
+            ? contact.phone.replace(/\D/g, '') + '@s.whatsapp.net'
+            : undefined,
+          phoneNumber: contact.phone || undefined,
+          organization: contact.organization || undefined,
+          email: contact.pixKey,  // Campo email = chave Pix (ativa botão no WhatsApp)
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await safeJson(response, 'Enviar contato Pix').catch(() => ({}));
+    console.error(
+      `[Evolution] sendContact falhou — status: ${response.status} | body:`,
+      JSON.stringify(errorBody).substring(0, 300),
+    );
+    throw new Error(
+      (errorBody as any).message || `Erro ao enviar contato (${response.status})`,
+    );
+  }
+
+  const data = await safeJson(response, 'Enviar contato Pix');
+
+  const msgId =
+    data?.key?.id ||
+    data?.message?.key?.id ||
+    data?.data?.key?.id ||
+    data?.id ||
+    '';
+
+  if (!msgId) {
+    console.warn(
+      '[Evolution] sendContact retornou sem messageId. Resposta:',
+      JSON.stringify(data).substring(0, 200),
+    );
+  }
+
+  return msgId;
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// BUSCA DE DADOS (para Sync Histórico)
+// ENCAMINHAMENTO DE MÍDIA PARA n8n
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export interface EvolutionChat {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
-import { sendTextMessage, sendMediaMessage, getTenantEvolutionConfig } from '@/lib/services/evolution.service';
+import { sendTextMessage, sendMediaMessage, sendContactMessage, getTenantEvolutionConfig } from '@/lib/services/evolution.service';
 import { PhoneNormalizer } from '@/lib/phone-normalizer';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limiter';
@@ -28,9 +28,23 @@ export async function POST(request: NextRequest) {
     const config = getTenantEvolutionConfig(tenantId);
 
     const body = await request.json();
-    const { to, content, type = 'text', mediaUrl, caption, clientId: clientIdFromBody } = body;
+    const {
+      to, content: rawContent, type = 'text', mediaUrl, caption, clientId: clientIdFromBody,
+      // Campos específicos do Pix (type === 'pix')
+      pixKey, pixKeyType, holderName, pixOrganization,
+    } = body;
 
-    if (!to || !content) {
+    // Conteúdo que será salvo no banco (pode ser modificado por tipos especiais, ex: pix)
+    let content = rawContent;
+
+    if (!to) {
+      return NextResponse.json(
+        { error: 'Campo obrigatório: to' },
+        { status: 400 }
+      );
+    }
+
+    if (type !== 'pix' && !content) {
       return NextResponse.json(
         { error: 'Campos obrigatórios: to, content' },
         { status: 400 }
@@ -42,9 +56,28 @@ export async function POST(request: NextRequest) {
 
     let messageId: string;
 
-    // Enviar mensagem (texto ou mídia)
+    // Enviar mensagem (texto, pix ou mídia)
     if (type === 'text') {
       messageId = await sendTextMessage(config, phoneNormalized, content);
+
+    } else if (type === 'pix') {
+      // Envio de Pix como contato vCard
+      if (!pixKey) {
+        return NextResponse.json({ error: 'pixKey obrigatório para type=pix' }, { status: 400 });
+      }
+
+      const contactFullName = holderName || pixOrganization || 'Loja';
+      // Texto de fallback que ficará no histórico
+      content = `Chave Pix: ${pixKey}`;
+
+      console.log(`[Send] Enviando Pix (vCard) — para: ${phoneNormalized} | holder: ${contactFullName}`);
+      messageId = await sendContactMessage(config, phoneNormalized, {
+        fullName: contactFullName,
+        organization: pixOrganization,
+        pixKey,
+        phone: undefined,
+      });
+
     } else {
       if (!mediaUrl) {
         return NextResponse.json(
