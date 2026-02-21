@@ -315,8 +315,8 @@ export async function POST(request: NextRequest) {
                 console.log(`  ⚠️ ÓRFÃO! Dados disponíveis para match:`);
                 console.log(`     • FacilZap ID: ${o.cliente?.id || 'N/A'}`);
                 console.log(`     • Nome: ${o.cliente?.nome || 'N/A'}`);
-                console.log(`     • Email: ${o.cliente?.email || 'N/A'}`);
-                console.log(`     • CPF: ${o.cliente?.cpf_cnpj || 'N/A'}`);
+                console.log(`     • Email: [REDACTED]`);
+                console.log(`     • CPF: [REDACTED]`);
               }
             }
 

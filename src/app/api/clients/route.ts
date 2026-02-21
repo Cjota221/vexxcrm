@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { PhoneNormalizer } from '@/lib/phone-normalizer';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 /**
  * GET /api/clients
@@ -10,6 +11,19 @@ import { PhoneNormalizer } from '@/lib/phone-normalizer';
 export async function GET(request: NextRequest) {
   try {
     const { tenantId } = await getTenantFromRequest(request);
+
+    // Rate limiting: 60 req/min por tenant
+    const rl = checkRateLimit(`${tenantId}:clients`);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Muitas requisições. Tente novamente em breve.' },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(rl.retryAfter ?? 60) },
+        }
+      );
+    }
+
     const supabase = createServerSupabaseClient();
 
     // Parâmetros de busca

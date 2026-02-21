@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { createServerSupabaseClient } from '@/lib/supabase';
+import { checkRateLimit } from '@/lib/rate-limit';
 import type { Message } from '@/types';
 
 /**
@@ -25,6 +26,18 @@ export async function GET(
       return NextResponse.json(
         { error: 'clientId é obrigatório' },
         { status: 400 }
+      );
+    }
+
+    // Rate limiting: 120 req/min por tenant (mensagens são paginadas, limite mais alto)
+    const rl = checkRateLimit(`${tenantId}:messages`, { limit: 120 });
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Muitas requisições. Tente novamente em breve.' },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(rl.retryAfter ?? 60) },
+        }
       );
     }
 

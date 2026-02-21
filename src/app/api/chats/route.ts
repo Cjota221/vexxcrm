@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 /**
  * GET /api/chats
@@ -18,6 +19,18 @@ export async function GET(request: NextRequest) {
   try {
     // 1. Autenticação via helper (usa x-tenant-id/x-user-id do middleware)
     const { tenantId, userId } = await getTenantFromRequest(request);
+
+    // Rate limiting: 60 req/min por tenant
+    const rl = checkRateLimit(`${tenantId}:chats`);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Muitas requisições. Tente novamente em breve.' },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(rl.retryAfter ?? 60) },
+        }
+      );
+    }
 
     const supabase = createServerSupabaseClient();
 

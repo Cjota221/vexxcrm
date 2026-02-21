@@ -68,6 +68,7 @@ import {
 } from '@/lib/utils';
 import type { Order, KanbanTransition, KanbanColumn } from '@/types';
 import { AvatarImage } from '@/components/ui/AvatarImage';
+import { MaskedField } from '@/lib/privacy';
 
 /* ─── Abas disponíveis ───────────────────────────────────────── */
 
@@ -306,13 +307,22 @@ function IdentityTab({
       <SectionBlock title="Contatos">
         <div className="space-y-1.5">
           {(c.phone as string) && (
-            <ContactRow icon={<Phone size={12} />} value={(c.phone as string) ?? ''} copyable />
+            <ContactRow
+              icon={<Phone size={12} />}
+              value={<MaskedField value={(c.phone as string) ?? ''} type="phone" copyable />}
+            />
           )}
           {(c.email as string) && (
-            <ContactRow icon={<Mail size={12} />} value={(c.email as string) ?? ''} copyable />
+            <ContactRow
+              icon={<Mail size={12} />}
+              value={<MaskedField value={(c.email as string) ?? ''} type="email" copyable />}
+            />
           )}
           {(c.cpf as string) && (
-            <ContactRow icon={<User size={12} />} value={`CPF: ${c.cpf as string}`} />
+            <ContactRow
+              icon={<User size={12} />}
+              value={<MaskedField value={(c.cpf as string) ?? ''} type="cpf" copyable />}
+            />
           )}
         </div>
       </SectionBlock>
@@ -1607,19 +1617,11 @@ function MetricCard({
   );
 }
 
-function ContactRow({ icon, value, copyable }: { icon: React.ReactNode; value: string; copyable?: boolean }) {
+function ContactRow({ icon, value, copyable }: { icon: React.ReactNode; value: React.ReactNode; copyable?: boolean }) {
   return (
     <div className="flex items-center gap-2 text-xs text-gray-600">
       <span className="text-gray-400 shrink-0">{icon}</span>
-      <span className="flex-1 truncate">{value}</span>
-      {copyable && (
-        <button
-          onClick={() => navigator.clipboard.writeText(value)}
-          className="p-1 rounded text-gray-300 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0"
-        >
-          <Copy size={10} />
-        </button>
-      )}
+      <span className="flex-1 min-w-0">{value}</span>
     </div>
   );
 }

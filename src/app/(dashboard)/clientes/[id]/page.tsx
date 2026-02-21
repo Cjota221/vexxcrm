@@ -26,6 +26,7 @@ import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency, formatDate, formatRelativeTime, getInitials, getAvatarColor } from '@/lib/utils';
+import { MaskedField } from '@/lib/privacy';
 
 const STATUS_MAP: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'neutral' }> = {
   novo: { label: 'Novo', variant: 'info' },
@@ -247,14 +248,16 @@ export default function ClienteDetalhe() {
               <div>
                 <p className="text-xs text-txt-secondary mb-1">Telefone</p>
                 <p className="text-sm font-medium text-txt-primary flex items-center gap-1">
-                  <Phone size={14} className="text-txt-secondary" /> {c.phone}
+                  <Phone size={14} className="text-txt-secondary" />
+                  <MaskedField value={c.phone} type="phone" copyable />
                 </p>
               </div>
               {c.email && (
                 <div>
                   <p className="text-xs text-txt-secondary mb-1">E-mail</p>
                   <p className="text-sm font-medium text-txt-primary flex items-center gap-1">
-                    <Mail size={14} className="text-txt-secondary" /> {c.email}
+                    <Mail size={14} className="text-txt-secondary" />
+                    <MaskedField value={c.email} type="email" copyable />
                   </p>
                 </div>
               )}
@@ -262,7 +265,8 @@ export default function ClienteDetalhe() {
                 <div>
                   <p className="text-xs text-txt-secondary mb-1">CPF/CNPJ</p>
                   <p className="text-sm font-medium text-txt-primary flex items-center gap-1">
-                    <Hash size={14} className="text-txt-secondary" /> {cpfCnpj}
+                    <Hash size={14} className="text-txt-secondary" />
+                    <MaskedField value={cpfCnpj} type="cpf" copyable />
                   </p>
                 </div>
               )}
