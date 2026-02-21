@@ -4,6 +4,7 @@ import { PhoneNormalizer } from '@/lib/phone-normalizer';
 import { eventBus } from '@/lib/event-bus';
 import { forwardMediaToN8n, getTenantEvolutionConfig, fetchChats, fetchMessages, downloadMediaToStorage, fetchProfilePicUrl } from '@/lib/services/evolution.service';
 import { processPipelineTriggers } from '@/lib/services/pipeline-triggers';
+import { extractTrackingCode, extractOrderNumber } from '@/lib/services/anne-pipeline';
 import type { EvolutionWebhookPayload } from '@/types';
 
 // Nomes conhecidos da instância que NUNCA devem ser salvos como nome de cliente
@@ -425,6 +426,17 @@ async function handleNewMessage(
     message: savedMessage,
   });
 
+  // ━━━ ANNE — DETECTOR DE RASTREIO (fromMe) ━━━
+  // Quando a FacilZap despacha um pedido, ela envia uma mensagem fromMe no WhatsApp
+  // com o código de rastreio e número do pedido.
+  // A Anne intercepta APENAS mensagens fromMe com código de rastreio para vincular
+  // automaticamente ao pedido correspondente — sem responder ao cliente.
+  if (fromMe && text) {
+    handleTrackingFromMe(supabase, tenantId, client.id, text).catch(
+      err => console.warn('[Webhook] Erro no detector de rastreio:', err)
+    );
+  }
+
   // ━━━ AUTOMAÇÃO DE PIPELINE (Anne Motor de Gatilhos) ━━━
   // Fire-and-forget: não bloqueia resposta do webhook
   processPipelineTriggers(
@@ -452,6 +464,147 @@ async function handleNewMessage(
       timestamp: savedMessage.created_at,
     }).catch(err => console.warn('[Webhook] Erro no transbordo n8n:', err));
   }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// ANNE — Vinculação automática de rastreio (mensagens fromMe da FacilZap)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Detecta código de rastreio em mensagens enviadas pelo sistema (fromMe)
+ * e vincula automaticamente ao pedido correspondente no banco.
+ *
+ * Padrões reconhecidos (exemplos de mensagens da FacilZap):
+ *   "Olá! Seu pedido #1234 foi despachado! Código de rastreio: BR123456789BR"
+ *   "Código de rastreamento do pedido 5678: JD0123456789"
+ *   "Rastreio: AA123456789BR — pedido 1234"
+ *
+ * Roda em fire-and-forget — não bloqueia o webhook.
+ */
+async function handleTrackingFromMe(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+  clientId: string,
+  text: string
+): Promise<void> {
+  // 1. Extrair código de rastreio
+  const trackingResult = extractTrackingCode(text);
+  if (!trackingResult) return; // Mensagem não tem código — ignorar
+
+  const { code: trackingCode, carrier } = trackingResult;
+
+  // 2. Extrair número do pedido da mensagem
+  const orderNumber = extractOrderNumber(text);
+
+  console.log(`[Anne Rastreio] Código detectado: ${trackingCode} (${carrier}) | Pedido: ${orderNumber ?? 'não identificado'} | Cliente: ${clientId}`);
+
+  // 3. Localizar o pedido — estratégia em cascata
+  let orderId: string | null = null;
+  let currentTrackingCode: string | null = null;
+
+  if (orderNumber) {
+    // Estratégia A: pedido pelo número explícito na mensagem
+    const { data: order } = await supabase
+      .from('orders')
+      .select('id, tracking_code')
+      .eq('tenant_id', tenantId)
+      .eq('order_number', orderNumber)
+      .maybeSingle();
+
+    if (order) {
+      orderId = order.id;
+      currentTrackingCode = order.tracking_code;
+    }
+  }
+
+  if (!orderId) {
+    // Estratégia B: pedido mais recente do cliente sem rastreio (status: shipped/processing/confirmed)
+    const { data: orders } = await supabase
+      .from('orders')
+      .select('id, tracking_code, order_number')
+      .eq('tenant_id', tenantId)
+      .eq('client_id', clientId)
+      .is('tracking_code', null)
+      .in('status', ['shipped', 'processing', 'confirmed', 'pending'])
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (orders?.[0]) {
+      orderId = orders[0].id;
+      currentTrackingCode = orders[0].tracking_code ?? null;
+      console.log(`[Anne Rastreio] Estratégia B: pedido #${orders[0].order_number} selecionado`);
+    }
+  }
+
+  if (!orderId) {
+    console.warn(`[Anne Rastreio] Nenhum pedido encontrado para vincular o código ${trackingCode}`);
+    return;
+  }
+
+  // 4. Evitar sobrescrever código já existente (a não ser que seja o mesmo)
+  if (currentTrackingCode && currentTrackingCode === trackingCode) {
+    console.log(`[Anne Rastreio] Código ${trackingCode} já está vinculado ao pedido ${orderId} — sem alteração`);
+    return;
+  }
+
+  // 5. Gravar o código no pedido
+  const trackingUrl = buildTrackingUrl(trackingCode, carrier);
+
+  const { error: updateError } = await supabase
+    .from('orders')
+    .update({
+      tracking_code: trackingCode,
+      tracking_url: trackingUrl,
+      status: 'shipped',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('tenant_id', tenantId)
+    .eq('id', orderId);
+
+  if (updateError) {
+    console.error(`[Anne Rastreio] Erro ao gravar código ${trackingCode} no pedido ${orderId}:`, updateError.message);
+    return;
+  }
+
+  // 6. Mover kanban → DESPACHADO
+  await supabase
+    .from('kanban_cards')
+    .update({
+      column_id: 'DESPACHADO',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('tenant_id', tenantId)
+    .eq('order_id', orderId);
+
+  // 7. Emitir SSE para atualizar a UI em tempo real
+  eventBus.emitToTenant('order_updated', tenantId, {
+    order_id: orderId,
+    client_id: clientId,
+    tracking_code: trackingCode,
+    tracking_url: trackingUrl,
+    carrier,
+    source: 'anne_auto',
+  });
+
+  console.log(`[Anne Rastreio] ✅ Código ${trackingCode} (${carrier}) vinculado ao pedido ${orderId} | Cliente ${clientId}`);
+}
+
+/**
+ * Monta URL de rastreio baseada na transportadora detectada.
+ */
+function buildTrackingUrl(code: string, carrier: string): string {
+  const upper = code.toUpperCase();
+  if (carrier === 'Correios' || /^[A-Z]{2}\d{9}BR$/i.test(upper)) {
+    return `https://rastreamento.correios.com.br/app/index.php?objetos=${upper}`;
+  }
+  if (carrier === 'Jadlog' || upper.startsWith('JD')) {
+    return `https://www.jadlog.com.br/jadlog/tracking.jad?cte=${upper}`;
+  }
+  if (carrier === 'Total Express' || upper.startsWith('TE')) {
+    return `https://www.totalexpress.com.br/rastreamento/${upper}`;
+  }
+  // Fallback genérico
+  return `https://rastreamento.correios.com.br/app/index.php?objetos=${upper}`;
 }
 
 /**
