@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Paperclip, Smile, Mic, X, Image, FileText, Video, Loader2, Zap, Square, MapPin, Coins, User, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { api } from '@/lib/api';
 import { TemplatesFloatingPanel } from './TemplatesFloatingPanel';
 
 interface MessageInputProps {
@@ -86,17 +87,14 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
   useEffect(() => {
     if (!pixModalOpen) return;
     setPixSendResult(null);
-    fetch('/api/tenants/config')
-      .then(r => r.ok ? r.json() : null)
-      .then((data) => {
+    api.get<{ pix?: { key?: string; keyType?: string; holderName?: string } }>('/api/tenants/config')
+      .then(({ data }) => {
         const pix = data?.pix;
         if (pix?.key) {
           setPixKey(pix.key);
-          setPixKeyType(pix.keyType || 'aleatoria');
-          // Titular: preferir config salva; se vazia, manter recipientName
+          setPixKeyType((pix.keyType as 'email' | 'cnpj' | 'cpf' | 'telefone' | 'aleatoria') || 'aleatoria');
           setPixName(pix.holderName || recipientName || '');
         }
-        // Se não há config, manter o que foi definido pelo onClick (recipientName)
       })
       .catch(() => {/* silent — usuário pode preencher manualmente */});
   // eslint-disable-next-line react-hooks/exhaustive-deps

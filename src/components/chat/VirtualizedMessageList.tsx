@@ -159,7 +159,10 @@ export function VirtualizedMessageList({
             <div
               key={virtualRow.key}
               data-index={virtualRow.index}
-              ref={virtualizer.measureElement}
+              ref={(node) => {
+                // Guard: só mede se o nó ainda está no DOM (evita "Node cannot be found")
+                if (node) virtualizer.measureElement(node);
+              }}
               style={{
                 position: 'absolute',
                 top: 0,
