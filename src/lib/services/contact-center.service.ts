@@ -327,9 +327,9 @@ export class ContactCenterService {
   async sendProductToChat(
     conversationId: string,
     productId: string,
-    options: { includePrice?: boolean; includeLink?: boolean } = {}
+    options: { includePrice?: boolean; includeLink?: boolean; clientName?: string } = {}
   ): Promise<string> {
-    const { includePrice = true, includeLink = true } = options;
+    const { includePrice = true, includeLink = true, clientName } = options;
 
     // Buscar produto
     const { data: product } = await this.supabase
@@ -396,44 +396,47 @@ export class ContactCenterService {
     let message = '';
 
     if (product.chat_template) {
-      message = product.chat_template;
+      // Template customizado — substituir variáveis se existirem
+      message = product.chat_template
+        .replace('{{nome}}', clientName || 'você')
+        .replace('{{name}}', clientName || 'você');
     } else {
-      // Nome em destaque — SEM description para não poluir
-      message = `🛍️ *${product.name}*`;
+      // ── Saudação personalizada ──────────────────────────────
+      const firstName = clientName ? clientName.split(' ')[0] : null;
+      if (firstName) {
+        message = `Oi ${firstName}! Olha que linda essa opção! ✨\n\n`;
+      }
 
-      // Preço
+      // ── Nome do produto (sem negrito — plain text) ──────────
+      message += `${product.name}`;
+
+      // ── Preço ───────────────────────────────────────────────
       if (includePrice) {
         const price = Number(product.price) || 0;
         const compareAt = Number(product.compare_at_price) || 0;
         if (compareAt > price && compareAt > 0) {
-          message += `\n\n💰 *R$ ${price.toFixed(2)}* ~~R$ ${compareAt.toFixed(2)}~~`;
+          message += `\n~~R$ ${compareAt.toFixed(2)}~~ Por apenas *R$ ${price.toFixed(2)}*`;
         } else if (price > 0) {
-          message += `\n\n💰 *R$ ${price.toFixed(2)}*`;
+          message += `\nPor apenas R$ ${price.toFixed(2)}`;
         }
       }
 
-      // Variações/grades com estoque
+      // ── Variações/grades com estoque ────────────────────────
       if (variacoes.length > 0) {
         message += `\n\n📐 *Numerações disponíveis:*`;
         for (const v of variacoes) {
           if (v.stock !== undefined && v.stock !== null && v.stock > 0) {
             message += `\n• ${v.nome} — ${v.stock} par${v.stock !== 1 ? 'es' : ''}`;
           } else if (v.stock === undefined) {
-            // Fallback (sem info de estoque por variação)
             message += `\n• ${v.nome}`;
           }
-          // Se stock === 0: omitir (sem estoque)
+          // stock === 0: omitir (sem estoque)
         }
       } else if (product.stock !== null && product.stock !== undefined) {
-        // Fallback: estoque total
-        message += product.stock > 0
-          ? `\n\n📦 ${product.stock} unidades em estoque`
-          : `\n\n⚠️ Produto sem estoque no momento`;
-      }
-
-      // SKU
-      if (product.sku) {
-        message += `\n🏷️ Ref: ${product.sku}`;
+        if (product.stock === 0) {
+          message += `\n\n⚠️ Produto sem estoque no momento`;
+        }
+        // Se tem estoque mas sem variações: não mostrar (não poluir)
       }
     }
 
@@ -456,13 +459,13 @@ export class ContactCenterService {
           : null;
 
         if (siteUrl) {
-          // Formato da URL da loja FacilZap: /c/atacado/produto/{external_id}
+          // URL usa o external_id (ID numérico do produto no FacilZap), ex: /c/atacado/produto/3777713
           productLink = `${siteUrl}/c/atacado/produto/${product.external_id}`;
         }
       }
 
       if (productLink) {
-        message += `\n\n🛒 *Ver produto:*\n${productLink}`;
+        message += `\n\nVeja mais detalhes e feche seu pedido aqui 👇\n\n${productLink}`;
       }
     }
 

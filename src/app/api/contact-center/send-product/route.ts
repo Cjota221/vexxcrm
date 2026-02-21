@@ -47,9 +47,19 @@ export async function POST(request: NextRequest) {
 
     // 1. Gerar texto formatado do produto
     const service = new ContactCenterService(supabase, tenantId);
+
+    // Buscar nome do cliente para personalizar a saudação
+    const { data: clientForName } = await supabase
+      .from('clients')
+      .select('name')
+      .eq('id', conversation_id)
+      .eq('tenant_id', tenantId)
+      .single();
+
     const messageText = await service.sendProductToChat(conversation_id, product_id, {
       includePrice: include_price,
       includeLink: include_link,
+      clientName: clientForName?.name || undefined,
     });
 
     // 2. Resolver o telefone do cliente (conversation_id = client_id)
