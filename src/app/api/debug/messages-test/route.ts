@@ -121,31 +121,3 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json(results);
 }
-
-  const testExtId = `debug_${Date.now()}`;
-  const { data: inserted, error: insErr } = await supabase
-    .from('messages')
-    .insert({
-      tenant_id: tenantId,
-      conversation_id: convId,
-      client_id: clientId,
-      external_id: testExtId,
-      direction: 'outbound',
-      sender_name: 'DEBUG',
-      content: '[TESTE]',
-      type: 'text',
-      status: 'sent',
-      created_at: new Date().toISOString(),
-    })
-    .select('id').single();
-
-  if (insErr) {
-    results.insert = { ok: false, code: insErr.code, message: insErr.message, details: insErr.details, hint: insErr.hint };
-  } else {
-    results.insert = { ok: true, id: inserted?.id };
-    await supabase.from('messages').delete().eq('external_id', testExtId).eq('tenant_id', tenantId);
-    results.cleanup = 'ok';
-  }
-
-  return NextResponse.json(results);
-}
