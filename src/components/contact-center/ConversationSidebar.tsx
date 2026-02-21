@@ -36,8 +36,9 @@ import {
   AlertCircle,
   Activity,
   MoreVertical,
+  UserCheck,
 } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { formatRelativeTime, truncate, getInitials, getAvatarColor } from '@/lib/utils';
 import { useChatsStore } from '@/store/chats';
@@ -427,6 +428,9 @@ function MobileListHeader({
 }) {
   const { user } = useAuthStore();
   const { whatsappStatus } = useConnectionStore();
+  const queryClient = useQueryClient();
+  const [syncingAvatars, setSyncingAvatars] = useState(false);
+  const [syncDone, setSyncDone] = useState(false);
 
   const dotCls = {
     connected:    'bg-[#25d366]',
@@ -434,6 +438,24 @@ function MobileListHeader({
     disconnected: 'bg-red-500',
     unknown:      'bg-gray-400 animate-pulse',
   }[whatsappStatus];
+
+  const handleSyncAvatars = async () => {
+    if (syncingAvatars) return;
+    setSyncingAvatars(true);
+    setSyncDone(false);
+    try {
+      const res = await api.post<{ updated: number }>('/api/whatsapp/sync-avatars?limit=100');
+      console.log(`[SyncAvatars] ${res.data?.updated ?? 0} fotos atualizadas`);
+      // Invalidar cache de chats para exibir as novas fotos
+      await queryClient.invalidateQueries({ queryKey: ['chats'] });
+      setSyncDone(true);
+      setTimeout(() => setSyncDone(false), 3000);
+    } catch (err) {
+      console.error('[SyncAvatars]', err);
+    } finally {
+      setSyncingAvatars(false);
+    }
+  };
 
   return (
     <div className="md:hidden flex items-center justify-between h-14 px-4 bg-crm-primary shrink-0">
@@ -458,6 +480,20 @@ function MobileListHeader({
       </div>
       {/* Direita: ações */}
       <div className="flex items-center gap-1">
+        {/* Sincronizar fotos de perfil */}
+        <button
+          onClick={handleSyncAvatars}
+          disabled={syncingAvatars}
+          className="w-9 h-9 flex items-center justify-center rounded-full text-white/80 hover:bg-white/10 active:bg-white/20 transition-colors disabled:opacity-50"
+          title="Sincronizar fotos de perfil"
+        >
+          {syncingAvatars
+            ? <Loader2 size={16} className="animate-spin" />
+            : syncDone
+              ? <UserCheck size={18} className="text-[#25d366]" />
+              : <UserCheck size={18} />
+          }
+        </button>
         <button
           onClick={onOpenCampaign}
           className="w-9 h-9 flex items-center justify-center rounded-full text-white/80 hover:bg-white/10 active:bg-white/20 transition-colors"

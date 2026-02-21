@@ -10,6 +10,7 @@ import { TransferDialog } from '@/components/contact-center/TransferDialog';
 import { EmbeddedCampaignPanel } from '@/components/contact-center/EmbeddedCampaignPanel';
 import { StatusPanel } from '@/components/contact-center/StatusPanel';
 import { useRealtimeMessages } from '@/hooks/useRealtimeMessages';
+import { useWhatsAppConnection } from '@/hooks/useWhatsApp';
 import { useChatsStore } from '@/store/chats';
 import { useAuthStore } from '@/store/auth';
 import { useConnectionStore } from '@/store/connection';
@@ -83,6 +84,7 @@ function ConnectionDot() {
  */
 export default function CentralAtendimentoPage() {
   useRealtimeMessages();
+  useWhatsAppConnection(); // mantém whatsappStatus atualizado (connected/disconnected)
 
   const { selectedChatId, setSearchQuery } = useChatsStore();
   const { user } = useAuthStore();
