@@ -33,6 +33,12 @@ export function VirtualizedMessageList({
   const parentRef = useRef<HTMLDivElement>(null);
   const isScrolledToBottomRef = useRef(true);
   const prevMessageCountRef = useRef(messages.length);
+  // Guard contra callbacks de rAF rodando após desmontagem do componente
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   // Agrupar mensagens por data (com separadores)
   const items: MessageListItem[] = useMemo(() => {
@@ -94,6 +100,7 @@ export function VirtualizedMessageList({
     // Rolar para o fundo via scrollTop direto — evita falha do scrollToIndex
     // com itens de tamanho dinâmico (imagens ainda não carregadas).
     const scrollToBottom = () => {
+      if (!mountedRef.current) return;
       const el = parentRef.current;
       if (el) {
         el.scrollTop = el.scrollHeight;
@@ -114,6 +121,7 @@ export function VirtualizedMessageList({
     // Duplo rAF para garantir que o virtualizer mediu os itens
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
+        if (!mountedRef.current) return;
         el.scrollTop = el.scrollHeight;
         isScrolledToBottomRef.current = true;
       });

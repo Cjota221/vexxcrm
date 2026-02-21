@@ -135,7 +135,8 @@ export function MediaMessage({
         src={url}
         poster={thumbnailUrl}
         controls
-        preload="metadata"
+        preload="none"
+        crossOrigin="anonymous"
         style={{ maxWidth: 280, maxHeight: 380, width: '100%' }}
         className="rounded-xl"
         onError={() => setImgError(true)}

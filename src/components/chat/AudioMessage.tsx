@@ -162,7 +162,8 @@ export function AudioMessage({ url, duration, isFromMe = false }: AudioMessagePr
         {error ? 'Erro' : formatTime(isPlaying ? currentTime : totalDuration)}
       </span>
 
-      <audio ref={audioRef} src={url} preload="metadata" />
+      {/* preload="none" evita range-requests que causam ERR_CACHE_OPERATION_NOT_SUPPORTED */}
+      <audio ref={audioRef} src={url} preload="none" crossOrigin="anonymous" />
     </div>
   );
 }
