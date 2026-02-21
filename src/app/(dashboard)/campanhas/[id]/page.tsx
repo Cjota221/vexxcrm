@@ -150,7 +150,7 @@ export default function CampanhaDetalhePage() {
             restantes: number;
             concluida: boolean;
             elapsed_ms: number;
-          }>(`/api/v2/campanhas/${campaignId}/dispatch-batch`, { batch_size: 3 });
+          }>(`/api/v2/campanhas/${campaignId}/dispatch-batch`, { batch_size: 1 });
 
           if (error) {
             addLog(`❌ Erro no batch: ${error}`);
@@ -161,7 +161,7 @@ export default function CampanhaDetalhePage() {
 
           if (!data) break;
 
-          addLog(`✅ Batch: ${data.enviados} enviados, ${data.falhas} falhas — ${data.restantes} restantes (${data.elapsed_ms}ms)`);
+          addLog(`✅ ${data.enviados} enviado(s), ${data.falhas} falha(s) — ${data.restantes} restantes (${data.elapsed_ms}ms)`);
 
           // Atualizar dados da campanha
           await fetchCampanha();
@@ -173,10 +173,8 @@ export default function CampanhaDetalhePage() {
 
           if (data.restantes === 0) break;
 
-          // Delay anti-ban humanizado: 15-45s entre batches
-          const delay = 15_000 + Math.random() * 30_000;
-          addLog(`⏳ Aguardando ${Math.round(delay / 1000)}s (anti-ban)...`);
-          await new Promise(r => setTimeout(r, delay));
+          // Pequena pausa entre chamadas ao servidor (o delay real já foi aplicado no servidor)
+          await new Promise(r => setTimeout(r, 2_000));
 
         } catch (err) {
           addLog(`❌ Erro inesperado: ${err}`);

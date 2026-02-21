@@ -4,10 +4,22 @@ import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { PhoneNormalizer } from '@/lib/phone-normalizer';
 import {
   resolverBlocos,
+  aplicarRegraCarol,
   Bloco,
   ContatoJob,
   REGRA_DA_CAROL,
 } from '@/lib/services/campaign-dispatcher';
+
+// ─── Helpers anti-ban ────────────────────────────────────────────────────────
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+/** Delay humanizado com distribuição aproximadamente normal */
+function gerarDelayHumanizado(min: number, max: number): number {
+  const media = (min + max) / 2;
+  const desvio = (max - min) / 6;
+  const jitter = (Math.random() + Math.random() + Math.random() - 1.5) * desvio;
+  return Math.max(min, Math.min(max, Math.round(media + jitter)));
+}
 import {
   getTenantEvolutionConfig,
   sendTextMessage,
@@ -44,7 +56,7 @@ export async function POST(request: NextRequest, { params }: { params: Params })
     // Verificar campanha
     const { data: campanha, error: errC } = await supabase
       .from('campaigns')
-      .select('id, tenant_id, status, name, sent_count, failed_count')
+      .select('id, tenant_id, status, name, sent_count, failed_count, config_antiban')
       .eq('id', campanhaId)
       .eq('tenant_id', profile.tenant_id)
       .single();
@@ -114,10 +126,17 @@ export async function POST(request: NextRequest, { params }: { params: Params })
     let enviados = 0;
     let falhas = 0;
 
+    // ── Configuração anti-ban da campanha (com piso da Regra da Carol) ──────
+    const cfgAntiban = aplicarRegraCarol(campanha.config_antiban ?? {});
+    const delayMin = cfgAntiban.delay_min_ms;   // ≥ 15 000 ms
+    const delayMax = cfgAntiban.delay_max_ms;   // ≥ 16 000 ms
+    console.log(`[DISPATCH_BATCH] Anti-ban: delay ${delayMin/1000}–${delayMax/1000}s entre mensagens`);
+
     for (const job of jobs) {
-      // Safety: não ultrapassar 20s nesta request
-      if (Date.now() - started > 18_000) {
-        console.log(`[DISPATCH_BATCH] Timeout de segurança — ${enviados} enviados, parando`);
+      // Safety: timeout baseado no delay configurado (mínimo 90s para 1 job + delay)
+      const timeoutMs = Math.max(90_000, batchSize * (delayMax + 15_000));
+      if (Date.now() - started > timeoutMs) {
+        console.log(`[DISPATCH_BATCH] Timeout de segurança (${timeoutMs/1000}s) — ${enviados} enviados, parando`);
         break;
       }
 
@@ -253,6 +272,14 @@ export async function POST(request: NextRequest, { params }: { params: Params })
         enviados++;
 
         console.log(`[DISPATCH_BATCH] ✅ Enviado para ${job.contato_telefone} (${job.contato_nome || 'sem nome'})`);
+
+        // ━━━ DELAY ANTI-BAN entre mensagens (Regra da Carol) ━━━
+        // Só aplica se há mais jobs depois deste no batch
+        if (enviados + falhas < jobs.length) {
+          const delay = gerarDelayHumanizado(delayMin, delayMax);
+          console.log(`[DISPATCH_BATCH] ⏳ Aguardando ${Math.round(delay / 1000)}s (anti-ban intra-batch)...`);
+          await sleep(delay);
+        }
       } catch (err: unknown) {
         const e = err as { status?: number; message?: string; code?: string };
         const erroMsg = e?.message ?? 'Erro desconhecido';
@@ -285,6 +312,11 @@ export async function POST(request: NextRequest, { params }: { params: Params })
         if (e?.status === 429 || erroCodigo === '429') {
           console.warn('[DISPATCH_BATCH] Rate limit detectado — parando batch');
           break;
+        }
+
+        // Delay após falha também (não acelerar por erro)
+        if (enviados + falhas < jobs.length) {
+          await sleep(delayMin);
         }
       }
     }
