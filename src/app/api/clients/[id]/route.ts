@@ -138,8 +138,10 @@ export async function GET(
     /** Normaliza um item vindo de metadata.itens (FacilZap JSON) */
     const normalizeMetaItem = (item: any) => {
       const qty  = Number(item.quantidade ?? item.quantity ?? 1);
-      const unit = Number(item.preco_unitario ?? item.valor ?? 0);
-      const tot  = Number(item.valor ?? unit * qty);
+      // preco_unitario e valor são AMBOS o preço unitário no JSON do sync
+      const unit = Number(item.preco_unitario ?? item.valor ?? item.price ?? 0);
+      // total_price = unitário × quantidade (não usar item.valor como total pois é unitário)
+      const tot  = Number(item.total_price ?? item.subtotal ?? (unit * qty));
       return {
         product_name:   item.nome ?? item.name ?? item.product_name ?? 'Produto',
         nome:           item.nome ?? item.name ?? item.product_name ?? 'Produto',
