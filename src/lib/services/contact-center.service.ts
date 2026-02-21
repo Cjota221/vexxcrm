@@ -355,7 +355,7 @@ export class ContactCenterService {
       if (savedVariations && savedVariations.length > 0) {
         // Usar variações salvas pelo sync — ordenar numericamente (grades de calçados/roupas)
         variacoes = savedVariations
-          .filter(v => v.is_active !== false)
+          .filter(v => v.is_active !== false || v.stock > 0 || v.is_active === undefined)
           .map(v => ({ nome: v.name, stock: v.stock }))
           .sort((a, b) => {
             const na = parseFloat(a.nome), nb = parseFloat(b.nome);
@@ -425,12 +425,15 @@ export class ContactCenterService {
       if (variacoes.length > 0) {
         message += `\n\n📐 *Numerações disponíveis:*`;
         for (const v of variacoes) {
-          if (v.stock !== undefined && v.stock !== null && v.stock > 0) {
-            message += `\n• ${v.nome} — ${v.stock} par${v.stock !== 1 ? 'es' : ''}`;
-          } else if (v.stock === undefined) {
+          if (v.stock === undefined) {
+            // Sem info de estoque: mostrar só o nome
             message += `\n• ${v.nome}`;
+          } else if (v.stock > 0) {
+            message += `\n• ${v.nome} — ${v.stock} par${v.stock !== 1 ? 'es' : ''}`;
+          } else {
+            // stock === 0: mostrar como esgotado (não omitir — cliente precisa ver o tamanho)
+            message += `\n• ${v.nome} — esgotado`;
           }
-          // stock === 0: omitir (sem estoque)
         }
       } else if (product.stock !== null && product.stock !== undefined) {
         if (product.stock === 0) {

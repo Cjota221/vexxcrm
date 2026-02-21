@@ -31,8 +31,16 @@ class ApiClient {
     let accessToken: string | null = null;
     if (typeof window !== 'undefined') {
       try {
+        // Tentar getSession primeiro (rápido, usa cache)
         const { data: { session } } = await supabase.auth.getSession();
         accessToken = session?.access_token || null;
+
+        // Se session veio null, pode ser que o token ainda não foi hidratado.
+        // Tentar refreshSession para forçar a leitura do storage.
+        if (!accessToken) {
+          const { data: refreshed } = await supabase.auth.refreshSession();
+          accessToken = refreshed?.session?.access_token || null;
+        }
       } catch (err) {
         console.error('❌ Erro ao obter sessão do Supabase:', err);
       }

@@ -90,10 +90,20 @@ export async function POST(request: NextRequest) {
     let messageId: string;
 
     if (product?.image_url) {
-      // Enviar como imagem com o texto como caption
-      messageId = await sendMediaMessage(config, phone, product.image_url, messageText, 'image');
+      // Enviar TEXTO primeiro (com o link) para que o WhatsApp gere a prévia do link
+      messageId = await sendTextMessage(config, phone, messageText);
+
+      // Aguardar 900ms para o WhatsApp processar a prévia antes de enviar a imagem
+      await new Promise(r => setTimeout(r, 900));
+
+      // Enviar imagem como mensagem SEPARADA (sem caption — a prévia já está no texto)
+      try {
+        await sendMediaMessage(config, phone, product.image_url, '', 'image');
+      } catch {
+        // Falha na imagem não cancela — o texto com link já foi enviado
+      }
     } else {
-      // Enviar só texto
+      // Sem imagem: enviar só texto
       messageId = await sendTextMessage(config, phone, messageText);
     }
 
@@ -117,8 +127,8 @@ export async function POST(request: NextRequest) {
           direction: 'outbound',
           sender_name: 'Atendente',
           content: messageText,
-          type: product?.image_url ? 'image' : 'text',
-          media_url: product?.image_url || null,
+          type: 'text',
+          media_url: null,
           status: 'sent',
           created_at: new Date().toISOString(),
         });
