@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState, useCallback } from 'react';
-import { MessageCircle, Loader2 } from 'lucide-react';
+import { MessageCircle, Loader2, ArrowLeft, BookOpen, ArrowLeftRight, MoreVertical } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMessages, useSendMessage } from '@/hooks/useWhatsApp';
 import { useChatsStore } from '@/store/chats';
@@ -19,7 +19,18 @@ import type { MessageType } from '@/types';
  * Área principal do chat — mensagens + input.
  * Resolve identidade do cliente via API + cache.
  */
-export function ChatArea() {
+export function ChatArea({
+  onMobileBack,
+  onOpenCatalog,
+  onOpenTransfer,
+}: {
+  /** Mobile: callback para voltar à lista de conversas */
+  onMobileBack?: () => void;
+  /** Mobile: callback para abrir catálogo */
+  onOpenCatalog?: () => void;
+  /** Mobile: callback para abrir transferir */
+  onOpenTransfer?: () => void;
+}) {
   const { selectedChatId } = useChatsStore();
   const { data: messages = [], isLoading, isFetching } = useMessages(selectedChatId);
   const { mutate: sendMessage, isPending: isSending } = useSendMessage();
@@ -163,7 +174,7 @@ export function ChatArea() {
         <p className="text-sm text-wa-text-secondary text-center max-w-xs leading-relaxed">
           Selecione uma conversa para começar a atender seus clientes.
         </p>
-        <p className="text-xs text-wa-text-secondary/60">
+        <p className="text-xs text-wa-text-secondary/60 hidden md:block">
           Use <kbd className="px-1.5 py-0.5 bg-wa-bg-panel rounded text-xs">Ctrl+K</kbd> para buscar
         </p>
       </div>
@@ -171,9 +182,75 @@ export function ChatArea() {
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full">
-      {/* Chat header */}
-      <div className="h-14 bg-wa-bg-panel border-b border-wa-border flex items-center px-4 gap-3 shrink-0">
+    <div className="flex flex-1 flex-col h-full">
+      {/* ━━━ HEADER MOBILE — WhatsApp style (md: hidden, usa header desktop) ━━━ */}
+      <div className="md:hidden flex items-center h-14 px-2 bg-crm-primary gap-2 shrink-0">
+        {/* Back button */}
+        <button
+          onClick={onMobileBack}
+          className="w-9 h-9 flex items-center justify-center rounded-full text-white/80 hover:bg-white/10 active:bg-white/20 transition-colors shrink-0"
+          aria-label="Voltar"
+        >
+          <ArrowLeft size={20} />
+        </button>
+
+        {/* Avatar */}
+        <div className="relative shrink-0">
+          <AvatarImage
+            src={clientData?.avatar_url}
+            name={clientData?.name || selectedChatId || '?'}
+            size={36}
+            rounded="full"
+          />
+          {presenceStatus === 'online' && (
+            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#25d366] rounded-full border-2 border-crm-primary" />
+          )}
+        </div>
+
+        {/* Nome + presença */}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-white truncate leading-tight">
+            {clientData?.name || 'Cliente'}
+          </p>
+          {presenceLabel ? (
+            <p className={cn(
+              'text-xs truncate',
+              presenceStatus === 'typing' || presenceStatus === 'recording'
+                ? 'text-[#25d366]'
+                : 'text-white/60'
+            )}>
+              {presenceLabel}
+            </p>
+          ) : clientData?.phone ? (
+            <p className="text-xs text-white/60 truncate">{clientData.phone}</p>
+          ) : null}
+        </div>
+
+        {/* Ações rápidas mobile */}
+        <div className="flex items-center gap-1 shrink-0">
+          {onOpenCatalog && (
+            <button
+              onClick={onOpenCatalog}
+              className="w-9 h-9 flex items-center justify-center rounded-full text-white/80 hover:bg-white/10 active:bg-white/20 transition-colors"
+              title="Catálogo"
+            >
+              <BookOpen size={18} />
+            </button>
+          )}
+          {onOpenTransfer && (
+            <button
+              onClick={onOpenTransfer}
+              className="w-9 h-9 flex items-center justify-center rounded-full text-white/80 hover:bg-white/10 active:bg-white/20 transition-colors"
+              title="Transferir"
+            >
+              <ArrowLeftRight size={18} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ━━━ HEADER DESKTOP ━━━ */}
+      <div className="hidden md:flex h-14 bg-wa-bg-panel border-b border-wa-border items-center px-4 gap-3 shrink-0">
         <div className="relative shrink-0">
           <AvatarImage
             src={clientData?.avatar_url}

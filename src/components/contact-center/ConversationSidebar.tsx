@@ -35,11 +35,14 @@ import {
   Type,
   AlertCircle,
   Activity,
+  MoreVertical,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { formatRelativeTime, truncate, getInitials, getAvatarColor } from '@/lib/utils';
 import { useChatsStore } from '@/store/chats';
+import { useAuthStore } from '@/store/auth';
+import { useConnectionStore } from '@/store/connection';
 import { useInfiniteChats, useRefreshChats } from '@/hooks/useChats';
 import { useDebounce } from '@/hooks/useDebounce';
 import { api } from '@/lib/api';
@@ -52,6 +55,8 @@ interface ConversationSidebarProps {
   anneEnabled: boolean;
   onAnneToggle: (enabled: boolean) => void;
   onOpenCampaign: () => void;
+  /** Mobile: chamado quando o usuário toca num chat para abrir a tela do chat */
+  onMobileChatOpen?: () => void;
 }
 
 /* ─── Filtros disponíveis ────────────────────────────────────── */
@@ -328,7 +333,7 @@ const ChatListItem = memo(function ChatListItem({
     <button
       onClick={onSelect}
       className={cn(
-        'w-full flex items-center gap-3 px-4 py-3 text-left transition-colors',
+        'w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors active:bg-gray-100',
         'border-b border-gray-100/80',
         isSelected
           ? 'bg-crm-primary/5 border-l-2 border-l-crm-primary'
@@ -341,11 +346,11 @@ const ChatListItem = memo(function ChatListItem({
           <img
             src={chat.client.avatar_url}
             alt={chat.client.name}
-            className="w-10 h-10 rounded-full object-cover"
+            className="w-11 h-11 rounded-full object-cover"
           />
         ) : (
           <div
-            className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-semibold"
+            className="w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-semibold"
             style={{ backgroundColor: getAvatarColor(chat.client.name) }}
           >
             {getInitials(chat.client.name)}
@@ -368,7 +373,7 @@ const ChatListItem = memo(function ChatListItem({
             {chat.client.name}
           </p>
           <span className={cn(
-            'text-[10px] shrink-0',
+            'text-[11px] shrink-0',
             hasUnread ? 'text-crm-primary font-semibold' : 'text-gray-400'
           )}>
             {chat.last_message?.timestamp
@@ -384,7 +389,7 @@ const ChatListItem = memo(function ChatListItem({
             hasUnread ? 'text-gray-600' : 'text-gray-400'
           )}>
             {chat.last_message
-              ? truncate(chat.last_message.content || '📷 Mídia', 35)
+              ? truncate(chat.last_message.content || '📷 Mídia', 38)
               : 'Sem mensagens'}
           </p>
           <div className="flex items-center gap-1 shrink-0">
@@ -396,7 +401,7 @@ const ChatListItem = memo(function ChatListItem({
             )}
             {/* Contador não lidas */}
             {hasUnread && (
-              <span className="min-w-5 h-5 px-1 bg-crm-primary text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+              <span className="min-w-5 h-5 px-1 bg-[#25d366] text-white text-[10px] font-bold rounded-full flex items-center justify-center">
                 {chat.unread_count > 9 ? '9+' : chat.unread_count}
               </span>
             )}
@@ -408,6 +413,71 @@ const ChatListItem = memo(function ChatListItem({
 });
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   HEADER MOBILE — estilo WhatsApp (oculto em md+)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+function MobileListHeader({
+  totalUnread,
+  onOpenCampaign,
+  onRefresh,
+}: {
+  totalUnread: number;
+  onOpenCampaign: () => void;
+  onRefresh: () => void;
+}) {
+  const { user } = useAuthStore();
+  const { whatsappStatus } = useConnectionStore();
+
+  const dotCls = {
+    connected:    'bg-[#25d366]',
+    connecting:   'bg-amber-400 animate-pulse',
+    disconnected: 'bg-red-500',
+    unknown:      'bg-gray-400 animate-pulse',
+  }[whatsappStatus];
+
+  return (
+    <div className="md:hidden flex items-center justify-between h-14 px-4 bg-crm-primary shrink-0">
+      {/* Esquerda: avatar + nome */}
+      <div className="flex items-center gap-3">
+        <div className="relative">
+          <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center overflow-hidden shrink-0">
+            {user?.avatar_url
+              ? <img src={user.avatar_url} alt={user?.name} className="w-full h-full object-cover" />
+              : <span className="text-white text-sm font-bold">{user ? getInitials(user.name) : 'U'}</span>
+            }
+          </div>
+          {/* Dot conexão WhatsApp */}
+          <span className={cn('absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-crm-primary', dotCls)} />
+        </div>
+        <div>
+          <p className="text-sm font-bold text-white leading-tight">Conversas</p>
+          {totalUnread > 0 && (
+            <p className="text-[11px] text-white/60">{totalUnread} não lida{totalUnread > 1 ? 's' : ''}</p>
+          )}
+        </div>
+      </div>
+      {/* Direita: ações */}
+      <div className="flex items-center gap-1">
+        <button
+          onClick={onOpenCampaign}
+          className="w-9 h-9 flex items-center justify-center rounded-full text-white/80 hover:bg-white/10 active:bg-white/20 transition-colors"
+          title="Campanhas"
+        >
+          <Megaphone size={18} />
+        </button>
+        <button
+          onClick={onRefresh}
+          className="w-9 h-9 flex items-center justify-center rounded-full text-white/80 hover:bg-white/10 active:bg-white/20 transition-colors"
+          title="Atualizar"
+        >
+          <RefreshCw size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    COMPONENTE PRINCIPAL
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
@@ -415,6 +485,7 @@ export function ConversationSidebar({
   anneEnabled,
   onAnneToggle,
   onOpenCampaign,
+  onMobileChatOpen,
 }: ConversationSidebarProps) {
   const { selectedChatId, selectChat, activeFilter, setFilter, searchQuery, setSearchQuery } =
     useChatsStore();
@@ -506,9 +577,16 @@ export function ConversationSidebar({
   return (
     <div
       ref={sidebarRef}
-      className="w-[280px] min-w-[260px] max-w-xs shrink-0 flex flex-col bg-white border-r border-gray-200 h-full overflow-hidden"
+      className="flex flex-col bg-white border-r border-gray-200 h-full overflow-hidden w-full"
     >
-      {/* ── Barra de busca inline (topo da sidebar, sem header duplicado) ── */}
+      {/* ━━━ HEADER MOBILE — WhatsApp style, oculto em desktop ━━━ */}
+      <MobileListHeader
+        totalUnread={totalUnread}
+        onOpenCampaign={onOpenCampaign}
+        onRefresh={() => refetch()}
+      />
+
+      {/* ── Barra de busca inline (desktop + mobile) ── */}
       <div className="flex items-center gap-2 px-3 pt-3 pb-2 shrink-0 bg-white">
         <div className="flex items-center gap-2 flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus-within:border-crm-primary/60 transition-colors">
           <Search size={13} className="text-gray-400 shrink-0" />
@@ -635,7 +713,10 @@ export function ConversationSidebar({
                 key={chat.id}
                 chat={chat}
                 isSelected={selectedChatId === chat.client.id}
-                onSelect={() => selectChat(chat.client.id)}
+                onSelect={() => {
+                  selectChat(chat.client.id);
+                  onMobileChatOpen?.();
+                }}
               />
             ))}
             <div ref={loadMoreRef} className="h-10 flex items-center justify-center">

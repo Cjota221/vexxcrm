@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { ConversationSidebar } from '@/components/contact-center/ConversationSidebar';
 import { ChatArea } from '@/components/chat/ChatArea';
 import { ClientBrainSidebar } from '@/components/crm/ClientBrainSidebar';
@@ -27,6 +27,9 @@ import {
   X,
   Eye,
 } from 'lucide-react';
+
+/* Tipo da view mobile */
+type MobileView = 'list' | 'chat';
 
 /* ─── Botão de navegação do header ───────────────────────────── */
 
@@ -94,6 +97,24 @@ export default function CentralAtendimentoPage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
 
+  /* ── Mobile: controla qual tela está visível ── */
+  const [mobileView, setMobileView] = useState<MobileView>('list');
+
+  // Quando seleciona um chat no mobile → navegar para o chat
+  const handleMobileChatOpen = useCallback(() => {
+    setMobileView('chat');
+  }, []);
+
+  // Back button no chat → volta para a lista
+  const handleMobileBack = useCallback(() => {
+    setMobileView('list');
+  }, []);
+
+  // Se o chat foi desmarcado (ex: novo chat), garantir que volta pra lista no mobile
+  useEffect(() => {
+    if (!selectedChatId) setMobileView('list');
+  }, [selectedChatId]);
+
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const _debouncedSearch = useDebounce(globalSearch, 300);
 
@@ -111,8 +132,8 @@ export default function CentralAtendimentoPage() {
   return (
     <div className="flex flex-col h-full bg-white overflow-hidden">
 
-      {/* ━━━ HEADER — 3 ZONAS: marca | nav | perfil ━━━ */}
-      <header className="h-14 shrink-0 bg-white border-b border-gray-100 flex items-center px-5 z-20" style={{ boxShadow: '0 1px 0 #e5e7eb' }}>
+      {/* ━━━ HEADER DESKTOP — oculto em mobile ━━━ */}
+      <header className="hidden md:flex h-14 shrink-0 bg-white border-b border-gray-100 items-center px-5 z-20" style={{ boxShadow: '0 1px 0 #e5e7eb' }}>
 
         {/* ZONA ESQUERDA — marca */}
         <div className="flex items-center gap-3 w-64 shrink-0">
@@ -186,27 +207,52 @@ export default function CentralAtendimentoPage() {
       </header>
 
       {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          CORPO — 3 colunas, edge-to-edge
+          CORPO
+          Desktop: 3 colunas lado a lado
+          Mobile:  uma tela por vez (lista OU chat) — igual WhatsApp
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
-        {/* ── COLUNA 1: Sidebar de Conversas ── */}
-        <ConversationSidebar
-          anneEnabled={anneEnabled}
-          onAnneToggle={setAnneEnabled}
-          onOpenCampaign={() => setCampaignOpen(true)}
-        />
-
-        {/* ── COLUNA 2: Workspace do Chat ── */}
-        <div className="flex-1 flex flex-col min-w-0">
-          <div className="flex-1 overflow-hidden">
-            <ChatArea />
-          </div>
+        {/* ── COLUNA 1: Sidebar de Conversas ──
+            Desktop: sempre visível (w-280px)
+            Mobile:  tela cheia quando mobileView==='list', oculta quando ==='chat' */}
+        <div className={cn(
+          'flex flex-col',
+          // Desktop: fixed width sidebar
+          'md:w-70 md:min-w-65 md:max-w-xs md:shrink-0 md:flex',
+          // Mobile: full screen ou oculto
+          mobileView === 'list' ? 'flex w-full' : 'hidden md:flex',
+        )}>
+          <ConversationSidebar
+            anneEnabled={anneEnabled}
+            onAnneToggle={setAnneEnabled}
+            onOpenCampaign={() => setCampaignOpen(true)}
+            onMobileChatOpen={handleMobileChatOpen}
+          />
         </div>
 
-        {/* ── COLUNA 3: Cérebro do Cliente ── */}
+        {/* ── COLUNA 2: Workspace do Chat ──
+            Desktop: flex-1
+            Mobile:  tela cheia quando mobileView==='chat', oculto quando ==='list' */}
+        <div className={cn(
+          'flex flex-col min-w-0',
+          // Desktop: sempre visível, ocupa espaço restante
+          'md:flex md:flex-1',
+          // Mobile: full screen ou oculto
+          mobileView === 'chat' ? 'flex flex-1 w-full' : 'hidden md:flex',
+        )}>
+          <ChatArea
+            onMobileBack={handleMobileBack}
+            onOpenCatalog={() => setCatalogOpen(true)}
+            onOpenTransfer={() => setTransferOpen(true)}
+          />
+        </div>
+
+        {/* ── COLUNA 3: Cérebro do Cliente — somente desktop ── */}
         {brainOpen && selectedChatId && (
-          <ClientBrainSidebar onClose={() => setBrainOpen(false)} />
+          <div className="hidden md:flex">
+            <ClientBrainSidebar onClose={() => setBrainOpen(false)} />
+          </div>
         )}
       </div>
 
