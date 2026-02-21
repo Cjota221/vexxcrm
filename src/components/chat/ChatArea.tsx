@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState, useCallback } from 'react';
-import { MessageCircle, Loader2, ArrowLeft, BookOpen, ArrowLeftRight, MoreVertical } from 'lucide-react';
+import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import { MessageCircle, Loader2, ArrowLeft, BookOpen, ArrowLeftRight, MoreVertical, History } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMessages, useSendMessage } from '@/hooks/useWhatsApp';
 import { useChatsStore } from '@/store/chats';
@@ -36,6 +36,88 @@ export function ChatArea({
   const { mutate: sendMessage, isPending: isSending } = useSendMessage();
   const queryClient = useQueryClient();
   const [isSyncing] = useState(false);
+
+  // ── Lazy History Loading ──────────────────────────────────────────────────
+  // Guarda quais clientIds já tiveram o histórico solicitado nesta sessão
+  const historyRequestedRef = useRef<Set<string>>(new Set());
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+
+  useEffect(() => {
+    if (!selectedChatId) return;
+    if (historyRequestedRef.current.has(selectedChatId)) return;
+
+    // Marca imediatamente para evitar chamadas paralelas
+    historyRequestedRef.current.add(selectedChatId);
+    setIsLoadingHistory(true);
+
+    fetch('/api/whatsapp/load-history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId: selectedChatId }),
+    })
+      .then(r => r.json())
+      .then((d: { loaded?: boolean; inserted?: number }) => {
+        // Se chegaram mensagens novas, invalida o cache para recarregar
+        if (d.inserted && d.inserted > 0) {
+          queryClient.invalidateQueries({ queryKey: ['messages', selectedChatId] });
+        }
+      })
+      .catch(() => { /* silencioso — histórico é best-effort */ })
+      .finally(() => setIsLoadingHistory(false));
+  }, [selectedChatId, queryClient]);
+
+  // ── Paginação regressiva ("Carregar mais") ────────────────────────────────
+  // cursor = created_at da mensagem mais antiga carregada
+  const [beforeCursor, setBeforeCursor] = useState<string | null>(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+
+  // Resetar cursor quando muda de conversa
+  useEffect(() => {
+    setBeforeCursor(null);
+    setHasMore(true);
+  }, [selectedChatId]);
+
+  const handleLoadMore = useCallback(async () => {
+    if (!selectedChatId || isLoadingMore || !hasMore) return;
+
+    // Cursor: created_at da mensagem mais antiga já exibida
+    const oldestMsg = messages[0];
+    const cursor = beforeCursor ?? oldestMsg?.created_at ?? null;
+    if (!cursor) return;
+
+    setIsLoadingMore(true);
+    try {
+      const res = await fetch(
+        `/api/messages/${selectedChatId}?limit=50&before=${encodeURIComponent(cursor)}`,
+      );
+      const json = await res.json();
+      const older: any[] = json?.data ?? [];
+
+      if (older.length === 0) {
+        setHasMore(false);
+        return;
+      }
+
+      // Atualiza o cursor para a mensagem mais antiga deste lote
+      const newCursor = older[0]?.created_at ?? cursor;
+      setBeforeCursor(newCursor);
+
+      // Mescla com o cache do React Query preservando ordem cronológica
+      queryClient.setQueryData(
+        ['messages', selectedChatId],
+        (prev: any[] = []) => {
+          const existingIds = new Set(prev.map((m: any) => m.id));
+          const fresh = older.filter((m: any) => !existingIds.has(m.id));
+          return [...fresh, ...prev];
+        },
+      );
+    } catch {
+      /* silencioso */
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [selectedChatId, isLoadingMore, hasMore, messages, beforeCursor, queryClient]);
 
   // Buscar dados do cliente selecionado via API (resolve por ID, telefone ou conversa)
   const { data: clientInfo } = useQuery({
@@ -290,6 +372,13 @@ export function ChatArea({
             <span className="hidden sm:inline text-[10px]">sincronizando</span>
           </div>
         )}
+        {/* Indicador de carregamento do histórico */}
+        {isLoadingHistory && (
+          <div className="flex items-center gap-1.5 text-xs text-wa-text-secondary shrink-0">
+            <History size={12} className="animate-pulse text-wa-text-secondary/70" />
+            <span className="hidden sm:inline text-[10px]">carregando histórico</span>
+          </div>
+        )}
       </div>
 
       {/* Messages area — virtualizada */}
@@ -305,7 +394,12 @@ export function ChatArea({
           </p>
         </div>
       ) : (
-        <VirtualizedMessageList messages={messages} autoScroll />
+        <VirtualizedMessageList
+          messages={messages}
+          autoScroll
+          isLoadingMore={isLoadingMore}
+          onLoadMore={hasMore ? handleLoadMore : undefined}
+        />
       )}
 
       {/* Message input */}
