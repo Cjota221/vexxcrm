@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status');
     const hasOrders = searchParams.get('has_orders'); // 'true' | 'false' | null
     const source = searchParams.get('source');
+    const hasName = searchParams.get('has_name'); // 'true' | 'false' | null
     const page = parseInt(searchParams.get('page') || '1');
     const perPage = parseInt(searchParams.get('per_page') || '20');
 
@@ -61,6 +62,13 @@ export async function GET(request: NextRequest) {
     // Filtro por origem
     if (source && source !== '') {
       query = query.eq('source', source);
+    }
+
+    // Filtro por nome preenchido
+    if (hasName === 'true') {
+      query = query.not('name', 'is', null).neq('name', '');
+    } else if (hasName === 'false') {
+      query = query.or('name.is.null,name.eq.');
     }
 
     // Paginação

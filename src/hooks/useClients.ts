@@ -17,6 +17,7 @@ export function useClients(filters?: ClientFilters) {
       if (filters?.status) params.status = Array.isArray(filters.status) ? filters.status.join(',') : filters.status;
       if (filters?.has_orders !== undefined) params.has_orders = String(filters.has_orders);
       if (filters?.source) params.source = filters.source;
+      if (filters?.has_name !== undefined) params.has_name = String(filters.has_name);
       if (filters?.page) params.page = String(filters.page);
       if (filters?.per_page) params.per_page = String(filters.per_page);
       if (filters?.sort_by) params.sort_by = String(filters.sort_by);

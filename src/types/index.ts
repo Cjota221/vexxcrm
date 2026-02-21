@@ -127,8 +127,9 @@ export interface Client {
 export interface ClientFilters {
   search?: string;
   status?: ClientStatus | ClientStatus[];
-  has_orders?: boolean; // true = com pedidos, false = sem pedidos, undefined = todos
+  has_orders?: boolean;
   source?: 'whatsapp' | 'import' | 'manual' | 'campaign' | 'facilzap';
+  has_name?: boolean; // true = com nome, false = sem nome, undefined = todos
   tags?: string[];
   ltv_min?: number;
   ltv_max?: number;
