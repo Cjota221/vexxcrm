@@ -8,10 +8,13 @@ import { api } from '@/lib/api';
 import { parseMessageContent } from '@/lib/message-parser';
 import { AudioMessage } from './AudioMessage';
 import { MediaMessage, DocumentMessage } from './MediaMessage';
+import { LinkPreview, extractFirstUrl } from './LinkPreview';
 import type { Message } from '@/types';
 
 interface MessageBubbleProps {
   message: Message;
+  /** Callback chamado quando a transcrição é atualizada (para invalidar query) */
+  onTranscriptionUpdate?: (messageId: string, transcription: string) => void;
 }
 
 /**
@@ -19,7 +22,7 @@ interface MessageBubbleProps {
  * Suporta texto, mídia, transcrição de áudio e descrição de imagem (IA).
  * Trata mídias com URL expirada (403) e oferece re-download.
  */
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({ message, onTranscriptionUpdate }: MessageBubbleProps) {
   const isFromMe = message.from_me;
   const metadata = message.metadata as Record<string, unknown> | undefined;
   const transcription = metadata?.transcription as string | undefined;
@@ -27,8 +30,10 @@ export function MessageBubble({ message }: MessageBubbleProps) {
   const aiProcessed = metadata?.ai_processed as boolean | undefined;
   const [isRedownloading, setIsRedownloading] = useState(false);
   const [fixedUrl, setFixedUrl] = useState<string | null>(null);
+  const [localTranscription, setLocalTranscription] = useState<string | null>(null);
 
   const currentMediaUrl = fixedUrl || message.media_url;
+  const displayTranscription = localTranscription ?? transcription;
 
   const handleRedownload = useCallback(async () => {
     if (isRedownloading) return;
@@ -46,6 +51,24 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       setIsRedownloading(false);
     }
   }, [message.id, isRedownloading]);
+
+  const handleTranscribe = useCallback(async () => {
+    try {
+      const res = await fetch('/api/whatsapp/transcribe-audio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId: message.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Falha na transcrição');
+      const text = data.transcription as string;
+      setLocalTranscription(text);
+      onTranscriptionUpdate?.(message.id, text);
+    } catch (err) {
+      console.warn('[MessageBubble] Transcrição falhou:', err);
+      throw err; // re-throw para AudioMessage mostrar erro
+    }
+  }, [message.id, onTranscriptionUpdate]);
 
   const statusIcon = () => {
     if (!isFromMe) return null;
@@ -119,10 +142,11 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                 url={currentMediaUrl}
                 duration={(message.metadata as any)?.duration}
                 isFromMe={isFromMe}
+                onTranscribe={!displayTranscription && !isFromMe ? handleTranscribe : undefined}
               />
             )}
-            {/* Transcrição do áudio (IA) */}
-            {transcription && (
+            {/* Transcrição do áudio (IA ou manual) */}
+            {displayTranscription && (
               <div className={cn(
                 'mt-1.5 p-2 rounded-lg text-[11px] leading-relaxed',
                 isFromMe
@@ -133,17 +157,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                   <Mic size={10} />
                   <span className="text-[9px] font-medium uppercase tracking-wide">Transcrição</span>
                 </div>
-                <p>{transcription}</p>
-              </div>
-            )}
-            {/* Indicador de processamento pendente */}
-            {message.media_url && !transcription && !aiProcessed && !isFromMe && (
-              <div className={cn(
-                'mt-1 text-[9px] opacity-50 flex items-center gap-1',
-                isFromMe ? 'text-white/40' : 'text-wa-text-secondary'
-              )}>
-                <Mic size={9} className="animate-pulse" />
-                <span>Transcrevendo...</span>
+                <p>{displayTranscription}</p>
               </div>
             )}
           </div>
@@ -177,9 +191,16 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
         {/* Text content */}
         {message.content && message.type !== 'image' && message.type !== 'video' && (
-          <p className="text-sm wrap-break-word leading-relaxed">
-            {parseMessageContent(message.content)}
-          </p>
+          <>
+            <p className="text-sm wrap-break-word leading-relaxed">
+              {parseMessageContent(message.content)}
+            </p>
+            {/* Link preview — renderiza card OG para a primeira URL encontrada no texto */}
+            {(() => {
+              const url = extractFirstUrl(message.content);
+              return url ? <LinkPreview url={url} isFromMe={isFromMe} /> : null;
+            })()}
+          </>
         )}
 
         {/* Timestamp + status */}

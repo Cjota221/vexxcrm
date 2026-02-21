@@ -6,6 +6,34 @@ import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { TemplatesFloatingPanel } from './TemplatesFloatingPanel';
 
+/* ── Emoji picker data ── */
+const EMOJI_CATEGORIES = [
+  {
+    label: '😀 Rostos',
+    emojis: ['😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','😉','😊','😇','🥰','😍','🤩','😘','😗','😚','😙','🥲','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','🤐','🤨','😐','😑','😶','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🤧','🥵','🥶','🥴','😵','🤯','🤠','🥳','🥸','😎','🤓','🧐','😕','😟','🙁','☹️','😮','😯','😲','😳','🥺','😦','😧','😨','😰','😥','😢','😭','😱','😖','😣','😞','😓','😩','😫','🥱','😤','😡','😠','🤬','😈','👿'],
+  },
+  {
+    label: '👋 Gestos',
+    emojis: ['👋','🤚','🖐','✋','🖖','👌','🤌','🤏','✌️','🤞','🤟','🤘','🤙','👈','👉','👆','🖕','👇','☝️','👍','👎','✊','👊','🤛','🤜','👏','🙌','👐','🤲','🤝','🙏','✍️','💅','🤳','💪','🦾','🦿','🦵','🦶','👂','🦻','👃','🫀','🫁','🧠','🦷','🦴','👀','👁','👅','👄'],
+  },
+  {
+    label: '❤️ Amor',
+    emojis: ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❤️‍🔥','❤️‍🩹','💕','💞','💓','💗','💖','💘','💝','💟','☮️','✝️','☪️','🕉','✡️','🛐','🔯','♈','♉','♊','♋','♌','♍','♎','♏','♐','♑','♒','♓','⛎','🆔','⚛️','🉑','☢️','☣️','📴','📳','🈶','🈚','🈸','🈺','🈷️','✴️','🆚','💮','🉐','㊙️','㊗️','🈴','🈵','🈹','🈲','🅰️','🅱️','🆎','🆑','🅾️','🆘','❌','⭕','🛑','⛔','📛','🚫','💯','💢','♨️','🚷','🚯','🚳','🚱','🔞','📵','🔕'],
+  },
+  {
+    label: '🎉 Celebração',
+    emojis: ['🎉','🎊','🎈','🎁','🎀','🎗️','🎟️','🎫','🎖️','🏆','🥇','🥈','🥉','🏅','🎗','🏵️','🎪','🤹','🎭','🎨','🖼','🎬','🎤','🎧','🎼','🎵','🎶','🎷','🎸','🎹','🎺','🎻','🪕','🥁','🪘','🎙️','📻','📺','📷','📸','📹','🎥','📽','🎞','📞','☎️','📟','📠','📡','🔋','🪫','🔌','💡','🔦','🕯️','🪔','💰','💴','💵','💶','💷','💸','💳','🪙','💹','✉️'],
+  },
+  {
+    label: '🛍️ Compras',
+    emojis: ['🛍️','🛒','💼','👜','👛','👝','🎒','🧳','👓','🕶️','🥽','🌂','☂️','🧵','🪡','🧶','🪢','👒','🎩','🪖','⛑️','👑','💍','💎','👗','👘','🥻','🩱','🩲','🩳','👙','👚','👛','👜','👝','🎒','🧳','👞','👟','🥾','🥿','👠','👡','🩰','👢','🧤','🧣','🎓','⛷️','🏋️','🤸','🏊','🚴','🏇','🧘'],
+  },
+  {
+    label: '📦 E-commerce',
+    emojis: ['📦','📫','📬','📭','📮','📯','📰','🗞️','📄','📃','📑','📊','📈','📉','📋','📌','📍','📎','🖇️','📏','📐','✂️','🗃️','🗄️','🗑️','🔒','🔓','🔏','🔐','🔑','🗝️','🔨','🪓','⛏️','⚒️','🛠️','🗡️','⚔️','🔫','🪃','🛡️','🪚','🔧','🪛','🔩','⚙️','🗜️','⚖️','🦯','🔗','⛓️','🪝','🧲','🪜','💊','💉','🩸','🩹','🩺','🩻','🚪','🛗','🪞','🪟','🛏️','🛋️','🪑','🚽','🪠','🚿','🛁'],
+  },
+] as const;
+
 interface MessageInputProps {
   onSend: (content: string) => void;
   onSendMedia?: (file: File, caption: string) => void;
@@ -48,6 +76,8 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
   const [caption, setCaption] = useState('');
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [emojiCategory, setEmojiCategory] = useState(0);
   const [pixModalOpen, setPixModalOpen] = useState(false);
   const [pixKey, setPixKey] = useState('');
   const [pixKeyType, setPixKeyType] = useState<'cpf' | 'cnpj' | 'email' | 'telefone' | 'aleatoria'>('aleatoria');
@@ -60,6 +90,7 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
   const fileDocInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
 
   // ── Audio recording state ──
   const [isRecording, setIsRecording] = useState(false);
@@ -111,6 +142,37 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [attachMenuOpen]);
+
+  // Fechar emoji picker ao clicar fora
+  useEffect(() => {
+    if (!emojiOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target as Node)) {
+        setEmojiOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [emojiOpen]);
+
+  // Inserir emoji na posição do cursor no textarea
+  const insertEmoji = useCallback((emoji: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      setText(prev => prev + emoji);
+      return;
+    }
+    const start = textarea.selectionStart ?? text.length;
+    const end = textarea.selectionEnd ?? text.length;
+    const newText = text.slice(0, start) + emoji + text.slice(end);
+    setText(newText);
+    // Reposicionar cursor após o emoji
+    requestAnimationFrame(() => {
+      textarea.focus();
+      const pos = start + emoji.length;
+      textarea.setSelectionRange(pos, pos);
+    });
+  }, [text]);
 
   // Escuta evento vexx:open-chat para focar o input e opcionalmente preencher texto
   useEffect(() => {
@@ -417,7 +479,7 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
   }
 
   return (
-    <div ref={containerRef} className="relative bg-wa-bg-panel border-t border-wa-border px-4 py-3">
+    <div ref={containerRef} className="relative bg-wa-bg-panel border-t border-wa-border px-2 py-2 md:px-4 md:py-3">
       {/* ── Templates Floating Panel ── */}
       {templatesOpen && recipientPhone && (
         <TemplatesFloatingPanel
@@ -542,24 +604,70 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
       )}
 
       <div className="flex items-end gap-2">
-        {/* Emoji */}
-        <button className="p-2 text-wa-text-secondary hover:text-wa-text-primary transition-colors rounded-full hover:bg-wa-bg-hover">
-          <Smile size={22} />
-        </button>
+        {/* ── Emoji Picker ── */}
+        <div ref={emojiPickerRef} className="relative">
+          <button
+            onClick={() => setEmojiOpen(v => !v)}
+            className={cn(
+              'p-1.5 md:p-2 transition-colors rounded-full',
+              emojiOpen
+                ? 'text-amber-500 bg-amber-50'
+                : 'text-wa-text-secondary hover:text-wa-text-primary hover:bg-wa-bg-hover'
+            )}
+            title="Emojis"
+          >
+            <Smile size={20} />
+          </button>
+
+          {emojiOpen && (
+            <div className="absolute bottom-12 left-0 z-50 w-72 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden animate-in slide-in-from-bottom-2 duration-150">
+              {/* Abas de categoria */}
+              <div className="flex border-b border-gray-100 overflow-x-auto scrollbar-none">
+                {EMOJI_CATEGORIES.map((cat, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setEmojiCategory(i)}
+                    className={cn(
+                      'px-3 py-2 text-sm shrink-0 transition-colors',
+                      emojiCategory === i
+                        ? 'border-b-2 border-amber-500 text-amber-600'
+                        : 'text-gray-400 hover:text-gray-600'
+                    )}
+                  >
+                    {cat.label.split(' ')[0]}
+                  </button>
+                ))}
+              </div>
+              {/* Grid de emojis */}
+              <div className="grid grid-cols-8 gap-0.5 p-2 max-h-48 overflow-y-auto">
+                {EMOJI_CATEGORIES[emojiCategory].emojis.map((emoji, i) => (
+                  <button
+                    key={i}
+                    onClick={() => insertEmoji(emoji)}
+                    className="w-8 h-8 flex items-center justify-center text-lg rounded-lg hover:bg-gray-100 transition-colors"
+                    title={emoji}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* ── Menu de Anexos ── */}
         <div ref={attachMenuRef} className="relative">
           <button
             onClick={() => setAttachMenuOpen(v => !v)}
             className={cn(
-              'p-2 transition-colors rounded-full',
+              'p-1.5 md:p-2 transition-colors rounded-full',
               attachMenuOpen
                 ? 'text-crm-primary bg-blue-50'
                 : 'text-wa-text-secondary hover:text-wa-text-primary hover:bg-wa-bg-hover'
             )}
             title="Anexar"
           >
-            <Paperclip size={22} />
+            <Paperclip size={20} />
           </button>
 
           {/* Popup do menu */}
@@ -644,9 +752,9 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
         {recipientPhone && (
           <button
             onClick={() => setTemplatesOpen(v => !v)}
-            title="Respostas rápidas (/) "
+            title="Respostas rápidas (/)"
             className={cn(
-              'p-2 transition-colors rounded-full',
+              'p-1.5 md:p-2 transition-colors rounded-full',
               templatesOpen
                 ? 'text-amber-500 bg-amber-50'
                 : 'text-wa-text-secondary hover:text-amber-500 hover:bg-wa-bg-hover'
@@ -657,7 +765,7 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
         )}
 
         {/* Input */}
-        <div className="flex-1 bg-wa-bg-input rounded-xl px-4 py-2">
+        <div className="flex-1 bg-wa-bg-input rounded-xl px-3 py-1.5 md:px-4 md:py-2">
           <textarea
             ref={textareaRef}
             value={text}
@@ -666,7 +774,7 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
             placeholder="Digite uma mensagem"
             rows={1}
             disabled={disabled}
-            className="w-full bg-transparent text-sm text-wa-text-primary placeholder:text-wa-text-secondary outline-none resize-none max-h-30"
+            className="w-full bg-transparent text-sm text-wa-text-primary placeholder:text-wa-text-secondary outline-none resize-none max-h-24 md:max-h-28"
           />
         </div>
 

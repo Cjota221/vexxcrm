@@ -4,16 +4,19 @@
  * AudioMessage.tsx
  * Player de áudio inline estilo WhatsApp Business.
  * Waveform simulada animada, play/pause, progresso em tempo real.
+ * Suporta transcrição manual via botão.
  */
 
 import { useRef, useState, useCallback, useEffect } from 'react';
-import { Play, Pause } from 'lucide-react';
+import { Play, Pause, FileText, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface AudioMessageProps {
   url: string;
   duration?: number;
   isFromMe?: boolean;
+  /** Callback para solicitar transcrição manual — se undefined, botão não aparece */
+  onTranscribe?: () => Promise<void>;
 }
 
 // Alturas fixas da waveform (simuladas — aspecto visual idêntico ao WA)
@@ -28,13 +31,14 @@ function formatTime(s: number): string {
   return `${mins}:${String(secs).padStart(2, '0')}`;
 }
 
-export function AudioMessage({ url, duration, isFromMe = false }: AudioMessageProps) {
+export function AudioMessage({ url, duration, isFromMe = false, onTranscribe }: AudioMessageProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [totalDuration, setTotalDuration] = useState(duration ?? 0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
 
   const progress = totalDuration > 0 ? currentTime / totalDuration : 0;
 
@@ -88,6 +92,16 @@ export function AudioMessage({ url, duration, isFromMe = false }: AudioMessagePr
       audio.removeEventListener('error', onError);
     };
   }, []);
+
+  const handleTranscribe = useCallback(async () => {
+    if (!onTranscribe || isTranscribing) return;
+    setIsTranscribing(true);
+    try {
+      await onTranscribe();
+    } finally {
+      setIsTranscribing(false);
+    }
+  }, [onTranscribe, isTranscribing]);
 
   return (
     <div
@@ -161,6 +175,25 @@ export function AudioMessage({ url, duration, isFromMe = false }: AudioMessagePr
       >
         {error ? 'Erro' : formatTime(isPlaying ? currentTime : totalDuration)}
       </span>
+
+      {/* Botão de transcrição manual */}
+      {onTranscribe && (
+        <button
+          onClick={handleTranscribe}
+          disabled={isTranscribing}
+          title="Transcrever áudio"
+          className={cn(
+            'flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center transition-colors',
+            isTranscribing ? 'opacity-50 cursor-not-allowed' : 'hover:bg-black/10',
+            isFromMe ? 'text-[#667781]' : 'text-gray-400 hover:text-gray-600',
+          )}
+        >
+          {isTranscribing
+            ? <Loader2 size={12} className="animate-spin" />
+            : <FileText size={12} />
+          }
+        </button>
+      )}
 
       {/* preload="none" evita range-requests que causam ERR_CACHE_OPERATION_NOT_SUPPORTED */}
       <audio ref={audioRef} src={url} preload="none" crossOrigin="anonymous" />
