@@ -94,6 +94,7 @@ export default function CentralAtendimentoPage() {
   const [statusOpen, setStatusOpen] = useState(false);
   const [anneEnabled, setAnneEnabled] = useState(true);
   const [brainOpen, setBrainOpen] = useState(true);
+  const [mobileAnneOpen, setMobileAnneOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
 
@@ -130,7 +131,7 @@ export default function CentralAtendimentoPage() {
   }, [setSearchQuery]);
 
   return (
-    <div className="flex flex-col h-full bg-white overflow-hidden">
+    <div className="flex flex-col h-full bg-white overflow-hidden max-w-[100vw]">
 
       {/* ━━━ HEADER DESKTOP — oculto em mobile ━━━ */}
       <header className="hidden md:flex h-14 shrink-0 bg-white border-b border-gray-100 items-center px-5 z-20" style={{ boxShadow: '0 1px 0 #e5e7eb' }}>
@@ -255,6 +256,63 @@ export default function CentralAtendimentoPage() {
           </div>
         )}
       </div>
+
+      {/* ━━━ ANNE MOBILE — bolinha flutuante (só aparece quando há chat aberto no mobile) ━━━ */}
+      {selectedChatId && mobileView === 'chat' && (
+        <div className="md:hidden">
+          {/* Botão flutuante — bolinha da Anne */}
+          <button
+            onClick={() => setMobileAnneOpen(true)}
+            className={cn(
+              'fixed bottom-20 right-4 z-40',
+              'w-12 h-12 rounded-full bg-crm-primary shadow-lg',
+              'flex items-center justify-center',
+              'active:scale-95 transition-transform',
+              'ring-2 ring-white',
+            )}
+            title="Cérebro do Cliente"
+            aria-label="Abrir Cérebro do Cliente"
+          >
+            <Brain size={20} className="text-white" />
+          </button>
+
+          {/* Drawer da Anne — slide-up ao clicar na bolinha */}
+          {mobileAnneOpen && (
+            <>
+              {/* Backdrop */}
+              <div
+                className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
+                onClick={() => setMobileAnneOpen(false)}
+              />
+              {/* Painel deslizante */}
+              <div className="fixed bottom-0 left-0 right-0 z-51 bg-white rounded-t-2xl shadow-2xl max-h-[85dvh] flex flex-col animate-in slide-in-from-bottom duration-300">
+                {/* Alça visual */}
+                <div className="flex justify-center pt-3 pb-1 shrink-0">
+                  <div className="w-10 h-1 rounded-full bg-gray-200" />
+                </div>
+                {/* Cabeçalho */}
+                <div className="flex items-center justify-between px-4 pb-3 pt-1 shrink-0 border-b border-gray-100">
+                  <div className="flex items-center gap-2">
+                    <Brain size={16} className="text-crm-primary" />
+                    <span className="text-sm font-bold text-gray-800">Cérebro do Cliente</span>
+                  </div>
+                  <button
+                    onClick={() => setMobileAnneOpen(false)}
+                    className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200 active:bg-gray-300"
+                    aria-label="Fechar"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+                {/* Conteúdo rolável */}
+                <div className="flex-1 overflow-y-auto overscroll-contain">
+                  <ClientBrainSidebar onClose={() => setMobileAnneOpen(false)} />
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* ━━━ OVERLAYS ━━━ */}
       <KanbanModal open={kanbanOpen} onClose={() => setKanbanOpen(false)} />

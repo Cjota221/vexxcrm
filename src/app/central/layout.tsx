@@ -12,8 +12,8 @@ export default function CentralLayout({
 }) {
   return (
     <ProtectedRoute>
-      <div className="flex flex-col h-dvh bg-surface-bg overflow-hidden">
-        <main className="flex-1 overflow-hidden">
+      <div className="flex flex-col h-dvh bg-surface-bg overflow-hidden w-screen max-w-full">
+        <main className="flex-1 overflow-hidden min-w-0">
           {children}
         </main>
         <ToastContainer />
