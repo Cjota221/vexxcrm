@@ -544,11 +544,13 @@ function SeletorTodaBase({ selecionados, onSetSelecionados }: SeletorTodaBasePro
       if (ped === 'sem') params.has_orders = 'false';
 
       const qs = new URLSearchParams(params).toString();
-      const resp = await fetch(`/api/v2/campanhas/clientes-base?${qs}`);
-      const data = await resp.json() as { clients: ClienteBase[]; total: number; pages: number };
-      setClientes(data.clients ?? []);
-      setTotal(data.total ?? 0);
-      setPages(data.pages ?? 1);
+      const { data, error } = await api.get<{ clients: ClienteBase[]; total: number; pages: number }>(
+        `/api/v2/campanhas/clientes-base?${qs}`
+      );
+      if (error) throw new Error(error);
+      setClientes(data?.clients ?? []);
+      setTotal(data?.total ?? 0);
+      setPages(data?.pages ?? 1);
     } catch {
       setClientes([]);
     } finally {
@@ -593,9 +595,11 @@ function SeletorTodaBase({ selecionados, onSetSelecionados }: SeletorTodaBasePro
       if (pedidosFiltro === 'sem') params.has_orders = 'false';
 
       const qs = new URLSearchParams(params).toString();
-      const resp = await fetch(`/api/v2/campanhas/clientes-base?${qs}`);
-      const data = await resp.json() as { clients: ClienteBase[] };
-      const todos = data.clients ?? [];
+      const { data, error } = await api.get<{ clients: ClienteBase[] }>(
+        `/api/v2/campanhas/clientes-base?${qs}`
+      );
+      if (error) throw new Error(error);
+      const todos = data?.clients ?? [];
       const novos = todos.filter(c => !selectedIds.has(c.id));
       onSetSelecionados([
         ...selecionados,
