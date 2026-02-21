@@ -10,6 +10,8 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  MessageCircle,
+  FileUp,
 } from 'lucide-react';
 import { useClients } from '@/hooks/useClients';
 import { Badge } from '@/components/ui/Badge';
@@ -31,11 +33,20 @@ const STATUS_MAP: Record<string, { label: string; variant: 'success' | 'warning'
   blocked: { label: 'Bloqueado', variant: 'danger' },
 };
 
+const SOURCE_MAP: Record<string, { label: string; icon: string; color: string }> = {
+  whatsapp: { label: 'WhatsApp', icon: '💬', color: 'bg-green-50 text-green-700 border-green-100' },
+  facilzap: { label: 'FacilZap', icon: '💬', color: 'bg-green-50 text-green-700 border-green-100' },
+  import:   { label: 'Importado', icon: '📥', color: 'bg-blue-50 text-blue-700 border-blue-100' },
+  manual:   { label: 'Manual', icon: '✏️', color: 'bg-gray-50 text-gray-600 border-gray-200' },
+  campaign: { label: 'Campanha', icon: '📣', color: 'bg-purple-50 text-purple-700 border-purple-100' },
+};
+
 export default function ClientesPage() {
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ClientStatus | ''>('');
   const [hasOrdersFilter, setHasOrdersFilter] = useState<'all' | 'with_orders' | 'without_orders'>('all');
+  const [sourceFilter, setSourceFilter] = useState<'whatsapp' | 'import' | 'manual' | 'campaign' | 'facilzap' | ''>('');
   const [currentPage, setCurrentPage] = useState(1);
   const perPage = 30;
 
@@ -43,6 +54,7 @@ export default function ClientesPage() {
     search: search || undefined,
     status: statusFilter || undefined,
     has_orders: hasOrdersFilter === 'all' ? undefined : hasOrdersFilter === 'with_orders',
+    source: sourceFilter || undefined,
     page: currentPage,
     per_page: perPage,
   });
@@ -109,12 +121,25 @@ export default function ClientesPage() {
         <Card>
           <div className="p-4 flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center">
-              <ShoppingBag size={20} className="text-green-600" />
+              <MessageCircle size={20} className="text-green-600" />
             </div>
             <div>
-              <p className="text-xs text-txt-secondary">LTV Total (página)</p>
+              <p className="text-xs text-txt-secondary">Via WhatsApp</p>
               <p className="text-lg font-bold text-txt-primary">
-                {formatCurrency(clients.reduce((acc: number, c: any) => acc + (Number(c.ltv) || 0), 0))}
+                {clients.filter((c: any) => c.source === 'whatsapp' || c.source === 'facilzap').length}
+              </p>
+            </div>
+          </div>
+        </Card>
+        <Card>
+          <div className="p-4 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
+              <FileUp size={20} className="text-blue-600" />
+            </div>
+            <div>
+              <p className="text-xs text-txt-secondary">Importados</p>
+              <p className="text-lg font-bold text-txt-primary">
+                {clients.filter((c: any) => c.source === 'import').length}
               </p>
             </div>
           </div>
@@ -153,6 +178,18 @@ export default function ClientesPage() {
               <option value="with_orders">✅ Com pedidos</option>
               <option value="without_orders">❌ Sem pedidos</option>
             </select>
+            <select
+              value={sourceFilter}
+              onChange={(e) => { setSourceFilter(e.target.value as typeof sourceFilter); setCurrentPage(1); }}
+              className="input text-sm py-2 px-3 min-w-37.5"
+            >
+              <option value="">🌐 Todas as origens</option>
+              <option value="whatsapp">💬 WhatsApp</option>
+              <option value="facilzap">💬 FacilZap</option>
+              <option value="import">📥 Importado</option>
+              <option value="manual">✏️ Manual</option>
+              <option value="campaign">📣 Campanha</option>
+            </select>
             <Button variant="ghost">
               <Download size={16} /> Exportar
             </Button>
@@ -169,6 +206,7 @@ export default function ClientesPage() {
                 <th className="text-left text-xs font-medium text-txt-secondary px-4 py-3">Cliente</th>
                 <th className="text-left text-xs font-medium text-txt-secondary px-4 py-3">Telefone</th>
                 <th className="text-left text-xs font-medium text-txt-secondary px-4 py-3">Status</th>
+                <th className="text-left text-xs font-medium text-txt-secondary px-4 py-3">Origem</th>
                 <th className="text-right text-xs font-medium text-txt-secondary px-4 py-3">LTV</th>
                 <th className="text-right text-xs font-medium text-txt-secondary px-4 py-3">Pedidos</th>
                 <th className="text-right text-xs font-medium text-txt-secondary px-4 py-3">Última compra</th>
@@ -182,13 +220,14 @@ export default function ClientesPage() {
                     <td className="px-4 py-3"><div className="h-4 bg-surface-200 rounded w-28 animate-pulse" /></td>
                     <td className="px-4 py-3"><div className="h-4 bg-surface-200 rounded w-16 animate-pulse" /></td>
                     <td className="px-4 py-3"><div className="h-4 bg-surface-200 rounded w-20 animate-pulse" /></td>
+                    <td className="px-4 py-3"><div className="h-4 bg-surface-200 rounded w-20 animate-pulse" /></td>
                     <td className="px-4 py-3"><div className="h-4 bg-surface-200 rounded w-10 animate-pulse" /></td>
                     <td className="px-4 py-3"><div className="h-4 bg-surface-200 rounded w-24 animate-pulse" /></td>
                   </tr>
                 ))
               ) : clients.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-12 text-txt-secondary">
+                  <td colSpan={7} className="text-center py-12 text-txt-secondary">
                     Nenhum cliente encontrado
                   </td>
                 </tr>
@@ -218,6 +257,16 @@ export default function ClientesPage() {
                       <td className="px-4 py-3 text-sm text-txt-primary">{client.phone}</td>
                       <td className="px-4 py-3">
                         <Badge variant={status.variant}>{status.label}</Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        {(() => {
+                          const src = SOURCE_MAP[client.source as string] ?? SOURCE_MAP['whatsapp'];
+                          return (
+                            <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border ${src.color}`}>
+                              {src.icon} {src.label}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-3 text-sm text-right font-medium text-txt-primary">
                         {formatCurrency(Number(client.ltv) || 0)}

@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search');
     const status = searchParams.get('status');
     const hasOrders = searchParams.get('has_orders'); // 'true' | 'false' | null
+    const source = searchParams.get('source');
     const page = parseInt(searchParams.get('page') || '1');
     const perPage = parseInt(searchParams.get('per_page') || '20');
 
@@ -55,6 +56,11 @@ export async function GET(request: NextRequest) {
       query = query.gt('total_orders', 0);
     } else if (hasOrders === 'false') {
       query = query.or('total_orders.eq.0,total_orders.is.null');
+    }
+
+    // Filtro por origem
+    if (source && source !== '') {
+      query = query.eq('source', source);
     }
 
     // Paginação
