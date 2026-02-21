@@ -253,10 +253,23 @@ export async function logExecution(
 // ─── Extrair código de rastreio da mensagem ───────────────────────────────────
 
 const TRACKING_PATTERNS = [
-  { name: 'Correios',       regex: /\b([A-Z]{2}\d{9}BR)\b/i },
-  { name: 'Jadlog',         regex: /\b(JD\d{10})\b/i },
-  { name: 'Total Express',  regex: /\b(TE\d{12})\b/i },
-  { name: 'Genérico',       regex: /\b([A-Z0-9]{10,20})\b/ },
+  // Correios: AA123456789BR (2 letras + 9 dígitos + BR)
+  { name: 'Correios',      regex: /\b([A-Z]{2}\d{9}BR)\b/i },
+  // Jadlog: JD + 10 dígitos
+  { name: 'Jadlog',        regex: /\b(JD\d{10})\b/i },
+  // Total Express: TE + 12 dígitos
+  { name: 'Total Express', regex: /\b(TE\d{12})\b/i },
+  // J&T Express: numérico puro 13–16 dígitos (ex: 888030596633760)
+  { name: 'J&T Express',   regex: /\b(\d{13,16})\b/ },
+  // Loggi/Frete Fácil: FZ + alfanumérico 14–16 chars (ex: FZ28431185C10529F)
+  { name: 'Loggi',         regex: /\b(FZ[A-Z0-9]{12,16})\b/i },
+  // Shopee Xpress: SP + alfanumérico
+  { name: 'Shopee Xpress', regex: /\b(SP[A-Z0-9]{10,16})\b/i },
+  // Sequoia / Azul: números longos com letras
+  { name: 'Sequoia',       regex: /\b(SEQ[A-Z0-9]{8,14})\b/i },
+  // Genérico alfanumérico: pelo menos 10 chars com mix letras+números (não só dígitos)
+  // Evita capturar números de pedido (que são 100% numéricos e curtos)
+  { name: 'Genérico',      regex: /\b([A-Z]{1,3}[0-9]{6,}[A-Z0-9]{0,8}|[A-Z0-9]{3,}[0-9]{8,})\b/ },
 ];
 
 export function extractTrackingCode(message: string): { code: string; carrier: string } | null {
@@ -270,10 +283,14 @@ export function extractTrackingCode(message: string): { code: string; carrier: s
 // ─── Extrair número de pedido da mensagem ─────────────────────────────────────
 
 export function extractOrderNumber(message: string): string | null {
-  const match = message.match(/pedido\s?#?\s?(\d{3,8})/i)
-    ?? message.match(/#(\d{4,8})\b/)
-    ?? message.match(/\b(\d{6,8})\b/);
-  return match ? match[1] : null;
+  // Prioridade: explícito com "pedido" ou "#" antes do número
+  const match = message.match(/pedido\s?#?\s?(\d{3,9})/i)
+    ?? message.match(/#(\d{4,9})\b/);
+  if (match) return match[1];
+
+  // Fallback: número solto de 4–8 dígitos (evita capturar códigos J&T com 13+ dígitos)
+  const fallback = message.match(/\b(\d{4,8})\b/);
+  return fallback ? fallback[1] : null;
 }
 
 // ─── Verificar se chat tem automação suspensa ─────────────────────────────────

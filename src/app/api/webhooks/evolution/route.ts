@@ -603,7 +603,16 @@ function buildTrackingUrl(code: string, carrier: string): string {
   if (carrier === 'Total Express' || upper.startsWith('TE')) {
     return `https://www.totalexpress.com.br/rastreamento/${upper}`;
   }
-  // Fallback genérico
+  if (carrier === 'J&T Express' || /^\d{13,16}$/.test(upper)) {
+    return `https://www.jtexpress.com.br/trajectoryQuery?bills=${upper}`;
+  }
+  if (carrier === 'Loggi' || upper.startsWith('FZ')) {
+    return `https://www.loggi.com/rastreador/?q=${upper}`;
+  }
+  if (carrier === 'Shopee Xpress' || upper.startsWith('SP')) {
+    return `https://spx.shopee.com.br/track?trackingNumber=${upper}`;
+  }
+  // Fallback: Correios (aceita vários formatos)
   return `https://rastreamento.correios.com.br/app/index.php?objetos=${upper}`;
 }
 
