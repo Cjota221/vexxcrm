@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { useAnne } from '@/hooks/useAnne';
 import { useClient } from '@/hooks/useClients';
+import { api } from '@/lib/api';
 import { OrderHistory } from '@/components/crm/OrderHistory';
 import { CustomerHealthPanel } from '@/components/crm/CustomerHealthPanel';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -278,13 +279,8 @@ export default function ClienteDetalhe() {
         };
       }
 
-      const res = await fetch('/api/whatsapp/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erro ao enviar');
+      const res = await api.post<{ messageId?: string }>('/api/whatsapp/send', body);
+      if (res.error) throw new Error(res.error);
       setSendResult({ ok: true, text: '✅ Mensagem enviada com sucesso!' });
     } catch (err) {
       setSendResult({ ok: false, text: `❌ ${err instanceof Error ? err.message : 'Erro ao enviar'}` });
