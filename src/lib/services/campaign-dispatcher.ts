@@ -294,15 +294,14 @@ async function enviarBlocoViaWhatsApp(
       const texto = bloco.conteudo.texto_formatado ?? bloco.conteudo.texto_raw ?? '';
       const code = bloco.conteudo.copy_code ?? '';
       if (code.trim()) {
-        // Grupos WhatsApp não suportam sendButtons — fallback para texto simples
+        // Grupos WhatsApp não suportam sendButtons — usar texto formatado como fallback
         const isGrupo = telefone.includes('@g.us');
         if (isGrupo) {
-          const textoFallback = [
-            texto || '📋 Seu código:',
-            code,
-            bloco.conteudo.copy_code_footer,
-          ].filter(Boolean).join('\n');
-          await sendTextMessage(config, telefone, textoFallback);
+          const partes: string[] = [];
+          if (texto) partes.push(texto);
+          partes.push(`📋 *Código para copiar:*\n\`${code}\``);
+          if (bloco.conteudo.copy_code_footer) partes.push(`_${bloco.conteudo.copy_code_footer}_`);
+          await sendTextMessage(config, telefone, partes.join('\n\n'));
         } else {
           await sendButtonsMessage(
             config,
