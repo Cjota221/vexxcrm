@@ -43,17 +43,20 @@ export async function GET(request: NextRequest) {
 
     // Agrupar por address_state
     const stateMap: Record<string, number> = {};
+    let sem_estado = 0;
     for (const row of rows) {
-      if (row.address_state) {
+      if (row.address_state && row.address_state.trim() !== '') {
         const key = row.address_state.toUpperCase().trim();
         stateMap[key] = (stateMap[key] || 0) + 1;
+      } else {
+        sem_estado++;
       }
     }
     const by_state = Object.entries(stateMap)
       .map(([state, count]) => ({ state, count }))
       .sort((a, b) => b.count - a.count);
 
-    return NextResponse.json({ total, by_source, by_state });
+    return NextResponse.json({ total, by_source, by_state, sem_estado });
   } catch (error) {
     console.error('❌ Client stats error:', error);
     return NextResponse.json({ error: 'Erro ao buscar estatísticas' }, { status: 500 });

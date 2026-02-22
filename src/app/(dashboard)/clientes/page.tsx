@@ -460,11 +460,19 @@ export default function ClientesPage() {
       </div>
 
       {/* ── Distribuição por Estado ──────────────────────── */}
-      {(stats?.by_state?.length ?? 0) > 0 && (
+      {((stats?.by_state?.length ?? 0) > 0 || (stats?.sem_estado ?? 0) > 0) && (
         <div>
-          <h2 className="text-xs font-bold text-txt-secondary uppercase tracking-wider mb-3">
-            Distribuição por Estado
-          </h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xs font-bold text-txt-secondary uppercase tracking-wider">
+              Distribuição por Estado
+            </h2>
+            {(stats?.sem_estado ?? 0) > 0 && (
+              <span className="flex items-center gap-1.5 text-[10px] text-amber-700 bg-amber-50 border border-amber-100 px-2.5 py-1 rounded-full">
+                <MapPin size={10} />
+                {(stats?.sem_estado ?? 0).toLocaleString('pt-BR')} sem estado cadastrado
+              </span>
+            )}
+          </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Ranking (lista) */}
             <Card>
@@ -495,7 +503,27 @@ export default function ClientesPage() {
                       </button>
                     );
                   })}
+                  {/* Linha "sem estado" */}
+                  {(stats?.sem_estado ?? 0) > 0 && (
+                    <div className="flex items-center gap-3 px-2 py-1.5 rounded-xl bg-amber-50/60 border border-dashed border-amber-200">
+                      <span className="text-xs font-bold text-amber-600 w-7 shrink-0">—</span>
+                      <div className="flex-1 h-2 bg-amber-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-amber-300 rounded-full"
+                          style={{ width: `${stats?.total ? ((stats.sem_estado / stats.total) * 100) : 0}%` }}
+                        />
+                      </div>
+                      <span className="text-xs font-semibold text-amber-600 w-10 text-right shrink-0">
+                        {(stats?.sem_estado ?? 0).toLocaleString('pt-BR')}
+                      </span>
+                    </div>
+                  )}
                 </div>
+                {(stats?.sem_estado ?? 0) > 0 && (
+                  <p className="text-[10px] text-txt-secondary mt-3 leading-relaxed">
+                    💡 Contatos vindos do WhatsApp geralmente não têm estado cadastrado. O estado só é preenchido quando o cliente informa ou vem de importação.
+                  </p>
+                )}
               </div>
             </Card>
 
@@ -506,34 +534,42 @@ export default function ClientesPage() {
                   <MapPin size={14} className="text-txt-secondary" />
                   <span className="text-xs font-semibold text-txt-secondary uppercase tracking-wide">Top estados</span>
                 </div>
-                <div className="grid grid-cols-4 gap-2">
-                  {(stats?.by_state ?? []).slice(0, 12).map(({ state, count }) => {
-                    const maxCount = stats?.by_state[0]?.count ?? 1;
-                    const intensity = Math.max(0.08, count / maxCount);
-                    return (
-                      <button
-                        key={state}
-                        onClick={() => setActivePanel({ type: 'state', value: state, label: state, count })}
-                        className="flex flex-col items-center justify-center rounded-xl py-2.5 px-1 transition-all hover:scale-105 hover:shadow-md"
-                        style={{ backgroundColor: `rgba(30, 58, 95, ${intensity})` }}
-                        title={`${state}: ${count} clientes`}
-                      >
-                        <span
-                          className="text-sm font-black"
-                          style={{ color: intensity > 0.4 ? 'white' : '#1e3a5f' }}
+                {(stats?.by_state?.length ?? 0) === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-8 text-center">
+                    <MapPin size={28} className="text-gray-200 mb-2" />
+                    <p className="text-xs text-txt-secondary">Nenhum cliente com estado cadastrado ainda.</p>
+                    <p className="text-[10px] text-txt-secondary mt-1">Importe uma planilha com a coluna "Estado" para ver a distribuição aqui.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-4 gap-2">
+                    {(stats?.by_state ?? []).slice(0, 12).map(({ state, count }) => {
+                      const maxCount = stats?.by_state[0]?.count ?? 1;
+                      const intensity = Math.max(0.08, count / maxCount);
+                      return (
+                        <button
+                          key={state}
+                          onClick={() => setActivePanel({ type: 'state', value: state, label: state, count })}
+                          className="flex flex-col items-center justify-center rounded-xl py-2.5 px-1 transition-all hover:scale-105 hover:shadow-md"
+                          style={{ backgroundColor: `rgba(30, 58, 95, ${intensity})` }}
+                          title={`${state}: ${count} clientes`}
                         >
-                          {state}
-                        </span>
-                        <span
-                          className="text-[10px] font-semibold mt-0.5"
-                          style={{ color: intensity > 0.4 ? 'rgba(255,255,255,0.8)' : '#64748b' }}
-                        >
-                          {count.toLocaleString('pt-BR')}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                          <span
+                            className="text-sm font-black"
+                            style={{ color: intensity > 0.4 ? 'white' : '#1e3a5f' }}
+                          >
+                            {state}
+                          </span>
+                          <span
+                            className="text-[10px] font-semibold mt-0.5"
+                            style={{ color: intensity > 0.4 ? 'rgba(255,255,255,0.8)' : '#64748b' }}
+                          >
+                            {count.toLocaleString('pt-BR')}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </Card>
           </div>

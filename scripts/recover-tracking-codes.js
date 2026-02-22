@@ -171,32 +171,45 @@ async function main() {
         if (data) order = data;
       }
 
-      // Estratégia B: pedido mais recente deste cliente sem tracking_code
+      // Estratégia B: pedido do cliente sem tracking_code MAIS PRÓXIMO da data da mensagem
+      // (resolve clientes com vários pedidos como Rose Rosilene — não pega sempre o mesmo)
       if (!order && msg.client_id) {
         const { data: orders } = await supabase
           .from('orders')
-          .select('id, order_number, tracking_code, status')
+          .select('id, order_number, tracking_code, status, created_at')
           .eq('tenant_id', TENANT_ID)
           .eq('client_id', msg.client_id)
           .is('tracking_code', null)
-          .in('status', ['shipped', 'processing', 'confirmed', 'pending'])
-          .order('created_at', { ascending: false })
-          .limit(1);
-        if (orders?.[0]) order = orders[0];
+          .in('status', ['shipped', 'processing', 'confirmed', 'pending']);
+        if (orders?.length) {
+          const msgTime = new Date(msg.created_at).getTime();
+          // Ordenar por proximidade temporal com a mensagem
+          orders.sort((a, b) => {
+            const diffA = Math.abs(new Date(a.created_at).getTime() - msgTime);
+            const diffB = Math.abs(new Date(b.created_at).getTime() - msgTime);
+            return diffA - diffB;
+          });
+          order = orders[0];
+        }
       }
 
-      // Estratégia C: qualquer pedido mais recente do cliente (mesmo com status entregue)
-      // — útil para recuperação histórica
+      // Estratégia C: qualquer pedido sem tracking_code mais próximo da data da mensagem
       if (!order && msg.client_id) {
         const { data: orders } = await supabase
           .from('orders')
-          .select('id, order_number, tracking_code, status')
+          .select('id, order_number, tracking_code, status, created_at')
           .eq('tenant_id', TENANT_ID)
           .eq('client_id', msg.client_id)
-          .is('tracking_code', null)
-          .order('created_at', { ascending: false })
-          .limit(1);
-        if (orders?.[0]) order = orders[0];
+          .is('tracking_code', null);
+        if (orders?.length) {
+          const msgTime = new Date(msg.created_at).getTime();
+          orders.sort((a, b) => {
+            const diffA = Math.abs(new Date(a.created_at).getTime() - msgTime);
+            const diffB = Math.abs(new Date(b.created_at).getTime() - msgTime);
+            return diffA - diffB;
+          });
+          order = orders[0];
+        }
       }
 
       if (!order) {

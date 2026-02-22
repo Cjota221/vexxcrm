@@ -17,6 +17,7 @@ export interface ClientStats {
   total: number;
   by_source: SourceStat[];
   by_state: StateStat[];
+  sem_estado: number;
 }
 
 /**
