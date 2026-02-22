@@ -21,7 +21,7 @@ export function useTenantConfig() {
       return response.data;
     },
     staleTime: 10 * 60 * 1000, // 10 minutos
-    initialData: tenant?.config,
+    placeholderData: tenant?.config,
   });
 
   const updateConfig = useMutation({

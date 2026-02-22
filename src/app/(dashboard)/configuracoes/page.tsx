@@ -619,6 +619,14 @@ function PixSettings({ config }: { config?: TenantConfig }) {
 function FacilZapSettings({ config }: { config?: TenantConfig }) {  const { updateConfig, isUpdating } = useTenantConfig();
   const [token, setToken] = useState('');
   const [siteUrl, setSiteUrl] = useState(config?.facilzap?.site_url || '');
+
+  // Sincronizar quando config carrega de forma assíncrona
+  useEffect(() => {
+    if (config?.facilzap) {
+      setSiteUrl(config.facilzap.site_url || '');
+    }
+  }, [config?.facilzap]);
+
   const handleSave = async () => {
     try {
       const update: Record<string, unknown> = { facilzap: { site_url: siteUrl } as Record<string, unknown> };
@@ -674,6 +682,17 @@ function AnneSettings({ config }: { config?: TenantConfig }) {
   const [baseUrl, setBaseUrl] = useState(openai?.base_url || '');
   const [model, setModel] = useState(openai?.model || 'gpt-4o-mini');
   const [systemPrompt, setSystemPrompt] = useState(openai?.system_prompt || DEFAULT_ANNE_PROMPT_UI);
+
+  // Sincronizar campos quando config carrega de forma assíncrona
+  useEffect(() => {
+    if (openai) {
+      setProvider(openai.provider || 'openai');
+      setBaseUrl(openai.base_url || '');
+      setModel(openai.model || 'gpt-4o-mini');
+      setSystemPrompt(openai.system_prompt || DEFAULT_ANNE_PROMPT_UI);
+      // NÃO sincronizar apiKey — nunca é devolvida pelo servidor (segurança)
+    }
+  }, [openai]);
 
   const providerInfo = AI_PROVIDER_INFO[provider] || AI_PROVIDER_INFO.custom;
 
