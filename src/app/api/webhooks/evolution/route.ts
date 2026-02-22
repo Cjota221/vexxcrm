@@ -364,9 +364,11 @@ async function handleNewMessage(
   // ━━━ DEDUPLICAÇÃO ━━━
   // Se a mensagem já foi gravada (ex: /api/whatsapp/send gravou antes do webhook chegar),
   // apenas atualizar a media_url se necessário e sair.
+  // IMPORTANTE: select('*') para que o SSE emita a mensagem COMPLETA (com content)
+  // — select('id, media_url') causava bolhas vazias no chat ao fazer deduplicação.
   const { data: existingMsg } = await supabase
     .from('messages')
-    .select('id, media_url')
+    .select('*')
     .eq('tenant_id', tenantId)
     .eq('external_id', messageId)
     .single();
@@ -378,16 +380,20 @@ async function handleNewMessage(
       (mediaUrl && mediaUrl.includes('supabase.co/storage') && existingMsg.media_url !== mediaUrl) ||
       (mediaUrl && !existingMsg.media_url);
 
+    let msgParaSSE = existingMsg;
     if (deveAtualizar) {
-      await supabase
+      const { data: updated } = await supabase
         .from('messages')
         .update({ media_url: mediaUrl, media_mime_type: mimetype || null })
-        .eq('id', existingMsg.id);
+        .eq('id', existingMsg.id)
+        .select('*')
+        .single();
+      if (updated) msgParaSSE = updated;
     }
-    // Emitir evento SSE para atualizar a UI (status pode ter mudado)
+    // Emitir evento SSE com a mensagem COMPLETA para o front-end atualizar corretamente
     eventBus.emitToTenant('new_message', tenantId, {
       client_id: client.id,
-      message: { ...existingMsg, media_url: mediaUrl || existingMsg.media_url },
+      message: msgParaSSE,
     });
     return;
   }
