@@ -53,6 +53,7 @@ interface HistoricalSalesData {
 /* ─── Componente ──────────────────────────────── */
 
 export function TodayInHistory() {
+  const [expanded, setExpanded] = useState(false);
   const [expandedYear, setExpandedYear] = useState<number | null>(null);
 
   // Modal de envio direto
@@ -129,25 +130,35 @@ export function TodayInHistory() {
   return (
     <>
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        {/* Header */}
-        <div className="px-5 py-4 bg-linear-to-r from-violet-600 to-purple-700 flex items-center justify-between">
+        {/* Header — clicável para expandir/colapsar */}
+        <button
+          onClick={() => setExpanded(v => !v)}
+          className="w-full px-5 py-4 bg-linear-to-r from-violet-600 to-purple-700 flex items-center justify-between"
+        >
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
               <History size={18} className="text-white" />
             </div>
-            <div>
+            <div className="text-left">
               <h3 className="text-sm font-bold text-white">Hoje na História</h3>
               <p className="text-[11px] text-white/70">
                 {data.date.day} de {monthLabel} — anos anteriores
               </p>
             </div>
           </div>
-          <div className="text-right">
-            <p className="text-xl font-black text-white">{data.total_historic_orders}</p>
-            <p className="text-[10px] text-white/60">pedidos históricos</p>
+          <div className="flex items-center gap-4">
+            <div className="text-right">
+              <p className="text-xl font-black text-white">{data.total_historic_orders}</p>
+              <p className="text-[10px] text-white/60">pedidos históricos</p>
+            </div>
+            <ChevronDown
+              size={18}
+              className={cn('text-white/70 transition-transform duration-200', expanded && 'rotate-180')}
+            />
           </div>
-        </div>
+        </button>
 
+        {expanded && (
         <div className="p-5 space-y-4">
           {/* KPIs */}
           <div className="grid grid-cols-2 gap-3">
@@ -256,6 +267,7 @@ export function TodayInHistory() {
             </div>
           )}
         </div>
+        )}
       </div>
 
       {/* ── Modal de Envio Direto ─────────────────────── */}

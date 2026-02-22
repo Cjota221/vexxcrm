@@ -16,7 +16,6 @@ import {
   Brain,
   Headset,
   Bot,
-  Zap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/store/ui';
@@ -34,7 +33,6 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Pedidos', href: '/pedidos', icon: <Package size={20} /> },
   { label: 'Produtos', href: '/produtos', icon: <ShoppingBag size={20} /> },
   { label: 'Campanhas', href: '/campanhas', icon: <Megaphone size={20} /> },
-  { label: 'Disparo Rápido', href: '/disparo-rapido', icon: <Zap size={20} /> },
   { label: 'Inteligência', href: '/intelligence', icon: <Brain size={20} /> },
   { label: 'Anne IA', href: '/configuracoes/anne', icon: <Bot size={20} /> },
   { label: 'Configurações', href: '/configuracoes', icon: <Settings size={20} /> },

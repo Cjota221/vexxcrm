@@ -314,6 +314,16 @@ export default function ClientesPage() {
   // Distribuição por estado — ranking colapsável
   const [rankingExpanded, setRankingExpanded] = useState(false);
 
+  // Filtros — painel colapsável
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const activeFilterCount = [
+    search,
+    statusFilter,
+    sourceFilter,
+    hasOrdersFilter !== 'all' ? hasOrdersFilter : '',
+    hasNameFilter !== 'all' ? hasNameFilter : '',
+  ].filter(Boolean).length;
+
   // Selecao
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -610,75 +620,140 @@ export default function ClientesPage() {
 
       {/* Filtros */}
       <Card>
-        <div className="p-4 space-y-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex-1 min-w-50">
-              <Input
-                placeholder="Buscar por nome, telefone ou e-mail..."
-                onChange={(e) => handleSearch(e.target.value)}
+        <div className="p-4">
+          {/* Cabeçalho colapsável */}
+          <button
+            className="w-full flex items-center justify-between group"
+            onClick={() => setFiltersExpanded(v => !v)}
+          >
+            <div className="flex items-center gap-2 flex-wrap">
+              <Search size={14} className="text-txt-secondary shrink-0" />
+              <span className="text-xs font-semibold text-txt-secondary uppercase tracking-wide">Filtros</span>
+              {/* Badges dos filtros ativos */}
+              {activeFilterCount > 0 ? (
+                <>
+                  <span className="text-[10px] font-bold text-white bg-crm-primary rounded-full px-2 py-0.5">
+                    {activeFilterCount} ativo{activeFilterCount > 1 ? 's' : ''}
+                  </span>
+                  {search && (
+                    <span className="text-[10px] bg-surface-100 text-txt-secondary rounded-full px-2 py-0.5 border border-surface-200">
+                      "{search.slice(0, 20)}{search.length > 20 ? '…' : ''}"
+                    </span>
+                  )}
+                  {statusFilter && (
+                    <span className="text-[10px] bg-surface-100 text-txt-secondary rounded-full px-2 py-0.5 border border-surface-200">
+                      {STATUS_MAP[statusFilter]?.label}
+                    </span>
+                  )}
+                  {sourceFilter && (
+                    <span className="text-[10px] bg-surface-100 text-txt-secondary rounded-full px-2 py-0.5 border border-surface-200">
+                      {sourceFilter === 'facilzap' ? 'FacilZap' : sourceFilter === 'whatsapp' ? 'WhatsApp' : sourceFilter === 'import' ? 'Importado' : sourceFilter === 'manual' ? 'Manual' : 'Campanha'}
+                    </span>
+                  )}
+                  {hasOrdersFilter !== 'all' && (
+                    <span className="text-[10px] bg-surface-100 text-txt-secondary rounded-full px-2 py-0.5 border border-surface-200">
+                      {hasOrdersFilter === 'with_orders' ? 'Com pedidos' : 'Sem pedidos'}
+                    </span>
+                  )}
+                  {hasNameFilter !== 'all' && (
+                    <span className="text-[10px] bg-surface-100 text-txt-secondary rounded-full px-2 py-0.5 border border-surface-200">
+                      {hasNameFilter === 'with_name' ? 'Com nome' : 'Sem nome'}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span className="text-[10px] text-txt-muted">Nenhum filtro ativo</span>
+              )}
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              <span className="text-xs text-txt-secondary">{total.toLocaleString('pt-BR')} resultados</span>
+              <ChevronDown
+                size={14}
+                className={`text-txt-secondary transition-transform duration-200 ${filtersExpanded ? 'rotate-180' : ''}`}
               />
             </div>
-            <select
-              value={statusFilter}
-              onChange={(e) => { setStatusFilter(e.target.value as ClientStatus | ''); resetPage(); }}
-              className="input text-sm py-2 px-3"
-            >
-              <option value="">Todos os status</option>
-              {Object.entries(STATUS_MAP).map(([key, { label }]) => (
-                <option key={key} value={key}>{label}</option>
-              ))}
-            </select>
-            <select
-              value={hasOrdersFilter}
-              onChange={(e) => { setHasOrdersFilter(e.target.value as typeof hasOrdersFilter); resetPage(); }}
-              className="input text-sm py-2 px-3"
-            >
-              <option value="all"> Todos os pedidos</option>
-              <option value="with_orders"> Com pedidos</option>
-              <option value="without_orders"> Sem pedidos</option>
-            </select>
-            <select
-              value={hasNameFilter}
-              onChange={(e) => { setHasNameFilter(e.target.value as typeof hasNameFilter); resetPage(); }}
-              className="input text-sm py-2 px-3"
-            >
-              <option value="all"> Todos</option>
-              <option value="with_name"> Com nome</option>
-              <option value="without_name"> Sem nome</option>
-            </select>
-            <select
-              value={sourceFilter}
-              onChange={(e) => { setSourceFilter(e.target.value as typeof sourceFilter); resetPage(); }}
-              className="input text-sm py-2 px-3"
-            >
-              <option value=""> Todas as origens</option>
-              <option value="whatsapp"> WhatsApp</option>
-              <option value="facilzap"> FacilZap</option>
-              <option value="import"> Importado</option>
-              <option value="manual"> Manual</option>
-              <option value="campaign"> Campanha</option>
-            </select>
-            <select
-              value={perPage}
-              onChange={(e) => { setPerPage(Number(e.target.value)); resetPage(); }}
-              className="input text-sm py-2 px-3"
-            >
-              {PER_PAGE_OPTIONS.map(n => (
-                <option key={n} value={n}>{n} por página</option>
-              ))}
-            </select>
-            <Button variant="ghost" onClick={handleExportSelected}>
-              <Download size={16} /> Exportar
-            </Button>
-          </div>
+          </button>
 
-          {/* Linha info + selecionar pagina */}
-          <div className="flex items-center justify-between pt-1 border-t border-surface-100">
+          {/* Filtros expandidos */}
+          {filtersExpanded && (
+            <div className="mt-3 pt-3 border-t border-surface-100 space-y-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex-1 min-w-50">
+                  <Input
+                    placeholder="Buscar por nome, telefone ou e-mail..."
+                    onChange={(e) => handleSearch(e.target.value)}
+                  />
+                </div>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => { setStatusFilter(e.target.value as ClientStatus | ''); resetPage(); }}
+                  className="input text-sm py-2 px-3"
+                >
+                  <option value="">Todos os status</option>
+                  {Object.entries(STATUS_MAP).map(([key, { label }]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+                <select
+                  value={hasOrdersFilter}
+                  onChange={(e) => { setHasOrdersFilter(e.target.value as typeof hasOrdersFilter); resetPage(); }}
+                  className="input text-sm py-2 px-3"
+                >
+                  <option value="all">Todos os pedidos</option>
+                  <option value="with_orders">Com pedidos</option>
+                  <option value="without_orders">Sem pedidos</option>
+                </select>
+                <select
+                  value={hasNameFilter}
+                  onChange={(e) => { setHasNameFilter(e.target.value as typeof hasNameFilter); resetPage(); }}
+                  className="input text-sm py-2 px-3"
+                >
+                  <option value="all">Todos</option>
+                  <option value="with_name">Com nome</option>
+                  <option value="without_name">Sem nome</option>
+                </select>
+                <select
+                  value={sourceFilter}
+                  onChange={(e) => { setSourceFilter(e.target.value as typeof sourceFilter); resetPage(); }}
+                  className="input text-sm py-2 px-3"
+                >
+                  <option value="">Todas as origens</option>
+                  <option value="whatsapp">WhatsApp</option>
+                  <option value="facilzap">FacilZap</option>
+                  <option value="import">Importado</option>
+                  <option value="manual">Manual</option>
+                  <option value="campaign">Campanha</option>
+                </select>
+                <select
+                  value={perPage}
+                  onChange={(e) => { setPerPage(Number(e.target.value)); resetPage(); }}
+                  className="input text-sm py-2 px-3"
+                >
+                  {PER_PAGE_OPTIONS.map(n => (
+                    <option key={n} value={n}>{n} por página</option>
+                  ))}
+                </select>
+                <Button variant="ghost" onClick={handleExportSelected}>
+                  <Download size={16} /> Exportar
+                </Button>
+                {activeFilterCount > 0 && (
+                  <button
+                    onClick={() => { setSearch(''); setStatusFilter(''); setHasOrdersFilter('all'); setHasNameFilter('all'); setSourceFilter(''); resetPage(); }}
+                    className="text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1 transition-colors"
+                  >
+                    <X size={12} /> Limpar filtros
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Linha info + selecionar página — sempre visível */}
+          <div className={`flex items-center justify-between ${filtersExpanded ? 'mt-3 pt-3 border-t border-surface-100' : 'mt-2'}`}>
             <p className="text-xs text-txt-secondary">
-              {total.toLocaleString('pt-BR')} resultados
               {selectedIds.size > 0 && (
-                <span className="ml-2 font-semibold text-crm-primary">
-                   {selectedIds.size} selecionados
+                <span className="font-semibold text-crm-primary mr-2">
+                  {selectedIds.size} selecionados
                 </span>
               )}
             </p>
