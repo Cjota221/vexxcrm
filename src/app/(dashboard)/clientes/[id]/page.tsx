@@ -35,6 +35,8 @@ import {
 import { useAnne } from '@/hooks/useAnne';
 import { useClient } from '@/hooks/useClients';
 import { api } from '@/lib/api';
+import { useQueryClient } from '@tanstack/react-query';
+import { useChatsStore } from '@/store/chats';
 import { OrderHistory } from '@/components/crm/OrderHistory';
 import { CustomerHealthPanel } from '@/components/crm/CustomerHealthPanel';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -59,6 +61,8 @@ export default function ClienteDetalhe() {
   const router = useRouter();
   const clientId = params.id as string;
   const { data: clientData, isLoading } = useClient(clientId);
+  const queryClient = useQueryClient();
+  const { selectChat } = useChatsStore();
 
   // Modal de envio de mensagem
   const [showMsgModal, setShowMsgModal] = useState(false);
@@ -282,6 +286,11 @@ export default function ClienteDetalhe() {
       const res = await api.post<{ messageId?: string }>('/api/whatsapp/send', body);
       if (res.error) throw new Error(res.error);
       setSendResult({ ok: true, text: '✅ Mensagem enviada com sucesso!' });
+
+      // Invalidar cache para que o chat reflita a mensagem imediatamente
+      // quando o usuário abrir (ou se já estiver aberto, o Realtime atualiza)
+      queryClient.invalidateQueries({ queryKey: ['messages', c.id] });
+      queryClient.invalidateQueries({ queryKey: ['chats'] });
     } catch (err) {
       setSendResult({ ok: false, text: `❌ ${err instanceof Error ? err.message : 'Erro ao enviar'}` });
     } finally {
@@ -761,15 +770,29 @@ export default function ClienteDetalhe() {
 
                 {/* Resultado do envio */}
                 {sendResult && (
-                  <div className={`flex items-center gap-2 p-3 rounded-xl text-sm ${
+                  <div className={`p-3 rounded-xl text-sm border ${
                     sendResult.ok
-                      ? 'bg-green-50 border border-green-200 text-green-800'
-                      : 'bg-red-50 border border-red-200 text-red-800'
+                      ? 'bg-green-50 border-green-200 text-green-800'
+                      : 'bg-red-50 border-red-200 text-red-800'
                   }`}>
-                    {sendResult.ok
-                      ? <CheckCircle2 size={16} className="text-green-600 shrink-0" />
-                      : <AlertCircle size={16} className="text-red-600 shrink-0" />}
-                    {sendResult.text}
+                    <div className="flex items-center gap-2">
+                      {sendResult.ok
+                        ? <CheckCircle2 size={16} className="text-green-600 shrink-0" />
+                        : <AlertCircle size={16} className="text-red-600 shrink-0" />}
+                      {sendResult.text}
+                    </div>
+                    {sendResult.ok && (
+                      <button
+                        onClick={() => {
+                          selectChat(c.id);
+                          setShowMsgModal(false);
+                          router.push('/central');
+                        }}
+                        className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-semibold transition-colors"
+                      >
+                        <MessageSquare size={12} /> Ver conversa no chat
+                      </button>
+                    )}
                   </div>
                 )}
 
