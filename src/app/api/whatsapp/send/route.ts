@@ -53,8 +53,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Normalizar telefone (adicionar DDI se necessário)
-    const phoneNormalized = PhoneNormalizer.canonical(to);
+    // Normalizar telefone para ENVIO: usar normalize() que garante DDI + 9º dígito
+    // NUNCA usar canonical() aqui — canonical remove o 9º dígito (para matching no banco)
+    // e a Evolution API não encontra o destinatário sem ele.
+    const phoneNormalized = PhoneNormalizer.normalize(to);
+    // Canonical separado apenas para busca/criação do cliente no banco
+    const phoneCanonical = PhoneNormalizer.canonical(to);
 
     let messageId: string;
 
