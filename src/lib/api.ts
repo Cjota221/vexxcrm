@@ -8,33 +8,45 @@ import type { ApiResponse } from '@/types';
 const API_BASE_URL = '';
 
 /**
- * Obtém o access token da sessão atual com retry.
+ * Obtém o access token da sessão atual.
  *
- * O Supabase pode lançar AbortError durante a hidratação inicial (race condition).
- * Tentamos até 3 vezes com espera crescente antes de desistir.
+ * Estratégia em ordem de prioridade:
+ * 1. Zustand store (auth-storage no localStorage) — síncrono, zero latência, sem race condition
+ * 2. supabase.auth.getSession() — fallback assíncrono para quando o store ainda não hidratou
+ *
+ * O AbortError acontecia porque getSession() faz fetch ao servidor durante a
+ * inicialização do Supabase, que pode ser abortado pela hidratação do React.
+ * Lendo do store Zustand primeiro, evitamos esse problema completamente.
  */
 async function getAccessToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null;
 
+  // 1. Tentar ler do Zustand persistido (mais rápido, sem risco de AbortError)
+  try {
+    const raw = localStorage.getItem('vexx-auth');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const token = parsed?.state?.accessToken as string | null | undefined;
+      if (token) return token;
+    }
+  } catch {
+    // localStorage pode estar bloqueado em alguns contextos — ignora e tenta Supabase
+  }
+
+  // 2. Fallback: Supabase getSession (pode ser lento ou falhar na primeira hidratação)
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.access_token) return session.access_token;
 
-      // Session veio null — forçar refresh (hidratação do storage)
-      const { data: refreshed } = await supabase.auth.refreshSession();
-      if (refreshed?.session?.access_token) return refreshed.session.access_token;
-
-      // Se não tem sessão ativa, não adianta tentar de novo
+      // Sem sessão ativa — não adianta tentar refresh
       return null;
     } catch (err: any) {
       const isAbort = err?.name === 'AbortError' || err?.message?.includes('aborted');
       if (isAbort && attempt < 2) {
-        // Espera 200ms, 400ms antes de nova tentativa
         await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
         continue;
       }
-      // Erro não-abort ou esgotou tentativas: loga e retorna null
       console.error('❌ Erro ao obter sessão do Supabase:', err);
       return null;
     }
