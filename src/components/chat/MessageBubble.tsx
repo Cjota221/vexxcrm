@@ -55,14 +55,11 @@ export function MessageBubble({ message, onTranscriptionUpdate }: MessageBubbleP
 
   const handleTranscribe = useCallback(async () => {
     try {
-      const res = await fetch('/api/whatsapp/transcribe-audio', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messageId: message.id }),
+      const res = await api.post<{ transcription: string }>('/api/whatsapp/transcribe-audio', {
+        messageId: message.id,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Falha na transcrição');
-      const text = data.transcription as string;
+      const text = res.data?.transcription;
+      if (!text) throw new Error('Falha na transcrição');
       setLocalTranscription(text);
       onTranscriptionUpdate?.(message.id, text);
     } catch (err) {

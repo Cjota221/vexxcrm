@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { api } from '@/lib/api';
 import {
   X,
   Search,
@@ -200,18 +201,14 @@ export function ClientListDrawer({
     setIsSending(true);
     setSendResult(null);
     try {
-      const res = await fetch('/api/whatsapp/bulk-send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          recipients: targets.map(c => ({ id: c.id, name: c.name, phone: c.phone })),
-          message: messageTemplate,
-          delay_ms: 1500,
-        }),
+      const res = await api.post('/api/whatsapp/bulk-send', {
+        recipients: targets.map(c => ({ id: c.id, name: c.name, phone: c.phone })),
+        message: messageTemplate,
+        delay_ms: 1500,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erro no disparo');
-      setSendResult(data.results);
+      const data = res.data as { results?: typeof sendResult };
+      if (!data) throw new Error('Erro no disparo');
+      setSendResult(data.results ?? null);
     } catch (err) {
       setSendResult({ sent: 0, failed: targets.length, errors: [err instanceof Error ? err.message : 'Erro'] });
     } finally {

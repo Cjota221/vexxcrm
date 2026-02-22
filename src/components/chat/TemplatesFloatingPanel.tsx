@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { supabase } from '@/lib/supabase';
 import type { CompositeTemplate, TemplateBlock, TemplateBlockType } from '@/types';
 import { WhatsAppTextEditor } from '@/components/campaigns/WhatsAppTextEditor';
 
@@ -165,7 +166,11 @@ function MediaUploadField({
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const res = await fetch('/api/upload', { method: 'POST', body: fd });
+      const { data: { session } } = await supabase.auth.getSession();
+      const headers: HeadersInit = session?.access_token
+        ? { Authorization: `Bearer ${session.access_token}` }
+        : {};
+      const res = await fetch('/api/upload', { method: 'POST', body: fd, headers });
       const data = await res.json();
       if (data.url) onChange(data.url);
       else alert('Erro no upload: ' + (data.error || 'desconhecido'));

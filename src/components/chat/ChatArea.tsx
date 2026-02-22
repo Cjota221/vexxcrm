@@ -50,15 +50,11 @@ export function ChatArea({
     historyRequestedRef.current.add(selectedChatId);
     setIsLoadingHistory(true);
 
-    fetch('/api/whatsapp/load-history', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientId: selectedChatId }),
-    })
-      .then(r => r.json())
-      .then((d: { loaded?: boolean; inserted?: number }) => {
+    api.post<{ loaded?: boolean; inserted?: number }>('/api/whatsapp/load-history', { clientId: selectedChatId })
+      .then(res => {
+        const d = res.data;
         // Se chegaram mensagens novas, invalida o cache para recarregar
-        if (d.inserted && d.inserted > 0) {
+        if (d?.inserted && d.inserted > 0) {
           queryClient.invalidateQueries({ queryKey: ['messages', selectedChatId] });
         }
       })

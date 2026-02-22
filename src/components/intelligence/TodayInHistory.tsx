@@ -91,13 +91,13 @@ export function TodayInHistory() {
     if (!sendModal || !sendMsg.trim()) return;
     setIsSending(true);
     try {
-      const res = await fetch('/api/whatsapp/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: sendModal.client.phone, content: sendMsg, type: 'text', clientId: sendModal.client.client_id }),
+      const res = await api.post('/api/whatsapp/send', {
+        to: sendModal.client.phone,
+        content: sendMsg,
+        type: 'text',
+        clientId: sendModal.client.client_id,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erro');
+      if (!res.data) throw new Error('Erro');
       setSendResult('✅ Mensagem enviada com sucesso!');
     } catch (err) {
       setSendResult(`❌ ${err instanceof Error ? err.message : 'Erro ao enviar'}`);
