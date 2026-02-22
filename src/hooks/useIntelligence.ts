@@ -356,13 +356,26 @@ interface ClientInsightResponse {
  * Hook para insights sazonais.
  */
 export function useSeasonalInsights(year?: number) {
+  const currentYear = new Date().getFullYear();
+  // Se não foi passado um ano específico, tenta o ano atual; se não tiver dados, fallback para o anterior
+  const targetYear = year || currentYear;
+
   return useQuery({
-    queryKey: ['intelligence', 'seasonal', year],
+    queryKey: ['intelligence', 'seasonal', targetYear],
     queryFn: async () => {
-      const params: Record<string, string> = {};
-      if (year) params.year = String(year);
+      const params: Record<string, string> = { year: String(targetYear) };
       const response = await api.get<SeasonalResponse>('/api/intelligence/seasonal', params);
       if (response.error) throw new Error(response.error);
+
+      // Se o ano atual não tem dados, busca o ano anterior automaticamente
+      if (response.data && (!response.data.insights || response.data.insights.length === 0) && targetYear === currentYear) {
+        const prevParams: Record<string, string> = { year: String(currentYear - 1) };
+        const prevResponse = await api.get<SeasonalResponse>('/api/intelligence/seasonal', prevParams);
+        if (!prevResponse.error && prevResponse.data?.insights?.length) {
+          return { ...prevResponse.data, _fallback_year: currentYear - 1 };
+        }
+      }
+
       return response.data;
     },
     staleTime: 5 * 60 * 1000,
@@ -585,3 +598,63 @@ export function useSeasonalBuyers(eventSlug: string | null, year?: number, page 
   });
 }
 
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   MONTHLY TRENDS — Comportamento mensal histórico
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+export interface MonthSummary {
+  month: number;
+  month_name: string;
+  total_orders: number;
+  total_revenue: number;
+  avg_orders_per_year: number;
+  avg_revenue_per_year: number;
+  years_with_data: number;
+}
+
+export interface YearlyMonthly {
+  year: number;
+  months: Array<{ month: number; month_name: string; orders: number; revenue: number }>;
+  total_orders: number;
+  total_revenue: number;
+}
+
+export interface DayPatternEntry {
+  year: number;
+  month: number;
+  month_name: string;
+  orders: number;
+  revenue: number;
+}
+
+export interface MonthlyTrendsResponse {
+  success: boolean;
+  reference_date: { day: number; month: number; year: number; month_name: string };
+  years_analyzed: number[];
+  total_orders_analyzed: number;
+  monthly_summary: MonthSummary[];
+  yearly_monthly: YearlyMonthly[];
+  best_months: (MonthSummary & { rank: number })[];
+  day_of_month_pattern: DayPatternEntry[];
+  month_comparison: {
+    current_month: number;
+    current_month_name: string;
+    prev_year: { year: number; orders: number; revenue: number };
+    two_years_ago: { year: number; orders: number; revenue: number };
+    growth_orders_yoy: number | null;
+    growth_revenue_yoy: number | null;
+  };
+  insights: string[];
+}
+
+export function useMonthlyTrends() {
+  return useQuery({
+    queryKey: ['intelligence', 'monthly-trends'],
+    queryFn: async () => {
+      const response = await api.get<MonthlyTrendsResponse>('/api/intelligence/monthly-trends');
+      if (response.error) throw new Error(response.error);
+      return response.data;
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+}

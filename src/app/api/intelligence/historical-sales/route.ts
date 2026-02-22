@@ -14,11 +14,16 @@ interface OrderRow {
   clients: { id: string; name: string | null; phone: string | null; status: string | null } | Array<{ id: string; name: string | null; phone: string | null; status: string | null }> | null;
 }
 
+const MONTH_NAMES = [
+  '', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+];
+
 /**
  * GET /api/intelligence/historical-sales
  *
  * "Hoje na História" — clientes que compraram hoje (dia/mês) em anos anteriores.
- * Retorna lista agrupada por ano, com totais e clientes fiéis (compraram nesta data em 2+ anos).
+ * Também retorna o padrão do mesmo dia em meses anteriores (do ano atual e anterior).
  */
 export async function GET(request: NextRequest) {
   try {
@@ -58,7 +63,7 @@ export async function GET(request: NextRequest) {
 
     const orders = (rawOrders ?? []) as OrderRow[];
 
-    // Filtra no JS para dia e mês iguais ao de hoje
+    // Filtra no JS para dia e mês iguais ao de hoje (anos anteriores)
     const todayOrders = orders.filter((o: OrderRow) => {
       const d = new Date(o.created_at);
       return d.getMonth() + 1 === month && d.getDate() === day;
@@ -129,16 +134,90 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => b.years_count - a.years_count)
       .slice(0, 10);
 
+    // ── Mesmo dia em meses anteriores ──────────────────────────
+    // Ex: hoje é dia 22 → mostra dia 22 de Jan/2025, Dez/2024, Nov/2024...
+    const sameDayOtherMonths: Array<{
+      year: number;
+      month: number;
+      month_name: string;
+      orders: number;
+      revenue: number;
+      top_clients: Array<{ name: string; phone: string; total: number }>;
+    }> = [];
+
+    // Agrupa todos os pedidos (anos anteriores) com mesmo dia pelo mês+ano
+    const sameDay = orders.filter((o: OrderRow) => new Date(o.created_at).getDate() === day);
+    const byMonthYear: Record<string, { year: number; month: number; orders: number; revenue: number; clients: Array<{ name: string; phone: string; total: number }> }> = {};
+
+    for (const order of sameDay) {
+      const d = new Date(order.created_at);
+      const y = d.getFullYear();
+      const m = d.getMonth() + 1;
+      // Excluir o mesmo mês do ano atual (já coberto pelos "anos anteriores")
+      const key = `${y}-${m}`;
+      if (!byMonthYear[key]) {
+        byMonthYear[key] = { year: y, month: m, orders: 0, revenue: 0, clients: [] };
+      }
+      byMonthYear[key].orders += 1;
+      byMonthYear[key].revenue += order.total ?? 0;
+      const client = Array.isArray(order.clients) ? order.clients[0] : order.clients;
+      if (client?.name) {
+        byMonthYear[key].clients.push({
+          name: client.name,
+          phone: client.phone ?? '',
+          total: order.total ?? 0,
+        });
+      }
+    }
+
+    // Ordena: mais recente primeiro, exclui o mês+ano de hoje (que já está em "years")
+    const sortedByMonthYear = Object.values(byMonthYear)
+      .filter(e => !(e.month === month)) // remove o mesmo mês (independente do ano)
+      .sort((a, b) => b.year !== a.year ? b.year - a.year : b.month - a.month)
+      .slice(0, 12);
+
+    for (const entry of sortedByMonthYear) {
+      sameDayOtherMonths.push({
+        year: entry.year,
+        month: entry.month,
+        month_name: MONTH_NAMES[entry.month],
+        orders: entry.orders,
+        revenue: Math.round(entry.revenue * 100) / 100,
+        top_clients: entry.clients
+          .sort((a, b) => b.total - a.total)
+          .slice(0, 5),
+      });
+    }
+
+    // ── Comparação: esse mês vs mês anterior (mesmo dia) ───────
+    const prevMonthNum = month === 1 ? 12 : month - 1;
+    const prevMonthYear = month === 1 ? currentYear - 1 : currentYear - 1; // sempre ano anterior
+    const prevMonthData = byMonthYear[`${prevMonthYear}-${prevMonthNum}`];
+    const sameMonthPrevYear = byMonthYear[`${currentYear - 1}-${month}`];
+
+    const comparison = {
+      today: { orders: todayOrders.length, revenue: todayOrders.reduce((s, o) => s + (o.total ?? 0), 0) },
+      prev_month_same_day: prevMonthData
+        ? { year: prevMonthYear, month: prevMonthNum, month_name: MONTH_NAMES[prevMonthNum], orders: prevMonthData.orders, revenue: Math.round(prevMonthData.revenue * 100) / 100 }
+        : null,
+      same_month_prev_year: sameMonthPrevYear
+        ? { year: currentYear - 1, month, month_name: MONTH_NAMES[month], orders: sameMonthPrevYear.orders, revenue: Math.round(sameMonthPrevYear.revenue * 100) / 100 }
+        : null,
+    };
+
     return NextResponse.json({
       date: {
         day,
         month,
+        month_name: MONTH_NAMES[month],
         label: `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}`,
       },
       years,
       total_unique_clients: Object.keys(clientFrequency).length,
       total_historic_orders: todayOrders.length,
       loyal_clients: loyalClients,
+      same_day_other_months: sameDayOtherMonths,
+      comparison,
     });
   } catch (err) {
     console.error('[historical-sales] unexpected error:', err);

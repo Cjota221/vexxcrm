@@ -43,11 +43,24 @@ interface LoyalClient {
 }
 
 interface HistoricalSalesData {
-  date: { day: number; month: number; label: string };
+  date: { day: number; month: number; month_name: string; label: string };
   years: HistoricalYear[];
   total_unique_clients: number;
   total_historic_orders: number;
   loyal_clients: LoyalClient[];
+  same_day_other_months: Array<{
+    year: number;
+    month: number;
+    month_name: string;
+    orders: number;
+    revenue: number;
+    top_clients: Array<{ name: string; phone: string; total: number }>;
+  }>;
+  comparison: {
+    today: { orders: number; revenue: number };
+    prev_month_same_day: { year: number; month: number; month_name: string; orders: number; revenue: number } | null;
+    same_month_prev_year: { year: number; month: number; month_name: string; orders: number; revenue: number } | null;
+  } | null;
 }
 
 /* ─── Componente ──────────────────────────────── */
@@ -55,6 +68,7 @@ interface HistoricalSalesData {
 export function TodayInHistory() {
   const [expanded, setExpanded] = useState(false);
   const [expandedYear, setExpandedYear] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<'years' | 'months'>('years');
 
   // Modal de envio direto
   const [sendModal, setSendModal] = useState<{
@@ -126,6 +140,7 @@ export function TodayInHistory() {
 
   const noHistory = data.years.length === 0;
   const monthLabel = MONTHS[data.date.month] ?? '';
+  const sameDayMonths = data.same_day_other_months ?? [];
 
   return (
     <>
@@ -142,7 +157,7 @@ export function TodayInHistory() {
             <div className="text-left">
               <h3 className="text-sm font-bold text-white">Hoje na História</h3>
               <p className="text-[11px] text-white/70">
-                {data.date.day} de {monthLabel} — anos anteriores
+                Dia {data.date.day} · anos e meses anteriores
               </p>
             </div>
           </div>
@@ -198,7 +213,31 @@ export function TodayInHistory() {
             </div>
           )}
 
-          {/* Histórico por ano */}
+          {/* Abas: Anos anteriores vs Outros meses */}
+          <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+            <button
+              onClick={() => setActiveTab('years')}
+              className={cn(
+                'flex-1 text-[11px] font-semibold py-1.5 rounded-lg transition-all',
+                activeTab === 'years' ? 'bg-white text-violet-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              )}
+            >
+              📅 Anos anteriores ({data.years.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('months')}
+              className={cn(
+                'flex-1 text-[11px] font-semibold py-1.5 rounded-lg transition-all',
+                activeTab === 'months' ? 'bg-white text-violet-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              )}
+            >
+              🗓 Outros meses ({sameDayMonths.length})
+            </button>
+          </div>
+
+          {/* Aba: Histórico por ano */}
+          {activeTab === 'years' && (
+            <>
           {noHistory ? (
             <div className="flex flex-col items-center py-8 text-center">
               <CalendarDays size={32} className="text-gray-200 mb-2" />
@@ -208,7 +247,7 @@ export function TodayInHistory() {
           ) : (
             <div>
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <CalendarDays size={10} className="text-gray-400" /> Por ano
+                <CalendarDays size={10} className="text-gray-400" /> Dia {data.date.day} de {monthLabel} em anos anteriores
               </p>
               <div className="space-y-2">
                 {data.years.map(yr => (
@@ -266,6 +305,60 @@ export function TodayInHistory() {
               </div>
             </div>
           )}
+            </>
+          )}
+
+          {/* Aba: Mesmo dia em outros meses */}
+          {activeTab === 'months' && (
+            <div className="space-y-2">
+              {sameDayMonths.length === 0 ? (
+                <div className="flex flex-col items-center py-8 text-center">
+                  <CalendarDays size={32} className="text-gray-200 mb-2" />
+                  <p className="text-sm font-medium text-gray-400">Nenhum pedido no dia {data.date.day} em outros meses</p>
+                </div>
+              ) : (
+                <>
+                  <p className="text-[10px] text-gray-400 mb-3">
+                    Pedidos registrados no dia <strong>{data.date.day}</strong> em outros meses (anos anteriores)
+                  </p>
+                  {sameDayMonths.map((entry, i) => (
+                    <div key={i} className="border border-gray-100 rounded-xl overflow-hidden">
+                      <div className="flex items-center justify-between px-3 py-2.5 bg-gray-50">
+                        <div className="flex items-center gap-2">
+                          <CalendarDays size={12} className="text-violet-400" />
+                          <span className="text-xs font-bold text-gray-700">
+                            {entry.month_name} / {entry.year}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-[10px] text-gray-400">{entry.orders} pedidos</span>
+                          <span className="text-[10px] font-bold text-gray-600">{formatCurrency(entry.revenue)}</span>
+                        </div>
+                      </div>
+                      {entry.top_clients.length > 0 && (
+                        <div className="divide-y divide-gray-50">
+                          {entry.top_clients.map((c, j) => (
+                            <div key={j} className="flex items-center justify-between px-3 py-2 bg-white">
+                              <div className="flex items-center gap-2">
+                                <div className="w-5 h-5 rounded-full bg-violet-100 flex items-center justify-center shrink-0">
+                                  <span className="text-[8px] font-bold text-violet-600">
+                                    {(c.name ?? '?')[0].toUpperCase()}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] font-medium text-gray-700 truncate max-w-30">{c.name}</p>
+                              </div>
+                              <span className="text-[11px] font-bold text-gray-600">{formatCurrency(c.total)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
+
         </div>
         )}
       </div>

@@ -30,6 +30,7 @@ import { CalculateRFMButton } from '@/components/intelligence/CalculateRFMButton
 import { SeasonalInsights } from '@/components/intelligence/SeasonalInsights';
 import { ProductTrends } from '@/components/intelligence/ProductTrends';
 import { TodayInHistory } from '@/components/intelligence/TodayInHistory';
+import { MonthlyTrends } from '@/components/intelligence/MonthlyTrends';
 import type { ClientListItem } from '@/components/intelligence/ClientListDrawer';
 import { cn } from '@/lib/utils';
 
@@ -368,7 +369,10 @@ export default function IntelligencePage() {
               <ProductTrends />
             </div>
 
-            {/* Linha 5: Hoje na História */}
+            {/* Linha 5: Comportamento Mensal Histórico */}
+            <MonthlyTrends />
+
+            {/* Linha 6: Hoje na História */}
             <TodayInHistory />
 
             {/* Linha 5: Nota sobre estado */}
