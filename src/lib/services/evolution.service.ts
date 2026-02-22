@@ -545,8 +545,8 @@ export async function sendButtonsMessage(
     footer: footer || undefined,
     buttons: [
       {
-        type: 'copy_code',
-        copy_code: { code },
+        type: 'copy',
+        copy: { code },
       },
     ],
   };
