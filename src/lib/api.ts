@@ -8,6 +8,41 @@ import type { ApiResponse } from '@/types';
 const API_BASE_URL = '';
 
 /**
+ * Obtém o access token da sessão atual com retry.
+ *
+ * O Supabase pode lançar AbortError durante a hidratação inicial (race condition).
+ * Tentamos até 3 vezes com espera crescente antes de desistir.
+ */
+async function getAccessToken(): Promise<string | null> {
+  if (typeof window === 'undefined') return null;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) return session.access_token;
+
+      // Session veio null — forçar refresh (hidratação do storage)
+      const { data: refreshed } = await supabase.auth.refreshSession();
+      if (refreshed?.session?.access_token) return refreshed.session.access_token;
+
+      // Se não tem sessão ativa, não adianta tentar de novo
+      return null;
+    } catch (err: any) {
+      const isAbort = err?.name === 'AbortError' || err?.message?.includes('aborted');
+      if (isAbort && attempt < 2) {
+        // Espera 200ms, 400ms antes de nova tentativa
+        await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+        continue;
+      }
+      // Erro não-abort ou esgotou tentativas: loga e retorna null
+      console.error('❌ Erro ao obter sessão do Supabase:', err);
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
  * Classe helper para requisições à API.
  * Adiciona automaticamente headers e trata erros.
  */
@@ -27,24 +62,8 @@ class ApiClient {
   ): Promise<ApiResponse<T>> {
     const url = `${this.baseUrl}${endpoint}`;
 
-    // Buscar token da sessão ativa do Supabase
-    let accessToken: string | null = null;
-    if (typeof window !== 'undefined') {
-      try {
-        // Tentar getSession primeiro (rápido, usa cache)
-        const { data: { session } } = await supabase.auth.getSession();
-        accessToken = session?.access_token || null;
-
-        // Se session veio null, pode ser que o token ainda não foi hidratado.
-        // Tentar refreshSession para forçar a leitura do storage.
-        if (!accessToken) {
-          const { data: refreshed } = await supabase.auth.refreshSession();
-          accessToken = refreshed?.session?.access_token || null;
-        }
-      } catch (err) {
-        console.error('❌ Erro ao obter sessão do Supabase:', err);
-      }
-    }
+    // Buscar token da sessão ativa do Supabase (com retry anti-AbortError)
+    const accessToken = await getAccessToken();
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
