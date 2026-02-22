@@ -1,6 +1,7 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
+import { useState, useRef } from 'react';
 import {
   ArrowLeft,
   Phone,
@@ -8,6 +9,11 @@ import {
   Calendar,
   Edit2,
   MessageSquare,
+  Send,
+  X,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
   ShoppingBag,
   Tag,
   TrendingUp,
@@ -44,6 +50,13 @@ export default function ClienteDetalhe() {
   const router = useRouter();
   const clientId = params.id as string;
   const { data: clientData, isLoading } = useClient(clientId);
+
+  // Modal de envio de mensagem
+  const [showMsgModal, setShowMsgModal] = useState(false);
+  const [msgText, setMsgText] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [sendResult, setSendResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const msgRef = useRef<HTMLTextAreaElement>(null);
 
   if (isLoading) {
     return (
@@ -150,6 +163,35 @@ export default function ClienteDetalhe() {
   // Tags
   const tags = Array.isArray(c.tags) ? c.tags : [];
 
+  // Envio de mensagem WhatsApp
+  const openMsgModal = () => {
+    const firstName = (c.name || '').split(' ')[0];
+    setMsgText(`Olá, ${firstName}! 👋 Tudo bem? Entrei em contato para te dar uma novidade especial. Posso te ajudar?`);
+    setSendResult(null);
+    setShowMsgModal(true);
+    setTimeout(() => msgRef.current?.focus(), 100);
+  };
+
+  const handleSendMsg = async () => {
+    if (!msgText.trim() || !c.phone) return;
+    setIsSending(true);
+    setSendResult(null);
+    try {
+      const res = await fetch('/api/whatsapp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: c.phone, content: msgText.trim(), type: 'text', clientId: c.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erro ao enviar');
+      setSendResult({ ok: true, text: '✅ Mensagem enviada com sucesso!' });
+    } catch (err) {
+      setSendResult({ ok: false, text: `❌ ${err instanceof Error ? err.message : 'Erro ao enviar'}` });
+    } finally {
+      setIsSending(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -181,7 +223,7 @@ export default function ClienteDetalhe() {
         <Button variant="secondary">
           <Edit2 size={16} /> Editar
         </Button>
-        <Button variant="primary">
+        <Button variant="primary" onClick={openMsgModal} disabled={!c.phone}>
           <MessageSquare size={16} /> Mensagem
         </Button>
       </div>
@@ -419,6 +461,98 @@ export default function ClienteDetalhe() {
           )}
         </div>
       </div>
+
+      {/* ── Modal de Envio de Mensagem WhatsApp ──────────────── */}
+      {showMsgModal && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/50 z-50 backdrop-blur-sm"
+            onClick={() => !isSending && setShowMsgModal(false)}
+          />
+          <div className="fixed inset-0 z-51 flex items-center justify-center p-4 pointer-events-none">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden pointer-events-auto animate-in zoom-in-95 duration-200">
+              {/* Header */}
+              <div className="px-5 py-4 bg-linear-to-r from-green-600 to-emerald-700 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center">
+                    <MessageSquare size={16} className="text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white">Enviar Mensagem</h3>
+                    <p className="text-[11px] text-white/70">
+                      {c.name} · {c.phone}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowMsgModal(false)}
+                  disabled={isSending}
+                  className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
+                >
+                  <X size={16} className="text-white" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-5 space-y-4">
+                <div>
+                  <label className="text-xs font-semibold text-txt-secondary block mb-1.5">
+                    Mensagem
+                  </label>
+                  <textarea
+                    ref={msgRef}
+                    value={msgText}
+                    onChange={e => setMsgText(e.target.value)}
+                    rows={5}
+                    disabled={isSending}
+                    className="w-full border border-surface-border rounded-xl px-3 py-2.5 text-sm text-txt-primary resize-none focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:border-green-500 disabled:opacity-60"
+                    placeholder="Digite sua mensagem..."
+                  />
+                  <p className="text-[10px] text-txt-muted mt-1 text-right">{msgText.length} caracteres</p>
+                </div>
+
+                {/* Resultado do envio */}
+                {sendResult && (
+                  <div className={`flex items-center gap-2 p-3 rounded-xl text-sm ${
+                    sendResult.ok
+                      ? 'bg-green-50 border border-green-200 text-green-800'
+                      : 'bg-red-50 border border-red-200 text-red-800'
+                  }`}>
+                    {sendResult.ok
+                      ? <CheckCircle2 size={16} className="text-green-600 shrink-0" />
+                      : <AlertCircle size={16} className="text-red-600 shrink-0" />}
+                    {sendResult.text}
+                  </div>
+                )}
+
+                {/* Ações */}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={() => setShowMsgModal(false)}
+                    disabled={isSending}
+                    className="flex-1 py-2.5 rounded-xl border border-surface-border text-sm font-medium text-txt-secondary hover:bg-surface-50 transition-colors disabled:opacity-50"
+                  >
+                    {sendResult?.ok ? 'Fechar' : 'Cancelar'}
+                  </button>
+                  {!sendResult?.ok && (
+                    <button
+                      onClick={handleSendMsg}
+                      disabled={isSending || !msgText.trim()}
+                      className="flex-1 py-2.5 rounded-xl bg-green-600 hover:bg-green-700 text-white text-sm font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isSending ? (
+                        <><Loader2 size={14} className="animate-spin" /> Enviando...</>
+                      ) : (
+                        <><Send size={14} /> Enviar WhatsApp</>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
