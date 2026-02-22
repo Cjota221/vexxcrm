@@ -32,6 +32,7 @@ import {
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import type { CompositeTemplate, TemplateBlock, TemplateBlockType } from '@/types';
+import { WhatsAppTextEditor } from '@/components/campaigns/WhatsAppTextEditor';
 
 /* ─── Ícone por tipo de bloco ──────────────────────────────────── */
 
@@ -211,42 +212,50 @@ function NewTemplateEditor({ onSaved }: { onSaved: () => void }) {
       {/* Blocos */}
       <div className="space-y-2">
         {blocks.map((block, idx) => (
-          <div key={block.id} className="flex items-start gap-2 bg-gray-50 rounded-lg p-2 border border-gray-100">
-            <span className="text-[10px] text-gray-400 font-mono mt-1.5 shrink-0 w-4 text-center">{idx + 1}</span>
+          <div key={block.id} className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+            {/* Linha superior: número + tipo + botão remover */}
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-[10px] text-gray-400 font-mono shrink-0 w-4 text-center">{idx + 1}</span>
 
-            <select
-              value={block.type}
-              onChange={e => updateBlock(block.id, 'type', e.target.value)}
-              className="text-[11px] bg-white border border-gray-200 rounded-md px-1.5 py-1 outline-none shrink-0"
-            >
-              {(['text', 'image', 'video', 'audio', 'document', 'link'] as TemplateBlockType[]).map(t => (
-                <option key={t} value={t}>{BLOCK_LABEL[t]}</option>
-              ))}
-            </select>
+              <select
+                value={block.type}
+                onChange={e => updateBlock(block.id, 'type', e.target.value)}
+                className="text-[11px] bg-white border border-gray-200 rounded-md px-1.5 py-1 outline-none shrink-0"
+              >
+                {(['text', 'image', 'video', 'audio', 'document', 'link'] as TemplateBlockType[]).map(t => (
+                  <option key={t} value={t}>{BLOCK_LABEL[t]}</option>
+                ))}
+              </select>
 
+              <div className="flex-1" />
+
+              {blocks.length > 1 && (
+                <button
+                  onClick={() => removeBlock(block.id)}
+                  className="p-1 text-gray-300 hover:text-red-400 transition-colors shrink-0"
+                >
+                  <Trash2 size={12} />
+                </button>
+              )}
+            </div>
+
+            {/* Conteúdo do bloco */}
             {block.type === 'text' ? (
-              <textarea
-                className="flex-1 text-xs px-2 py-1 bg-white border border-gray-200 rounded-md outline-none focus:border-crm-primary resize-none h-14 placeholder:text-gray-400"
-                placeholder="Mensagem... use {{nome}}, {{produto}}, etc."
+              <WhatsAppTextEditor
                 value={block.content}
-                onChange={e => updateBlock(block.id, 'content', e.target.value)}
+                onChange={val => updateBlock(block.id, 'content', val)}
+                placeholder="Mensagem... use {{nome}}, {{produto}}, etc."
+                rows={3}
+                variables={['{{nome}}', '{{produto}}', '{{cidade}}', '{{estado}}', '{{pedido}}']}
+                showPreview={true}
               />
             ) : (
               <input
-                className="flex-1 text-xs px-2 py-1 bg-white border border-gray-200 rounded-md outline-none focus:border-crm-primary placeholder:text-gray-400"
+                className="w-full text-xs px-2 py-1 bg-white border border-gray-200 rounded-md outline-none focus:border-crm-primary placeholder:text-gray-400"
                 placeholder="URL da mídia ou link..."
                 value={block.media_url}
                 onChange={e => updateBlock(block.id, 'media_url', e.target.value)}
               />
-            )}
-
-            {blocks.length > 1 && (
-              <button
-                onClick={() => removeBlock(block.id)}
-                className="p-1 text-gray-300 hover:text-red-400 transition-colors shrink-0"
-              >
-                <Trash2 size={12} />
-              </button>
             )}
           </div>
         ))}
