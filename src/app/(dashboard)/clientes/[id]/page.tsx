@@ -68,6 +68,8 @@ export default function ClienteDetalhe() {
 
   // Anne IA
   const { sendMessage: askAnne, isLoading: isAnneLoading } = useAnne();
+  // 'suggest' = criar do zero | 'improve' = melhorar texto atual | null = idle
+  const [anneAction, setAnneAction] = useState<'suggest' | 'improve' | null>(null);
 
   // Imagem/mídia
   const [showMediaInput, setShowMediaInput] = useState(false);
@@ -195,12 +197,14 @@ export default function ClienteDetalhe() {
     setCouponCode('');
     setCouponFooter('');
     setCouponCopied(false);
+    setAnneAction(null);
     setShowMsgModal(true);
     setTimeout(() => msgRef.current?.focus(), 100);
   };
 
-  // Anne sugere mensagem personalizada para este cliente
+  // Anne sugere mensagem do zero baseada no perfil do cliente
   const handleAnneSuggest = async () => {
+    setAnneAction('suggest');
     try {
       const result = await askAnne({
         message: `Analise este cliente e crie UMA mensagem de WhatsApp personalizada e persuasiva para enviar agora. Considere o histórico de compras, LTV, segmento RFM e última compra. Escreva APENAS a mensagem, sem título, sem explicação, sem aspas. Use emojis com moderação. Máximo 300 caracteres.`,
@@ -212,6 +216,28 @@ export default function ClienteDetalhe() {
       }
     } catch {
       // silencioso — mantém texto atual
+    } finally {
+      setAnneAction(null);
+    }
+  };
+
+  // Anne melhora o texto que o usuário já escreveu
+  const handleAnneImprove = async () => {
+    if (!msgText.trim()) return;
+    setAnneAction('improve');
+    try {
+      const result = await askAnne({
+        message: `Melhore esta mensagem de WhatsApp para o cliente, tornando-a mais persuasiva, natural e adequada ao perfil dele. Mantenha a ideia central do texto original. Responda APENAS com a mensagem melhorada, sem explicações, sem aspas, sem título. Use emojis com moderação. Máximo 350 caracteres.\n\nMensagem original:\n"${msgText.trim()}"`,
+        context: { client_id: c.id },
+      });
+      if (result?.reply) {
+        setMsgText(result.reply.trim());
+        setTimeout(() => msgRef.current?.focus(), 100);
+      }
+    } catch {
+      // silencioso — mantém texto original
+    } finally {
+      setAnneAction(null);
     }
   };
 
@@ -573,27 +599,48 @@ export default function ClienteDetalhe() {
               <div className="p-5 space-y-4">
 
                 {/* ── Anne IA ───────────────────────── */}
-                <div className="bg-linear-to-r from-violet-50 to-purple-50 border border-violet-200 rounded-xl p-3 flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center shrink-0 mt-0.5">
-                    <Sparkles size={14} className="text-white" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-violet-800">Anne IA</p>
-                    <p className="text-[11px] text-violet-600 leading-snug mt-0.5">
-                      Analisa o histórico deste cliente (LTV, pedidos, segmento) e sugere uma mensagem personalizada.
-                    </p>
-                  </div>
-                  <button
-                    onClick={handleAnneSuggest}
-                    disabled={isAnneLoading || isSending}
-                    className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 disabled:bg-violet-400 text-white text-xs font-semibold rounded-lg transition-colors"
-                  >
-                    {isAnneLoading ? (
-                      <><Loader2 size={11} className="animate-spin" /> Gerando...</>
-                    ) : (
-                      <><Sparkles size={11} /> Sugerir</>
+                <div className="bg-linear-to-r from-violet-50 to-purple-50 border border-violet-200 rounded-xl p-3 space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-lg bg-violet-600 flex items-center justify-center shrink-0">
+                      <Sparkles size={12} className="text-white" />
+                    </div>
+                    <p className="text-xs font-semibold text-violet-800 flex-1">Anne IA</p>
+                    {anneAction && (
+                      <span className="text-[10px] text-violet-500 flex items-center gap-1">
+                        <Loader2 size={10} className="animate-spin" />
+                        {anneAction === 'suggest' ? 'Criando mensagem...' : 'Melhorando...'}
+                      </span>
                     )}
-                  </button>
+                  </div>
+                  <div className="flex gap-2">
+                    {/* Sugerir do zero */}
+                    <button
+                      onClick={handleAnneSuggest}
+                      disabled={isAnneLoading || isSending}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-violet-600 hover:bg-violet-700 disabled:bg-violet-300 text-white text-xs font-semibold rounded-lg transition-colors"
+                      title="Anne analisa o perfil do cliente e cria uma mensagem do zero"
+                    >
+                      {anneAction === 'suggest'
+                        ? <><Loader2 size={11} className="animate-spin" /> Criando...</>
+                        : <><Sparkles size={11} /> Sugerir mensagem</>}
+                    </button>
+                    {/* Melhorar texto atual */}
+                    <button
+                      onClick={handleAnneImprove}
+                      disabled={isAnneLoading || isSending || !msgText.trim()}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-white hover:bg-violet-50 border border-violet-300 disabled:opacity-40 text-violet-700 text-xs font-semibold rounded-lg transition-colors"
+                      title="Anne melhora o texto que você já escreveu, mantendo sua ideia"
+                    >
+                      {anneAction === 'improve'
+                        ? <><Loader2 size={11} className="animate-spin" /> Melhorando...</>
+                        : <><Sparkles size={11} /> Melhorar meu texto</>}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-violet-500 leading-snug">
+                    {!msgText.trim()
+                      ? '✨ Clique em "Sugerir" para a Anne criar uma mensagem personalizada.'
+                      : '✍️ Você escreveu algo? Clique em "Melhorar" e a Anne refina sua ideia.'}
+                  </p>
                 </div>
 
                 {/* ── Textarea (mensagem / caption) ── */}
