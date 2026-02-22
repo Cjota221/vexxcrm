@@ -178,11 +178,16 @@ export async function criarJobsCampanha(
   destinatarios: ContatoJob[],
   blocos: Bloco[]
 ): Promise<{ total: number; error?: string }> {
+  // UUID v4 regex — IDs de grupo WhatsApp (ex: "120363396867760724@g.us") não são UUIDs válidos
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
   const agora = new Date().toISOString();
   const jobs = destinatarios.map((c, i) => ({
     campanha_id: campanhaId,
     tenant_id: tenantId,
-    contato_id: c.id,
+    // Grupos WhatsApp têm id no formato "120363396867760724@g.us" — não é UUID.
+    // Nesses casos, contato_id deve ser null (coluna aceita null).
+    contato_id: c.id && UUID_RE.test(c.id) ? c.id : null,
     contato_telefone: c.telefone,
     contato_nome: c.nome ?? null,
     blocos,

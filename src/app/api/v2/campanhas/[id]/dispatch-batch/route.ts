@@ -166,83 +166,87 @@ export async function POST(request: NextRequest, { params }: { params: Params })
 
         // ━━━ UPSERT CONTATO + GRAVAR MENSAGEM NO BANCO ━━━
         // Garante que o contato existe e a mensagem enviada aparece no painel
+        // SKIP: grupos WhatsApp (id @g.us) não são clientes individuais
+        const isGrupo = job.contato_telefone?.includes('@g.us');
         try {
-          const phoneNorm = PhoneNormalizer.canonical(job.contato_telefone);
-          const phoneDisplay = PhoneNormalizer.normalize(job.contato_telefone);
+          if (!isGrupo) {
+            const phoneNorm = PhoneNormalizer.canonical(job.contato_telefone);
+            const phoneDisplay = PhoneNormalizer.normalize(job.contato_telefone);
 
-          // Upsert cliente
-          const { data: client } = await supabase
-            .from('clients')
-            .upsert(
-              {
-                tenant_id: tenantId,
-                phone: phoneDisplay,
-                phone_normalized: phoneNorm,
-                name: job.contato_nome || phoneDisplay,
-              },
-              { onConflict: 'tenant_id,phone_normalized', ignoreDuplicates: false }
-            )
-            .select('id')
-            .single();
-
-          if (client) {
-            // Buscar ou criar conversa
-            let convId: string | null = null;
-            const { data: conv } = await supabase
-              .from('conversations')
+            // Upsert cliente
+            const { data: client } = await supabase
+              .from('clients')
+              .upsert(
+                {
+                  tenant_id: tenantId,
+                  phone: phoneDisplay,
+                  phone_normalized: phoneNorm,
+                  name: job.contato_nome || phoneDisplay,
+                },
+                { onConflict: 'tenant_id,phone_normalized', ignoreDuplicates: false }
+              )
               .select('id')
-              .eq('tenant_id', tenantId)
-              .eq('client_id', client.id)
-              .eq('channel', 'whatsapp')
               .single();
 
-            if (conv) {
-              convId = conv.id;
-            } else {
-              const { data: newConv } = await supabase
+            if (client) {
+              // Buscar ou criar conversa
+              let convId: string | null = null;
+              const { data: conv } = await supabase
                 .from('conversations')
-                .insert({ tenant_id: tenantId, client_id: client.id, channel: 'whatsapp', status: 'open' })
                 .select('id')
+                .eq('tenant_id', tenantId)
+                .eq('client_id', client.id)
+                .eq('channel', 'whatsapp')
                 .single();
-              convId = newConv?.id || null;
-            }
 
-            if (convId) {
-              // Extrair conteúdo resumido dos blocos para salvar
-              const textoResumo = blocosResolvidos
-                .filter(b => b.tipo === 'texto' || b.tipo === 'cta')
-                .map(b => b.conteudo.texto_formatado || b.conteudo.texto_raw || b.conteudo.texto_botao || '')
-                .filter(Boolean)
-                .join('\n')
-                .substring(0, 500) || `[Campanha: ${campanha.name}]`;
-
-              const msgType = envioResult.primeiraMediaUrl ? envioResult.primeiroTipo : 'text';
-
-              const msgPayload = {
-                tenant_id: tenantId,
-                conversation_id: convId,
-                client_id: client.id,
-                external_id: externalId ?? undefined,
-                direction: 'outbound' as const,
-                sender_name: 'Campanha',
-                content: textoResumo,
-                type: msgType,
-                media_url: envioResult.primeiraMediaUrl || null,
-                status: 'sent',
-                created_at: new Date().toISOString(),
-              };
-
-              // Upsert apenas se temos external_id (evita duplicata com webhook).
-              // Se não temos ID (falha na Evolution API), inserir normalmente.
-              if (externalId) {
-                await supabase
-                  .from('messages')
-                  .upsert(msgPayload, { onConflict: 'tenant_id,external_id', ignoreDuplicates: true });
+              if (conv) {
+                convId = conv.id;
               } else {
-                await supabase.from('messages').insert(msgPayload);
+                const { data: newConv } = await supabase
+                  .from('conversations')
+                  .insert({ tenant_id: tenantId, client_id: client.id, channel: 'whatsapp', status: 'open' })
+                  .select('id')
+                  .single();
+                convId = newConv?.id || null;
+              }
+
+              if (convId) {
+                // Extrair conteúdo resumido dos blocos para salvar
+                const textoResumo = blocosResolvidos
+                  .filter(b => b.tipo === 'texto' || b.tipo === 'cta')
+                  .map(b => b.conteudo.texto_formatado || b.conteudo.texto_raw || b.conteudo.texto_botao || '')
+                  .filter(Boolean)
+                  .join('\n')
+                  .substring(0, 500) || `[Campanha: ${campanha.name}]`;
+
+                const msgType = envioResult.primeiraMediaUrl ? envioResult.primeiroTipo : 'text';
+
+                const msgPayload = {
+                  tenant_id: tenantId,
+                  conversation_id: convId,
+                  client_id: client.id,
+                  external_id: externalId ?? undefined,
+                  direction: 'outbound' as const,
+                  sender_name: 'Campanha',
+                  content: textoResumo,
+                  type: msgType,
+                  media_url: envioResult.primeiraMediaUrl || null,
+                  status: 'sent',
+                  created_at: new Date().toISOString(),
+                };
+
+                // Upsert apenas se temos external_id (evita duplicata com webhook).
+                // Se não temos ID (falha na Evolution API), inserir normalmente.
+                if (externalId) {
+                  await supabase
+                    .from('messages')
+                    .upsert(msgPayload, { onConflict: 'tenant_id,external_id', ignoreDuplicates: true });
+                } else {
+                  await supabase.from('messages').insert(msgPayload);
+                }
               }
             }
-          }
+          } // end if (!isGrupo)
         } catch (upsertErr) {
           // Não falhar o envio se o upsert/gravação falhar
           console.warn(`[DISPATCH_BATCH] Upsert/DB para ${job.contato_telefone}:`, upsertErr);
