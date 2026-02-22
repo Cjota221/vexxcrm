@@ -121,14 +121,15 @@ export async function POST(request: NextRequest) {
               email: c.email || null,
               source: 'facilzap',
               status: clientStatus,
-              // Dados de endereço (pode vir em vários campos)
-              address_city: c.cidade || c.city || null,
-              address_state: c.estado || c.state || c.uf || null,
-              address_zip: c.cep || c.zip || c.codigo_postal || null,
-              address_neighborhood: c.bairro || c.neighborhood || null,
-              address_street: c.endereco || c.logradouro || c.rua || null,
-              address_number: c.numero || c.number || null,
-              address_complement: c.complemento || null,
+              // Dados de endereço — nível raiz da API tem prioridade;
+              // fallback: extrair de demais_dados (JSON salvo pelo FacilZap)
+              address_city: c.cidade || c.city || (() => { try { const dd = typeof c.demais_dados === 'string' ? JSON.parse(c.demais_dados) : (c.demais_dados || {}); return dd.cidade || null; } catch { return null; } })() || null,
+              address_state: c.estado || c.state || c.uf || (() => { try { const dd = typeof c.demais_dados === 'string' ? JSON.parse(c.demais_dados) : (c.demais_dados || {}); return dd.estado || dd.uf || null; } catch { return null; } })() || null,
+              address_zip: c.cep || c.zip || c.codigo_postal || (() => { try { const dd = typeof c.demais_dados === 'string' ? JSON.parse(c.demais_dados) : (c.demais_dados || {}); return dd.cep || null; } catch { return null; } })() || null,
+              address_neighborhood: c.bairro || c.neighborhood || (() => { try { const dd = typeof c.demais_dados === 'string' ? JSON.parse(c.demais_dados) : (c.demais_dados || {}); return dd.bairro || null; } catch { return null; } })() || null,
+              address_street: c.endereco || c.logradouro || c.rua || (() => { try { const dd = typeof c.demais_dados === 'string' ? JSON.parse(c.demais_dados) : (c.demais_dados || {}); return dd.endereco || dd.rua || dd.logradouro || null; } catch { return null; } })() || null,
+              address_number: c.numero || c.number || (() => { try { const dd = typeof c.demais_dados === 'string' ? JSON.parse(c.demais_dados) : (c.demais_dados || {}); return dd.numero || null; } catch { return null; } })() || null,
+              address_complement: c.complemento || (() => { try { const dd = typeof c.demais_dados === 'string' ? JSON.parse(c.demais_dados) : (c.demais_dados || {}); return dd.complemento || null; } catch { return null; } })() || null,
               // Notas com dados ricos
               notes: c.observacoes || null,
               // Metadata completa do FacilZap
