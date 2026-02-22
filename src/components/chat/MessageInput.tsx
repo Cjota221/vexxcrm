@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Paperclip, Smile, Mic, X, Image, FileText, Video, Loader2, Zap, Square, MapPin, Coins, User, ChevronUp, Copy } from 'lucide-react';
+import { Send, Paperclip, Smile, Mic, X, Image, FileText, Video, Loader2, Zap, Square, MapPin, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { TemplatesFloatingPanel } from './TemplatesFloatingPanel';
@@ -78,15 +78,7 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [emojiCategory, setEmojiCategory] = useState(0);
-  const [pixModalOpen, setPixModalOpen] = useState(false);
-  const [pixKey, setPixKey] = useState('');
-  const [pixKeyType, setPixKeyType] = useState<'cpf' | 'cnpj' | 'email' | 'telefone' | 'aleatoria'>('aleatoria');
-  const [pixAmount, setPixAmount] = useState('');
-  const [pixName, setPixName] = useState('');
-  const [pixIsSending, setPixIsSending] = useState(false);
-  const [pixSendResult, setPixSendResult] = useState<{ ok: boolean; msg: string } | null>(null);
-  const [copyCodeOpen, setCopyCodeOpen] = useState(false);
-  const [copyCodeValue, setCopyCodeValue] = useState('');
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileDocInputRef = useRef<HTMLInputElement>(null);
@@ -115,23 +107,6 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
       if (filePreview) URL.revokeObjectURL(filePreview);
     };
   }, [filePreview]);
-
-  // Ao abrir o modal Pix: pré-preencher com a chave salva nas configurações do tenant
-  useEffect(() => {
-    if (!pixModalOpen) return;
-    setPixSendResult(null);
-    api.get<{ pix?: { key?: string; keyType?: string; holderName?: string } }>('/api/tenants/config')
-      .then(({ data }) => {
-        const pix = data?.pix;
-        if (pix?.key) {
-          setPixKey(pix.key);
-          setPixKeyType((pix.keyType as 'email' | 'cnpj' | 'cpf' | 'telefone' | 'aleatoria') || 'aleatoria');
-          setPixName(pix.holderName || recipientName || '');
-        }
-      })
-      .catch(() => {/* silent — usuário pode preencher manualmente */});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pixModalOpen]);
 
   // Fechar menu de anexos ao clicar fora
   useEffect(() => {
@@ -267,59 +242,6 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
       }
     );
   }, [onSend]);
-
-  // Envia Pix como card de contato vCard — WhatsApp renderiza com botão "Copiar chave Pix"
-  const handleSendPix = useCallback(async () => {
-    if (!pixKey.trim() || !recipientPhone) return;
-    setPixIsSending(true);
-    setPixSendResult(null);
-    try {
-      const { data, error } = await api.post('/api/whatsapp/send', {
-        to: recipientPhone,
-        type: 'pix',
-        content: `Chave Pix: ${pixKey.trim()}`,   // fallback para histórico
-        pixKey: pixKey.trim(),
-        pixKeyType,
-        holderName: pixName.trim() || undefined,
-        pixOrganization: pixName.trim() || undefined,
-        clientId: clientId || undefined,
-      });
-      if (error) throw new Error(error);
-      setPixSendResult({ ok: true, msg: '✅ Chave Pix enviada com sucesso!' });
-      // Fechar modal após 1.5s
-      setTimeout(() => {
-        setPixModalOpen(false);
-        setPixKey('');
-        setPixAmount('');
-        setPixName('');
-        setPixSendResult(null);
-      }, 1500);
-    } catch (err) {
-      setPixSendResult({ ok: false, msg: `❌ ${err instanceof Error ? err.message : 'Erro ao enviar'}` });
-    } finally {
-      setPixIsSending(false);
-    }
-  }, [pixKey, pixKeyType, pixName, pixAmount, recipientPhone, clientId]);
-
-  // Envia botão copy_code via Evolution API /message/sendButtons
-  const handleSendCopyCode = useCallback(async () => {
-    if (!copyCodeValue.trim() || !recipientPhone) return;
-    try {
-      const { error } = await api.post('/api/whatsapp/send', {
-        to: recipientPhone,
-        type: 'copy_code',
-        content: text.trim() || '📋 Toque para copiar seu código:',
-        copyCode: copyCodeValue.trim(),
-        clientId: clientId || undefined,
-      });
-      if (error) throw new Error(error);
-      setCopyCodeOpen(false);
-      setCopyCodeValue('');
-      setText('');
-    } catch (err) {
-      alert(`Erro ao enviar: ${err instanceof Error ? err.message : 'tente novamente'}`);
-    }
-  }, [copyCodeValue, recipientPhone, text, clientId]);
 
   // ── Audio recording handlers ──
   const startRecording = useCallback(async () => {
@@ -510,121 +432,6 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
         />
       )}
 
-      {/* ── Modal Pix ── */}
-      {pixModalOpen && (
-        <>
-          <div
-            className="fixed inset-0 bg-black/40 z-50 backdrop-blur-sm"
-            onClick={() => setPixModalOpen(false)}
-          />
-          <div className="fixed inset-0 z-51 flex items-end sm:items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
-              <div className="px-5 py-4 bg-linear-to-r from-crm-primary to-[#0a2540] flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Coins size={18} className="text-white" />
-                  <h3 className="text-sm font-bold text-white">Compartilhar Chave Pix</h3>
-                </div>
-                <button onClick={() => setPixModalOpen(false)} className="p-1 hover:bg-white/20 rounded-lg">
-                  <X size={16} className="text-white" />
-                </button>
-              </div>
-              <div className="p-5 space-y-3">
-                {/* Tipo de chave */}
-                <div>
-                  <label className="text-xs font-medium text-gray-500 mb-1 block">Tipo de chave</label>
-                  <select
-                    value={pixKeyType}
-                    onChange={e => setPixKeyType(e.target.value as typeof pixKeyType)}
-                    className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-crm-primary/30"
-                  >
-                    <option value="cpf">CPF</option>
-                    <option value="cnpj">CNPJ</option>
-                    <option value="email">E-mail</option>
-                    <option value="telefone">Telefone</option>
-                    <option value="aleatoria">Chave aleatória</option>
-                  </select>
-                </div>
-                {/* Chave */}
-                <div>
-                  <label className="text-xs font-medium text-gray-500 mb-1 block">Chave Pix</label>
-                  <input
-                    type="text"
-                    value={pixKey}
-                    onChange={e => setPixKey(e.target.value)}
-                    placeholder={
-                      pixKeyType === 'cpf' ? '000.000.000-00' :
-                      pixKeyType === 'cnpj' ? '00.000.000/0000-00' :
-                      pixKeyType === 'email' ? 'email@exemplo.com' :
-                      pixKeyType === 'telefone' ? '+55 (11) 99999-9999' :
-                      'Cole a chave aleatória aqui'
-                    }
-                    className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-crm-primary/30"
-                    autoFocus
-                  />
-                </div>
-                {/* Titular (opcional) */}
-                <div>
-                  <label className="text-xs font-medium text-gray-500 mb-1 block">Titular <span className="text-gray-300">(opcional)</span></label>
-                  <input
-                    type="text"
-                    value={pixName}
-                    onChange={e => setPixName(e.target.value)}
-                    placeholder={recipientName || 'Nome do recebedor'}
-                    className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-crm-primary/30"
-                  />
-                </div>
-                {/* Valor (opcional) */}
-                <div>
-                  <label className="text-xs font-medium text-gray-500 mb-1 block">Valor <span className="text-gray-300">(opcional)</span></label>
-                  <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-crm-primary/30">
-                    <span className="px-3 text-sm text-gray-400 bg-gray-50 border-r border-gray-200 py-2">R$</span>
-                    <input
-                      type="text"
-                      value={pixAmount}
-                      onChange={e => setPixAmount(e.target.value.replace(/[^0-9,.]/g, ''))}
-                      placeholder="0,00"
-                      className="flex-1 text-sm px-3 py-2 focus:outline-none bg-transparent"
-                    />
-                  </div>
-                </div>
-
-                {/* Aviso: envio como card nativo */}
-                <div className="flex items-start gap-2 p-2.5 bg-amber-50 border border-amber-100 rounded-xl">
-                  <Coins size={13} className="text-amber-500 shrink-0 mt-0.5" />
-                  <p className="text-[11px] text-amber-700">
-                    Enviado como <strong>card de contato</strong> — o WhatsApp exibe o botão nativo "Copiar chave Pix".
-                  </p>
-                </div>
-
-                {/* Resultado do envio */}
-                {pixSendResult && (
-                  <div className={`p-3 rounded-xl text-sm font-medium ${pixSendResult.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
-                    {pixSendResult.msg}
-                  </div>
-                )}
-
-                <div className="flex gap-3 pt-1">
-                  <button
-                    onClick={() => setPixModalOpen(false)}
-                    className="flex-1 py-2.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={handleSendPix}
-                    disabled={!pixKey.trim() || pixIsSending || pixSendResult?.ok}
-                    className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-white bg-crm-primary rounded-xl hover:bg-[#163058] disabled:opacity-40"
-                  >
-                    {pixIsSending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                    {pixIsSending ? 'Enviando...' : 'Enviar Pix'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
-
       <div className="flex items-end gap-2">
         {/* ── Emoji Picker ── */}
         <div ref={emojiPickerRef} className="relative">
@@ -737,33 +544,6 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
                 </div>
               </button>
 
-              {/* Chave Pix */}
-              <button
-                onClick={() => { setAttachMenuOpen(false); setPixName(recipientName || ''); setPixModalOpen(true); }}
-                className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-50 text-left w-full transition-colors"
-              >
-                <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
-                  <Coins size={16} className="text-amber-600" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-800">Chave Pix</p>
-                  <p className="text-[10px] text-gray-400">Compartilhar dados de pagamento</p>
-                </div>
-              </button>
-
-              {/* Botão Copiar Código */}
-              <button
-                onClick={() => { setAttachMenuOpen(false); setCopyCodeOpen(v => !v); }}
-                className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-50 text-left w-full transition-colors"
-              >
-                <div className="w-8 h-8 rounded-full bg-teal-100 flex items-center justify-center shrink-0">
-                  <Copy size={16} className="text-teal-600" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-800">Copiar Código</p>
-                  <p className="text-[10px] text-gray-400">Cupom, código de rastreio...</p>
-                </div>
-              </button>
             </div>
           )}
         </div>
@@ -802,43 +582,12 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
 
         {/* Input */}
         <div className="flex-1 bg-wa-bg-input rounded-xl px-3 py-1.5 md:px-4 md:py-2">
-          {/* Painel inline copy_code */}
-          {copyCodeOpen && (
-            <div className="flex items-center gap-2 mb-1.5 pb-1.5 border-b border-wa-border">
-              <Copy size={13} className="text-teal-600 shrink-0" />
-              <input
-                type="text"
-                value={copyCodeValue}
-                onChange={e => setCopyCodeValue(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSendCopyCode(); } if (e.key === 'Escape') { setCopyCodeOpen(false); setCopyCodeValue(''); } }}
-                placeholder="Código (ex: VEXX20)"
-                className="flex-1 bg-transparent text-sm font-mono text-wa-text-primary placeholder:text-wa-text-secondary outline-none"
-                autoFocus
-              />
-              {copyCodeValue.trim() && (
-                <button
-                  onClick={handleSendCopyCode}
-                  className="p-1 rounded-full bg-teal-600 hover:bg-teal-700 transition-colors"
-                  title="Enviar código"
-                >
-                  <Send size={12} className="text-white" />
-                </button>
-              )}
-              <button
-                onClick={() => { setCopyCodeOpen(false); setCopyCodeValue(''); }}
-                className="p-1 text-wa-text-secondary hover:text-red-400 rounded-full transition-colors"
-                title="Cancelar"
-              >
-                <X size={13} />
-              </button>
-            </div>
-          )}
           <textarea
             ref={textareaRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={copyCodeOpen ? 'Texto da mensagem (opcional)' : 'Digite uma mensagem'}
+            placeholder="Digite uma mensagem"
             rows={1}
             disabled={disabled}
             className="w-full bg-transparent text-sm text-wa-text-primary placeholder:text-wa-text-secondary outline-none resize-none max-h-24 md:max-h-28"

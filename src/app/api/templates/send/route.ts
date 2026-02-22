@@ -9,9 +9,10 @@ import type { TemplateBlock } from '@/types';
  * POST /api/templates/send
  *
  * Envia um template composto (multi-bubble) para um destinatário.
- * Cada bloco é disparado em sequência com um delay humano entre eles.
+ * Cada bloco é disparado em sequência com delay humano E salvo no banco de
+ * dados (tabela `messages`) para aparecer no painel de atendimento.
  *
- * Body: { templateId, to, variables?: Record<string, string> }
+ * Body: { templateId, to, variables?: Record<string, string>, clientId?: string }
  */
 export async function POST(request: NextRequest) {
   try {
@@ -20,10 +21,11 @@ export async function POST(request: NextRequest) {
     const config = getTenantEvolutionConfig(tenantId);
 
     const body = await request.json();
-    const { templateId, to, variables = {} } = body as {
+    const { templateId, to, variables = {}, clientId: clientIdFromBody } = body as {
       templateId: string;
       to: string;
       variables?: Record<string, string>;
+      clientId?: string;
     };
 
     if (!templateId || !to) {
@@ -33,7 +35,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Buscar template na tabela correta (message_templates)
+    // ── Buscar template ──────────────────────────────────────────
     const { data: template, error: tplErr } = await supabase
       .from('message_templates')
       .select('*')
@@ -48,7 +50,8 @@ export async function POST(request: NextRequest) {
     }
 
     const phoneNormalized = PhoneNormalizer.canonical(to);
-    // message_templates usa campo `blocos` (não `blocks`)
+
+    // ── Normalizar blocos ────────────────────────────────────────
     const rawBlocks = (template.blocos ?? template.blocks ?? []) as Array<Record<string, unknown>>;
     const blocks: TemplateBlock[] = rawBlocks
       .map((b, i) => ({
@@ -57,40 +60,108 @@ export async function POST(request: NextRequest) {
         order: (b.order as number) ?? i,
         content: (b.content ?? b.conteudo ?? b.texto) as string | undefined,
         media_url: (b.media_url ?? b.url) as string | undefined,
-        image_url: (b.image_url) as string | undefined,
+        image_url: b.image_url as string | undefined,
         media_caption: (b.media_caption ?? b.caption ?? b.legenda) as string | undefined,
-        image_caption: (b.image_caption) as string | undefined,
+        image_caption: b.image_caption as string | undefined,
         link_url: (b.link_url ?? b.url) as string | undefined,
         link_title: (b.link_title ?? b.titulo) as string | undefined,
-        cta_url: (b.cta_url) as string | undefined,
-        cta_label: (b.cta_label) as string | undefined,
-        delay_ms: (b.delay_ms as number) ?? undefined,
+        cta_url: b.cta_url as string | undefined,
+        cta_label: b.cta_label as string | undefined,
+        delay_ms: b.delay_ms as number | undefined,
       } as TemplateBlock))
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
-    // Substituir variáveis: {{nome}} → valor
     const interpolate = (str?: string) => {
       if (!str) return str;
       return str.replace(/\{\{(\w+)\}\}/g, (_, key) => variables[key] ?? `{{${key}}}`);
     };
 
+    // ── Resolver cliente e conversa ──────────────────────────────
+    let clientId: string | undefined;
+
+    if (clientIdFromBody) {
+      const { data: valid } = await supabase
+        .from('clients').select('id')
+        .eq('tenant_id', tenantId).eq('id', clientIdFromBody).single();
+      if (valid) clientId = valid.id;
+    }
+
+    if (!clientId) {
+      const { data: byPhone } = await supabase
+        .from('clients').select('id')
+        .eq('tenant_id', tenantId)
+        .eq('phone_normalized', phoneNormalized)
+        .single();
+      clientId = byPhone?.id;
+    }
+
+    if (!clientId) {
+      const phoneDisplay = PhoneNormalizer.normalize(to);
+      const { data: newClient } = await supabase
+        .from('clients')
+        .upsert(
+          { tenant_id: tenantId, phone: phoneDisplay, phone_normalized: phoneNormalized, name: phoneDisplay },
+          { onConflict: 'tenant_id,phone_normalized', ignoreDuplicates: false }
+        )
+        .select('id').single();
+      clientId = newClient?.id;
+    }
+
+    // Buscar ou criar conversa
+    let conversationId: string | undefined;
+    if (clientId) {
+      const { data: convs } = await supabase
+        .from('conversations').select('id')
+        .eq('tenant_id', tenantId)
+        .eq('client_id', clientId)
+        .eq('channel', 'whatsapp')
+        .order('last_message_at', { ascending: false, nullsFirst: false })
+        .limit(1);
+
+      if (convs?.[0]) {
+        conversationId = convs[0].id;
+      } else {
+        const { data: newConv } = await supabase
+          .from('conversations')
+          .insert({ tenant_id: tenantId, client_id: clientId, channel: 'whatsapp', status: 'open' })
+          .select('id').single();
+        conversationId = newConv?.id;
+      }
+    }
+
+    // ── Enviar blocos ────────────────────────────────────────────
     const results: Array<{ blockId: string; messageId: string; status: 'sent' | 'error'; error?: string }> = [];
+    let lastContent = '';
+    let lastType = 'text';
+    let lastMediaUrl: string | undefined;
 
     for (const block of blocks) {
-      // Delay humano entre blocos (exceto o primeiro)
-      const delayMs = block.delay_ms ?? (results.length === 0 ? 0 : 1000);
-      if (delayMs > 0) {
-        await new Promise(r => setTimeout(r, delayMs));
-      }
+      const delayMs = block.delay_ms ?? (results.length === 0 ? 0 : 1200);
+      if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
 
       try {
         let messageId: string;
+        let msgContent = '';
+        let msgType = 'text';
+        let msgMediaUrl: string | undefined;
+        let msgMetadata: Record<string, unknown> | undefined;
 
         switch (block.type) {
           case 'text': {
-            const content = interpolate(block.content) || '';
-            if (!content.trim()) { results.push({ blockId: block.id, messageId: '', status: 'error', error: 'Bloco vazio' }); continue; }
-            messageId = await sendTextMessage(config, phoneNormalized, content);
+            msgContent = interpolate(block.content) || '';
+            if (!msgContent.trim()) { results.push({ blockId: block.id, messageId: '', status: 'error', error: 'Bloco vazio' }); continue; }
+            msgType = 'text';
+            messageId = await sendTextMessage(config, phoneNormalized, msgContent);
+            break;
+          }
+
+          case 'copy_code': {
+            const code = interpolate((block as any).copy_code || block.content) || '';
+            const text = interpolate((block as any).text || '') || '📋 Toque para copiar seu código:';
+            msgContent = text;
+            msgType = 'copy_code';
+            msgMetadata = { copy_code: code };
+            messageId = await sendTextMessage(config, phoneNormalized, `${text}\n\`${code}\``);
             break;
           }
 
@@ -98,21 +169,24 @@ export async function POST(request: NextRequest) {
           case 'video':
           case 'audio':
           case 'document': {
-            const url = block.media_url || block.image_url;
+            const url = block.media_url || block.image_url || '';
             if (!url) { results.push({ blockId: block.id, messageId: '', status: 'error', error: 'URL de mídia ausente' }); continue; }
-            const caption = interpolate(block.media_caption || block.image_caption);
-            messageId = await sendMediaMessage(config, phoneNormalized, url, caption || '', block.type as 'image' | 'video' | 'audio' | 'document');
+            const caption = interpolate(block.media_caption || block.image_caption) || '';
+            msgContent = caption;
+            msgType = block.type;
+            msgMediaUrl = url;
+            messageId = await sendMediaMessage(config, phoneNormalized, url, caption, block.type as 'image' | 'video' | 'audio' | 'document');
             break;
           }
 
           case 'link':
           case 'cta': {
-            // Enviar como texto formatado
             const label = interpolate(block.link_title || block.cta_label) || '';
             const url = interpolate(block.link_url || block.cta_url) || '';
-            const content = label ? `${label}\n${url}` : url;
-            if (!content.trim()) { results.push({ blockId: block.id, messageId: '', status: 'error', error: 'Link vazio' }); continue; }
-            messageId = await sendTextMessage(config, phoneNormalized, content);
+            msgContent = label ? `${label}\n${url}` : url;
+            if (!msgContent.trim()) { results.push({ blockId: block.id, messageId: '', status: 'error', error: 'Link vazio' }); continue; }
+            msgType = 'text';
+            messageId = await sendTextMessage(config, phoneNormalized, msgContent);
             break;
           }
 
@@ -121,10 +195,57 @@ export async function POST(request: NextRequest) {
             continue;
         }
 
+        // Garantir ID para dedup
+        if (!messageId) {
+          messageId = `local_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+        }
+
+        // ── Salvar mensagem no banco ──────────────────────────
+        if (clientId && conversationId) {
+          const msgPayload: Record<string, unknown> = {
+            tenant_id: tenantId,
+            conversation_id: conversationId,
+            client_id: clientId,
+            external_id: messageId,
+            direction: 'outbound',
+            sender_name: 'Atendente',
+            sender_phone: null,
+            content: msgContent,
+            type: msgType,
+            media_url: msgMediaUrl || null,
+            status: 'sent',
+            created_at: new Date().toISOString(),
+            ...(msgMetadata ? { metadata: msgMetadata } : {}),
+          };
+
+          const { error: insertErr } = await supabase.from('messages').insert(msgPayload);
+          if (insertErr && insertErr.code !== '23505') {
+            console.warn('[templates/send] Erro ao salvar mensagem no banco:', insertErr.message);
+          }
+
+          lastContent = msgContent;
+          lastType = msgType;
+          lastMediaUrl = msgMediaUrl;
+        }
+
         results.push({ blockId: block.id, messageId, status: 'sent' });
       } catch (err: any) {
         results.push({ blockId: block.id, messageId: '', status: 'error', error: err.message });
       }
+    }
+
+    // ── Atualizar last_message na conversa ───────────────────────
+    if (conversationId && results.some(r => r.status === 'sent')) {
+      await supabase
+        .from('conversations')
+        .update({
+          last_message_at: new Date().toISOString(),
+          last_message_text: lastContent?.substring(0, 120) || '',
+          last_message_from_me: true,
+          status: 'open',
+        })
+        .eq('id', conversationId)
+        .eq('tenant_id', tenantId);
     }
 
     const sent = results.filter(r => r.status === 'sent').length;

@@ -824,7 +824,7 @@ export interface AnneTriggerLogEntry {
    TEMPLATE COMPOSTO (Mensagens Rápidas v2)
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-export type TemplateBlockType = 'text' | 'image' | 'video' | 'audio' | 'document' | 'link' | 'cta';
+export type TemplateBlockType = 'text' | 'image' | 'video' | 'audio' | 'document' | 'link' | 'cta' | 'copy_code';
 
 export interface TemplateBlock {
   id: string;
