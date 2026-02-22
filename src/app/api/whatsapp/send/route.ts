@@ -211,6 +211,20 @@ export async function POST(request: NextRequest) {
     // Estratégia: INSERT direto. Se o webhook chegou antes (erro 23505 = duplicata),
     // buscar a linha existente pelo external_id. Evita dependência de named constraint
     // (o índice parcial WHERE external_id IS NOT NULL não funciona com onConflict no PostgREST).
+
+    // Mapear tipos especiais para tipos válidos no banco (messages_type_check constraint):
+    // Tipos válidos: 'text','image','video','audio','document','sticker','location','contact','reaction','system'
+    // 'copy_code' e 'pix' não existem no schema → salvar como 'text', detalhes no metadata
+    const dbType = (type === 'copy_code' || type === 'pix') ? 'text' : type;
+
+    // Montar metadata: copy_code e pix ficam aqui para a bolha renderizar o botão/info
+    let metadata: Record<string, unknown> | undefined;
+    if (type === 'copy_code' && copyCode) {
+      metadata = { copy_code: copyCode, copy_code_footer: copyCodeFooter ?? null };
+    } else if (type === 'pix' && pixKey) {
+      metadata = { pix_key: pixKey, pix_key_type: pixKeyType ?? null, holder_name: holderName ?? null };
+    }
+
     const msgPayload = {
       tenant_id: tenantId,
       conversation_id: conversationId,
@@ -220,11 +234,11 @@ export async function POST(request: NextRequest) {
       sender_name: 'Atendente',
       sender_phone: null,
       content,
-      type,
+      type: dbType,
       media_url: mediaUrl || null,
       status: 'sent',
       created_at: new Date().toISOString(),
-      ...(type === 'copy_code' && copyCode ? { metadata: { copy_code: copyCode, copy_code_footer: copyCodeFooter ?? null } } : {}),
+      ...(metadata ? { metadata } : {}),
     };
 
     let { data: savedMessage, error: msgError } = await supabase
