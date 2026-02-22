@@ -151,10 +151,25 @@ export function resolverVariaveis(texto: string, contato: ContatoJob): string {
     );
 }
 
-/** Aplica variáveis em todos os blocos de texto/cta/copy_code */
+/** Aplica variáveis em todos os blocos de texto/cta/copy_code/caption de mídia */
 export function resolverBlocos(blocos: Bloco[], contato: ContatoJob): Bloco[] {
   return blocos.map(bloco => {
-    if (bloco.tipo === 'imagem' || bloco.tipo === 'video' || bloco.tipo === 'audio') return bloco;
+    // Mídia: só precisa resolver caption e (legado) texto_raw
+    if (bloco.tipo === 'imagem' || bloco.tipo === 'video' || bloco.tipo === 'audio') {
+      return {
+        ...bloco,
+        conteudo: {
+          ...bloco.conteudo,
+          caption: bloco.conteudo.caption
+            ? resolverVariaveis(bloco.conteudo.caption, contato)
+            : undefined,
+          // compatibilidade legada — caso caption não exista mas texto_raw sim
+          texto_raw: bloco.conteudo.texto_raw
+            ? resolverVariaveis(bloco.conteudo.texto_raw, contato)
+            : undefined,
+        },
+      };
+    }
     return {
       ...bloco,
       conteudo: {
@@ -241,7 +256,8 @@ async function enviarBlocoViaWhatsApp(
     case 'imagem': {
       const url = bloco.conteudo.url;
       if (url) {
-        const caption = bloco.conteudo.texto_raw || undefined;
+        // caption tem prioridade; texto_raw como fallback legado
+        const caption = bloco.conteudo.caption || bloco.conteudo.texto_raw || undefined;
         await sendMediaMessage(config, telefone, url, caption, 'image');
       }
       break;
@@ -250,7 +266,7 @@ async function enviarBlocoViaWhatsApp(
     case 'video': {
       const url = bloco.conteudo.url;
       if (url) {
-        const caption = bloco.conteudo.texto_raw || undefined;
+        const caption = bloco.conteudo.caption || bloco.conteudo.texto_raw || undefined;
         await sendMediaMessage(config, telefone, url, caption, 'video');
       }
       break;
@@ -278,13 +294,24 @@ async function enviarBlocoViaWhatsApp(
       const texto = bloco.conteudo.texto_formatado ?? bloco.conteudo.texto_raw ?? '';
       const code = bloco.conteudo.copy_code ?? '';
       if (code.trim()) {
-        await sendButtonsMessage(
-          config,
-          telefone,
-          texto || '📋 Toque para copiar seu código:',
-          code,
-          bloco.conteudo.copy_code_footer,
-        );
+        // Grupos WhatsApp não suportam sendButtons — fallback para texto simples
+        const isGrupo = telefone.includes('@g.us');
+        if (isGrupo) {
+          const textoFallback = [
+            texto || '📋 Seu código:',
+            code,
+            bloco.conteudo.copy_code_footer,
+          ].filter(Boolean).join('\n');
+          await sendTextMessage(config, telefone, textoFallback);
+        } else {
+          await sendButtonsMessage(
+            config,
+            telefone,
+            texto || '📋 Toque para copiar seu código:',
+            code,
+            bloco.conteudo.copy_code_footer,
+          );
+        }
       }
       break;
     }

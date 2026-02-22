@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { api } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
+import { WhatsAppTextEditor } from '@/components/campaigns/WhatsAppTextEditor';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -186,15 +187,39 @@ function BlocoEditor({
                   <Trash2 size={12} />
                 </button>
               </div>
-              {/* Campo de legenda para imagem e vídeo */}
+              {/* Legenda com editor formatado + preview estilo WhatsApp */}
               {(bloco.tipo === 'imagem' || bloco.tipo === 'video') && (
-                <input
-                  type="text"
-                  value={bloco.conteudo.caption ?? ''}
-                  onChange={e => set({ caption: e.target.value })}
-                  placeholder="Adicione uma legenda... (opcional)"
-                  className="w-full mt-2 px-3 py-2 text-sm border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-crm-primary/40 placeholder:text-txt-muted"
-                />
+                <div className="mt-3 space-y-2">
+                  <WhatsAppTextEditor
+                    value={bloco.conteudo.caption ?? ''}
+                    onChange={val => set({ caption: val })}
+                    placeholder="Legenda da mídia... Use *negrito*, _itálico_, {{nome}}, etc."
+                    rows={3}
+                    variables={VARIAVEIS_DISPONIVEIS}
+                    showPreview={false}
+                  />
+                  {/* Preview combinado: thumbnail + legenda formatada */}
+                  {bloco.conteudo.caption?.trim() && (
+                    <div className="rounded-xl border border-green-100 bg-green-50 p-3 space-y-1.5">
+                      <p className="text-[10px] font-medium text-green-700 uppercase tracking-wide">Preview — como aparece no WhatsApp</p>
+                      <div className="bg-[#dcf8c6] rounded-xl rounded-tr-sm overflow-hidden max-w-xs shadow-sm">
+                        {bloco.tipo === 'imagem' && bloco.conteudo.url && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={bloco.conteudo.url} alt="preview" className="w-full max-h-36 object-cover" />
+                        )}
+                        {bloco.tipo === 'video' && bloco.conteudo.url && (
+                          <video src={bloco.conteudo.url} className="w-full max-h-36 object-cover" />
+                        )}
+                        <div className="px-3 py-2">
+                          <p
+                            className="text-sm text-[#111b21] leading-relaxed wrap-break-word [&_strong]:font-bold [&_em]:italic [&_s]:line-through [&_.wa-code]:font-mono [&_.wa-code]:bg-black/10 [&_.wa-code]:px-1 [&_.wa-code]:rounded"
+                            dangerouslySetInnerHTML={{ __html: (bloco.conteudo.caption ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\*([^*\n]+)\*/g,'<strong>$1</strong>').replace(/_([^_\n]+)_/g,'<em>$1</em>').replace(/~([^~\n]+)~/g,'<s>$1</s>').replace(/`([^`\n]+)`/g,'<code class="wa-code">$1</code>').replace(/\n/g,'<br/>') }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
             </>
           ) : (
@@ -227,26 +252,14 @@ function BlocoEditor({
       )}
 
       {bloco.tipo === 'texto' && (
-        <div>
-          <textarea
-            value={bloco.conteudo.texto_raw ?? ''}
-            onChange={e => set({ texto_raw: e.target.value })}
-            rows={4}
-            placeholder="Digite o texto da mensagem... Use {{nome}}, {{cidade}}, etc."
-            className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-crm-primary/40"
-          />
-          <div className="flex flex-wrap gap-1 mt-2">
-            {VARIAVEIS_DISPONIVEIS.map(v => (
-              <button
-                key={v}
-                onClick={() => set({ texto_raw: (bloco.conteudo.texto_raw ?? '') + v })}
-                className="text-xs px-2 py-0.5 bg-crm-primary/10 text-crm-primary rounded-full hover:bg-crm-primary/20 transition-colors"
-              >
-                {v}
-              </button>
-            ))}
-          </div>
-        </div>
+        <WhatsAppTextEditor
+          value={bloco.conteudo.texto_raw ?? ''}
+          onChange={val => set({ texto_raw: val })}
+          placeholder="Digite o texto da mensagem... Use {{nome}}, {{cidade}}, etc."
+          rows={5}
+          variables={VARIAVEIS_DISPONIVEIS}
+          showPreview
+        />
       )}
 
       {bloco.tipo === 'cta' && (
@@ -266,29 +279,17 @@ function BlocoEditor({
 
       {bloco.tipo === 'copy_code' && (
         <div className="space-y-3">
+          <WhatsAppTextEditor
+            value={bloco.conteudo.texto_raw ?? ''}
+            onChange={val => set({ texto_raw: val })}
+            label="Texto da mensagem (opcional)"
+            placeholder="Ex: Seu cupom exclusivo chegou! 🎉"
+            rows={3}
+            variables={VARIAVEIS_DISPONIVEIS}
+            showPreview={false}
+          />
           <div>
-            <label className="text-xs text-txt-secondary mb-1 block">
-              Texto da mensagem <span className="text-txt-muted">(opcional)</span>
-            </label>
-            <textarea
-              value={bloco.conteudo.texto_raw ?? ''}
-              onChange={e => set({ texto_raw: e.target.value })}
-              rows={3}
-              placeholder="Ex: Seu cupom exclusivo chegou! 🎉"
-              className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-crm-primary/40"
-            />
-            <div className="flex flex-wrap gap-1 mt-2">
-              {VARIAVEIS_DISPONIVEIS.map(v => (
-                <button key={v}
-                  onClick={() => set({ texto_raw: (bloco.conteudo.texto_raw ?? '') + v })}
-                  className="text-xs px-2 py-0.5 bg-crm-primary/10 text-crm-primary rounded-full hover:bg-crm-primary/20 transition-colors">
-                  {v}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <label className="text-xs text-txt-secondary mb-1 block">
+            <label className="text-xs font-medium text-txt-secondary mb-1 block">
               Código para copiar <span className="text-red-400">*</span>
             </label>
             <input
@@ -301,6 +302,7 @@ function BlocoEditor({
             <div className="flex flex-wrap gap-1 mt-1.5">
               {VARIAVEIS_DISPONIVEIS.map(v => (
                 <button key={v}
+                  type="button"
                   onClick={() => set({ copy_code: (bloco.conteudo.copy_code ?? '') + v })}
                   className="text-xs px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full hover:bg-amber-100 transition-colors">
                   {v}
@@ -309,7 +311,7 @@ function BlocoEditor({
             </div>
           </div>
           <div>
-            <label className="text-xs text-txt-secondary mb-1 block">
+            <label className="text-xs font-medium text-txt-secondary mb-1 block">
               Rodapé <span className="text-txt-muted">(opcional)</span>
             </label>
             <input
@@ -320,18 +322,28 @@ function BlocoEditor({
               className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-crm-primary/40"
             />
           </div>
+          {/* Preview visual do botão */}
           {bloco.conteudo.copy_code && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
               <p className="text-xs font-medium text-amber-800">Preview do botão no WhatsApp:</p>
-              <div className="bg-white rounded-lg px-3 py-2 text-sm text-gray-800 border border-gray-100">
-                {bloco.conteudo.texto_raw || '📋 Toque para copiar seu código:'}
-              </div>
-              {bloco.conteudo.copy_code_footer && (
-                <p className="text-xs text-amber-700 px-1">{bloco.conteudo.copy_code_footer}</p>
-              )}
-              <div className="bg-white rounded-lg border border-gray-200 px-3 py-2 flex items-center justify-center gap-2 text-sm font-medium text-blue-600">
-                <Copy size={14} />
-                <span className="font-mono">{bloco.conteudo.copy_code}</span>
+              <div className="bg-[#dcf8c6] rounded-xl rounded-tr-sm max-w-xs shadow-sm overflow-hidden">
+                <div className="px-3 py-2">
+                  {bloco.conteudo.texto_raw ? (
+                    <p
+                      className="text-sm text-[#111b21] leading-relaxed [&_strong]:font-bold [&_em]:italic [&_s]:line-through [&_.wa-code]:font-mono [&_.wa-code]:bg-black/10 [&_.wa-code]:px-1 [&_.wa-code]:rounded"
+                      dangerouslySetInnerHTML={{ __html: (bloco.conteudo.texto_raw).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\*([^*\n]+)\*/g,'<strong>$1</strong>').replace(/_([^_\n]+)_/g,'<em>$1</em>').replace(/~([^~\n]+)~/g,'<s>$1</s>').replace(/`([^`\n]+)`/g,'<code class="wa-code">$1</code>').replace(/\n/g,'<br/>') }}
+                    />
+                  ) : (
+                    <p className="text-sm text-[#111b21]">📋 Toque para copiar seu código:</p>
+                  )}
+                  {bloco.conteudo.copy_code_footer && (
+                    <p className="text-xs text-[#111b21]/60 mt-1">{bloco.conteudo.copy_code_footer}</p>
+                  )}
+                </div>
+                <div className="border-t border-black/10 mx-2 mb-2 pt-1.5 flex items-center justify-center gap-2 text-sm font-medium text-blue-600">
+                  <Copy size={13} />
+                  <span className="font-mono text-xs">{bloco.conteudo.copy_code}</span>
+                </div>
               </div>
             </div>
           )}

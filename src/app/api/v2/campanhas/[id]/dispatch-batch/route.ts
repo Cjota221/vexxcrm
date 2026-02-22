@@ -419,13 +419,25 @@ async function enviarBlocos(telefone: string, blocos: Bloco[], tenantId: string)
         const texto = bloco.conteudo.texto_formatado ?? bloco.conteudo.texto_raw ?? '';
         const code = bloco.conteudo.copy_code ?? '';
         if (code.trim()) {
-          const id = await sendButtonsMessage(
-            config,
-            telefone,
-            texto || '📋 Toque para copiar seu código:',
-            code,
-            bloco.conteudo.copy_code_footer,
-          );
+          // Grupos WhatsApp não suportam sendButtons — usar texto como fallback
+          const isGrupo = telefone.includes('@g.us');
+          let id: string;
+          if (isGrupo) {
+            const textoFallback = [
+              texto || '📋 Seu código:',
+              code,
+              bloco.conteudo.copy_code_footer,
+            ].filter(Boolean).join('\n');
+            id = await sendTextMessage(config, telefone, textoFallback);
+          } else {
+            id = await sendButtonsMessage(
+              config,
+              telefone,
+              texto || '📋 Toque para copiar seu código:',
+              code,
+              bloco.conteudo.copy_code_footer,
+            );
+          }
           if (id) messageIds.push(id);
         }
         break;
