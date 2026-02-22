@@ -8,6 +8,7 @@ import {
   Users,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   MessageCircle,
   FileUp,
   CheckSquare,
@@ -310,6 +311,9 @@ export default function ClientesPage() {
   // Painel lateral
   const [activePanel, setActivePanel] = useState<PanelFilter | null>(null);
 
+  // Distribuição por estado — ranking colapsável
+  const [rankingExpanded, setRankingExpanded] = useState(false);
+
   // Selecao
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -474,65 +478,92 @@ export default function ClientesPage() {
             )}
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Ranking (lista) */}
+
+            {/* Ranking (lista colapsável) */}
             <Card>
               <div className="p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <MapPin size={14} className="text-txt-secondary" />
-                  <span className="text-xs font-semibold text-txt-secondary uppercase tracking-wide">Ranking</span>
-                </div>
-                <div className="space-y-2">
-                  {(stats?.by_state ?? []).map(({ state, count }) => {
-                    const pct = stats?.total ? (count / stats.total) * 100 : 0;
-                    return (
-                      <button
-                        key={state}
-                        onClick={() => setActivePanel({ type: 'state', value: state, label: state, count })}
-                        className="w-full flex items-center gap-3 group hover:bg-surface-50 rounded-xl px-2 py-1.5 transition-colors"
-                      >
-                        <span className="text-xs font-bold text-txt-primary w-7 shrink-0 text-left">{state}</span>
-                        <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-crm-primary rounded-full transition-all group-hover:bg-crm-primary/80"
-                            style={{ width: `${pct}%` }}
-                          />
+                <button
+                  className="w-full flex items-center justify-between mb-3 group"
+                  onClick={() => setRankingExpanded(v => !v)}
+                >
+                  <div className="flex items-center gap-2">
+                    <MapPin size={14} className="text-txt-secondary" />
+                    <span className="text-xs font-semibold text-txt-secondary uppercase tracking-wide">Ranking</span>
+                    <span className="text-[10px] text-txt-muted bg-gray-100 rounded-full px-2 py-0.5">
+                      {stats?.by_state?.length ?? 0} estados
+                    </span>
+                  </div>
+                  <ChevronDown
+                    size={14}
+                    className={`text-txt-secondary transition-transform duration-200 ${rankingExpanded ? 'rotate-180' : ''}`}
+                  />
+                </button>
+
+                {rankingExpanded && (
+                  <>
+                    <div className="space-y-1.5">
+                      {(stats?.by_state ?? []).map(({ state, count }) => {
+                        const pct = stats?.total ? (count / stats.total) * 100 : 0;
+                        return (
+                          <button
+                            key={state}
+                            onClick={() => setActivePanel({ type: 'state', value: state, label: state, count })}
+                            className="w-full flex items-center gap-3 group hover:bg-surface-50 rounded-xl px-2 py-1.5 transition-colors"
+                          >
+                            <span className="text-xs font-bold text-txt-primary w-7 shrink-0 text-left">{state}</span>
+                            <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-crm-primary rounded-full transition-all group-hover:bg-crm-primary/80"
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <span className="text-xs font-semibold text-txt-primary w-10 text-right shrink-0">
+                              {count.toLocaleString('pt-BR')}
+                            </span>
+                          </button>
+                        );
+                      })}
+                      {/* Linha "sem estado" */}
+                      {(stats?.sem_estado ?? 0) > 0 && (
+                        <div className="flex items-center gap-3 px-2 py-1.5 rounded-xl bg-amber-50/60 border border-dashed border-amber-200">
+                          <span className="text-xs font-bold text-amber-600 w-7 shrink-0">—</span>
+                          <div className="flex-1 h-1.5 bg-amber-100 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-amber-300 rounded-full"
+                              style={{ width: `${stats?.total ? ((stats.sem_estado / stats.total) * 100) : 0}%` }}
+                            />
+                          </div>
+                          <span className="text-xs font-semibold text-amber-600 w-10 text-right shrink-0">
+                            {(stats?.sem_estado ?? 0).toLocaleString('pt-BR')}
+                          </span>
                         </div>
-                        <span className="text-xs font-semibold text-txt-primary w-10 text-right shrink-0">
-                          {count.toLocaleString('pt-BR')}
-                        </span>
-                      </button>
-                    );
-                  })}
-                  {/* Linha "sem estado" */}
-                  {(stats?.sem_estado ?? 0) > 0 && (
-                    <div className="flex items-center gap-3 px-2 py-1.5 rounded-xl bg-amber-50/60 border border-dashed border-amber-200">
-                      <span className="text-xs font-bold text-amber-600 w-7 shrink-0">—</span>
-                      <div className="flex-1 h-2 bg-amber-100 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-amber-300 rounded-full"
-                          style={{ width: `${stats?.total ? ((stats.sem_estado / stats.total) * 100) : 0}%` }}
-                        />
-                      </div>
-                      <span className="text-xs font-semibold text-amber-600 w-10 text-right shrink-0">
-                        {(stats?.sem_estado ?? 0).toLocaleString('pt-BR')}
-                      </span>
+                      )}
                     </div>
-                  )}
-                </div>
-                {(stats?.sem_estado ?? 0) > 0 && (
-                  <p className="text-[10px] text-txt-secondary mt-3 leading-relaxed">
-                    💡 Contatos vindos do WhatsApp geralmente não têm estado cadastrado. O estado só é preenchido quando o cliente informa ou vem de importação.
+                    {(stats?.sem_estado ?? 0) > 0 && (
+                      <p className="text-[10px] text-txt-secondary mt-3 leading-relaxed">
+                        💡 Contatos do WhatsApp geralmente não têm estado. O estado é preenchido quando o cliente informa ou vem de importação.
+                      </p>
+                    )}
+                  </>
+                )}
+
+                {!rankingExpanded && (
+                  <p className="text-[10px] text-txt-secondary">
+                    Clique para expandir o ranking completo por estado.
                   </p>
                 )}
               </div>
             </Card>
 
-            {/* Grid de cards de estado (top 12) */}
+            {/* Grid de cards — TODOS os estados */}
             <Card>
               <div className="p-4">
                 <div className="flex items-center gap-2 mb-3">
                   <MapPin size={14} className="text-txt-secondary" />
                   <span className="text-xs font-semibold text-txt-secondary uppercase tracking-wide">Top estados</span>
+                  <span className="text-[10px] text-txt-muted bg-gray-100 rounded-full px-2 py-0.5">
+                    {stats?.by_state?.length ?? 0} estados
+                  </span>
                 </div>
                 {(stats?.by_state?.length ?? 0) === 0 ? (
                   <div className="flex flex-col items-center justify-center py-8 text-center">
@@ -541,26 +572,26 @@ export default function ClientesPage() {
                     <p className="text-[10px] text-txt-secondary mt-1">Importe uma planilha com a coluna "Estado" para ver a distribuição aqui.</p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-4 gap-2">
-                    {(stats?.by_state ?? []).slice(0, 12).map(({ state, count }) => {
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {(stats?.by_state ?? []).map(({ state, count }) => {
                       const maxCount = stats?.by_state[0]?.count ?? 1;
                       const intensity = Math.max(0.08, count / maxCount);
                       return (
                         <button
                           key={state}
                           onClick={() => setActivePanel({ type: 'state', value: state, label: state, count })}
-                          className="flex flex-col items-center justify-center rounded-xl py-2.5 px-1 transition-all hover:scale-105 hover:shadow-md"
+                          className="flex flex-col items-center justify-center rounded-lg py-2 px-1 transition-all hover:scale-105 hover:shadow-md"
                           style={{ backgroundColor: `rgba(30, 58, 95, ${intensity})` }}
                           title={`${state}: ${count} clientes`}
                         >
                           <span
-                            className="text-sm font-black"
+                            className="text-xs font-black"
                             style={{ color: intensity > 0.4 ? 'white' : '#1e3a5f' }}
                           >
                             {state}
                           </span>
                           <span
-                            className="text-[10px] font-semibold mt-0.5"
+                            className="text-[9px] font-semibold mt-0.5"
                             style={{ color: intensity > 0.4 ? 'rgba(255,255,255,0.8)' : '#64748b' }}
                           >
                             {count.toLocaleString('pt-BR')}
@@ -572,6 +603,7 @@ export default function ClientesPage() {
                 )}
               </div>
             </Card>
+
           </div>
         </div>
       )}
