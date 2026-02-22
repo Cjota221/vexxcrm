@@ -24,7 +24,15 @@ import {
   Truck,
   Package,
   Hash,
+  Sparkles,
+  Image as ImageIcon,
+  Ticket,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  Check,
 } from 'lucide-react';
+import { useAnne } from '@/hooks/useAnne';
 import { useClient } from '@/hooks/useClients';
 import { OrderHistory } from '@/components/crm/OrderHistory';
 import { CustomerHealthPanel } from '@/components/crm/CustomerHealthPanel';
@@ -57,6 +65,19 @@ export default function ClienteDetalhe() {
   const [isSending, setIsSending] = useState(false);
   const [sendResult, setSendResult] = useState<{ ok: boolean; text: string } | null>(null);
   const msgRef = useRef<HTMLTextAreaElement>(null);
+
+  // Anne IA
+  const { sendMessage: askAnne, isLoading: isAnneLoading } = useAnne();
+
+  // Imagem/mídia
+  const [showMediaInput, setShowMediaInput] = useState(false);
+  const [mediaUrl, setMediaUrl] = useState('');
+
+  // Cupom
+  const [showCouponInput, setShowCouponInput] = useState(false);
+  const [couponCode, setCouponCode] = useState('');
+  const [couponFooter, setCouponFooter] = useState('');
+  const [couponCopied, setCouponCopied] = useState(false);
 
   if (isLoading) {
     return (
@@ -168,8 +189,30 @@ export default function ClienteDetalhe() {
     const firstName = (c.name || '').split(' ')[0];
     setMsgText(`Olá, ${firstName}! 👋 Tudo bem? Entrei em contato para te dar uma novidade especial. Posso te ajudar?`);
     setSendResult(null);
+    setShowMediaInput(false);
+    setMediaUrl('');
+    setShowCouponInput(false);
+    setCouponCode('');
+    setCouponFooter('');
+    setCouponCopied(false);
     setShowMsgModal(true);
     setTimeout(() => msgRef.current?.focus(), 100);
+  };
+
+  // Anne sugere mensagem personalizada para este cliente
+  const handleAnneSuggest = async () => {
+    try {
+      const result = await askAnne({
+        message: `Analise este cliente e crie UMA mensagem de WhatsApp personalizada e persuasiva para enviar agora. Considere o histórico de compras, LTV, segmento RFM e última compra. Escreva APENAS a mensagem, sem título, sem explicação, sem aspas. Use emojis com moderação. Máximo 300 caracteres.`,
+        context: { client_id: c.id },
+      });
+      if (result?.reply) {
+        setMsgText(result.reply.trim());
+        setTimeout(() => msgRef.current?.focus(), 100);
+      }
+    } catch {
+      // silencioso — mantém texto atual
+    }
   };
 
   const handleSendMsg = async () => {
@@ -177,10 +220,42 @@ export default function ClienteDetalhe() {
     setIsSending(true);
     setSendResult(null);
     try {
+      // Determina o tipo e body baseado nos toggles ativos
+      let body: Record<string, unknown>;
+
+      if (showCouponInput && couponCode.trim()) {
+        // copy_code: botão de cópia de cupom
+        body = {
+          to: c.phone,
+          content: msgText.trim(),
+          type: 'copy_code',
+          copyCode: couponCode.trim(),
+          copyCodeFooter: couponFooter.trim() || undefined,
+          clientId: c.id,
+        };
+      } else if (showMediaInput && mediaUrl.trim()) {
+        // image com caption
+        body = {
+          to: c.phone,
+          content: msgText.trim(),   // caption
+          type: 'image',
+          mediaUrl: mediaUrl.trim(),
+          clientId: c.id,
+        };
+      } else {
+        // texto simples
+        body = {
+          to: c.phone,
+          content: msgText.trim(),
+          type: 'text',
+          clientId: c.id,
+        };
+      }
+
       const res = await fetch('/api/whatsapp/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: c.phone, content: msgText.trim(), type: 'text', clientId: c.id }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erro ao enviar');
@@ -467,10 +542,11 @@ export default function ClienteDetalhe() {
         <>
           <div
             className="fixed inset-0 bg-black/50 z-50 backdrop-blur-sm"
-            onClick={() => !isSending && setShowMsgModal(false)}
+            onClick={() => !isSending && !isAnneLoading && setShowMsgModal(false)}
           />
           <div className="fixed inset-0 z-51 flex items-center justify-center p-4 pointer-events-none">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden pointer-events-auto animate-in zoom-in-95 duration-200">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden pointer-events-auto animate-in zoom-in-95 duration-200">
+
               {/* Header */}
               <div className="px-5 py-4 bg-linear-to-r from-green-600 to-emerald-700 flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -486,7 +562,7 @@ export default function ClienteDetalhe() {
                 </div>
                 <button
                   onClick={() => setShowMsgModal(false)}
-                  disabled={isSending}
+                  disabled={isSending || isAnneLoading}
                   className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
                 >
                   <X size={16} className="text-white" />
@@ -495,20 +571,149 @@ export default function ClienteDetalhe() {
 
               {/* Body */}
               <div className="p-5 space-y-4">
+
+                {/* ── Anne IA ───────────────────────── */}
+                <div className="bg-linear-to-r from-violet-50 to-purple-50 border border-violet-200 rounded-xl p-3 flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center shrink-0 mt-0.5">
+                    <Sparkles size={14} className="text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-violet-800">Anne IA</p>
+                    <p className="text-[11px] text-violet-600 leading-snug mt-0.5">
+                      Analisa o histórico deste cliente (LTV, pedidos, segmento) e sugere uma mensagem personalizada.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleAnneSuggest}
+                    disabled={isAnneLoading || isSending}
+                    className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 disabled:bg-violet-400 text-white text-xs font-semibold rounded-lg transition-colors"
+                  >
+                    {isAnneLoading ? (
+                      <><Loader2 size={11} className="animate-spin" /> Gerando...</>
+                    ) : (
+                      <><Sparkles size={11} /> Sugerir</>
+                    )}
+                  </button>
+                </div>
+
+                {/* ── Textarea (mensagem / caption) ── */}
                 <div>
                   <label className="text-xs font-semibold text-txt-secondary block mb-1.5">
-                    Mensagem
+                    {showMediaInput && mediaUrl.trim() ? 'Legenda da imagem' : 'Mensagem'}
                   </label>
                   <textarea
                     ref={msgRef}
                     value={msgText}
                     onChange={e => setMsgText(e.target.value)}
-                    rows={5}
-                    disabled={isSending}
+                    rows={4}
+                    disabled={isSending || isAnneLoading}
                     className="w-full border border-surface-border rounded-xl px-3 py-2.5 text-sm text-txt-primary resize-none focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:border-green-500 disabled:opacity-60"
-                    placeholder="Digite sua mensagem..."
+                    placeholder={showMediaInput && mediaUrl.trim() ? 'Legenda para a imagem...' : 'Digite sua mensagem...'}
                   />
                   <p className="text-[10px] text-txt-muted mt-1 text-right">{msgText.length} caracteres</p>
+                </div>
+
+                {/* ── Toggle: Imagem ─────────────────── */}
+                <div className="border border-surface-border rounded-xl overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => { setShowMediaInput(v => !v); if (!showMediaInput) setShowCouponInput(false); }}
+                    disabled={isSending || isAnneLoading}
+                    className="w-full flex items-center justify-between px-4 py-2.5 bg-surface-50 hover:bg-surface-100 transition-colors text-sm disabled:opacity-50"
+                  >
+                    <span className="flex items-center gap-2 font-medium text-txt-primary">
+                      <ImageIcon size={14} className="text-blue-500" />
+                      Enviar com imagem
+                    </span>
+                    {showMediaInput
+                      ? <ChevronUp size={14} className="text-txt-muted" />
+                      : <ChevronDown size={14} className="text-txt-muted" />}
+                  </button>
+                  {showMediaInput && (
+                    <div className="px-4 pb-3 pt-2 space-y-2 border-t border-surface-border bg-white">
+                      <label className="text-[11px] font-semibold text-txt-secondary">URL da imagem</label>
+                      <input
+                        type="url"
+                        value={mediaUrl}
+                        onChange={e => setMediaUrl(e.target.value)}
+                        disabled={isSending}
+                        placeholder="https://exemplo.com/imagem.jpg"
+                        className="w-full border border-surface-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 disabled:opacity-60"
+                      />
+                      {mediaUrl.trim() && (
+                        <p className="text-[10px] text-blue-600 flex items-center gap-1">
+                          <ImageIcon size={10} /> A imagem será enviada com a legenda acima.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Toggle: Cupom ──────────────────── */}
+                <div className="border border-surface-border rounded-xl overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => { setShowCouponInput(v => !v); if (!showCouponInput) setShowMediaInput(false); }}
+                    disabled={isSending || isAnneLoading}
+                    className="w-full flex items-center justify-between px-4 py-2.5 bg-surface-50 hover:bg-surface-100 transition-colors text-sm disabled:opacity-50"
+                  >
+                    <span className="flex items-center gap-2 font-medium text-txt-primary">
+                      <Ticket size={14} className="text-amber-500" />
+                      Adicionar cupom
+                    </span>
+                    {showCouponInput
+                      ? <ChevronUp size={14} className="text-txt-muted" />
+                      : <ChevronDown size={14} className="text-txt-muted" />}
+                  </button>
+                  {showCouponInput && (
+                    <div className="px-4 pb-3 pt-2 space-y-3 border-t border-surface-border bg-white">
+                      <div>
+                        <label className="text-[11px] font-semibold text-txt-secondary block mb-1">Código do cupom</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={couponCode}
+                            onChange={e => setCouponCode(e.target.value.toUpperCase())}
+                            disabled={isSending}
+                            placeholder="EX: VOLTA10"
+                            className="flex-1 border border-surface-border rounded-lg px-3 py-2 text-sm font-mono uppercase tracking-widest focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 disabled:opacity-60"
+                          />
+                          {couponCode.trim() && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(couponCode.trim());
+                                setCouponCopied(true);
+                                setTimeout(() => setCouponCopied(false), 2000);
+                              }}
+                              className="p-2 border border-surface-border rounded-lg hover:bg-surface-50 transition-colors"
+                              title="Copiar código"
+                            >
+                              {couponCopied
+                                ? <Check size={14} className="text-green-600" />
+                                : <Copy size={14} className="text-txt-muted" />}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-txt-secondary block mb-1">Rodapé (validade, etc.)</label>
+                        <input
+                          type="text"
+                          value={couponFooter}
+                          onChange={e => setCouponFooter(e.target.value)}
+                          disabled={isSending}
+                          placeholder="Ex: Válido até 30/06 · Compras acima de R$ 50"
+                          className="w-full border border-surface-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 disabled:opacity-60"
+                        />
+                      </div>
+                      {couponCode.trim() && (
+                        <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                          🎟 O cliente receberá um botão <strong>Copiar código</strong> com o código <strong>{couponCode}</strong>.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Resultado do envio */}
@@ -529,7 +734,7 @@ export default function ClienteDetalhe() {
                 <div className="flex gap-2 pt-1">
                   <button
                     onClick={() => setShowMsgModal(false)}
-                    disabled={isSending}
+                    disabled={isSending || isAnneLoading}
                     className="flex-1 py-2.5 rounded-xl border border-surface-border text-sm font-medium text-txt-secondary hover:bg-surface-50 transition-colors disabled:opacity-50"
                   >
                     {sendResult?.ok ? 'Fechar' : 'Cancelar'}
@@ -537,11 +742,15 @@ export default function ClienteDetalhe() {
                   {!sendResult?.ok && (
                     <button
                       onClick={handleSendMsg}
-                      disabled={isSending || !msgText.trim()}
+                      disabled={isSending || isAnneLoading || !msgText.trim() || (showMediaInput && !mediaUrl.trim())}
                       className="flex-1 py-2.5 rounded-xl bg-green-600 hover:bg-green-700 text-white text-sm font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {isSending ? (
                         <><Loader2 size={14} className="animate-spin" /> Enviando...</>
+                      ) : showCouponInput && couponCode.trim() ? (
+                        <><Ticket size={14} /> Enviar com cupom</>
+                      ) : showMediaInput && mediaUrl.trim() ? (
+                        <><ImageIcon size={14} /> Enviar imagem</>
                       ) : (
                         <><Send size={14} /> Enviar WhatsApp</>
                       )}

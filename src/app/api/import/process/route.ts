@@ -3,6 +3,37 @@ import * as XLSX from 'xlsx';
 import { createServerSupabaseClient, createAuthenticatedClient } from '@/lib/supabase';
 import { PhoneNormalizer } from '@/lib/phone-normalizer';
 
+/* ── Normalizar estado → UF de 2 letras ─────────────────────────────── */
+const STATE_NAME_TO_UF: Record<string, string> = {
+  'ACRE': 'AC', 'ALAGOAS': 'AL', 'AMAPÁ': 'AP', 'AMAPA': 'AP',
+  'AMAZONAS': 'AM', 'BAHIA': 'BA', 'CEARÁ': 'CE', 'CEARA': 'CE',
+  'DISTRITO FEDERAL': 'DF', 'ESPÍRITO SANTO': 'ES', 'ESPIRITO SANTO': 'ES',
+  'GOIÁS': 'GO', 'GOIAS': 'GO', 'MARANHÃO': 'MA', 'MARANHAO': 'MA',
+  'MATO GROSSO': 'MT', 'MATO GROSSO DO SUL': 'MS',
+  'MINAS GERAIS': 'MG', 'PARÁ': 'PA', 'PARA': 'PA',
+  'PARAÍBA': 'PB', 'PARAIBA': 'PB', 'PARANÁ': 'PR', 'PARANA': 'PR',
+  'PERNAMBUCO': 'PE', 'PIAUÍ': 'PI', 'PIAUI': 'PI',
+  'RIO DE JANEIRO': 'RJ', 'RIO GRANDE DO NORTE': 'RN',
+  'RIO GRANDE DO SUL': 'RS', 'RONDÔNIA': 'RO', 'RONDONIA': 'RO',
+  'RORAIMA': 'RR', 'SANTA CATARINA': 'SC', 'SÃO PAULO': 'SP',
+  'SAO PAULO': 'SP', 'SERGIPE': 'SE', 'TOCANTINS': 'TO',
+};
+const VALID_UFS = new Set([
+  'AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS',
+  'MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC',
+  'SP','SE','TO',
+]);
+function normalizeStateToUF(raw: unknown): string | null {
+  if (!raw) return null;
+  const upper = String(raw).toUpperCase().trim();
+  if (!upper) return null;
+  if (VALID_UFS.has(upper)) return upper;
+  if (STATE_NAME_TO_UF[upper]) return STATE_NAME_TO_UF[upper];
+  const ufMatch = upper.match(/\b([A-Z]{2})\b/);
+  if (ufMatch && VALID_UFS.has(ufMatch[1])) return ufMatch[1];
+  return upper.length <= 3 ? upper : null; // manter valor curto desconhecido, ignorar longos
+}
+
 /**
  * POST /api/import/process
  *
@@ -335,7 +366,7 @@ async function processBatch(
           address_complement: mapped.address_complement || null,
           address_neighborhood: mapped.address_neighborhood || null,
           address_city: mapped.address_city || null,
-          address_state: mapped.address_state || null,
+          address_state: normalizeStateToUF(mapped.address_state),
           address_zip: mapped.address_zip || null,
           custom_fields: {},
         };
@@ -521,7 +552,7 @@ function buildMergeData(
     if (imported.address_complement) update.address_complement = imported.address_complement;
     if (imported.address_neighborhood) update.address_neighborhood = imported.address_neighborhood;
     if (imported.address_city) update.address_city = imported.address_city;
-    if (imported.address_state) update.address_state = imported.address_state;
+    if (imported.address_state) update.address_state = normalizeStateToUF(imported.address_state);
     if (imported.address_zip) update.address_zip = imported.address_zip;
   } else if (existingHasAddress && importedHasAddress) {
     // Conflito de endereço → guardar antigo nas notas
