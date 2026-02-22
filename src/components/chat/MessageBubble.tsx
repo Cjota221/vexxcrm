@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { formatTime } from '@/lib/utils';
-import { Check, CheckCheck, Mic, Eye, AlertCircle, Clock } from 'lucide-react';
+import { Check, CheckCheck, Mic, Eye, AlertCircle, Clock, Copy } from 'lucide-react';
 import { api } from '@/lib/api';
 import { parseMessageContent } from '@/lib/message-parser';
 import { AudioMessage } from './AudioMessage';
@@ -28,6 +28,7 @@ export function MessageBubble({ message, onTranscriptionUpdate }: MessageBubbleP
   const transcription = metadata?.transcription as string | undefined;
   const aiDescription = metadata?.ai_description as string | undefined;
   const aiProcessed = metadata?.ai_processed as boolean | undefined;
+  const copyCode = metadata?.copy_code as string | undefined;
   const [isRedownloading, setIsRedownloading] = useState(false);
   const [fixedUrl, setFixedUrl] = useState<string | null>(null);
   const [localTranscription, setLocalTranscription] = useState<string | null>(null);
@@ -201,6 +202,28 @@ export function MessageBubble({ message, onTranscriptionUpdate }: MessageBubbleP
               return url ? <LinkPreview url={url} isFromMe={isFromMe} /> : null;
             })()}
           </>
+        )}
+
+        {/* Botão copy_code — renderizado para mensagens com metadata.copy_code */}
+        {copyCode && (
+          <div className={cn(
+            'mt-2 pt-2 border-t',
+            isFromMe ? 'border-black/10' : 'border-black/8'
+          )}>
+            <button
+              onClick={() => { navigator.clipboard.writeText(copyCode).catch(() => {}); }}
+              className={cn(
+                'w-full flex items-center justify-center gap-2 py-1.5 text-sm font-medium rounded-lg transition-colors',
+                isFromMe
+                  ? 'text-blue-600 hover:bg-black/5'
+                  : 'text-blue-600 hover:bg-blue-50'
+              )}
+              title="Toque para copiar"
+            >
+              <Copy size={13} />
+              <span className="font-mono text-xs">{copyCode}</span>
+            </button>
+          </div>
         )}
 
         {/* Timestamp + status */}

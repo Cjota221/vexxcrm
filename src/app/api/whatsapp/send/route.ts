@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
-import { sendTextMessage, sendMediaMessage, sendContactMessage, getTenantEvolutionConfig } from '@/lib/services/evolution.service';
+import { sendTextMessage, sendMediaMessage, sendContactMessage, sendButtonsMessage, getTenantEvolutionConfig } from '@/lib/services/evolution.service';
 import { PhoneNormalizer } from '@/lib/phone-normalizer';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limiter';
@@ -32,6 +32,8 @@ export async function POST(request: NextRequest) {
       to, content: rawContent, type = 'text', mediaUrl, caption, clientId: clientIdFromBody,
       // Campos específicos do Pix (type === 'pix')
       pixKey, pixKeyType, holderName, pixOrganization,
+      // Campos específicos do copy_code (type === 'copy_code')
+      copyCode, copyCodeFooter,
     } = body;
 
     // Conteúdo que será salvo no banco (pode ser modificado por tipos especiais, ex: pix)
@@ -44,7 +46,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (type !== 'pix' && !content) {
+    if (type !== 'pix' && type !== 'copy_code' && !content) {
       return NextResponse.json(
         { error: 'Campos obrigatórios: to, content' },
         { status: 400 }
@@ -56,9 +58,19 @@ export async function POST(request: NextRequest) {
 
     let messageId: string;
 
-    // Enviar mensagem (texto, pix ou mídia)
+    // Enviar mensagem (texto, pix, copy_code ou mídia)
     if (type === 'text') {
       messageId = await sendTextMessage(config, phoneNormalized, content);
+
+    } else if (type === 'copy_code') {
+      // Envio de botão de cópia via Evolution API /message/sendButtons
+      if (!copyCode) {
+        return NextResponse.json({ error: 'copyCode obrigatório para type=copy_code' }, { status: 400 });
+      }
+      const msgText = content || '📋 Toque para copiar seu código:';
+      content = msgText; // normaliza para salvar no banco
+      console.log(`[Send] Enviando copy_code — para: ${phoneNormalized} | código: ${copyCode}`);
+      messageId = await sendButtonsMessage(config, phoneNormalized, msgText, copyCode, copyCodeFooter);
 
     } else if (type === 'pix') {
       // Envio de Pix como contato vCard
@@ -208,6 +220,7 @@ export async function POST(request: NextRequest) {
       media_url: mediaUrl || null,
       status: 'sent',
       created_at: new Date().toISOString(),
+      ...(type === 'copy_code' && copyCode ? { metadata: { copy_code: copyCode, copy_code_footer: copyCodeFooter ?? null } } : {}),
     };
 
     let { data: savedMessage, error: msgError } = await supabase

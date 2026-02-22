@@ -3,6 +3,7 @@ import {
   getTenantEvolutionConfig,
   sendTextMessage,
   sendMediaMessage,
+  sendButtonsMessage,
 } from '@/lib/services/evolution.service';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
@@ -16,12 +17,15 @@ export interface BlocoConteudo {
   texto_botao?: string;
   url_destino?: string;
   caption?: string;
+  // copy_code
+  copy_code?: string;   // Código que será copiado pelo cliente
+  copy_code_footer?: string; // Rodapé opcional da mensagem
 }
 
 export interface Bloco {
   id: string;
   ordem: number;
-  tipo: 'imagem' | 'video' | 'audio' | 'texto' | 'cta';
+  tipo: 'imagem' | 'video' | 'audio' | 'texto' | 'cta' | 'copy_code';
   conteudo: BlocoConteudo;
 }
 
@@ -147,7 +151,7 @@ export function resolverVariaveis(texto: string, contato: ContatoJob): string {
     );
 }
 
-/** Aplica variáveis em todos os blocos de texto/cta */
+/** Aplica variáveis em todos os blocos de texto/cta/copy_code */
 export function resolverBlocos(blocos: Bloco[], contato: ContatoJob): Bloco[] {
   return blocos.map(bloco => {
     if (bloco.tipo === 'imagem' || bloco.tipo === 'video' || bloco.tipo === 'audio') return bloco;
@@ -163,6 +167,10 @@ export function resolverBlocos(blocos: Bloco[], contato: ContatoJob): Bloco[] {
           : undefined,
         texto_botao: bloco.conteudo.texto_botao
           ? resolverVariaveis(bloco.conteudo.texto_botao, contato)
+          : undefined,
+        // Resolve variáveis dentro do código de cópia (ex: {{cupom_cliente}})
+        copy_code: bloco.conteudo.copy_code
+          ? resolverVariaveis(bloco.conteudo.copy_code, contato)
           : undefined,
       },
     };
@@ -262,6 +270,21 @@ async function enviarBlocoViaWhatsApp(
       const link = bloco.conteudo.url_destino ?? '';
       if (texto || link) {
         await sendTextMessage(config, telefone, [texto, link].filter(Boolean).join('\n'));
+      }
+      break;
+    }
+
+    case 'copy_code': {
+      const texto = bloco.conteudo.texto_formatado ?? bloco.conteudo.texto_raw ?? '';
+      const code = bloco.conteudo.copy_code ?? '';
+      if (code.trim()) {
+        await sendButtonsMessage(
+          config,
+          telefone,
+          texto || '📋 Toque para copiar seu código:',
+          code,
+          bloco.conteudo.copy_code_footer,
+        );
       }
       break;
     }

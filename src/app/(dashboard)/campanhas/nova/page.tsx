@@ -6,7 +6,7 @@ import {
   ArrowLeft, ArrowRight, Check, Upload, Trash2, GripVertical,
   Image as ImageIcon, Type, Link2, ChevronDown, ChevronUp,
   Plus, Calendar, Users, Zap, Send, Loader2, AlertCircle,
-  Search, Mic, Video, UsersRound, X, ChevronRight, Database, Filter,
+  Search, Mic, Video, UsersRound, X, ChevronRight, Database, Filter, Copy,
 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -16,7 +16,7 @@ import { supabase } from '@/lib/supabase';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
-type TipoBloco = 'imagem' | 'video' | 'audio' | 'texto' | 'cta';
+type TipoBloco = 'imagem' | 'video' | 'audio' | 'texto' | 'cta' | 'copy_code';
 type ModoDestinatario = 'inteligencia' | 'toda_base' | 'manual' | 'grupos';
 
 interface Bloco {
@@ -31,6 +31,9 @@ interface Bloco {
     texto_botao?: string;
     url_destino?: string;
     caption?: string;
+    // copy_code
+    copy_code?: string;        // código que será copiado pelo cliente
+    copy_code_footer?: string; // rodapé opcional
   };
 }
 
@@ -132,14 +135,16 @@ function BlocoEditor({
     audio:  'audio/ogg,audio/mpeg,audio/mp4,audio/wav,audio/webm',
     texto:  '',
     cta:    '',
+    copy_code: '',
   };
 
   const metaMap = {
-    imagem: { icon: <ImageIcon size={14} className="text-blue-500" />,  label: 'Imagem',    hint: 'Clique para enviar imagem (máx 5MB)'              },
-    video:  { icon: <Video size={14} className="text-violet-500" />,    label: 'Vídeo',     hint: 'Clique para enviar vídeo MP4 (máx 50MB)'          },
-    audio:  { icon: <Mic size={14} className="text-rose-500" />,        label: 'Áudio',     hint: 'Clique para enviar áudio OGG/MP3 (máx 10MB)'      },
-    texto:  { icon: <Type size={14} className="text-green-600" />,      label: 'Texto',     hint: ''                                                 },
-    cta:    { icon: <Link2 size={14} className="text-purple-600" />,    label: 'Botão CTA', hint: ''                                                 },
+    imagem:    { icon: <ImageIcon size={14} className="text-blue-500" />,  label: 'Imagem',         hint: 'Clique para enviar imagem (máx 5MB)'              },
+    video:     { icon: <Video size={14} className="text-violet-500" />,    label: 'Vídeo',          hint: 'Clique para enviar vídeo MP4 (máx 50MB)'          },
+    audio:     { icon: <Mic size={14} className="text-rose-500" />,        label: 'Áudio',          hint: 'Clique para enviar áudio OGG/MP3 (máx 10MB)'      },
+    texto:     { icon: <Type size={14} className="text-green-600" />,      label: 'Texto',          hint: ''                                                 },
+    cta:       { icon: <Link2 size={14} className="text-purple-600" />,    label: 'Botão CTA',      hint: ''                                                 },
+    copy_code: { icon: <Copy size={14} className="text-amber-600" />,      label: 'Botão Copiar',   hint: ''                                                 },
   };
 
   const meta = metaMap[bloco.tipo];
@@ -256,6 +261,80 @@ function BlocoEditor({
             value={bloco.conteudo.url_destino ?? ''}
             onChange={e => set({ url_destino: e.target.value })}
           />
+        </div>
+      )}
+
+      {bloco.tipo === 'copy_code' && (
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-txt-secondary mb-1 block">
+              Texto da mensagem <span className="text-txt-muted">(opcional)</span>
+            </label>
+            <textarea
+              value={bloco.conteudo.texto_raw ?? ''}
+              onChange={e => set({ texto_raw: e.target.value })}
+              rows={3}
+              placeholder="Ex: Seu cupom exclusivo chegou! 🎉"
+              className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-crm-primary/40"
+            />
+            <div className="flex flex-wrap gap-1 mt-2">
+              {VARIAVEIS_DISPONIVEIS.map(v => (
+                <button key={v}
+                  onClick={() => set({ texto_raw: (bloco.conteudo.texto_raw ?? '') + v })}
+                  className="text-xs px-2 py-0.5 bg-crm-primary/10 text-crm-primary rounded-full hover:bg-crm-primary/20 transition-colors">
+                  {v}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-txt-secondary mb-1 block">
+              Código para copiar <span className="text-red-400">*</span>
+            </label>
+            <input
+              type="text"
+              value={bloco.conteudo.copy_code ?? ''}
+              onChange={e => set({ copy_code: e.target.value })}
+              placeholder="Ex: VEXX20 ou {{cupom_cliente}}"
+              className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-crm-primary/40 font-mono"
+            />
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {VARIAVEIS_DISPONIVEIS.map(v => (
+                <button key={v}
+                  onClick={() => set({ copy_code: (bloco.conteudo.copy_code ?? '') + v })}
+                  className="text-xs px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full hover:bg-amber-100 transition-colors">
+                  {v}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-txt-secondary mb-1 block">
+              Rodapé <span className="text-txt-muted">(opcional)</span>
+            </label>
+            <input
+              type="text"
+              value={bloco.conteudo.copy_code_footer ?? ''}
+              onChange={e => set({ copy_code_footer: e.target.value })}
+              placeholder="Ex: Válido por 24h"
+              className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-crm-primary/40"
+            />
+          </div>
+          {bloco.conteudo.copy_code && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
+              <p className="text-xs font-medium text-amber-800">Preview do botão no WhatsApp:</p>
+              <div className="bg-white rounded-lg px-3 py-2 text-sm text-gray-800 border border-gray-100">
+                {bloco.conteudo.texto_raw || '📋 Toque para copiar seu código:'}
+              </div>
+              {bloco.conteudo.copy_code_footer && (
+                <p className="text-xs text-amber-700 px-1">{bloco.conteudo.copy_code_footer}</p>
+              )}
+              <div className="bg-white rounded-lg border border-gray-200 px-3 py-2 flex items-center justify-center gap-2 text-sm font-medium text-blue-600">
+                <Copy size={14} />
+                <span className="font-mono">{bloco.conteudo.copy_code}</span>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1278,6 +1357,7 @@ function NovaCampanhaInner() {
                     { tipo: 'audio' as TipoBloco, icon: <Mic size={12} />, label: 'Áudio' },
                     { tipo: 'texto' as TipoBloco, icon: <Type size={12} />, label: 'Texto' },
                     { tipo: 'cta' as TipoBloco, icon: <Link2 size={12} />, label: 'CTA' },
+                    { tipo: 'copy_code' as TipoBloco, icon: <Copy size={12} />, label: 'Copiar Código' },
                   ]).map(({ tipo, icon, label }) => (
                     <button
                       key={tipo}

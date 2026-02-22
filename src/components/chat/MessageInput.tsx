@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Paperclip, Smile, Mic, X, Image, FileText, Video, Loader2, Zap, Square, MapPin, Coins, User, ChevronUp } from 'lucide-react';
+import { Send, Paperclip, Smile, Mic, X, Image, FileText, Video, Loader2, Zap, Square, MapPin, Coins, User, ChevronUp, Copy } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { TemplatesFloatingPanel } from './TemplatesFloatingPanel';
@@ -85,6 +85,8 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
   const [pixName, setPixName] = useState('');
   const [pixIsSending, setPixIsSending] = useState(false);
   const [pixSendResult, setPixSendResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [copyCodeOpen, setCopyCodeOpen] = useState(false);
+  const [copyCodeValue, setCopyCodeValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileDocInputRef = useRef<HTMLInputElement>(null);
@@ -298,6 +300,26 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
       setPixIsSending(false);
     }
   }, [pixKey, pixKeyType, pixName, pixAmount, recipientPhone, clientId]);
+
+  // Envia botão copy_code via Evolution API /message/sendButtons
+  const handleSendCopyCode = useCallback(async () => {
+    if (!copyCodeValue.trim() || !recipientPhone) return;
+    try {
+      const { error } = await api.post('/api/whatsapp/send', {
+        to: recipientPhone,
+        type: 'copy_code',
+        content: text.trim() || '📋 Toque para copiar seu código:',
+        copyCode: copyCodeValue.trim(),
+        clientId: clientId || undefined,
+      });
+      if (error) throw new Error(error);
+      setCopyCodeOpen(false);
+      setCopyCodeValue('');
+      setText('');
+    } catch (err) {
+      alert(`Erro ao enviar: ${err instanceof Error ? err.message : 'tente novamente'}`);
+    }
+  }, [copyCodeValue, recipientPhone, text, clientId]);
 
   // ── Audio recording handlers ──
   const startRecording = useCallback(async () => {
@@ -728,6 +750,20 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
                   <p className="text-[10px] text-gray-400">Compartilhar dados de pagamento</p>
                 </div>
               </button>
+
+              {/* Botão Copiar Código */}
+              <button
+                onClick={() => { setAttachMenuOpen(false); setCopyCodeOpen(v => !v); }}
+                className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-50 text-left w-full transition-colors"
+              >
+                <div className="w-8 h-8 rounded-full bg-teal-100 flex items-center justify-center shrink-0">
+                  <Copy size={16} className="text-teal-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-800">Copiar Código</p>
+                  <p className="text-[10px] text-gray-400">Cupom, código de rastreio...</p>
+                </div>
+              </button>
             </div>
           )}
         </div>
@@ -766,12 +802,43 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
 
         {/* Input */}
         <div className="flex-1 bg-wa-bg-input rounded-xl px-3 py-1.5 md:px-4 md:py-2">
+          {/* Painel inline copy_code */}
+          {copyCodeOpen && (
+            <div className="flex items-center gap-2 mb-1.5 pb-1.5 border-b border-wa-border">
+              <Copy size={13} className="text-teal-600 shrink-0" />
+              <input
+                type="text"
+                value={copyCodeValue}
+                onChange={e => setCopyCodeValue(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSendCopyCode(); } if (e.key === 'Escape') { setCopyCodeOpen(false); setCopyCodeValue(''); } }}
+                placeholder="Código (ex: VEXX20)"
+                className="flex-1 bg-transparent text-sm font-mono text-wa-text-primary placeholder:text-wa-text-secondary outline-none"
+                autoFocus
+              />
+              {copyCodeValue.trim() && (
+                <button
+                  onClick={handleSendCopyCode}
+                  className="p-1 rounded-full bg-teal-600 hover:bg-teal-700 transition-colors"
+                  title="Enviar código"
+                >
+                  <Send size={12} className="text-white" />
+                </button>
+              )}
+              <button
+                onClick={() => { setCopyCodeOpen(false); setCopyCodeValue(''); }}
+                className="p-1 text-wa-text-secondary hover:text-red-400 rounded-full transition-colors"
+                title="Cancelar"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          )}
           <textarea
             ref={textareaRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Digite uma mensagem"
+            placeholder={copyCodeOpen ? 'Texto da mensagem (opcional)' : 'Digite uma mensagem'}
             rows={1}
             disabled={disabled}
             className="w-full bg-transparent text-sm text-wa-text-primary placeholder:text-wa-text-secondary outline-none resize-none max-h-24 md:max-h-28"

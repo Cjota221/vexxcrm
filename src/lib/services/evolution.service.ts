@@ -514,6 +514,84 @@ export async function sendContactMessage(
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ENVIO DE BOTÕES (copy_code)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Envia mensagem com botão de "Copiar Código" (copy_code) via Evolution API.
+ *
+ * O WhatsApp renderiza um botão nativo abaixo do texto. O cliente toca
+ * no botão e o código é copiado automaticamente para a área de transferência.
+ *
+ * Evolution API: POST /message/sendButtons/{instanceName}
+ *
+ * @param text    - Texto principal da mensagem (suporta variáveis já resolvidas)
+ * @param code    - Código que será copiado quando o cliente tocar no botão
+ * @param footer  - Texto de rodapé opcional
+ */
+export async function sendButtonsMessage(
+  config: EvolutionAPIConfig,
+  to: string,
+  text: string,
+  code: string,
+  footer?: string,
+): Promise<string> {
+  const endpoint = `${config.apiUrl}/message/sendButtons/${config.instanceName}`;
+
+  const payload = {
+    number: to,
+    title: text,
+    description: footer || undefined,
+    footer: footer || undefined,
+    buttons: [
+      {
+        type: 'copy_code',
+        copy_code: { code },
+      },
+    ],
+  };
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': config.apiKey,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorBody = await safeJson(response, 'Enviar botão copy_code').catch(() => ({}));
+    console.error(
+      `[Evolution] sendButtonsMessage falhou — status: ${response.status} | body:`,
+      JSON.stringify(errorBody).substring(0, 300),
+    );
+    throw new Error(
+      (errorBody as Record<string, unknown>).message as string ||
+      `Erro ao enviar botão copy_code (${response.status})`,
+    );
+  }
+
+  const data = await safeJson(response, 'Enviar botão copy_code');
+
+  const msgId =
+    data?.key?.id ||
+    data?.message?.key?.id ||
+    data?.data?.key?.id ||
+    data?.id ||
+    '';
+
+  if (!msgId) {
+    console.warn(
+      '[Evolution] sendButtonsMessage retornou sem messageId. Resposta:',
+      JSON.stringify(data).substring(0, 200),
+    );
+  }
+
+  return msgId;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ENCAMINHAMENTO DE MÍDIA PARA n8n
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

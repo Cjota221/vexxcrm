@@ -24,6 +24,7 @@ import {
   getTenantEvolutionConfig,
   sendTextMessage,
   sendMediaMessage,
+  sendButtonsMessage,
 } from '@/lib/services/evolution.service';
 
 type Params = Promise<{ id: string }>;
@@ -410,6 +411,21 @@ async function enviarBlocos(telefone: string, blocos: Bloco[], tenantId: string)
         const link = bloco.conteudo.url_destino ?? '';
         if (texto || link) {
           const id = await sendTextMessage(config, telefone, [texto, link].filter(Boolean).join('\n'));
+          if (id) messageIds.push(id);
+        }
+        break;
+      }
+      case 'copy_code': {
+        const texto = bloco.conteudo.texto_formatado ?? bloco.conteudo.texto_raw ?? '';
+        const code = bloco.conteudo.copy_code ?? '';
+        if (code.trim()) {
+          const id = await sendButtonsMessage(
+            config,
+            telefone,
+            texto || '📋 Toque para copiar seu código:',
+            code,
+            bloco.conteudo.copy_code_footer,
+          );
           if (id) messageIds.push(id);
         }
         break;
