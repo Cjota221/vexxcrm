@@ -761,7 +761,7 @@ export default function ClienteDetalhe() {
                       </div>
                       {couponCode.trim() && (
                         <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                          🎟 O cliente receberá um botão <strong>Copiar código</strong> com o código <strong>{couponCode}</strong>.
+                          🎟 O cliente receberá o código <strong>{couponCode}</strong> formatado na mensagem, pronto para copiar.
                         </p>
                       )}
                     </div>

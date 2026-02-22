@@ -67,14 +67,17 @@ export async function POST(request: NextRequest) {
       messageId = await sendTextMessage(config, phoneNormalized, content);
 
     } else if (type === 'copy_code') {
-      // Envio de botão de cópia via Evolution API /message/sendButtons
+      // Botões interativos (copy_code) SÓ funcionam com WhatsApp Business API oficial.
+      // Contas conectadas via QR Code (Evolution) recebem "mensagem não suportada".
+      // Solução: enviar texto simples com o cupom formatado e bem visível.
       if (!copyCode) {
         return NextResponse.json({ error: 'copyCode obrigatório para type=copy_code' }, { status: 400 });
       }
-      const msgText = content || '📋 Toque para copiar seu código:';
-      content = msgText; // normaliza para salvar no banco
-      console.log(`[Send] Enviando copy_code — para: ${phoneNormalized} | código: ${copyCode}`);
-      messageId = await sendButtonsMessage(config, phoneNormalized, msgText, copyCode, copyCodeFooter);
+      const footer = copyCodeFooter ? `\n_${copyCodeFooter}_` : '';
+      const msgText = `${content || '🎁 Seu cupom exclusivo:'}\n\n*━━━━━━━━━━━━━━━*\n🏷️ *CUPOM:* \`${copyCode}\`\n*━━━━━━━━━━━━━━━*${footer}\n\n📋 Copie o código acima e use no checkout!`;
+      content = msgText; // salvar o texto completo no banco
+      console.log(`[Send] Enviando cupom (texto) — para: ${phoneNormalized} | código: ${copyCode}`);
+      messageId = await sendTextMessage(config, phoneNormalized, msgText);
 
     } else if (type === 'pix') {
       // Envio de Pix como contato vCard
