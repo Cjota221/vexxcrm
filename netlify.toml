@@ -25,9 +25,11 @@
 [functions."api/cron/campaign-dispatcher"]
   timeout = 26
 
-# SSE: timeout máximo permitido pelo Netlify (26s no plano free)
-# Em produção no plano pago pode ser até 10min. O hook detecta queda <2s e
-# usa apenas Supabase Realtime como fallback.
+# SSE: desabilitado como fonte de mensagens (eventBus in-memory não funciona
+# em Netlify serverless — processos isolados por request).
+# O hook useRealtimeMessages usa Supabase Realtime (WebSocket) como fonte
+# primária. SSE mantido apenas como suplementar para typing/status/connection.
+# Timeout curto para não desperdiçar budget de execução serverless.
 [functions."api/sse"]
   timeout = 26
 

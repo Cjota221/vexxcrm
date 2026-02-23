@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
           total_orders,
           last_order_at
         )
-      `, { count: 'exact' })
+      `, { count: 'planned' })
       .eq('tenant_id', tenantId)
       // Ordenar por last_message_at desc; conversas sem mensagem ficam por último
       .order('last_message_at', { ascending: false, nullsFirst: false })

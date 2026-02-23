@@ -56,6 +56,16 @@ export function useRealtimeMessages() {
   //   ALTER PUBLICATION supabase_realtime ADD TABLE messages;
   //   (ver migration 023_enable_realtime_messages.sql)
   const globalRealtimeChannelRef = useRef<RealtimeChannel | null>(null);
+  // Debounce para invalidateQueries(['chats']) — evita double-fetch quando o
+  // canal global E o canal por-clientId disparam ao mesmo tempo.
+  const chatsInvalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const debouncedInvalidateChats = useCallback(() => {
+    if (chatsInvalidateTimerRef.current) clearTimeout(chatsInvalidateTimerRef.current);
+    chatsInvalidateTimerRef.current = setTimeout(() => {
+      queryClient.invalidateQueries({ queryKey: ['chats'] });
+    }, 300);
+  }, [queryClient]);
 
   useEffect(() => {
     const channel = supabase
@@ -69,7 +79,7 @@ export function useRealtimeMessages() {
 
           if (!clientId) {
             // Sem client_id: só invalidar lista de chats
-            queryClient.invalidateQueries({ queryKey: ['chats'] });
+            debouncedInvalidateChats();
             return;
           }
 
@@ -137,8 +147,10 @@ export function useRealtimeMessages() {
             );
           }
 
-          // Sempre atualizar a lista de chats (unread, ordem, preview)
-          queryClient.invalidateQueries({ queryKey: ['chats'] });
+          // Atualizar lista de chats (unread, ordem, preview) com debounce
+          // para não duplicar requests quando canal global + canal por-clientId
+          // disparam ao mesmo tempo.
+          debouncedInvalidateChats();
         }
       )
       .subscribe((status) => {
@@ -151,13 +163,14 @@ export function useRealtimeMessages() {
     globalRealtimeChannelRef.current = channel;
 
     return () => {
+      if (chatsInvalidateTimerRef.current) clearTimeout(chatsInvalidateTimerRef.current);
       if (globalRealtimeChannelRef.current) {
         supabase.removeChannel(globalRealtimeChannelRef.current);
         globalRealtimeChannelRef.current = null;
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryClient]);
+  }, [queryClient, debouncedInvalidateChats]);
   // ─── Fim do canal Realtime global ────────────────────────────────────────
 
   const handleEvent = useCallback(
@@ -189,8 +202,8 @@ export function useRealtimeMessages() {
                 );
               }
             );
-            // Reordenar lista de chats (ok invalidar — não afeta mensagens)
-            queryClient.invalidateQueries({ queryKey: ['chats'] });
+            // Reordenar lista de chats com debounce para não duplicar requests
+            debouncedInvalidateChats();
             break;
           }
 
@@ -296,7 +309,7 @@ export function useRealtimeMessages() {
         // Ignore heartbeats e payloads inválidos
       }
     },
-    [queryClient, setTyping]
+    [queryClient, setTyping, debouncedInvalidateChats]
   );
 
   const connect = useCallback(async () => {

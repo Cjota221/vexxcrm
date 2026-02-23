@@ -180,7 +180,8 @@ export function useMessages(clientId: string | null) {
           return [...old, incoming].sort(sortByTs);
         });
 
-        queryClient.invalidateQueries({ queryKey: ['chats'] });
+        // NOTA: não chamar invalidateQueries(['chats']) aqui — o canal global
+        // em useRealtimeMessages já faz isso com debounce, evitando double-fetch.
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `client_id=eq.${clientId}` }, (payload) => {
         queryClient.setQueryData<Message[]>(['messages', clientId], (old = []) =>
