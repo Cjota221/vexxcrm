@@ -8,6 +8,14 @@ import { useConnectionStore } from '@/store/connection';
 import { useChatsStore } from '@/store/chats';
 import type { NewMessageEvent, MessageStatusEvent, TypingIndicatorEvent, ConnectionUpdateEvent } from '@/types';
 
+/** Converte timestamp para ms — suporta epoch em segundos da Evolution API */
+function tsMs(v: string | number | null | undefined): number {
+  if (!v) return 0;
+  const n = typeof v === 'string' ? Number(v) : v;
+  if (isNaN(n)) return new Date(v as string).getTime();
+  return n < 1e10 ? n * 1000 : n;
+}
+
 /**
  * Hook para receber atualizações real-time via SSE.
  *
@@ -61,7 +69,7 @@ export function useRealtimeMessages() {
                   return !(sameContent && timeDiff < 30_000);
                 });
                 return [...without, payload.message].sort(
-                  (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                  (a, b) => tsMs(a.timestamp ?? a.created_at) - tsMs(b.timestamp ?? b.created_at)
                 );
               }
             );
@@ -224,12 +232,17 @@ export function useRealtimeMessages() {
       // Caso 1: Bloqueio imediato de CDN (< 500ms para falhar) — Auth 403, CORS, etc.
       // Caso 2: ERR_HTTP2_PROTOCOL_ERROR — abre com 200, cai em < 30s SEM nenhum evento
       //         (o Netlify free aceita a conexão mas quebra o stream HTTP/2 logo depois)
-      const isQuickFail = elapsed < 500 || (timeSinceLastEvent < 30_000 && lastEventTimeRef.current === 0);
+      //
+      // IMPORTANTE: elapsed < 500 NÃO bloqueia sozinho — no Netlify free é muito comum
+      // o SSE abrir e fechar em < 500ms sem ser um bloqueio permanente de CDN.
+      // Só bloqueamos se falhou MUITAS vezes (>= MAX_QUICK_FAILS), o que indica
+      // que o ambiente realmente não suporta SSE.
+      const isQuickFail = elapsed < 2_000 || (timeSinceLastEvent < 30_000 && lastEventTimeRef.current === 0);
       if (isQuickFail) {
         quickFailCountRef.current++;
       }
 
-      if (elapsed < 500 || quickFailCountRef.current >= MAX_QUICK_FAILS) {
+      if (quickFailCountRef.current >= MAX_QUICK_FAILS) {
         // Bloquear SSE para a sessão — Supabase Realtime cobre as mensagens
         sseBlockedRef.current = true;
         setSSEStatus('disconnected');

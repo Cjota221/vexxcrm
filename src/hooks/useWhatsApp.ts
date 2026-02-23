@@ -25,6 +25,22 @@ import { supabase } from '@/lib/supabase';
 import type { Message } from '@/types';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
+/**
+ * Converte qualquer forma de timestamp para milissegundos.
+ * Evolution API envia epoch em SEGUNDOS — precisamos *1000.
+ */
+function tsMs(v: string | number | null | undefined): number {
+  if (!v) return 0;
+  const n = typeof v === 'string' ? Number(v) : v;
+  if (isNaN(n)) return new Date(v as string).getTime();
+  return n < 1e10 ? n * 1000 : n;
+}
+
+/** Ordena por timestamp corrigido */
+function sortByTs(a: Message, b: Message): number {
+  return tsMs(a.timestamp ?? a.created_at) - tsMs(b.timestamp ?? b.created_at);
+}
+
 export function useWhatsAppConnection() {
   const queryClient = useQueryClient();
   const { whatsappStatus, qrCode, setWhatsAppStatus, setQRCode, setInstanceName } = useConnectionStore();
@@ -115,9 +131,7 @@ export function useMessages(clientId: string | null) {
 
       const orphans = pendingMessages.filter(opt => !serverIds.has(opt.id));
       const merged = [...fromServer, ...orphans];
-      return merged.sort((a, b) =>
-        new Date(a.timestamp ?? a.created_at).getTime() - new Date(b.timestamp ?? b.created_at).getTime()
-      );
+      return merged.sort(sortByTs);
     },
     enabled: !!clientId,
     staleTime: 0,
@@ -161,9 +175,9 @@ export function useMessages(clientId: string | null) {
           if (exists) {
             return old
               .map(m => (m.id === incoming.id || isOptimisticMatch(m)) ? { ...incoming, _optimistic: false } : m)
-              .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+              .sort(sortByTs);
           }
-          return [...old, incoming].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+          return [...old, incoming].sort(sortByTs);
         });
 
         queryClient.invalidateQueries({ queryKey: ['chats'] });
