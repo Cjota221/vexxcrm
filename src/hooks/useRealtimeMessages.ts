@@ -78,7 +78,6 @@ export function useRealtimeMessages() {
           const clientId = raw.client_id as string | undefined;
 
           if (!clientId) {
-            // Sem client_id: só invalidar lista de chats
             debouncedInvalidateChats();
             return;
           }
@@ -107,10 +106,8 @@ export function useRealtimeMessages() {
             queryClient.setQueryData<import('@/types').Message[]>(
               ['messages', clientId],
               (old = []) => {
-                // Deduplicar: ignorar se já existe pelo id
                 if (old.some(m => m.id === incoming.id)) return old;
 
-                // Substituir mensagem otimista correspondente
                 const hasOptimistic = old.some(
                   (m) =>
                     ((m as any)._optimistic === true || (m as any)._clientId) &&
@@ -147,15 +144,22 @@ export function useRealtimeMessages() {
             );
           }
 
-          // Atualizar lista de chats (unread, ordem, preview) com debounce
-          // para não duplicar requests quando canal global + canal por-clientId
-          // disparam ao mesmo tempo.
+          debouncedInvalidateChats();
+        }
+      )
+      // ── Escutar UPDATE em conversations (trigger do banco atualiza
+      //    last_message_at/text/unread_count após cada INSERT em messages)
+      //    Isso garante que a lista de chats reordena em tempo real.
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'conversations' },
+        () => {
           debouncedInvalidateChats();
         }
       )
       .subscribe((status) => {
+        console.log(`[Realtime] global-new-messages: ${status}`);
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          // Em caso de erro no canal global, forçar refetch completo
           queryClient.invalidateQueries({ queryKey: ['chats'] });
         }
       });

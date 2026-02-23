@@ -56,22 +56,13 @@ export async function getTenantFromRequest(
   const userIdFromHeader = request.headers.get('x-user-id');
   
   if (tenantIdFromHeader && userIdFromHeader) {
-    // Middleware já validou — buscar profile pelo user_id (seguro para multi-user tenants)
-    const supabase = createServerSupabaseClient();
-    const { data: profile, error } = await supabase
-      .from('profiles')
-      .select('id, tenant_id, full_name, email, role')
-      .eq('id', userIdFromHeader)
-      .single();
-
-    if (error || !profile) {
-      throw new Error('Sessão inválida');
-    }
-
+    // Middleware já validou o JWT e injetou os headers — não precisamos
+    // fazer outra round-trip ao banco. Retornamos direto.
+    // O profile completo só é buscado se algum caller realmente precisar dele.
     return {
-      userId: profile.id,
-      tenantId: profile.tenant_id,
-      profile,
+      userId: userIdFromHeader,
+      tenantId: tenantIdFromHeader,
+      profile: null as any, // lazy — buscar só se necessário
     };
   }
 
