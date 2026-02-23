@@ -28,8 +28,7 @@ export const useChatsStore = create<ChatsState>()((set) => ({
   searchQuery: '',
   typingChats: new Set(),
 
-  selectChat: (chatId) =>
-    set({ selectedChatId: chatId }),
+  selectChat: (chatId) => set({ selectedChatId: chatId }),
 
   setFilter: (filter) =>
     set({ activeFilter: filter }),

@@ -49,12 +49,13 @@ export async function GET(
     const before = searchParams.get('before');
 
     // 1. Buscar a conversa deste cliente (suporta múltiplas conversas — pega a mais recente)
+    // NOTA: NÃO filtrar por channel — o campo pode ter sido atualizado para valores diferentes
+    // de 'whatsapp' em algum webhook, e perderia a conversa completamente.
     const { data: conversations, error: convError } = await supabase
       .from('conversations')
       .select('id, last_message_at')
       .eq('tenant_id', tenantId)
       .eq('client_id', clientId)
-      .eq('channel', 'whatsapp')
       .order('last_message_at', { ascending: false, nullsFirst: false })
       .limit(1);
 
@@ -142,27 +143,33 @@ export async function GET(
       created_at: msg.created_at,
     }));
 
-    // 4. Marcar mensagens inbound como lidas (zerar unread_count)
+    // 4. Retornar IMEDIATAMENTE — marcar como lido em background (fire-and-forget)
+    // CRÍTICO: não usar await aqui.
+    // O UPDATE em messages + conversations dispara evento Realtime UPDATE em 'conversations'.
+    // Esse evento chegava no canal global, chamava debouncedInvalidateChats() → invalidava
+    // ['chats'] → forçava refetch de useMessages (staleTime=0) → retornava 0 msgs
+    // porque a query de conversa usava .eq('channel','whatsapp') (já corrigido acima).
+    // Mesmo sem o bug do channel, o ciclo de refetch era desnecessário.
     const hasUnread = (messages || []).some(
       (m) => m.direction === 'inbound' && m.status !== 'read'
     );
 
     if (hasUnread) {
-      // Atualizar status das mensagens inbound para 'read'
-      await supabase
-        .from('messages')
-        .update({ status: 'read' })
-        .eq('tenant_id', tenantId)
-        .eq('conversation_id', conversation.id)
-        .eq('direction', 'inbound')
-        .neq('status', 'read');
-
-      // Zerar unread_count na conversa
-      await supabase
-        .from('conversations')
-        .update({ unread_count: 0 })
-        .eq('id', conversation.id)
-        .eq('tenant_id', tenantId);
+      // Fire-and-forget: não bloquear o response nem causar cascata de eventos
+      Promise.all([
+        supabase
+          .from('messages')
+          .update({ status: 'read' })
+          .eq('tenant_id', tenantId)
+          .eq('conversation_id', conversation.id)
+          .eq('direction', 'inbound')
+          .neq('status', 'read'),
+        supabase
+          .from('conversations')
+          .update({ unread_count: 0 })
+          .eq('id', conversation.id)
+          .eq('tenant_id', tenantId),
+      ]).catch(() => { /* silencioso — não é crítico */ });
     }
 
     return NextResponse.json({ data: translatedMessages });
