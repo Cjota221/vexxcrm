@@ -100,65 +100,70 @@ export function useRealtimeMessages() {
       }
 
       const existingCache = queryClient.getQueryData<import('@/types').Message[]>(['messages', clientId]);
-      if (existingCache) {
-        const incoming: import('@/types').Message = {
-          id: raw.id as string,
-          tenant_id: raw.tenant_id as string,
-          client_id: clientId,
-          remote_jid: raw.sender_phone ? `${raw.sender_phone}@s.whatsapp.net` : '',
-          message_id: (raw.external_id as string) || (raw.id as string),
-          from_me: raw.direction === 'outbound',
-          content: (raw.content as string) || '',
-          type: raw.type as import('@/types').Message['type'],
-          media_url: raw.media_url as string | undefined,
-          media_type: raw.media_mime_type as string | undefined,
-          media_size: raw.media_size as number | undefined,
-          timestamp: raw.created_at as string,
-          status: raw.status as import('@/types').Message['status'],
-          metadata: (raw.metadata as Record<string, unknown>) || {},
-          created_at: raw.created_at as string,
-        };
-
-        queryClient.setQueryData<import('@/types').Message[]>(
-          ['messages', clientId],
-          (old = []) => {
-            if (old.some(m => m.id === incoming.id)) return old;
-
-            const hasOptimistic = old.some(
-              (m) =>
-                ((m as any)._optimistic === true || (m as any)._clientId) &&
-                m.from_me === incoming.from_me &&
-                m.content === incoming.content &&
-                Math.abs(
-                  new Date(m.created_at).getTime() -
-                    new Date(incoming.created_at).getTime()
-                ) < 30_000
-            );
-
-            if (hasOptimistic) {
-              return old
-                .map((m) =>
-                  (m as any)._optimistic &&
-                  m.from_me === incoming.from_me &&
-                  m.content === incoming.content
-                    ? { ...incoming, _optimistic: false }
-                    : m
-                )
-                .sort(
-                  (a, b) =>
-                    tsMs(a.timestamp ?? a.created_at) -
-                    tsMs(b.timestamp ?? b.created_at)
-                );
-            }
-
-            return [...old, incoming].sort(
-              (a, b) =>
-                tsMs(a.timestamp ?? a.created_at) -
-                tsMs(b.timestamp ?? b.created_at)
-            );
-          }
-        );
+      // Se não há cache ainda (conversa aberta mas query ainda não retornou), forçar fetch
+      if (!existingCache) {
+        queryClient.invalidateQueries({ queryKey: ['messages', clientId] });
+        debouncedInvalidateChats();
+        return;
       }
+
+      const incoming: import('@/types').Message = {
+        id: raw.id as string,
+        tenant_id: raw.tenant_id as string,
+        client_id: clientId,
+        remote_jid: raw.sender_phone ? `${raw.sender_phone}@s.whatsapp.net` : '',
+        message_id: (raw.external_id as string) || (raw.id as string),
+        from_me: raw.direction === 'outbound',
+        content: (raw.content as string) || '',
+        type: raw.type as import('@/types').Message['type'],
+        media_url: raw.media_url as string | undefined,
+        media_type: raw.media_mime_type as string | undefined,
+        media_size: raw.media_size as number | undefined,
+        timestamp: raw.created_at as string,
+        status: raw.status as import('@/types').Message['status'],
+        metadata: (raw.metadata as Record<string, unknown>) || {},
+        created_at: raw.created_at as string,
+      };
+
+      queryClient.setQueryData<import('@/types').Message[]>(
+        ['messages', clientId],
+        (old = []) => {
+          if (old.some(m => m.id === incoming.id)) return old;
+
+          const hasOptimistic = old.some(
+            (m) =>
+              ((m as any)._optimistic === true || (m as any)._clientId) &&
+              m.from_me === incoming.from_me &&
+              m.content === incoming.content &&
+              Math.abs(
+                new Date(m.created_at).getTime() -
+                  new Date(incoming.created_at).getTime()
+              ) < 30_000
+          );
+
+          if (hasOptimistic) {
+            return old
+              .map((m) =>
+                (m as any)._optimistic &&
+                m.from_me === incoming.from_me &&
+                m.content === incoming.content
+                  ? { ...incoming, _optimistic: false }
+                  : m
+              )
+              .sort(
+                (a, b) =>
+                  tsMs(a.timestamp ?? a.created_at) -
+                  tsMs(b.timestamp ?? b.created_at)
+              );
+          }
+
+          return [...old, incoming].sort(
+            (a, b) =>
+              tsMs(a.timestamp ?? a.created_at) -
+              tsMs(b.timestamp ?? b.created_at)
+          );
+        }
+      );
 
       debouncedInvalidateChats();
     };
