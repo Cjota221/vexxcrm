@@ -1832,7 +1832,7 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
     isFetching,
     refetch,
   } = useQuery({
-    queryKey: ['brain-client', selectedChatId],
+    queryKey: ['client', selectedChatId],
     queryFn: async () => {
       if (!selectedChatId) return null;
       const res = await api.get(`/api/clients/${selectedChatId}`);

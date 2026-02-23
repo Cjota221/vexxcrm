@@ -116,8 +116,10 @@ export function ChatArea({
   }, [selectedChatId, isLoadingMore, hasMore, messages, beforeCursor, queryClient]);
 
   // Buscar dados do cliente selecionado via API (resolve por ID, telefone ou conversa)
+  // IMPORTANTE: queryKey=['client', selectedChatId] — mesma chave usada em CRMSidebar e ClientBrainSidebar
+  // para que o React Query deduplicar a request e compartilhar o cache entre os 3 componentes.
   const { data: clientInfo } = useQuery({
-    queryKey: ['client-info', selectedChatId],
+    queryKey: ['client', selectedChatId],
     queryFn: async () => {
       if (!selectedChatId) return null;
       const res = await api.get(`/api/clients/${selectedChatId}`);

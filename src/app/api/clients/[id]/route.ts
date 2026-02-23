@@ -219,10 +219,10 @@ export async function GET(
     // Se temos um client.id real, buscar pedidos diretamente
     if (client.id) {
       orders = await fetchOrdersWithItems([client.id]);
-      console.log(`[clients/${id}] Pedidos por client.id (${client.id}): ${orders.length}`);
     }
 
     // Fallback 1: buscar outros clientes com o mesmo telefone (duplicatas de importação)
+    // BUG FIX: antes filtrava o próprio client.id, deixando clientIds vazio quando não há duplicatas
     if (orders.length === 0) {
       const phone = client.phone_canonical || client.phone_normalized;
       if (phone) {
@@ -233,16 +233,97 @@ export async function GET(
           .or(`phone_canonical.eq.${phone},phone_normalized.eq.${phone}`);
 
         if (clientsWithSamePhone && clientsWithSamePhone.length > 0) {
-          const clientIds = clientsWithSamePhone.map((c: any) => c.id).filter((cid: string) => cid !== client.id);
-          if (clientIds.length > 0) {
-            orders = await fetchOrdersWithItems([client.id, ...clientIds]);
-            console.log(`[clients/${id}] Pedidos via telefone duplicado (${phone}): ${orders.length}`);
+          // Incluir TODOS os ids (incluindo o próprio client.id) — deduplicar com Set
+          const allClientIds = [...new Set([client.id, ...clientsWithSamePhone.map((c: any) => c.id)])];
+          orders = await fetchOrdersWithItems(allClientIds);
+          if (orders.length > 0) {
+            console.log(`[clients/${id}] Pedidos via telefone (${phone}): ${orders.length}`);
           }
         }
       }
     }
 
-    // Fallback 2: buscar pedidos pelo external_id do cliente (ID da loja)
+    // Fallback 2: buscar pedidos órfãos (client_id=null) pelo telefone no metadata
+    // Acontece quando o AutoSync salvou o pedido antes do cliente existir no banco
+    if (orders.length === 0) {
+      const phone = client.phone_canonical || client.phone_normalized || client.phone;
+      const fzId = (client.custom_fields as any)?.facilzap_id;
+      const email = client.email;
+
+      // Buscar pedidos órfãos pelo telefone no metadata (JSON)
+      // O Supabase suporta filtro em JSONB com ->> para comparação de texto
+      const orphanQueries: Promise<any>[] = [];
+
+      if (phone) {
+        const phoneDigits = phone.replace(/\D/g, '');
+        orphanQueries.push(
+          supabase
+            .from('orders')
+            .select(`id, external_id, order_number, status, payment_status, payment_method,
+              subtotal, discount, shipping, total, tracking_code, tracking_url,
+              shipping_address, coupon_code, notes, metadata,
+              created_at, updated_at, confirmed_at, shipped_at, delivered_at, cancelled_at, client_id,
+              order_items(id, product_name, product_sku, quantity, unit_price, total_price, metadata)`)
+            .eq('tenant_id', tenantId)
+            .is('client_id', null)
+            .or(`metadata->>cliente_telefone.ilike.%${phoneDigits}%,metadata->>cliente_whatsapp.ilike.%${phoneDigits}%,metadata->>cliente_whatsapp_e164.ilike.%${phoneDigits}%`)
+            .order('created_at', { ascending: false })
+            .limit(50)
+        );
+      }
+
+      if (fzId) {
+        orphanQueries.push(
+          supabase
+            .from('orders')
+            .select(`id, external_id, order_number, status, payment_status, payment_method,
+              subtotal, discount, shipping, total, tracking_code, tracking_url,
+              shipping_address, coupon_code, notes, metadata,
+              created_at, updated_at, confirmed_at, shipped_at, delivered_at, cancelled_at, client_id,
+              order_items(id, product_name, product_sku, quantity, unit_price, total_price, metadata)`)
+            .eq('tenant_id', tenantId)
+            .is('client_id', null)
+            .eq('metadata->>cliente_id_facilzap', String(fzId))
+            .order('created_at', { ascending: false })
+            .limit(50)
+        );
+      }
+
+      if (orphanQueries.length > 0) {
+        const results = await Promise.all(orphanQueries);
+        const seenIds = new Set<string>();
+        const orphanOrders: any[] = [];
+        for (const { data: rows } of results) {
+          for (const o of (rows ?? [])) {
+            if (!seenIds.has(o.id)) {
+              seenIds.add(o.id);
+              orphanOrders.push(o);
+            }
+          }
+        }
+
+        if (orphanOrders.length > 0) {
+          orders = orphanOrders.map((o: any) => {
+            const fromTable = (o.order_items ?? []) as any[];
+            const fromMeta  = (o.metadata?.itens ?? o.metadata?.items ?? []) as any[];
+            const items = fromTable.length > 0
+              ? fromTable.map(normalizeOrderItem)
+              : fromMeta.map(normalizeMetaItem);
+            return { ...o, items, order_items: undefined };
+          });
+          console.log(`[clients/${id}] Pedidos órfãos via metadata (telefone/fzId): ${orders.length}`);
+
+          // Vincular esses pedidos ao cliente agora (lazy relink)
+          try {
+            const ids = orphanOrders.map((o: any) => o.id);
+            await supabase.from('orders').update({ client_id: client.id }).in('id', ids).eq('tenant_id', tenantId);
+            console.log(`[clients/${id}] Revinculados ${ids.length} pedidos órfãos ao client ${client.id}`);
+          } catch { /* silencioso */ }
+        }
+      }
+    }
+
+    // Fallback 3: buscar pedidos pelo external_id do cliente (ID da loja)
     if (orders.length === 0 && client.external_id) {
       const { data: ordersExt } = await supabase
         .from('orders')
