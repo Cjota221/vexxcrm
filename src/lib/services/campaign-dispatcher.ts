@@ -346,7 +346,7 @@ export async function processarFilaCampanha(
   // Carrega campanha
   const { data: campanha, error: errCampanha } = await supabase
     .from('campaigns')
-    .select('id, tenant_id, status, config_antiban, cool_off_ate')
+    .select('id, tenant_id, status, config_antiban, cool_off_ate, sent_count')
     .eq('id', campanhaId)
     .single();
 
@@ -358,7 +358,9 @@ export async function processarFilaCampanha(
   const tenantId: string = campanha.tenant_id;
   const cfgAntiban: AntibanConfig = aplicarRegraCarol({ ...config, ...(campanha.config_antiban ?? {}) });
 
-  let msgEnviadas = 0;
+  // CRÍTICO: msgEnviadas deve ser persistente entre invocações do cron (Netlify timeout 26s).
+  // Usar sent_count do banco garante que o cooloff é calculado corretamente mesmo após restart.
+  let msgEnviadas: number = campanha.sent_count ?? 0;
 
   // ─── Loop principal ────────────────────────────────────────────────────────
   while (true) {
@@ -400,13 +402,33 @@ export async function processarFilaCampanha(
       .single();
 
     if (errJob || !job) {
-      // Nenhum job pendente → campanha concluída
+      // Nenhum job disponível agora — pode estar em cooloff ou concluída
+      const { count: pendentesTotal } = await supabase
+        .from('campaign_jobs')
+        .select('id', { count: 'exact', head: true })
+        .eq('campanha_id', campanhaId)
+        .eq('status', 'pendente');
+
+      if (!pendentesTotal || pendentesTotal === 0) {
+        // Campanha concluída
+        await supabase
+          .from('campaigns')
+          .update({ status: 'completed', status_detalhe: 'Todos os envios concluídos' })
+          .eq('id', campanhaId);
+        console.log(`[DISPATCHER] Campanha ${campanhaId} concluída!`);
+      } else {
+        // Ainda tem jobs mas todos estão com proximo_envio_em no futuro (cooloff)
+        console.log(`[DISPATCHER] Campanha ${campanhaId} em cooloff — ${pendentesTotal} jobs aguardando`);
+      }
+      break;
+    }
+
+    // Se havia cool_off_ate e o job já está disponível, limpar o flag
+    if (campanha.cool_off_ate && new Date(campanha.cool_off_ate) <= new Date()) {
       await supabase
         .from('campaigns')
-        .update({ status: 'completed', status_detalhe: 'Todos os envios concluídos' })
+        .update({ status_detalhe: 'enviando', cool_off_ate: null })
         .eq('id', campanhaId);
-      console.log(`[DISPATCHER] Campanha ${campanhaId} concluída!`);
-      break;
     }
 
     // Marcar como enviando
@@ -473,19 +495,24 @@ export async function processarFilaCampanha(
 
       msgEnviadas++;
 
-      // Cooloff a cada N mensagens
+      // Cooloff a cada N mensagens — usando proximo_envio_em para não bloquear o cron
+      // (Netlify timeout 26s: sleep(60s) seria morto antes de terminar)
       if (msgEnviadas % cfgAntiban.cooloff_a_cada === 0) {
-        const coolOffAte = new Date(Date.now() + cfgAntiban.cooloff_duracao_ms).toISOString();
-        console.log(`[DISPATCHER] Cooloff ativado por ${cfgAntiban.cooloff_duracao_ms}ms`);
+        const coolOffMs = cfgAntiban.cooloff_duracao_ms;
+        const coolOffAte = new Date(Date.now() + coolOffMs).toISOString();
+        console.log(`[DISPATCHER] Cooloff ativado — próximo job em ${coolOffMs}ms (${coolOffAte})`);
         await supabase
           .from('campaigns')
           .update({ status_detalhe: 'cool_off', cool_off_ate: coolOffAte })
           .eq('id', campanhaId);
-        await sleep(cfgAntiban.cooloff_duracao_ms);
+        // Agendar todos os jobs pendentes para depois do cooloff
         await supabase
-          .from('campaigns')
-          .update({ status_detalhe: 'enviando', cool_off_ate: null })
-          .eq('id', campanhaId);
+          .from('campaign_jobs')
+          .update({ proximo_envio_em: coolOffAte })
+          .eq('campanha_id', campanhaId)
+          .eq('status', 'pendente');
+        // Encerrar essa invocação — o cron seguinte pegará os jobs quando o horário chegar
+        break;
       }
 
       // Delay humanizado antes do próximo envio
