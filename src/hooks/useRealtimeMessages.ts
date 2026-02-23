@@ -30,8 +30,9 @@ export function useRealtimeMessages() {
   const quickFailCountRef = useRef(0);
   const lastEventTimeRef = useRef(0);
   const MAX_RECONNECT_ATTEMPTS = 5;
-  // Após 3 falhas rápidas consecutivas (< 30s sem receber evento), bloquear SSE
-  const MAX_QUICK_FAILS = 3;
+  // Após 8 falhas rápidas consecutivas (< 30s sem receber evento), bloquear SSE
+  // NOTA: No Netlify free o SSE cai periodicamente — não bloquear cedo demais
+  const MAX_QUICK_FAILS = 8;
   const { setSSEStatus } = useConnectionStore();
   const { setTyping } = useChatsStore();
 
@@ -220,15 +221,15 @@ export function useRealtimeMessages() {
       const elapsed = Date.now() - connectTime;
       const timeSinceLastEvent = Date.now() - (lastEventTimeRef.current || connectTime);
 
-      // Caso 1: Bloqueio imediato de CDN (< 2s para falhar) — Auth 403, CORS, etc.
+      // Caso 1: Bloqueio imediato de CDN (< 500ms para falhar) — Auth 403, CORS, etc.
       // Caso 2: ERR_HTTP2_PROTOCOL_ERROR — abre com 200, cai em < 30s SEM nenhum evento
       //         (o Netlify free aceita a conexão mas quebra o stream HTTP/2 logo depois)
-      const isQuickFail = elapsed < 2000 || (timeSinceLastEvent < 30_000 && lastEventTimeRef.current === 0);
+      const isQuickFail = elapsed < 500 || (timeSinceLastEvent < 30_000 && lastEventTimeRef.current === 0);
       if (isQuickFail) {
         quickFailCountRef.current++;
       }
 
-      if (elapsed < 2000 || quickFailCountRef.current >= MAX_QUICK_FAILS) {
+      if (elapsed < 500 || quickFailCountRef.current >= MAX_QUICK_FAILS) {
         // Bloquear SSE para a sessão — Supabase Realtime cobre as mensagens
         sseBlockedRef.current = true;
         setSSEStatus('disconnected');

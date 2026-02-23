@@ -5,6 +5,8 @@ import {
   sendMediaMessage,
   sendButtonsMessage,
 } from '@/lib/services/evolution.service';
+import { eventBus } from '@/lib/event-bus';
+import { PhoneNormalizer } from '@/lib/phone-normalizer';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -492,6 +494,68 @@ export async function processarFilaCampanha(
 
       // Atualizar contadores
       await supabase.rpc('increment_campaign_sent', { campanha_id: campanhaId });
+
+      // ── Registrar mensagem no chat e emitir SSE ──────────────────────────
+      // Sem isso, as mensagens enviadas pelo dispatcher não aparecem no chat do CRM.
+      try {
+        const phoneCanonical = PhoneNormalizer.canonical(job.contato_telefone);
+        const { data: clientRow } = await supabase
+          .from('clients')
+          .select('id')
+          .eq('tenant_id', tenantId)
+          .eq('phone_normalized', phoneCanonical)
+          .single();
+
+        if (clientRow) {
+          const { data: convRow } = await supabase
+            .from('conversations')
+            .select('id')
+            .eq('tenant_id', tenantId)
+            .eq('client_id', clientRow.id)
+            .eq('channel', 'whatsapp')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+          if (convRow) {
+            // Extrair texto do primeiro bloco de texto/cta/copy_code
+            const blocoTexto = (blocosResolvidos).find(b =>
+              b.tipo === 'texto' || b.tipo === 'cta' || b.tipo === 'copy_code'
+            );
+            const msgContent =
+              blocoTexto?.conteudo?.texto_formatado ||
+              blocoTexto?.conteudo?.texto_raw ||
+              blocoTexto?.conteudo?.copy_code ||
+              '';
+
+            const { data: savedMsg } = await supabase
+              .from('messages')
+              .insert({
+                tenant_id: tenantId,
+                conversation_id: convRow.id,
+                client_id: clientRow.id,
+                direction: 'outbound',
+                sender_name: 'Campanha',
+                content: msgContent,
+                type: 'text',
+                status: 'sent',
+                created_at: new Date().toISOString(),
+              })
+              .select()
+              .single();
+
+            if (savedMsg) {
+              eventBus.emitToTenant('new_message', tenantId, {
+                client_id: clientRow.id,
+                message: savedMsg,
+              });
+            }
+          }
+        }
+      } catch (err) {
+        // Não bloquear o dispatcher por falha no registro da mensagem
+        console.warn('[DISPATCHER] Falha ao registrar mensagem no chat:', err);
+      }
 
       msgEnviadas++;
 

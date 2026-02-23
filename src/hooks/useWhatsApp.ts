@@ -121,7 +121,7 @@ export function useMessages(clientId: string | null) {
     },
     enabled: !!clientId,
     staleTime: 0,
-    refetchInterval: 8_000,
+    refetchInterval: 5_000,
     refetchOnWindowFocus: true,
     refetchOnMount: true,
   });
