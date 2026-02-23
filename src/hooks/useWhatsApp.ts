@@ -108,7 +108,9 @@ export function useMessages(clientId: string | null) {
     queryKey: ['messages', clientId],
     queryFn: async () => {
       if (!clientId) return [];
+      console.log(`[useMessages] 🔵 queryFn disparado para clientId=${clientId}`);
       const response = await api.get<{ data: Message[] } | Message[]>(`/api/messages/${clientId}`);
+      console.log(`[useMessages] resposta /api/messages/${clientId}:`, response.error ?? `${(response.data as any)?.data?.length ?? 0} msgs`);
       if (response.error) throw new Error(response.error);
       const raw = response.data as any;
       const fromServer: Message[] = Array.isArray(raw) ? raw : (raw?.data ?? []);
@@ -134,12 +136,10 @@ export function useMessages(clientId: string | null) {
       return merged.sort(sortByTs);
     },
     enabled: !!clientId,
-    staleTime: 10_000,
-    // Supabase Realtime entrega mensagens em < 1s — polling a cada 30s é só
-    // fallback de segurança caso o WebSocket caia temporariamente.
-    // Antes era 5s, o que gerava ~12 requests/min por chat aberto.
+    staleTime: 0,         // sempre busca ao montar — garante histórico ao abrir conversa
+    gcTime: 5 * 60_000,   // mantém cache 5min após desmontar (navegar entre conversas é rápido)
     refetchInterval: 30_000,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false, // Realtime cobre isso; refocus causaria flash desnecessário
     refetchOnMount: true,
   });
 
