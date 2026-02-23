@@ -95,6 +95,36 @@ async function safeJson<T = any>(response: Response, context = 'Evolution API'):
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// FETCH COM TIMEOUT — evita 504 no Netlify
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Wrapper do fetch com AbortController para garantir timeout.
+ * Sem isso, a Evolution API pode travar a função serverless por 60s
+ * causando o "Inactivity Timeout" do Netlify (504).
+ *
+ * Timeout padrão: 15s para envio de mensagens (suficiente para WhatsApp).
+ */
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs = 15_000
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw new Error(`Evolution API timeout após ${timeoutMs / 1000}s (${url.split('/').slice(-2).join('/')})`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ORQUESTRADOR DE INSTÂNCIAS (SaaS Connect)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -303,14 +333,15 @@ export async function sendTextMessage(
   to: string,
   text: string
 ): Promise<string> {
-  const response = await fetch(`${config.apiUrl}/message/sendText/${config.instanceName}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': config.apiKey,
+  const response = await fetchWithTimeout(
+    `${config.apiUrl}/message/sendText/${config.instanceName}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': config.apiKey },
+      body: JSON.stringify({ number: to, text }),
     },
-    body: JSON.stringify({ number: to, text }),
-  });
+    15_000 // 15s timeout para envio de texto
+  );
 
   if (!response.ok) {
     const error = await safeJson(response, 'Enviar texto').catch(() => ({}));
@@ -353,7 +384,7 @@ export async function sendMediaMessage(
   // Evolution API usa /message/sendMedia para imagem, vídeo e documento
   const endpoint = `${config.apiUrl}/message/sendMedia/${config.instanceName}`;
 
-  const response = await fetch(endpoint, {
+  const response = await fetchWithTimeout(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -365,7 +396,7 @@ export async function sendMediaMessage(
       mediatype: mediaType,
       caption: caption || undefined,
     }),
-  });
+  }, 20_000); // 20s — uploads de mídia são mais lentos
 
   if (!response.ok) {
     const errorBody = await safeJson(response, 'Enviar mídia').catch(() => ({}));
@@ -401,7 +432,7 @@ export async function sendAudioMessage(
 ): Promise<string> {
   const endpoint = `${config.apiUrl}/message/sendWhatsAppAudio/${config.instanceName}`;
 
-  const response = await fetch(endpoint, {
+  const response = await fetchWithTimeout(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -412,7 +443,7 @@ export async function sendAudioMessage(
       audio: audioUrl,
       encoding: true,   // Evolution converte para opus se necessário
     }),
-  });
+  }, 20_000); // 20s — uploads de áudio podem demorar mais
 
   if (!response.ok) {
     const errorBody = await safeJson(response, 'Enviar áudio').catch(() => ({}));
@@ -461,7 +492,7 @@ export async function sendContactMessage(
 ): Promise<string> {
   const endpoint = `${config.apiUrl}/message/sendContact/${config.instanceName}`;
 
-  const response = await fetch(endpoint, {
+  const response = await fetchWithTimeout(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -481,7 +512,7 @@ export async function sendContactMessage(
         },
       ],
     }),
-  });
+  }, 15_000); // 15s timeout
 
   if (!response.ok) {
     const errorBody = await safeJson(response, 'Enviar contato Pix').catch(() => ({}));
@@ -551,14 +582,14 @@ export async function sendButtonsMessage(
     ],
   };
 
-  const response = await fetch(endpoint, {
+  const response = await fetchWithTimeout(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'apikey': config.apiKey,
     },
     body: JSON.stringify(payload),
-  });
+  }, 15_000); // 15s timeout
 
   if (!response.ok) {
     const errorBody = await safeJson(response, 'Enviar botão copy_code').catch(() => ({}));
