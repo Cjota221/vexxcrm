@@ -18,13 +18,39 @@
 -- ============================================================
 
 -- 1. Habilitar REPLICA IDENTITY nas tabelas de tempo real
+--    (seguro rodar mesmo se já estiver configurado)
 ALTER TABLE messages      REPLICA IDENTITY FULL;
 ALTER TABLE conversations REPLICA IDENTITY FULL;
 ALTER TABLE clients       REPLICA IDENTITY FULL;
 
--- 2. Adicionar tabelas à publicação do Supabase Realtime
--- NOTA: Se a publicação não existir ainda, o Supabase já cria automaticamente.
---       Aqui garantimos que as tabelas estejam nela.
-ALTER PUBLICATION supabase_realtime ADD TABLE messages;
-ALTER PUBLICATION supabase_realtime ADD TABLE conversations;
-ALTER PUBLICATION supabase_realtime ADD TABLE clients;
+-- 2. Adicionar tabelas à publicação do Supabase Realtime (idempotente)
+--    Ignora silenciosamente se a tabela já for membro da publicação.
+DO $$
+BEGIN
+  -- messages
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'messages'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE messages;
+  END IF;
+
+  -- conversations
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'conversations'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE conversations;
+  END IF;
+
+  -- clients
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'clients'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE clients;
+  END IF;
+END $$;
+
+-- 3. Verificar resultado (opcional — confirma quais tabelas estão ativas)
+-- SELECT tablename FROM pg_publication_tables WHERE pubname = 'supabase_realtime' ORDER BY tablename;
