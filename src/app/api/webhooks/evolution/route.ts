@@ -275,13 +275,13 @@ async function handleNewMessage(
 
   // Buscar ou criar conversation para este cliente
   // IMPORTANTE: usar order+limit (não .single()) para suportar múltiplas conversas
+  // NOTA: NÃO filtrar por channel — garante que buscamos a mesma conversa que o front-end exibe
   let conversationId: string;
   const { data: existingConvs } = await supabase
     .from('conversations')
     .select('id')
     .eq('tenant_id', tenantId)
     .eq('client_id', client.id)
-    .eq('channel', 'whatsapp')
     .order('last_message_at', { ascending: false, nullsFirst: false })
     .limit(1);
 
@@ -967,13 +967,15 @@ async function triggerHistoricalSync(
       totalClients++;
 
       // Buscar ou criar conversa
+      // NOTA: NÃO filtrar por channel — garante consistência com messages/route.ts
       let convId: string;
       const { data: conv } = await supabase
         .from('conversations')
         .select('id')
         .eq('tenant_id', tenantId)
         .eq('client_id', client.id)
-        .eq('channel', 'whatsapp')
+        .order('last_message_at', { ascending: false, nullsFirst: false })
+        .limit(1)
         .maybeSingle();
 
       if (conv) {

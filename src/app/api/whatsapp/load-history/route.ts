@@ -32,12 +32,12 @@ export async function POST(request: NextRequest) {
     const supabase = createServerSupabaseClient();
 
     // 1. Buscar conversa do cliente
+    // NOTA: NÃO filtrar por channel — mesmo fix do messages/route.ts
     const { data: conv } = await supabase
       .from('conversations')
       .select('id, history_loaded')
       .eq('tenant_id', tenantId)
       .eq('client_id', clientId)
-      .eq('channel', 'whatsapp')
       .order('last_message_at', { ascending: false, nullsFirst: false })
       .limit(1)
       .maybeSingle();

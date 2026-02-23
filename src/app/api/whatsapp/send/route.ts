@@ -177,13 +177,15 @@ export async function POST(request: NextRequest) {
     // IMPORTANTE: usar order + limit 1 igual ao GET /api/messages/[clientId]
     // para garantir que salvamos na MESMA conversa que o front-end está exibindo.
     // .single() falha quando há múltiplas conversas (retorna erro 406).
+    // NOTA: NÃO filtrar por channel — mesmo fix do messages/route.ts e load-history/route.ts.
+    // Se a conversa tem channel diferente de 'whatsapp', o send criava uma conversa NOVA,
+    // e as mensagens ficavam em conversas separadas (histórico na antiga, novas na nova).
     let conversationId: string;
     const { data: existingConvs } = await supabase
       .from('conversations')
       .select('id')
       .eq('tenant_id', tenantId)
       .eq('client_id', clientId)
-      .eq('channel', 'whatsapp')
       .order('last_message_at', { ascending: false, nullsFirst: false })
       .limit(1);
 
