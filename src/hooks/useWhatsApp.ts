@@ -134,8 +134,11 @@ export function useMessages(clientId: string | null) {
       return merged.sort(sortByTs);
     },
     enabled: !!clientId,
-    staleTime: 0,
-    refetchInterval: 5_000,
+    staleTime: 10_000,
+    // Supabase Realtime entrega mensagens em < 1s — polling a cada 30s é só
+    // fallback de segurança caso o WebSocket caia temporariamente.
+    // Antes era 5s, o que gerava ~12 requests/min por chat aberto.
+    refetchInterval: 30_000,
     refetchOnWindowFocus: true,
     refetchOnMount: true,
   });

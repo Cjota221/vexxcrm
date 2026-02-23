@@ -60,6 +60,9 @@ export function useInfiniteChats(filter: ChatFilter = 'all', search?: string) {
     refetchOnMount: 'always',
     // staleTime baixo: considera dados obsoletos após 10s para disparar refetch em background
     staleTime: 10_000,
+    // Supabase Realtime invalida ['chats'] em tempo real via debouncedInvalidateChats.
+    // Polling de 60s é só segurança para o caso do WebSocket cair.
+    refetchInterval: 60_000,
     // Manter cache por 5 minutos para não perder posição ao trocar de tab
     gcTime: 5 * 60_000,
   });
