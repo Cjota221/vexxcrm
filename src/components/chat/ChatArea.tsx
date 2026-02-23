@@ -32,10 +32,15 @@ export function ChatArea({
   onOpenTransfer?: () => void;
 }) {
   const { selectedChatId } = useChatsStore();
-  const { data: messages = [], isLoading, isFetching } = useMessages(selectedChatId);
+  const { data: messages = [], isLoading, isFetching, status, error } = useMessages(selectedChatId);
   const { mutate: sendMessage, isPending: isSending } = useSendMessage();
   const queryClient = useQueryClient();
   const [isSyncing] = useState(false);
+
+  // Log de diagnóstico — remover após confirmar correção
+  useEffect(() => {
+    console.log(`[ChatArea] selectedChatId=${selectedChatId} | status=${status} | msgs=${messages.length} | isLoading=${isLoading} | error=${(error as any)?.message ?? 'none'}`);
+  });
 
   // ── Lazy History Loading ──────────────────────────────────────────────────
   // Guarda quais clientIds já tiveram o histórico solicitado nesta sessão
@@ -49,16 +54,18 @@ export function ChatArea({
     // Marca imediatamente para evitar chamadas paralelas
     historyRequestedRef.current.add(selectedChatId);
     setIsLoadingHistory(true);
+    console.log(`[ChatArea] load-history disparado para ${selectedChatId}`);
 
     api.post<{ loaded?: boolean; inserted?: number }>('/api/whatsapp/load-history', { clientId: selectedChatId })
       .then(res => {
         const d = res.data;
+        console.log(`[ChatArea] load-history resultado: inserted=${d?.inserted ?? 0}`);
         // Se chegaram mensagens novas, invalida o cache para recarregar
         if (d?.inserted && d.inserted > 0) {
           queryClient.invalidateQueries({ queryKey: ['messages', selectedChatId] });
         }
       })
-      .catch(() => { /* silencioso — histórico é best-effort */ })
+      .catch((e) => { console.warn('[ChatArea] load-history erro (silencioso):', e?.message); })
       .finally(() => setIsLoadingHistory(false));
   }, [selectedChatId, queryClient]);
 
