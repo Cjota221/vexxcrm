@@ -108,9 +108,7 @@ export function useMessages(clientId: string | null) {
     queryKey: ['messages', clientId],
     queryFn: async () => {
       if (!clientId) return [];
-      console.log(`[useMessages] 🔵 queryFn disparado para clientId=${clientId}`);
       const response = await api.get<{ data: Message[] } | Message[]>(`/api/messages/${clientId}`);
-      console.log(`[useMessages] resposta /api/messages/${clientId}:`, response.error ?? `${(response.data as any)?.data?.length ?? 0} msgs`);
       if (response.error) throw new Error(response.error);
       const raw = response.data as any;
       const fromServer: Message[] = Array.isArray(raw) ? raw : (raw?.data ?? []);
