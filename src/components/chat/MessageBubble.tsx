@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, memo } from 'react';
 import { cn } from '@/lib/utils';
 import { formatTime } from '@/lib/utils';
-import { Check, CheckCheck, Mic, Eye, AlertCircle, Clock, Copy } from 'lucide-react';
+import { Check, CheckCheck, Mic, Eye, AlertCircle, Clock, Copy, RotateCcw } from 'lucide-react';
 import { api } from '@/lib/api';
 import { parseMessageContent } from '@/lib/message-parser';
 import { AudioMessage } from './AudioMessage';
@@ -15,14 +15,17 @@ interface MessageBubbleProps {
   message: Message;
   /** Callback chamado quando a transcrição é atualizada (para invalidar query) */
   onTranscriptionUpdate?: (messageId: string, transcription: string) => void;
+  /** Callback para reenviar mensagem que falhou */
+  onRetry?: (message: Message) => void;
 }
 
 /**
  * Bolha de mensagem estilo WhatsApp.
  * Suporta texto, mídia, transcrição de áudio e descrição de imagem (IA).
  * Trata mídias com URL expirada (403) e oferece re-download.
+ * Wrapped em React.memo para evitar re-renders desnecessários quando outras mensagens mudam.
  */
-export function MessageBubble({ message, onTranscriptionUpdate }: MessageBubbleProps) {
+function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: MessageBubbleProps) {
   const isFromMe = message.from_me;
   const metadata = message.metadata as Record<string, unknown> | undefined;
   const transcription = metadata?.transcription as string | undefined;
@@ -236,7 +239,27 @@ export function MessageBubble({ message, onTranscriptionUpdate }: MessageBubbleP
           </span>
           {statusIcon()}
         </div>
+
+        {/* Botão de reenvio quando falhou */}
+        {message.status === 'failed' && isFromMe && (
+          <button
+            onClick={() => onRetry?.(message)}
+            className="mt-1 w-full flex items-center justify-center gap-1.5 text-[11px] text-red-500 hover:text-red-600 transition-colors"
+            title="Toque para reenviar"
+          >
+            <RotateCcw size={11} />
+            <span>Falhou · Toque para reenviar</span>
+          </button>
+        )}
       </div>
     </div>
   );
 }
+
+export const MessageBubble = memo(MessageBubbleComponent, (prev, next) => (
+  prev.message.id === next.message.id &&
+  prev.message.status === next.message.status &&
+  prev.message.content === next.message.content &&
+  prev.message.media_url === next.message.media_url &&
+  (prev.message.metadata as any)?.transcription === (next.message.metadata as any)?.transcription
+));

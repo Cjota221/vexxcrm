@@ -19,7 +19,8 @@ export function parseMessageContent(raw: string | null | undefined): React.React
   if (!raw || typeof raw !== 'string') return null;
 
   // Limitar para prevenir ReDoS
-  const text = raw.slice(0, 10_000);
+  // Normalizar quebras de linha Windows (\r\n) e Mac antigo (\r) para \n
+  const text = raw.slice(0, 10_000).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
   // Separar por quebras de linha primeiro
   const lines = text.split('\n');

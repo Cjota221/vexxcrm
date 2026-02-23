@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, memo } from 'react';
 import { Send, Paperclip, Smile, Mic, X, Image, FileText, Video, Loader2, Zap, Square, MapPin, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -69,7 +69,7 @@ const MAX_FILE_SIZE = 16 * 1024 * 1024; // 16MB
 /**
  * Input de mensagem com auto-resize estilo WhatsApp + envio de mídia.
  */
-export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipientPhone, recipientName, clientId }: MessageInputProps) {
+function MessageInputComponent({ onSend, onSendMedia, isLoading, disabled, recipientPhone, recipientName, clientId }: MessageInputProps) {
   const [text, setText] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
@@ -646,3 +646,5 @@ export function MessageInput({ onSend, onSendMedia, isLoading, disabled, recipie
     </div>
   );
 }
+
+export const MessageInput = memo(MessageInputComponent);

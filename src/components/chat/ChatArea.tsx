@@ -84,11 +84,11 @@ export function ChatArea({
 
     setIsLoadingMore(true);
     try {
-      const res = await fetch(
+      const res = await api.get<{ data: any[] }>(
         `/api/messages/${selectedChatId}?limit=50&before=${encodeURIComponent(cursor)}`,
       );
-      const json = await res.json();
-      const older: any[] = json?.data ?? [];
+      if (res.error) throw new Error(res.error);
+      const older: any[] = (res.data as any)?.data ?? [];
 
       if (older.length === 0) {
         setHasMore(false);
@@ -130,23 +130,26 @@ export function ChatArea({
   });
 
   // Tentar achar o chat no cache das infinite queries (para phone)
+  // Lookup O(1) direto por chave — evita iterar todo o cache a cada render
   const cachedChat = useMemo(() => {
     if (!selectedChatId) return null;
 
-    // Tentar no cache de chats infinitos
-    const cacheEntries = queryClient.getQueriesData<any>({ queryKey: ['chats'] });
-    for (const [, data] of cacheEntries) {
-      if (data?.pages) {
-        for (const page of data.pages) {
-          const found = page?.data?.find((c: Chat) => c.client?.id === selectedChatId);
-          if (found) return found;
-        }
-      }
-      if (Array.isArray(data)) {
-        const found = data.find((c: Chat) => c.client?.id === selectedChatId);
+    // 1. Tentar cache direto de chats flat
+    const flat = queryClient.getQueryData<Chat[]>(['chats']);
+    if (flat) {
+      const found = flat.find((c: Chat) => c.client?.id === selectedChatId);
+      if (found) return found;
+    }
+
+    // 2. Fallback: infinite query (páginas)
+    const infinite = queryClient.getQueryData<any>(['chats', 'infinite']);
+    if (infinite?.pages) {
+      for (const page of infinite.pages) {
+        const found = page?.data?.find((c: Chat) => c.client?.id === selectedChatId);
         if (found) return found;
       }
     }
+
     return null;
   }, [selectedChatId, queryClient]);
 

@@ -35,6 +35,8 @@ export function VirtualizedMessageList({
   const prevMessageCountRef = useRef(messages.length);
   // Guard contra callbacks de rAF rodando após desmontagem do componente
   const mountedRef = useRef(true);
+  // Throttle do scroll handler
+  const scrollThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
@@ -76,15 +78,20 @@ export function VirtualizedMessageList({
 
   // Detectar se usuário está no fundo do scroll
   const handleScroll = useCallback(() => {
-    const el = parentRef.current;
-    if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    isScrolledToBottomRef.current = distanceFromBottom < 100;
+    // Throttle: no máximo 1 execução a cada 50ms
+    if (scrollThrottleRef.current) return;
+    scrollThrottleRef.current = setTimeout(() => {
+      scrollThrottleRef.current = null;
+      const el = parentRef.current;
+      if (!el) return;
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      isScrolledToBottomRef.current = distanceFromBottom < 100;
 
-    // Load more ao aproximar do topo
-    if (el.scrollTop < 200 && onLoadMore && !isLoadingMore) {
-      onLoadMore();
-    }
+      // Load more ao aproximar do topo
+      if (el.scrollTop < 200 && onLoadMore && !isLoadingMore) {
+        onLoadMore();
+      }
+    }, 50);
   }, [onLoadMore, isLoadingMore]);
 
   // Auto-scroll para o fundo quando chegam novas mensagens
@@ -129,6 +136,11 @@ export function VirtualizedMessageList({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // só na montagem
 
+  // Ref estável para medição dos itens virtuais — evita re-medição por inline arrow
+  const measureRef = useCallback((node: Element | null) => {
+    if (node) virtualizer.measureElement(node);
+  }, [virtualizer]);
+
   return (
     <div
       ref={parentRef}
@@ -159,10 +171,7 @@ export function VirtualizedMessageList({
             <div
               key={virtualRow.key}
               data-index={virtualRow.index}
-              ref={(node) => {
-                // Guard: só mede se o nó ainda está no DOM (evita "Node cannot be found")
-                if (node) virtualizer.measureElement(node);
-              }}
+              ref={measureRef}
               style={{
                 position: 'absolute',
                 top: 0,
