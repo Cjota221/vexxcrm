@@ -150,6 +150,7 @@ export default function CampanhaDetalhePage() {
             restantes: number;
             concluida: boolean;
             elapsed_ms: number;
+            next_delay_ms?: number;
           }>(`/api/v2/campanhas/${campaignId}/dispatch-batch`, { batch_size: 1 });
 
           if (error) {
@@ -166,15 +167,17 @@ export default function CampanhaDetalhePage() {
           // Atualizar dados da campanha
           await fetchCampanha();
 
-          if (data.concluida) {
+          if (data.concluida || data.restantes === 0) {
             addLog('🎉 Campanha concluída! Todos os envios foram processados.');
             break;
           }
 
-          if (data.restantes === 0) break;
-
-          // Pequena pausa entre chamadas ao servidor (o delay real já foi aplicado no servidor)
-          await new Promise(r => setTimeout(r, 2_000));
+          // ━━━ DELAY ANTI-BAN no cliente (Regra da Carol) ━━━
+          // O servidor retorna next_delay_ms com o tempo humanizado.
+          // O cliente aguarda no browser — não no servidor (evita 504).
+          const delay = data.next_delay_ms ?? 18_000; // default 18s se não vier
+          addLog(`⏳ Aguardando ${Math.round(delay / 1000)}s antes do próximo envio (anti-ban)...`);
+          await new Promise(r => setTimeout(r, delay));
 
         } catch (err) {
           addLog(`❌ Erro inesperado: ${err}`);

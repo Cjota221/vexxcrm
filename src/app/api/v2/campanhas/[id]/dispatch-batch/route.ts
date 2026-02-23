@@ -20,6 +20,12 @@ function gerarDelayHumanizado(min: number, max: number): number {
   const jitter = (Math.random() + Math.random() + Math.random() - 1.5) * desvio;
   return Math.max(min, Math.min(max, Math.round(media + jitter)));
 }
+
+// Netlify free: timeout máximo de ~26s por request.
+// O delay anti-ban NUNCA deve ficar no servidor — deve ser controlado pelo cliente.
+// Este endpoint processa APENAS 1 job por chamada e retorna next_delay_ms para o
+// cliente aguardar antes de chamar novamente.
+const NETLIFY_SAFE_TIMEOUT_MS = 20_000; // 20s — margem segura
 import {
   getTenantEvolutionConfig,
   sendTextMessage,
@@ -32,15 +38,17 @@ type Params = Promise<{ id: string }>;
 /**
  * POST /api/v2/campanhas/[id]/dispatch-batch
  *
- * Processa um lote de jobs de uma campanha. Cada chamada envia até `batchSize`
- * mensagens (default 5). O front-end controla o delay entre chamadas para
- * funcionar como anti-ban.
+ * Processa APENAS 1 job por chamada e retorna imediatamente.
+ * O delay anti-ban é controlado PELO CLIENTE, não pelo servidor.
+ * Isso evita o timeout de 26s do Netlify free.
  *
- * FLOW:
- * 1. Front-end chama POST com { batch_size?: number }
- * 2. Endpoint processa N jobs sequencialmente (sem delay longo)
- * 3. Retorna { enviados, falhas, restantes, concluida }
- * 4. Front-end espera delay (15-45s) e chama de novo se restantes > 0
+ * FLOW CORRETO (cliente):
+ * 1. POST dispatch-batch → servidor envia 1 msg em < 5s → retorna { next_delay_ms: 18500 }
+ * 2. Cliente aguarda next_delay_ms (ex: 18.5s) usando setTimeout no browser
+ * 3. Cliente chama POST novamente — repete até concluida=true
+ *
+ * O campo `next_delay_ms` é gerado pelo servidor com base em config_antiban
+ * para garantir que o cliente respeite a Regra da Carol (min 15s entre envios).
  */
 export async function POST(request: NextRequest, { params }: { params: Params }) {
   const started = Date.now();
@@ -49,10 +57,8 @@ export async function POST(request: NextRequest, { params }: { params: Params })
     const supabase = createServerSupabaseClient();
     const { id: campanhaId } = await params;
 
-    let body: { batch_size?: number } = {};
-    try { body = await request.json(); } catch { /* vazio OK */ }
-
-    const batchSize = Math.min(body.batch_size ?? 5, 10); // max 10 por chamada
+    // batch_size fixo em 1 — nunca processar mais de 1 por request serverless
+    const batchSize = 1;
 
     // Verificar campanha
     const { data: campanha, error: errC } = await supabase
@@ -127,17 +133,20 @@ export async function POST(request: NextRequest, { params }: { params: Params })
     let enviados = 0;
     let falhas = 0;
 
-    // ── Configuração anti-ban da campanha (com piso da Regra da Carol) ──────
+    // ── Configuração anti-ban (com piso da Regra da Carol) ──────────────────
+    // O delay NÃO é aplicado no servidor — é retornado como next_delay_ms para
+    // o cliente aguardar no browser antes da próxima chamada.
     const cfgAntiban = aplicarRegraCarol(campanha.config_antiban ?? {});
     const delayMin = cfgAntiban.delay_min_ms;   // ≥ 15 000 ms
     const delayMax = cfgAntiban.delay_max_ms;   // ≥ 16 000 ms
-    console.log(`[DISPATCH_BATCH] Anti-ban: delay ${delayMin/1000}–${delayMax/1000}s entre mensagens`);
+    const nextDelayMs = gerarDelayHumanizado(delayMin, delayMax);
+    console.log(`[DISPATCH_BATCH] Anti-ban client-side: próximo delay ${Math.round(nextDelayMs/1000)}s`);
 
+    // Processar apenas 1 job (batchSize=1 fixo para Netlify)
     for (const job of jobs) {
-      // Safety: timeout baseado no delay configurado (mínimo 90s para 1 job + delay)
-      const timeoutMs = Math.max(90_000, batchSize * (delayMax + 15_000));
-      if (Date.now() - started > timeoutMs) {
-        console.log(`[DISPATCH_BATCH] Timeout de segurança (${timeoutMs/1000}s) — ${enviados} enviados, parando`);
+      // Safety: abort se a request já está perto do timeout do Netlify
+      if (Date.now() - started > NETLIFY_SAFE_TIMEOUT_MS) {
+        console.log(`[DISPATCH_BATCH] Timeout de segurança — retornando sem processar`);
         break;
       }
 
@@ -278,13 +287,7 @@ export async function POST(request: NextRequest, { params }: { params: Params })
 
         console.log(`[DISPATCH_BATCH] ✅ Enviado para ${job.contato_telefone} (${job.contato_nome || 'sem nome'})`);
 
-        // ━━━ DELAY ANTI-BAN entre mensagens (Regra da Carol) ━━━
-        // Só aplica se há mais jobs depois deste no batch
-        if (enviados + falhas < jobs.length) {
-          const delay = gerarDelayHumanizado(delayMin, delayMax);
-          console.log(`[DISPATCH_BATCH] ⏳ Aguardando ${Math.round(delay / 1000)}s (anti-ban intra-batch)...`);
-          await sleep(delay);
-        }
+        // NÃO há sleep aqui — o delay é controlado pelo cliente via next_delay_ms
       } catch (err: unknown) {
         const e = err as { status?: number; message?: string; code?: string };
         const erroMsg = e?.message ?? 'Erro desconhecido';
@@ -313,16 +316,13 @@ export async function POST(request: NextRequest, { params }: { params: Params })
         }
         falhas++;
 
-        // Rate limit → parar imediatamente
+        // Rate limit → sinalizar ao cliente para esperar mais antes de tentar de novo
         if (e?.status === 429 || erroCodigo === '429') {
-          console.warn('[DISPATCH_BATCH] Rate limit detectado — parando batch');
+          console.warn('[DISPATCH_BATCH] Rate limit detectado — cliente deve aguardar mais');
           break;
         }
 
-        // Delay após falha também (não acelerar por erro)
-        if (enviados + falhas < jobs.length) {
-          await sleep(delayMin);
-        }
+        // NÃO há sleep aqui — o delay é controlado pelo cliente via next_delay_ms
       }
     }
 
@@ -349,6 +349,8 @@ export async function POST(request: NextRequest, { params }: { params: Params })
       restantes: restantes ?? 0,
       concluida,
       elapsed_ms: Date.now() - started,
+      // Delay em ms que o CLIENTE deve aguardar antes da próxima chamada (anti-ban)
+      next_delay_ms: concluida ? 0 : nextDelayMs,
     });
 
   } catch (err) {
