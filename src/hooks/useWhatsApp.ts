@@ -147,55 +147,74 @@ export function useMessages(clientId: string | null) {
     if (!clientId) return;
     if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
 
-    const channel = supabase
-      .channel(`chat-messages-${clientId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `client_id=eq.${clientId}` }, (payload) => {
-        const raw = payload.new as Record<string, unknown>;
-        const incoming: Message = {
-          id: raw.id as string, tenant_id: raw.tenant_id as string, client_id: raw.client_id as string,
-          remote_jid: raw.sender_phone ? `${raw.sender_phone}@s.whatsapp.net` : '',
-          message_id: (raw.external_id as string) || (raw.id as string),
-          from_me: raw.direction === 'outbound', content: (raw.content as string) || '',
-          type: raw.type as Message['type'], media_url: raw.media_url as string | undefined,
-          media_type: raw.media_mime_type as string | undefined, media_size: raw.media_size as number | undefined,
-          timestamp: raw.created_at as string, status: raw.status as Message['status'],
-          metadata: (raw.metadata as Record<string, unknown>) || {}, created_at: raw.created_at as string,
-        };
+    // Tenta filtro por client_id; se CHANNEL_ERROR, recai em sem filtro (RLS cuida)
+    const tryChannel = (useFilter: boolean) => {
+      const name = useFilter ? `chat-messages-${clientId}` : `chat-messages-nf-${clientId}`;
+      const msgFilter = useFilter ? { event: 'INSERT' as const, schema: 'public', table: 'messages', filter: `client_id=eq.${clientId}` } : { event: 'INSERT' as const, schema: 'public', table: 'messages' };
+      const updFilter = useFilter ? { event: 'UPDATE' as const, schema: 'public', table: 'messages', filter: `client_id=eq.${clientId}` } : { event: 'UPDATE' as const, schema: 'public', table: 'messages' };
 
-        queryClient.setQueryData<Message[]>(['messages', clientId], (old = []) => {
-          const isOptimisticMatch = (m: Message) =>
-            // Correlação direta por _clientId (mais confiável)
-            ((m as any)._clientId && (m as any)._clientId === (incoming as any)._clientId) ||
-            // Fallback: conteúdo + direção + janela de tempo
-            (
-              ((m as any)._optimistic === true || (m as any)._clientId) &&
-              m.from_me === incoming.from_me &&
-              m.content === incoming.content &&
-              Math.abs(new Date(m.created_at).getTime() - new Date(incoming.created_at).getTime()) < 30_000
-            );
+      const ch = supabase
+        .channel(name)
+        .on('postgres_changes', msgFilter, (payload) => {
+          // Ignorar mensagens de outros clientes quando sem filtro
+          if (!useFilter && (payload.new as any).client_id !== clientId) return;
 
-          const exists = old.some(m => m.id === incoming.id || isOptimisticMatch(m));
-          if (exists) {
-            return old
-              .map(m => (m.id === incoming.id || isOptimisticMatch(m)) ? { ...incoming, _optimistic: false } : m)
-              .sort(sortByTs);
+          const raw = payload.new as Record<string, unknown>;
+          const incoming: Message = {
+            id: raw.id as string, tenant_id: raw.tenant_id as string, client_id: raw.client_id as string,
+            remote_jid: raw.sender_phone ? `${raw.sender_phone}@s.whatsapp.net` : '',
+            message_id: (raw.external_id as string) || (raw.id as string),
+            from_me: raw.direction === 'outbound', content: (raw.content as string) || '',
+            type: raw.type as Message['type'], media_url: raw.media_url as string | undefined,
+            media_type: raw.media_mime_type as string | undefined, media_size: raw.media_size as number | undefined,
+            timestamp: raw.created_at as string, status: raw.status as Message['status'],
+            metadata: (raw.metadata as Record<string, unknown>) || {}, created_at: raw.created_at as string,
+          };
+
+          queryClient.setQueryData<Message[]>(['messages', clientId], (old = []) => {
+            const isOptimisticMatch = (m: Message) =>
+              ((m as any)._clientId && (m as any)._clientId === (incoming as any)._clientId) ||
+              (
+                ((m as any)._optimistic === true || (m as any)._clientId) &&
+                m.from_me === incoming.from_me &&
+                m.content === incoming.content &&
+                Math.abs(new Date(m.created_at).getTime() - new Date(incoming.created_at).getTime()) < 30_000
+              );
+
+            const exists = old.some(m => m.id === incoming.id || isOptimisticMatch(m));
+            if (exists) {
+              return old
+                .map(m => (m.id === incoming.id || isOptimisticMatch(m)) ? { ...incoming, _optimistic: false } : m)
+                .sort(sortByTs);
+            }
+            return [...old, incoming].sort(sortByTs);
+          });
+        })
+        .on('postgres_changes', updFilter, (payload) => {
+          if (!useFilter && (payload.new as any).client_id !== clientId) return;
+          queryClient.setQueryData<Message[]>(['messages', clientId], (old = []) =>
+            old.map(m => m.id === payload.new.id ? { ...m, ...payload.new } : m)
+          );
+        })
+        .subscribe((status) => {
+          if (status === 'CHANNEL_ERROR' && useFilter) {
+            // Filtro rejeitado → fallback sem filtro
+            console.warn(`[Realtime] chat-messages-${clientId}: filtro rejeitado, usando fallback`);
+            supabase.removeChannel(ch);
+            channelRef.current = null;
+            setTimeout(() => {
+              channelRef.current = tryChannel(false);
+              queryClient.invalidateQueries({ queryKey: ['messages', clientId] });
+            }, 200);
+          } else if (status === 'CHANNEL_ERROR') {
+            queryClient.invalidateQueries({ queryKey: ['messages', clientId] });
           }
-          return [...old, incoming].sort(sortByTs);
         });
 
-        // NOTA: não chamar invalidateQueries(['chats']) aqui — o canal global
-        // em useRealtimeMessages já faz isso com debounce, evitando double-fetch.
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `client_id=eq.${clientId}` }, (payload) => {
-        queryClient.setQueryData<Message[]>(['messages', clientId], (old = []) =>
-          old.map(m => m.id === payload.new.id ? { ...m, ...payload.new } : m)
-        );
-      })
-      .subscribe((status) => {
-        if (status === 'CHANNEL_ERROR') queryClient.invalidateQueries({ queryKey: ['messages', clientId] });
-      });
+      return ch;
+    };
 
-    channelRef.current = channel;
+    channelRef.current = tryChannel(true);
     return () => { if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; } };
   }, [clientId, queryClient]);
 
