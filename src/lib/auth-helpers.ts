@@ -57,12 +57,19 @@ export async function getTenantFromRequest(
   
   if (tenantIdFromHeader && userIdFromHeader) {
     // Middleware já validou o JWT e injetou os headers — não precisamos
-    // fazer outra round-trip ao banco. Retornamos direto.
-    // O profile completo só é buscado se algum caller realmente precisar dele.
+    // fazer outra round-trip ao banco. Retornamos direto com um profile
+    // sintético que satisfaz todos os callers que usam profile.tenant_id
+    // e profile.id sem precisar buscar o DB.
     return {
       userId: userIdFromHeader,
       tenantId: tenantIdFromHeader,
-      profile: null as any, // lazy — buscar só se necessário
+      profile: {
+        id: userIdFromHeader,
+        tenant_id: tenantIdFromHeader,
+        full_name: '',
+        email: '',
+        role: 'user',
+      },
     };
   }
 
