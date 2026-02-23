@@ -530,7 +530,7 @@ export function useSegmentClients(segment: string | null, page = 1, search = '')
     queryKey: ['intelligence', 'rfm', 'clients', segment, page, search],
     queryFn: async () => {
       if (!segment) return null;
-      const params: Record<string, string> = { segment, page: String(page), limit: '50' };
+      const params: Record<string, string> = { segment, page: String(page), limit: '200' };
       if (search) params.search = search;
       const response = await api.get<SegmentClientsResponse>('/api/intelligence/rfm/clients', params);
       if (response.error) throw new Error(response.error);
