@@ -1015,6 +1015,16 @@ function NovaCampanhaInner() {
   } | null>(null);
   const [confirmaRisco, setConfirmaRisco] = useState(false);
 
+  // ━━━ Estado para lote/offset do segmento ━━━
+  // Controla "a partir de qual cliente" o próximo lote começa (ordenado por LTV desc)
+  const [segmentoOffset, setSegmentoOffset] = useState(0);
+  const [segmentoLote, setSegmentoLote] = useState(LIMITE_DIARIO); // quantos por lote
+  const [totalSegmento, setTotalSegmento] = useState(totalParam); // total do segmento
+  const [historicoLotes, setHistoricoLotes] = useState<{
+    campanha_id: string; nome: string; total: number; criado_em: string;
+  }[]>([]);
+  const [carregandoHistorico, setCarregandoHistorico] = useState(false);
+
   // ━━━ REGRA DA CAROL: Verificar volume diário ao abrir ━━━
   useEffect(() => {
     api.get<Record<string, unknown>>('/api/v2/campanhas/volume-check')
@@ -1048,21 +1058,60 @@ function NovaCampanhaInner() {
       .finally(() => setCarregandoDistribuicao(false));
   }, [modoDestinatario]);
 
-  // Função para selecionar segmento e carregar contatos
-  const selecionarSegmento = useCallback(async (seg: { nome: string; label: string }) => {
-    if (segmentoRFM === seg.nome) {
+  // Busca histórico de campanhas já disparadas para o segmento atual
+  // (para sugerir o offset correto)
+  useEffect(() => {
+    if (!segmentoRFM || modoDestinatario !== 'inteligencia') return;
+    setCarregandoHistorico(true);
+    api.get<Record<string, unknown>>('/api/v2/campanhas', {
+      origem: 'inteligencia',
+      segmento: segmentoRFM,
+      limit: '10',
+    })
+      .then(({ data }) => {
+        const lista = ((data as Record<string, unknown>)?.data ?? []) as Record<string, unknown>[];
+        const hist = lista.map(c => ({
+          campanha_id: c.id as string,
+          nome: c.nome as string,
+          total: (c.total_destinatarios ?? c.jobs_total ?? 0) as number,
+          criado_em: c.created_at as string,
+        }));
+        setHistoricoLotes(hist);
+        // Auto-sugerir offset = soma total das campanhas anteriores com mesmo segmento
+        const jaDisparados = hist.reduce((s, h) => s + h.total, 0);
+        if (jaDisparados > 0 && segmentoOffset === 0) {
+          setSegmentoOffset(jaDisparados);
+        }
+      })
+      .catch(() => setHistoricoLotes([]))
+      .finally(() => setCarregandoHistorico(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [segmentoRFM]);
+
+  // Função para selecionar segmento e carregar lote com offset
+  const selecionarSegmento = useCallback(async (seg: { nome: string; label: string }, offsetOverride?: number) => {
+    if (segmentoRFM === seg.nome && offsetOverride === undefined) {
       setSegmentoRFM(null);
       setContatos([]);
       return;
     }
+    const offsetUsado = offsetOverride ?? segmentoOffset;
     setSegmentoRFM(seg.nome);
     setContatos([]);
     setCarregandoContatos(true);
     try {
+      // Calcula page e limit para implementar offset via paginação da API
+      // A API ordena por LTV desc — page 1 = clientes mais valiosos
+      const limit = segmentoLote;
+      const page = Math.floor(offsetUsado / limit) + 1;
+      // Se o offset não cai exato numa página, busca a página certa e fatia
       const { data } = await api.get<Record<string, unknown>>(
         '/api/intelligence/rfm/clients',
-        { segment: seg.nome, page: '1', limit: '500' }
+        { segment: seg.nome, page: String(page), limit: String(limit) }
       );
+      const paginationData = (data as Record<string, unknown>)?.pagination as Record<string, unknown> | undefined;
+      const totalCount = (paginationData?.total as number) ?? 0;
+      setTotalSegmento(totalCount);
       const lista = ((data as Record<string, unknown>)?.clients ?? []) as Record<string, unknown>[];
       setContatos(lista.map(c => ({
         id: c.id as string,
@@ -1077,13 +1126,13 @@ function NovaCampanhaInner() {
     } finally {
       setCarregandoContatos(false);
     }
-  }, [segmentoRFM]);
+  }, [segmentoRFM, segmentoOffset, segmentoLote]);
 
   // Pré-carrega contatos se veio da Inteligência via segmentoParam
   useEffect(() => {
     if (segmentoParam) {
       const seg = SEGMENTOS_RFM.find(s => s.nome === segmentoParam);
-      if (seg) selecionarSegmento(seg);
+      if (seg) selecionarSegmento(seg, 0); // sempre começa do 0 ao entrar; usuário ajusta depois
     } else if (origemParam === 'inteligencia' && contatosIdsParam) {
       // Legado: veio com IDs de contatos na URL
       setCarregandoContatos(true);
@@ -1323,6 +1372,149 @@ function NovaCampanhaInner() {
                       onSelecionar={selecionarSegmento}
                       distribuicao={distribuicaoRFM}
                     />
+                  )}
+
+                  {/* ── Painel de Lotes: mostra offset + histórico de campanhas anteriores ── */}
+                  {segmentoRFM && !carregandoContatos && contatos.length > 0 && (
+                    <div className="mt-3 space-y-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                      <div className="flex items-center gap-2">
+                        <Users size={15} className="text-amber-700 shrink-0" />
+                        <p className="text-sm font-semibold text-amber-800">
+                          Gerenciamento de Lotes — {SEGMENTOS_RFM.find(s => s.nome === segmentoRFM)?.label}
+                        </p>
+                      </div>
+
+                      {/* Indicador de progresso do segmento */}
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        <div className="bg-white rounded-lg p-2 border border-amber-100">
+                          <p className="text-lg font-bold text-amber-700">{totalSegmento.toLocaleString('pt-BR')}</p>
+                          <p className="text-[10px] text-amber-600">Total no segmento</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-2 border border-amber-100">
+                          <p className="text-lg font-bold text-blue-700">{segmentoOffset.toLocaleString('pt-BR')}</p>
+                          <p className="text-[10px] text-blue-600">Já disparados</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-2 border border-amber-100">
+                          <p className="text-lg font-bold text-green-700">
+                            {Math.max(0, totalSegmento - segmentoOffset).toLocaleString('pt-BR')}
+                          </p>
+                          <p className="text-[10px] text-green-600">Restantes</p>
+                        </div>
+                      </div>
+
+                      {/* Barra de progresso */}
+                      {totalSegmento > 0 && (
+                        <div>
+                          <div className="flex justify-between text-[10px] text-amber-600 mb-1">
+                            <span>Progresso do segmento</span>
+                            <span>{Math.round((segmentoOffset / totalSegmento) * 100)}%</span>
+                          </div>
+                          <div className="w-full h-2 bg-amber-100 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-amber-500 rounded-full transition-all"
+                              style={{ width: `${Math.min(100, (segmentoOffset / totalSegmento) * 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Controles de lote */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs text-amber-700 font-medium block mb-1">
+                            Começar do cliente nº
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={totalSegmento}
+                            value={segmentoOffset}
+                            onChange={e => setSegmentoOffset(Math.max(0, Math.min(totalSegmento, Number(e.target.value))))}
+                            className="w-full px-3 py-2 text-sm border border-amber-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400/40 bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-amber-700 font-medium block mb-1">
+                            Quantidade neste lote
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={LIMITE_DIARIO}
+                            value={segmentoLote}
+                            onChange={e => setSegmentoLote(Math.min(LIMITE_DIARIO, Math.max(1, Number(e.target.value))))}
+                            className="w-full px-3 py-2 text-sm border border-amber-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400/40 bg-white"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Botões de lote rápido */}
+                      <div className="flex flex-wrap gap-1.5">
+                        <p className="text-[10px] text-amber-600 w-full">Atalhos de lote:</p>
+                        {[
+                          { label: '1º lote (0→200)', offset: 0 },
+                          { label: '2º lote (200→400)', offset: 200 },
+                          { label: '3º lote (400→600)', offset: 400 },
+                          { label: '4º lote (600→800)', offset: 600 },
+                        ].filter(b => b.offset < totalSegmento).map(b => (
+                          <button
+                            key={b.offset}
+                            onClick={() => {
+                              setSegmentoOffset(b.offset);
+                              setSegmentoLote(LIMITE_DIARIO);
+                              const seg = SEGMENTOS_RFM.find(s => s.nome === segmentoRFM);
+                              if (seg) selecionarSegmento(seg, b.offset);
+                            }}
+                            className={`text-[11px] px-2.5 py-1 rounded-lg border font-medium transition-all ${
+                              segmentoOffset === b.offset
+                                ? 'border-amber-500 bg-amber-100 text-amber-800'
+                                : 'border-amber-200 bg-white text-amber-700 hover:bg-amber-50'
+                            }`}
+                          >
+                            {b.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Botão: Recarregar lote atual */}
+                      <button
+                        onClick={() => {
+                          const seg = SEGMENTOS_RFM.find(s => s.nome === segmentoRFM);
+                          if (seg) selecionarSegmento(seg, segmentoOffset);
+                        }}
+                        disabled={carregandoContatos}
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-amber-300 text-amber-800 bg-amber-100 hover:bg-amber-200 transition-colors disabled:opacity-50"
+                      >
+                        {carregandoContatos
+                          ? <><Loader2 size={13} className="animate-spin" /> Carregando...</>
+                          : <><Filter size={13} /> Carregar clientes {segmentoOffset + 1}–{Math.min(totalSegmento, segmentoOffset + segmentoLote)}</>
+                        }
+                      </button>
+
+                      {/* Histórico de campanhas */}
+                      {carregandoHistorico ? (
+                        <div className="flex items-center gap-1.5 text-xs text-amber-600">
+                          <Loader2 size={11} className="animate-spin" /> Buscando histórico...
+                        </div>
+                      ) : historicoLotes.length > 0 && (
+                        <div>
+                          <p className="text-[10px] text-amber-700 font-semibold mb-1.5">Campanhas anteriores neste segmento:</p>
+                          <div className="space-y-1 max-h-32 overflow-y-auto">
+                            {historicoLotes.map(h => (
+                              <div key={h.campanha_id} className="flex items-center justify-between text-[11px] bg-white rounded-lg px-2.5 py-1.5 border border-amber-100">
+                                <span className="text-txt-primary truncate max-w-[60%]">{h.nome}</span>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <span className="text-green-700 font-medium">{h.total} disparos</span>
+                                  <span className="text-txt-muted">
+                                    {new Date(h.criado_em).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </>
               )}

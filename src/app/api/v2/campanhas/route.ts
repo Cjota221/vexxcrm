@@ -126,25 +126,34 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
+    const segmento = searchParams.get('segmento'); // filtro por origem_grupo_nome (segmento RFM)
     const page = Math.max(1, Number(searchParams.get('page') ?? '1'));
     const limit = Math.min(50, Number(searchParams.get('limit') ?? '20'));
     const offset = (page - 1) * limit;
 
     let query = supabase
       .from('campaigns')
-      .select('*, jobs_count:campaign_jobs(count)', { count: 'exact' })
+      .select('id, name:name, nome:name, status, origem, origem_grupo_nome, created_at, destinatarios, jobs_total:destinatarios, total_destinatarios:destinatarios', { count: 'exact' })
       .eq('tenant_id', profile.tenant_id)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
     if (status) query = query.eq('status', status);
+    // Filtro por segmento RFM (campo origem_grupo_nome guarda o label do segmento,
+    // campo origem = 'inteligencia' garante que veio da Inteligência)
+    if (segmento) {
+      query = query
+        .eq('origem', 'inteligencia')
+        .ilike('origem_grupo_nome', `%${segmento}%`);
+    }
 
     const { data, error, count } = await query;
 
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
     return NextResponse.json({
-      campanhas: data ?? [],
+      data: data ?? [],       // compatível com o novo código que usa data.data
+      campanhas: data ?? [],  // compatível com código legado
       total: count ?? 0,
       page,
       limit,

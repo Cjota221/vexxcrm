@@ -515,23 +515,25 @@ export function ClientListDrawer({
         {clients.length > 0 && (
           <div className="px-4 py-3 border-t border-surface-border bg-gray-50/80 shrink-0 space-y-2">
             {/* Criar Campanha — vai para /campanhas/nova com contexto */}
+            {/* Modo offset: permite escolher de qual cliente começar (ex: já disparei 200, quero os próximos 200) */}
             <button
               onClick={() => {
-                const count = selectedIds.size > 0 ? selectedIds.size : totalClients;
+                // Monta URL passando segmento para a página de campanha recarregar
+                // via API com paginação server-side — sem limite de memória
                 const params = new URLSearchParams({
                   origem: 'inteligencia',
                   segmento: segmentName ?? '',
                   filtro_descricao: title ?? '',
-                  total: String(count),
+                  total: String(totalClients),
                 });
                 router.push(`/campanhas/nova?${params.toString()}`);
                 onClose();
               }}
               className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl bg-crm-primary text-white hover:opacity-90 transition-opacity shadow-md"
             >
-              <ExternalLink size={15} />
-              Criar Campanha
-              <span className="text-xs opacity-80">({selectedIds.size > 0 ? selectedIds.size : totalClients})</span>
+              <Megaphone size={15} />
+              Criar Campanha para todo o segmento
+              <span className="text-xs opacity-80">({totalClients.toLocaleString('pt-BR')} clientes)</span>
             </button>
 
             {/* Disparo em massa direto */}
@@ -540,7 +542,7 @@ export function ClientListDrawer({
               className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl border border-green-300 text-green-700 hover:bg-green-50 transition-colors"
             >
               <Send size={14} />
-              Disparo Rápido pelo WhatsApp
+              Disparo Rápido — página atual
               {selectedIds.size > 0 && <span className="ml-1 text-xs opacity-80">({selectedIds.size} selecionados)</span>}
             </button>
           </div>
