@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { useConnectionStore } from '@/store/connection';
 import { useChatsStore } from '@/store/chats';
 import type { NewMessageEvent, MessageStatusEvent, TypingIndicatorEvent, ConnectionUpdateEvent } from '@/types';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 
 /** Converte timestamp para ms — suporta epoch em segundos da Evolution API */
 function tsMs(v: string | number | null | undefined): number {
@@ -43,6 +44,121 @@ export function useRealtimeMessages() {
   const MAX_QUICK_FAILS = 8;
   const { setSSEStatus } = useConnectionStore();
   const { setTyping } = useChatsStore();
+
+  // ─── Canal Supabase Realtime GLOBAL ───────────────────────────────────────
+  // Garante que mensagens apareçam mesmo quando o SSE está bloqueado (Netlify
+  // serverless usa processos isolados — o eventBus in-memory nunca cruza entre
+  // instâncias). Este canal é uma conexão WebSocket direta ao Supabase, não
+  // passa pelo Netlify, e funciona em produção sem nenhuma configuração extra.
+  //
+  // REQUISITO (executar uma vez no Supabase SQL Editor):
+  //   ALTER TABLE messages REPLICA IDENTITY FULL;
+  //   ALTER PUBLICATION supabase_realtime ADD TABLE messages;
+  //   (ver migration 023_enable_realtime_messages.sql)
+  const globalRealtimeChannelRef = useRef<RealtimeChannel | null>(null);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('global-new-messages')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => {
+          const raw = payload.new as Record<string, unknown>;
+          const clientId = raw.client_id as string | undefined;
+
+          if (!clientId) {
+            // Sem client_id: só invalidar lista de chats
+            queryClient.invalidateQueries({ queryKey: ['chats'] });
+            return;
+          }
+
+          // Se o cache desta conversa já existe (chat aberto), injetar a mensagem
+          const existingCache = queryClient.getQueryData<import('@/types').Message[]>(['messages', clientId]);
+          if (existingCache) {
+            const incoming: import('@/types').Message = {
+              id: raw.id as string,
+              tenant_id: raw.tenant_id as string,
+              client_id: clientId,
+              remote_jid: raw.sender_phone ? `${raw.sender_phone}@s.whatsapp.net` : '',
+              message_id: (raw.external_id as string) || (raw.id as string),
+              from_me: raw.direction === 'outbound',
+              content: (raw.content as string) || '',
+              type: raw.type as import('@/types').Message['type'],
+              media_url: raw.media_url as string | undefined,
+              media_type: raw.media_mime_type as string | undefined,
+              media_size: raw.media_size as number | undefined,
+              timestamp: raw.created_at as string,
+              status: raw.status as import('@/types').Message['status'],
+              metadata: (raw.metadata as Record<string, unknown>) || {},
+              created_at: raw.created_at as string,
+            };
+
+            queryClient.setQueryData<import('@/types').Message[]>(
+              ['messages', clientId],
+              (old = []) => {
+                // Deduplicar: ignorar se já existe pelo id
+                if (old.some(m => m.id === incoming.id)) return old;
+
+                // Substituir mensagem otimista correspondente
+                const hasOptimistic = old.some(
+                  (m) =>
+                    ((m as any)._optimistic === true || (m as any)._clientId) &&
+                    m.from_me === incoming.from_me &&
+                    m.content === incoming.content &&
+                    Math.abs(
+                      new Date(m.created_at).getTime() -
+                        new Date(incoming.created_at).getTime()
+                    ) < 30_000
+                );
+
+                if (hasOptimistic) {
+                  return old
+                    .map((m) =>
+                      (m as any)._optimistic &&
+                      m.from_me === incoming.from_me &&
+                      m.content === incoming.content
+                        ? { ...incoming, _optimistic: false }
+                        : m
+                    )
+                    .sort(
+                      (a, b) =>
+                        tsMs(a.timestamp ?? a.created_at) -
+                        tsMs(b.timestamp ?? b.created_at)
+                    );
+                }
+
+                return [...old, incoming].sort(
+                  (a, b) =>
+                    tsMs(a.timestamp ?? a.created_at) -
+                    tsMs(b.timestamp ?? b.created_at)
+                );
+              }
+            );
+          }
+
+          // Sempre atualizar a lista de chats (unread, ordem, preview)
+          queryClient.invalidateQueries({ queryKey: ['chats'] });
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          // Em caso de erro no canal global, forçar refetch completo
+          queryClient.invalidateQueries({ queryKey: ['chats'] });
+        }
+      });
+
+    globalRealtimeChannelRef.current = channel;
+
+    return () => {
+      if (globalRealtimeChannelRef.current) {
+        supabase.removeChannel(globalRealtimeChannelRef.current);
+        globalRealtimeChannelRef.current = null;
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryClient]);
+  // ─── Fim do canal Realtime global ────────────────────────────────────────
 
   const handleEvent = useCallback(
     (event: MessageEvent) => {
