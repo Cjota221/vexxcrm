@@ -78,6 +78,12 @@ export async function GET(request: NextRequest) {
       },
       tenant: profile.tenant,
       access_token: token,
+    }, {
+      headers: {
+        // Cache privado por 5 minutos — o token ainda identifica o usuário,
+        // mas evita 4+ chamadas desnecessárias no mesmo segundo (mount race).
+        'Cache-Control': 'private, max-age=300, stale-while-revalidate=60',
+      },
     });
   } catch (err) {
     console.error('🔑 API Session: Erro fatal:', err);

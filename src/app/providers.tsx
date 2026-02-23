@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { usePathname } from 'next/navigation';
 
@@ -13,11 +13,23 @@ import type { AuthSession } from '@/types';
  * Componente que inicializa a autenticação globalmente.
  * Garante que a auth store seja populada em TODAS as páginas,
  * não apenas nas telas de login/register.
+ *
+ * IMPORTANTE: /api/auth/session faz DB round-trip (~400ms).
+ * Para evitar chamadas duplicadas com useAuth.ts, usamos um
+ * lock em memória (loadingRef) e verificamos se a store já
+ * está populada antes de disparar o fetch.
  */
 function AuthInitializer({ children }: { children: React.ReactNode }) {
-  const { setSession, clearSession, setLoading } = useAuthStore();
+  const { isAuthenticated, setSession, clearSession, setLoading } = useAuthStore();
+  // Evita chamadas paralelas ao /api/auth/session
+  const loadingRef = useRef(false);
 
   const loadUserData = useCallback(async (accessToken: string) => {
+    // Se já está autenticado na store (ex: useAuth.ts já carregou), pular
+    if (useAuthStore.getState().isAuthenticated) return;
+    // Lock contra chamadas paralelas
+    if (loadingRef.current) return;
+    loadingRef.current = true;
     try {
       const response = await fetch('/api/auth/session', {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -38,6 +50,8 @@ function AuthInitializer({ children }: { children: React.ReactNode }) {
       setSession(data);
     } catch {
       clearSession();
+    } finally {
+      loadingRef.current = false;
     }
   }, [setSession, clearSession]);
 
@@ -45,6 +59,9 @@ function AuthInitializer({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     const initAuth = async () => {
+      // Se store já foi populada por useAuth.ts, não fazer outro fetch
+      if (useAuthStore.getState().isAuthenticated) return;
+
       setLoading(true);
       try {
         const { data: { session } } = await supabase.auth.getSession();
@@ -69,7 +86,12 @@ function AuthInitializer({ children }: { children: React.ReactNode }) {
           clearSession();
           return;
         }
-        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        // TOKEN_REFRESHED: apenas atualizar o accessToken na store sem novo DB fetch
+        if (event === 'TOKEN_REFRESHED' && useAuthStore.getState().isAuthenticated) {
+          useAuthStore.setState({ accessToken: session.access_token });
+          return;
+        }
+        if (event === 'SIGNED_IN') {
           await loadUserData(session.access_token);
         }
       }

@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { supabase } from '@/lib/supabase';
+import { useAuthStore } from '@/store/auth';
 import { useConnectionStore } from '@/store/connection';
 import { useChatsStore } from '@/store/chats';
 import type { NewMessageEvent, MessageStatusEvent, TypingIndicatorEvent, ConnectionUpdateEvent } from '@/types';
@@ -45,6 +46,9 @@ export function useRealtimeMessages() {
   const { setSSEStatus } = useConnectionStore();
   const { setTyping } = useChatsStore();
 
+  // Obter tenantId da store para filtrar o canal Realtime
+  const tenantId = useAuthStore((s) => s.user?.tenant_id ?? null);
+
   // ─── Canal Supabase Realtime GLOBAL ───────────────────────────────────────
   // Garante que mensagens apareçam mesmo quando o SSE está bloqueado (Netlify
   // serverless usa processos isolados — o eventBus in-memory nunca cruza entre
@@ -55,6 +59,11 @@ export function useRealtimeMessages() {
   //   ALTER TABLE messages REPLICA IDENTITY FULL;
   //   ALTER PUBLICATION supabase_realtime ADD TABLE messages;
   //   (ver migration 023_enable_realtime_messages.sql)
+  //
+  // CRÍTICO: O canal precisa do tenant_id no filter para que o Supabase
+  // Realtime entregue os eventos mesmo sem RLS configurado para broadcast.
+  // Sem o filter, o canal depende 100% de RLS — se get_tenant_id() for
+  // lento ou falhar, nenhum evento chega.
   const globalRealtimeChannelRef = useRef<RealtimeChannel | null>(null);
   // Debounce para invalidateQueries(['chats']) — evita double-fetch quando o
   // canal global E o canal por-clientId disparam ao mesmo tempo.
@@ -68,11 +77,21 @@ export function useRealtimeMessages() {
   }, [queryClient]);
 
   useEffect(() => {
+    // Aguardar o tenantId estar disponível antes de subscrever
+    // (evita canal sem filtro que depende só de RLS)
+    if (!tenantId) return;
+
+    // Remover canal anterior se tenant mudou
+    if (globalRealtimeChannelRef.current) {
+      supabase.removeChannel(globalRealtimeChannelRef.current);
+      globalRealtimeChannelRef.current = null;
+    }
+
     const channel = supabase
-      .channel('global-new-messages')
+      .channel(`tenant-messages-${tenantId}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages' },
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `tenant_id=eq.${tenantId}` },
         (payload) => {
           const raw = payload.new as Record<string, unknown>;
           const clientId = raw.client_id as string | undefined;
@@ -152,13 +171,13 @@ export function useRealtimeMessages() {
       //    Isso garante que a lista de chats reordena em tempo real.
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'conversations' },
+        { event: 'UPDATE', schema: 'public', table: 'conversations', filter: `tenant_id=eq.${tenantId}` },
         () => {
           debouncedInvalidateChats();
         }
       )
       .subscribe((status) => {
-        console.log(`[Realtime] global-new-messages: ${status}`);
+        console.log(`[Realtime] tenant-messages-${tenantId}: ${status}`);
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           queryClient.invalidateQueries({ queryKey: ['chats'] });
         }
@@ -174,7 +193,7 @@ export function useRealtimeMessages() {
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryClient, debouncedInvalidateChats]);
+  }, [tenantId, queryClient, debouncedInvalidateChats]);
   // ─── Fim do canal Realtime global ────────────────────────────────────────
 
   const handleEvent = useCallback(
