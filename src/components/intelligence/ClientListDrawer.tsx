@@ -160,7 +160,7 @@ export function ClientListDrawer({
   const [showCampaignModal, setShowCampaignModal] = useState(false);
   const [copiedTemplate, setCopiedTemplate] = useState(false);
   const [isSending, setIsSending] = useState(false);
-  const [sendResult, setSendResult] = useState<{ sent: number; failed: number; errors: string[] } | null>(null);
+  const [sendResult, setSendResult] = useState<{ sent: number; failed: number; errors: string[]; campanha_id?: string } | null>(null);
   const [customMessage, setCustomMessage] = useState('');
   const customMessageRef = useRef<HTMLTextAreaElement>(null);
 
@@ -193,7 +193,7 @@ export function ClientListDrawer({
     }
   };
 
-  // Disparo em massa interno via /api/whatsapp/bulk-send
+  // Disparo rápido via sistema de campanhas (respeita Regra da Carol: 15s entre msgs, 60s a cada 10)
   const handleBulkSend = async (messageTemplate: string) => {
     const targets = selectedIds.size > 0 ? selectedClients : clients;
     if (!targets.length) return;
@@ -201,16 +201,56 @@ export function ClientListDrawer({
     setIsSending(true);
     setSendResult(null);
     try {
-      const res = await api.post('/api/whatsapp/bulk-send', {
-        recipients: targets.map(c => ({ id: c.id, name: c.name, phone: c.phone })),
-        message: messageTemplate,
-        delay_ms: 1500,
+      // 1. Criar campanha com um bloco de texto
+      const nomeSegmento = segmentName ?? 'Clientes';
+      const blocos = [{
+        id: 'bloco-1',
+        ordem: 1,
+        tipo: 'texto' as const,
+        conteudo: {
+          texto_raw: messageTemplate,
+          texto_formatado: messageTemplate,
+        },
+      }];
+      const destinatarios = targets.map(c => ({
+        id: c.id,
+        telefone: c.phone,
+        nome: c.name || 'Cliente',
+      }));
+
+      const criarRes = await api.post<{ id: string; status: string }>('/api/v2/campanhas', {
+        nome: `Disparo Rápido — ${nomeSegmento} (${new Date().toLocaleDateString('pt-BR')})`,
+        tipo: 'broadcast',
+        blocos,
+        destinatarios,
+        tipo_destinatario: 'contatos',
+        origem: 'inteligencia',
+        origem_grupo_nome: nomeSegmento,
       });
-      const data = res.data as { results?: typeof sendResult };
-      if (!data) throw new Error('Erro no disparo');
-      setSendResult(data.results ?? null);
+
+      if (!criarRes.data?.id) throw new Error(criarRes.error ?? 'Falha ao criar campanha');
+      const campanhaId = criarRes.data.id;
+
+      // 2. Iniciar campanha imediatamente
+      const iniciarRes = await api.post<{ success: boolean; jobs_pendentes: number }>(`/api/v2/campanhas/${campanhaId}/iniciar`, {});
+      if (!iniciarRes.data?.success) throw new Error(iniciarRes.error ?? 'Falha ao iniciar campanha');
+
+      const total = iniciarRes.data.jobs_pendentes ?? targets.length;
+      const eta15s = total * 15;
+      const pausas = Math.floor(total / 10);
+      const etaTotal = Math.ceil((eta15s + pausas * 60) / 60);
+
+      setSendResult({
+        sent: total,
+        failed: 0,
+        errors: [],
+        campanha_id: campanhaId,
+      });
+
+      // Armazenar ETA para exibir no UI
+      (window as any).__lastCampanhaEta = etaTotal;
     } catch (err) {
-      setSendResult({ sent: 0, failed: targets.length, errors: [err instanceof Error ? err.message : 'Erro'] });
+      setSendResult({ sent: 0, failed: targets.length, errors: [err instanceof Error ? err.message : 'Erro ao criar campanha'] });
     } finally {
       setIsSending(false);
     }
@@ -592,11 +632,33 @@ export function ClientListDrawer({
                 {/* Resultado do envio */}
                 {sendResult && (
                   <div className={`p-3 rounded-xl border text-sm ${sendResult.failed === 0 ? 'bg-green-50 border-green-200 text-green-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
-                    <p className="font-semibold">
-                      ✅ {sendResult.sent} enviados {sendResult.failed > 0 && `· ❌ ${sendResult.failed} falhas`}
-                    </p>
-                    {sendResult.errors.length > 0 && (
-                      <p className="text-xs mt-1 opacity-70">{sendResult.errors[0]}</p>
+                    {sendResult.failed === 0 ? (
+                      <>
+                        <p className="font-semibold">✅ Campanha criada e iniciada com sucesso!</p>
+                        <p className="text-xs mt-1 text-green-700">
+                          {sendResult.sent} mensagens serão disparadas com <strong>15s de intervalo</strong> e <strong>pausa de 60s a cada 10 envios</strong>.
+                        </p>
+                        {(window as any).__lastCampanhaEta && (
+                          <p className="text-xs mt-0.5 text-green-600 opacity-80">
+                            ⏱ Estimativa: ~{(window as any).__lastCampanhaEta} minutos para concluir
+                          </p>
+                        )}
+                        {sendResult.campanha_id && (
+                          <button
+                            onClick={() => router.push(`/campanhas`)}
+                            className="mt-2 flex items-center gap-1 text-xs font-semibold text-green-700 underline"
+                          >
+                            <ExternalLink size={11} /> Ver progresso em Campanhas
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-semibold">❌ Erro ao criar campanha</p>
+                        {sendResult.errors.length > 0 && (
+                          <p className="text-xs mt-1 opacity-70">{sendResult.errors[0]}</p>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
