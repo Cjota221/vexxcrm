@@ -56,47 +56,9 @@ function getSseToken(): string | null {
 }
 
 function startSSE() {
-  if (sseInstance) return;
-  const token = getSseToken();
-  if (!token) return;
-
-  sseInstance = new EventSource(`/api/sse?token=${encodeURIComponent(token)}`);
-
-  sseInstance.onmessage = (e) => {
-    try {
-      const event = JSON.parse(e.data);
-      if (event.type !== 'presence_update') return;
-
-      const data = event.data as PresenceData;
-      if (!data?.phone) return;
-
-      // Normalizar: remover código 55 e DDD para compatibilidade
-      const normalized = data.phone.replace(/\D/g, '');
-
-      presenceStore.set(normalized, { ...data, phone: normalized });
-      notifyListeners(normalized);
-
-      // Expirar automaticamente
-      setTimeout(() => {
-        const current = presenceStore.get(normalized);
-        if (current && Date.now() >= current.expires_at) {
-          presenceStore.delete(normalized);
-          notifyListeners(normalized);
-        }
-      }, data.expires_at - Date.now() + 100);
-    } catch {
-      // ignorar parse errors
-    }
-  };
-
-  sseInstance.onerror = () => {
-    sseInstance?.close();
-    sseInstance = null;
-    // Reconectar após 5s
-    if (sseRefCount > 0) {
-      setTimeout(startSSE, 5_000);
-    }
-  };
+  // ⚠️ SSE DESATIVADO — endpoint /api/sse retorna 204.
+  // Presença em tempo real não está disponível nesta versão.
+  return;
 }
 
 function stopSSE() {

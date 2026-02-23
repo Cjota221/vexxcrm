@@ -317,13 +317,13 @@ export function useRealtimeMessages() {
   );
 
   const connect = useCallback(async () => {
-    // SSE foi bloqueado pelo CDN/proxy nesta sessão — não tentar
-    if (sseBlockedRef.current) return;
+    // ⚠️ SSE DESATIVADO — O endpoint /api/sse retorna 204 imediatamente.
+    // O Supabase Realtime (canal global-new-messages acima) é a fonte de eventos.
+    // Não abrimos EventSource para evitar requests desnecessários ao Netlify.
+    return;
 
-    // Limpar conexão anterior
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-    }
+    // eslint-disable-next-line no-unreachable
+    if (sseBlockedRef.current) return;
 
     // Obter token da sessão para autenticar SSE
     let token = '';
