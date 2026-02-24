@@ -164,20 +164,23 @@ export default function CampanhaDetalhePage() {
 
           addLog(`✅ ${data.enviados} enviado(s), ${data.falhas} falha(s) — ${data.restantes} restantes (${data.elapsed_ms}ms)`);
 
-          // Atualizar dados da campanha
-          await fetchCampanha();
-
           if (data.concluida || data.restantes === 0) {
             addLog('🎉 Campanha concluída! Todos os envios foram processados.');
+            await fetchCampanha();
             break;
           }
 
           // ━━━ DELAY ANTI-BAN no cliente (Regra da Carol) ━━━
           // O servidor retorna next_delay_ms com o tempo humanizado.
           // O cliente aguarda no browser — não no servidor (evita 504).
+          // IMPORTANTE: aguardar ANTES de fetchCampanha para não cancelar o loop
+          // prematuramente caso o status seja atualizado no banco durante o delay.
           const delay = data.next_delay_ms ?? 18_000; // default 18s se não vier
           addLog(`⏳ Aguardando ${Math.round(delay / 1000)}s antes do próximo envio (anti-ban)...`);
           await new Promise(r => setTimeout(r, delay));
+
+          // Atualizar UI com métricas após o delay (não interrompe o disparo)
+          await fetchCampanha();
 
         } catch (err) {
           addLog(`❌ Erro inesperado: ${err}`);

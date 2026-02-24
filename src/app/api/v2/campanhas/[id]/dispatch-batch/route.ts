@@ -97,6 +97,25 @@ export async function POST(request: NextRequest, { params }: { params: Params })
       console.warn('[DISPATCH_BATCH] Falha ao verificar volume diário — continuando');
     }
 
+    // ━━━ REGRA DA CAROL: Verificar janela horária (8h–20h, horário de Brasília) ━━━
+    const cfgAntiban = aplicarRegraCarol(campanha.config_antiban ?? {});
+    const horaBrasilia = new Date(
+      new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' })
+    ).getHours();
+    if (horaBrasilia < cfgAntiban.janela_horaria_inicio || horaBrasilia >= cfgAntiban.janela_horaria_fim) {
+      return NextResponse.json({
+        error: `Fora da janela de envio (${cfgAntiban.janela_horaria_inicio}h–${cfgAntiban.janela_horaria_fim}h horário Brasília). Hora atual: ${horaBrasilia}h.`,
+        fora_janela: true,
+        // Retorna delay de 5min para o cliente re-checar depois
+        next_delay_ms: 5 * 60_000,
+        enviados: 0,
+        falhas: 0,
+        restantes: -1,
+        concluida: false,
+        elapsed_ms: Date.now() - started,
+      }, { status: 425 });
+    }
+
     // Buscar próximos jobs pendentes
     const agora = new Date().toISOString();
     const { data: jobs, error: errJobs } = await supabase
@@ -136,9 +155,9 @@ export async function POST(request: NextRequest, { params }: { params: Params })
     // ── Configuração anti-ban (com piso da Regra da Carol) ──────────────────
     // O delay NÃO é aplicado no servidor — é retornado como next_delay_ms para
     // o cliente aguardar no browser antes da próxima chamada.
-    const cfgAntiban = aplicarRegraCarol(campanha.config_antiban ?? {});
+    // cfgAntiban já foi calculado acima para a verificação da janela horária.
     const delayMin = cfgAntiban.delay_min_ms;   // ≥ 15 000 ms
-    const delayMax = cfgAntiban.delay_max_ms;   // ≥ 16 000 ms
+    const delayMax = cfgAntiban.delay_max_ms;   // ≥ delay_min + 5 000 ms
     const nextDelayMs = gerarDelayHumanizado(delayMin, delayMax);
     console.log(`[DISPATCH_BATCH] Anti-ban client-side: próximo delay ${Math.round(nextDelayMs/1000)}s`);
 

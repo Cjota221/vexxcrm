@@ -90,16 +90,37 @@ export const CONFIG_PADRAO: AntibanConfig = {
  * abaixo do piso de segurança, mesmo que o usuário tente.
  */
 export function aplicarRegraCarol(config: Partial<AntibanConfig>): AntibanConfig {
+  // Calcular delay_min primeiro — os outros dependem dele
+  const delayMin = Math.max(
+    config.delay_min_ms ?? CONFIG_PADRAO.delay_min_ms,
+    REGRA_DA_CAROL.DELAY_MIN_MS
+  );
+  // delay_max deve ser sempre >= delay_min + 5000 (spread mínimo de 5s para humanização)
+  const delayMaxRaw = config.delay_max_ms ?? CONFIG_PADRAO.delay_max_ms;
+  const delayMax = Math.max(delayMaxRaw, delayMin + 5_000);
+
   return {
     ...CONFIG_PADRAO,
     ...config,
     // Enforce mínimos — NUNCA abaixo da Regra da Carol
-    delay_min_ms: Math.max(config.delay_min_ms ?? CONFIG_PADRAO.delay_min_ms, REGRA_DA_CAROL.DELAY_MIN_MS),
-    delay_max_ms: Math.max(config.delay_max_ms ?? CONFIG_PADRAO.delay_max_ms, REGRA_DA_CAROL.DELAY_MIN_MS + 1_000),
-    cooloff_a_cada: Math.min(config.cooloff_a_cada ?? CONFIG_PADRAO.cooloff_a_cada, REGRA_DA_CAROL.COOLOFF_A_CADA),
-    cooloff_duracao_ms: Math.max(config.cooloff_duracao_ms ?? CONFIG_PADRAO.cooloff_duracao_ms, REGRA_DA_CAROL.COOLOFF_DURACAO_MS),
-    janela_horaria_inicio: Math.max(config.janela_horaria_inicio ?? CONFIG_PADRAO.janela_horaria_inicio, REGRA_DA_CAROL.JANELA_INICIO),
-    janela_horaria_fim: Math.min(config.janela_horaria_fim ?? CONFIG_PADRAO.janela_horaria_fim, REGRA_DA_CAROL.JANELA_FIM),
+    delay_min_ms: delayMin,
+    delay_max_ms: delayMax,
+    cooloff_a_cada: Math.min(
+      config.cooloff_a_cada ?? CONFIG_PADRAO.cooloff_a_cada,
+      REGRA_DA_CAROL.COOLOFF_A_CADA
+    ),
+    cooloff_duracao_ms: Math.max(
+      config.cooloff_duracao_ms ?? CONFIG_PADRAO.cooloff_duracao_ms,
+      REGRA_DA_CAROL.COOLOFF_DURACAO_MS
+    ),
+    janela_horaria_inicio: Math.max(
+      config.janela_horaria_inicio ?? CONFIG_PADRAO.janela_horaria_inicio,
+      REGRA_DA_CAROL.JANELA_INICIO
+    ),
+    janela_horaria_fim: Math.min(
+      config.janela_horaria_fim ?? CONFIG_PADRAO.janela_horaria_fim,
+      REGRA_DA_CAROL.JANELA_FIM
+    ),
   };
 }
 
