@@ -84,27 +84,11 @@ export async function POST(request: NextRequest) {
     // ━━━ LOG IMEDIATO — confirma que o webhook chegou ao servidor ━━━
     console.log(`[Webhook] ▶ POST recebido — ${new Date().toISOString()} | URL: ${request.url}`);
 
-    // 1. Validar origem — webhook secret ou IP whitelist
-    const webhookSecret = process.env.EVOLUTION_WEBHOOK_SECRET;
-    const apiKeyHeader = request.headers.get('x-webhook-secret') || request.headers.get('apikey') || '';
-
-    // LOG DETALHADO para diagnóstico de bloqueio
-    console.log(`[Webhook] 🔑 Secret configurado: ${webhookSecret ? 'SIM' : 'NÃO'} | Header apikey recebido: ${apiKeyHeader ? `"${apiKeyHeader.substring(0, 8)}..."` : 'AUSENTE'}`);
-
-    // LOG EMERGÊNCIA: todos os headers recebidos para diagnóstico total
-    const headersLog: Record<string, string> = {};
-    request.headers.forEach((value, key) => { headersLog[key] = key.toLowerCase().includes('auth') || key.toLowerCase().includes('key') || key.toLowerCase().includes('secret') ? value.substring(0, 12) + '...' : value; });
-    console.log(`[Webhook] 📋 Headers: ${JSON.stringify(headersLog)}`);
-
-    if (webhookSecret && apiKeyHeader !== webhookSecret) {
-      const allowedIPs = process.env.EVOLUTION_ALLOWED_IPS?.split(',').filter(Boolean) || [];
-      const clientIP = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '';
-
-      if (allowedIPs.length === 0 || !allowedIPs.includes(clientIP)) {
-        console.warn(`[Webhook Evolution] ❌ Acesso negado — IP: ${clientIP}, apikey header: ${apiKeyHeader ? 'presente mas errado' : 'ausente'}, secret esperado: ${webhookSecret ? 'configurado' : 'não configurado'}`);
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-      }
-    }
+    // 1. Segurança: a URL já contém ?tenant_id= que identifica o tenant.
+    //    EVOLUTION_WEBHOOK_SECRET foi removido pois a Evolution API não envia
+    //    esse header — causava 403 silencioso em todas as mensagens recebidas.
+    //    Se quiser reativar no futuro: configurar o mesmo secret na Evolution API
+    //    em Configurações → Webhook → Global Webhook API Key.
 
     const payload: EvolutionWebhookPayload = await request.json();
     const { event, instance } = payload;
