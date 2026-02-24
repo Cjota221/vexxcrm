@@ -91,6 +91,11 @@ export async function POST(request: NextRequest) {
     // LOG DETALHADO para diagnóstico de bloqueio
     console.log(`[Webhook] 🔑 Secret configurado: ${webhookSecret ? 'SIM' : 'NÃO'} | Header apikey recebido: ${apiKeyHeader ? `"${apiKeyHeader.substring(0, 8)}..."` : 'AUSENTE'}`);
 
+    // LOG EMERGÊNCIA: todos os headers recebidos para diagnóstico total
+    const headersLog: Record<string, string> = {};
+    request.headers.forEach((value, key) => { headersLog[key] = key.toLowerCase().includes('auth') || key.toLowerCase().includes('key') || key.toLowerCase().includes('secret') ? value.substring(0, 12) + '...' : value; });
+    console.log(`[Webhook] 📋 Headers: ${JSON.stringify(headersLog)}`);
+
     if (webhookSecret && apiKeyHeader !== webhookSecret) {
       const allowedIPs = process.env.EVOLUTION_ALLOWED_IPS?.split(',').filter(Boolean) || [];
       const clientIP = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '';
@@ -104,7 +109,7 @@ export async function POST(request: NextRequest) {
     const payload: EvolutionWebhookPayload = await request.json();
     const { event, instance } = payload;
 
-    console.log(`[Webhook] 📨 Evento: ${event} | Instância: ${instance} | Tenant param: ${request.nextUrl.searchParams.get('tenant_id') || 'N/A'}`);
+    console.log(`[Webhook] 📨 Evento: ${event} | Instância: ${instance} | Tenant param: ${request.nextUrl.searchParams.get('tenant_id') || 'N/A'} | fromMe: ${payload.data?.key?.fromMe ?? 'N/A'} | remoteJid: ${payload.data?.key?.remoteJid?.substring(0, 20) ?? 'N/A'}`);
 
     // 2. Identificar tenant — prioridade: query param, depois lookup por instância
     const supabase = createServerSupabaseClient();
