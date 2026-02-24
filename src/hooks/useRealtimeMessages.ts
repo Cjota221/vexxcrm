@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { supabase } from '@/lib/supabase';
@@ -76,8 +76,10 @@ export function useRealtimeMessages() {
     }, 300);
   }, [queryClient]);
 
-  // Ref para saber se já tentou com filtro e falhou (fallback para sem filtro)
-  const realtimeFallbackRef = useRef(false);
+  // FIX: Usar useState em vez de useRef para realtimeFallback.
+  // Refs não causam re-render — quando o canal falha e a flag muda,
+  // o useEffect nunca reexecuta e o canal sem filtro nunca é criado.
+  const [realtimeFallback, setRealtimeFallback] = useState(false);
 
   useEffect(() => {
     // Aguardar o tenantId estar disponível antes de subscrever
@@ -171,7 +173,7 @@ export function useRealtimeMessages() {
     // Usar filtro explícito por tenant_id quando possível.
     // Se migration 025 ainda não foi executada, o Supabase retorna CHANNEL_ERROR
     // com filtro → reconectar sem filtro (RLS cuida do isolamento).
-    const usingFilter = !realtimeFallbackRef.current;
+    const usingFilter = !realtimeFallback;
     const channelName = usingFilter
       ? `tenant-messages-${tenantId}`
       : `tenant-messages-nofilter-${tenantId}`;
@@ -184,21 +186,26 @@ export function useRealtimeMessages() {
       ? { event: 'UPDATE' as const, schema: 'public', table: 'conversations', filter: `tenant_id=eq.${tenantId}` }
       : { event: 'UPDATE' as const, schema: 'public', table: 'conversations' };
 
+    const convInsertConfig = usingFilter
+      ? { event: 'INSERT' as const, schema: 'public', table: 'conversations', filter: `tenant_id=eq.${tenantId}` }
+      : { event: 'INSERT' as const, schema: 'public', table: 'conversations' };
+
     console.log(`[Realtime] Conectando canal "${channelName}" (filtro=${usingFilter})`);
 
     const channel = supabase
       .channel(channelName)
       .on('postgres_changes', msgConfig, handleNewMessage)
-      // ── UPDATE em conversations: lista de chats reordena em tempo real
+      // ── UPDATE e INSERT em conversations: lista de chats reordena em tempo real
       .on('postgres_changes', convConfig, () => { debouncedInvalidateChats(); })
+      .on('postgres_changes', convInsertConfig, () => { debouncedInvalidateChats(); })
       .subscribe((status) => {
         console.log(`[Realtime] ${channelName}: ${status}`);
 
-        if (status === 'CHANNEL_ERROR' && usingFilter && !realtimeFallbackRef.current) {
+        if (status === 'CHANNEL_ERROR' && usingFilter && !realtimeFallback) {
           // Filtro rejeitado pelo Supabase (migration 025 não executada ainda)
           // → reconectar SEM filtro, deixando RLS fazer o isolamento
           console.warn('[Realtime] Filtro rejeitado — reconectando sem filtro (fallback RLS)');
-          realtimeFallbackRef.current = true;
+          setRealtimeFallback(true); // FIX: setState causa re-render → useEffect reexecuta → canal sem filtro é criado
           supabase.removeChannel(channel);
           globalRealtimeChannelRef.current = null;
           // Reagendar reconnect fora do callback de subscribe
@@ -220,7 +227,7 @@ export function useRealtimeMessages() {
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantId, queryClient, debouncedInvalidateChats, realtimeFallbackRef.current]);
+  }, [tenantId, queryClient, debouncedInvalidateChats, realtimeFallback]);
   // ─── Fim do canal Realtime global ────────────────────────────────────────
 
   const handleEvent = useCallback(
