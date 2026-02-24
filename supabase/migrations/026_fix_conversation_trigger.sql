@@ -59,7 +59,39 @@ ALTER TABLE messages      REPLICA IDENTITY FULL;
 ALTER TABLE conversations REPLICA IDENTITY FULL;
 ALTER TABLE clients       REPLICA IDENTITY FULL;
 
--- 4. Verificar resultado — execute para confirmar:
+-- 4. Garantir que as tabelas estão na publication do Supabase Realtime
+--    (necessário para que o canal postgres_changes funcione)
+DO $$
+BEGIN
+  -- messages
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'messages'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE messages;
+  END IF;
+
+  -- conversations
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'conversations'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE conversations;
+  END IF;
+
+  -- clients
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'clients'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE clients;
+  END IF;
+END $$;
+
+-- 5. Verificar resultado — execute estas queries para confirmar:
 -- SELECT trigger_name, event_manipulation, event_object_table, action_timing
 -- FROM information_schema.triggers
 -- WHERE trigger_name = 'trg_messages_update_conversation';
+--
+-- SELECT tablename FROM pg_publication_tables WHERE pubname = 'supabase_realtime'
+-- AND tablename IN ('messages','conversations','clients');
