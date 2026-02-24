@@ -88,12 +88,15 @@ export async function POST(request: NextRequest) {
     const webhookSecret = process.env.EVOLUTION_WEBHOOK_SECRET;
     const apiKeyHeader = request.headers.get('x-webhook-secret') || request.headers.get('apikey') || '';
 
+    // LOG DETALHADO para diagnóstico de bloqueio
+    console.log(`[Webhook] 🔑 Secret configurado: ${webhookSecret ? 'SIM' : 'NÃO'} | Header apikey recebido: ${apiKeyHeader ? `"${apiKeyHeader.substring(0, 8)}..."` : 'AUSENTE'}`);
+
     if (webhookSecret && apiKeyHeader !== webhookSecret) {
       const allowedIPs = process.env.EVOLUTION_ALLOWED_IPS?.split(',').filter(Boolean) || [];
       const clientIP = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '';
 
       if (allowedIPs.length === 0 || !allowedIPs.includes(clientIP)) {
-        console.warn(`[Webhook Evolution] Acesso negado - IP: ${clientIP}, apikey: ${apiKeyHeader ? 'presente' : 'ausente'}`);
+        console.warn(`[Webhook Evolution] ❌ Acesso negado — IP: ${clientIP}, apikey header: ${apiKeyHeader ? 'presente mas errado' : 'ausente'}, secret esperado: ${webhookSecret ? 'configurado' : 'não configurado'}`);
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
     }
