@@ -1,0 +1,15 @@
+/* VEXX CRM Extension — Content Styles */
+
+/* Reset mínimo para o botão flutuante — não afeta o DOM do WhatsApp */
+#vexx-crm-toggle:hover {
+  transform: scale(1.08);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35) !important;
+}
+
+#vexx-crm-toggle:active {
+  transform: scale(0.96);
+}
+
+#vexx-crm-sidebar {
+  font-family: 'Inter', 'Segoe UI', sans-serif;
+}
