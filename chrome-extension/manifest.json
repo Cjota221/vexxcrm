@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "VEXX CRM — Central de Atendimento",
-  "version": "1.0.0",
-  "description": "Integra o WhatsApp Web ao VEXX CRM: respostas rápidas, dados do cliente, histórico de pedidos.",
+  "version": "1.1.0",
+  "description": "Integra o WhatsApp Web ao VEXX CRM: respostas rápidas, dados do cliente, histórico de pedidos, alertas Anne e chat com IA.",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",

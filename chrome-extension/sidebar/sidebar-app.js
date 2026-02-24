@@ -1,17 +1,18 @@
 /**
- * VEXX CRM — Sidebar App (React sem bundler, UMD)
- * 
+ * VEXX CRM — Sidebar App (React sem bundler, UMD) v2
+ *
  * Roda dentro do iframe isolado injetado no WhatsApp Web.
  * Comunica com o content script via window.postMessage.
- * 
+ *
  * Funcionalidades:
  * - Login com token do CRM
- * - Dados do cliente ativo (nome, telefone, histórico)
+ * - Dados do cliente ativo (nome, telefone, histórico, insights Sentinela)
  * - Respostas rápidas com busca e inserção 1-click
  * - Notas rápidas sobre o cliente
+ * - Chat com a Anne (IA) com contexto automático do cliente aberto
  */
 
-const { useState, useEffect, useCallback, useRef } = React;
+const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // CONSTANTES
@@ -21,6 +22,7 @@ const TABS = [
   { id: 'quick-replies', label: '⚡ Respostas', icon: '⚡' },
   { id: 'client',        label: '👤 Cliente',   icon: '👤' },
   { id: 'notes',         label: '📝 Notas',     icon: '📝' },
+  { id: 'anne',          label: '🤖 Anne',      icon: '🤖' },
 ];
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -145,7 +147,69 @@ function useCrmApi(crmUrl, token, tenantId) {
       .catch(() => {}); // fire-and-forget
   }, [apiFetch]);
 
-  return { quickReplies, clientData, loading, error, fetchQuickReplies, fetchClient, saveNote, trackUsage };
+  // Chat com a Anne (com contexto do cliente atual)
+  const chatWithAnne = useCallback(async (message, phone, chatHistory) => {
+    const data = await apiFetch('/api/extension/anne/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message, phone, chat_history: chatHistory }),
+    });
+    return data.data?.reply || '❌ Sem resposta';
+  }, [apiFetch]);
+
+  return { quickReplies, clientData, loading, error, fetchQuickReplies, fetchClient, saveNote, trackUsage, chatWithAnne };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// HOOK: Chat com a Anne (estado local por sessão)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function useAnneChat(chatWithAnne, currentPhone) {
+  const [messages, setMessages] = useState([
+    { role: 'assistant', content: 'Olá! Sou a **Anne** 🤖 Posso te ajudar com sugestões de resposta, estratégias de venda, cupons e análise do cliente aberto. Como posso ajudar?', ts: Date.now() }
+  ]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const bottomRef = useRef(null);
+
+  // Rolar para o fim quando chegar nova mensagem
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Limpar histórico quando troca de contato
+  const prevPhoneRef = useRef(currentPhone);
+  useEffect(() => {
+    if (prevPhoneRef.current !== currentPhone) {
+      prevPhoneRef.current = currentPhone;
+      setMessages([
+        { role: 'assistant', content: '🔄 Novo contato detectado! Estou pronto para ajudar com este cliente.', ts: Date.now() }
+      ]);
+    }
+  }, [currentPhone]);
+
+  const send = useCallback(async () => {
+    const text = input.trim();
+    if (!text || loading) return;
+    setInput('');
+    const userMsg = { role: 'user', content: text, ts: Date.now() };
+    setMessages(prev => [...prev, userMsg]);
+    setLoading(true);
+    try {
+      // Enviar histórico sem o campo ts (a API não precisa)
+      const history = messages
+        .filter(m => m.role === 'user' || m.role === 'assistant')
+        .slice(-10)
+        .map(m => ({ role: m.role, content: m.content }));
+      const reply = await chatWithAnne(text, currentPhone, history);
+      setMessages(prev => [...prev, { role: 'assistant', content: reply, ts: Date.now() }]);
+    } catch (e) {
+      setMessages(prev => [...prev, { role: 'assistant', content: `❌ Erro: ${e.message}`, ts: Date.now() }]);
+    } finally {
+      setLoading(false);
+    }
+  }, [input, loading, messages, chatWithAnne, currentPhone]);
+
+  return { messages, input, setInput, loading, send, bottomRef };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -377,7 +441,7 @@ function QuickRepliesTab({ quickReplies, loading, error, onInsert, onRefresh }) 
 // COMPONENTE: Aba do Cliente
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-function ClientTab({ contact, clientData, loading }) {
+function ClientTab({ contact, clientData, loading, crmUrl }) {
   if (!contact?.name && !contact?.phone) {
     return React.createElement('div', { className: 'flex flex-col items-center justify-center h-full text-gray-400 p-6' },
       React.createElement('p', { className: 'text-4xl mb-3' }, '👆'),
@@ -385,40 +449,92 @@ function ClientTab({ contact, clientData, loading }) {
     );
   }
 
-  const orders = clientData?.recentOrders || [];
-  const stats  = clientData?.stats || {};
+  const orders   = clientData?.recentOrders || [];
+  const stats    = clientData?.stats || {};
+  const analyses = clientData?.analyses || [];
+
+  // Urgência → cor do badge
+  const urgencyClass = (u) => ({ critical: 'bg-red-100 text-red-700', high: 'bg-orange-100 text-orange-700', medium: 'bg-yellow-100 text-yellow-700', low: 'bg-gray-100 text-gray-600' }[u] || 'bg-gray-100 text-gray-600');
+  const urgencyIcon  = (u) => ({ critical: '🔴', high: '🟠', medium: '🟡', low: '⚪' }[u] || '⚪');
+
+  function openInCRM() {
+    const url = crmUrl || 'https://vexxcrm.netlify.app';
+    // Abre na Central de Atendimento — o CRM lida com o roteamento
+    window.open(`${url}/central`, '_blank');
+  }
 
   return React.createElement('div', { className: 'flex flex-col h-full overflow-y-auto scrollbar-thin p-4 space-y-4' },
     // Card do cliente
     React.createElement('div', { className: 'bg-white rounded-xl border border-gray-100 p-4' },
-      React.createElement('div', { className: 'flex items-center gap-3 mb-3' },
-        contact.avatar
-          ? React.createElement('img', { src: contact.avatar, className: 'w-12 h-12 rounded-full object-cover', alt: '' })
-          : React.createElement('div', { className: 'w-12 h-12 rounded-full bg-brand/10 flex items-center justify-center text-brand font-bold text-lg' },
-              (contact.name || '?').charAt(0).toUpperCase()
-            ),
-        React.createElement('div', null,
-          React.createElement('p', { className: 'font-semibold text-gray-900 text-sm' }, clientData?.name || contact.name || 'Desconhecido'),
+      React.createElement('div', { className: 'flex items-start gap-3 mb-3' },
+        React.createElement('div', { className: 'relative shrink-0' },
+          contact.avatar
+            ? React.createElement('img', { src: contact.avatar, className: 'w-12 h-12 rounded-full object-cover', alt: '' })
+            : React.createElement('div', { className: 'w-12 h-12 rounded-full bg-brand/10 flex items-center justify-center text-brand font-bold text-lg' },
+                (contact.name || '?').charAt(0).toUpperCase()
+              ),
+          clientData?.rfm_segment && React.createElement('span', {
+            className: 'absolute -bottom-1 -right-1 text-[10px] bg-white rounded-full px-1 border border-gray-100 shadow-sm',
+            title: 'Segmento RFM',
+          }, clientData.rfm_segment === 'vip' ? '👑' : clientData.rfm_segment === 'champion' ? '🏆' : clientData.rfm_segment === 'at_risk' ? '⚠️' : '🏷️')
+        ),
+        React.createElement('div', { className: 'flex-1 min-w-0' },
+          React.createElement('p', { className: 'font-semibold text-gray-900 text-sm truncate' }, clientData?.name || contact.name || 'Desconhecido'),
           React.createElement('p', { className: 'text-xs text-gray-500' }, contact.phone || '—'),
-          clientData?.email && React.createElement('p', { className: 'text-xs text-gray-400' }, clientData.email)
+          clientData?.email && React.createElement('p', { className: 'text-xs text-gray-400 truncate' }, clientData.email),
+          clientData?.rfm_segment && React.createElement('span', {
+            className: 'inline-block mt-1 text-[10px] px-2 py-0.5 rounded-full bg-brand/10 text-brand font-medium capitalize'
+          }, clientData.rfm_segment)
+        ),
+        // Botão abrir no CRM
+        React.createElement('button', {
+          onClick: openInCRM,
+          title: 'Abrir no CRM',
+          className: 'shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-brand hover:text-white text-gray-500 transition-all',
+        },
+          React.createElement('svg', { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 },
+            React.createElement('path', { d: 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6' }),
+            React.createElement('polyline', { points: '15 3 21 3 21 9' }),
+            React.createElement('line', { x1: 10, y1: 14, x2: 21, y2: 3 })
+          )
         )
       ),
       // Stats
-      stats && React.createElement('div', { className: 'grid grid-cols-3 gap-2 pt-3 border-t border-gray-50' },
+      React.createElement('div', { className: 'grid grid-cols-3 gap-2 pt-3 border-t border-gray-50' },
         [
           { label: 'Pedidos', value: stats.totalOrders ?? '—' },
-          { label: 'Total gasto', value: stats.totalSpent ? `R$ ${(stats.totalSpent/100).toFixed(0)}` : '—' },
-          { label: 'Ticket médio', value: stats.avgTicket ? `R$ ${(stats.avgTicket/100).toFixed(0)}` : '—' },
+          { label: 'Gasto total', value: stats.totalSpent ? `R$ ${Number(stats.totalSpent).toFixed(0)}` : '—' },
+          { label: 'Ticket médio', value: stats.avgTicket ? `R$ ${Number(stats.avgTicket).toFixed(0)}` : '—' },
         ].map(s =>
           React.createElement('div', { key: s.label, className: 'text-center' },
-            React.createElement('p', { className: 'text-base font-bold text-brand' }, s.value),
-            React.createElement('p', { className: 'text-xs text-gray-400' }, s.label)
+            React.createElement('p', { className: 'text-sm font-bold text-brand' }, s.value),
+            React.createElement('p', { className: 'text-[10px] text-gray-400' }, s.label)
           )
         )
       )
     ),
 
-    // Pedidos recentes
+    // ── Alertas Sentinela (Anne Intelligence) ──
+    analyses.length > 0 && React.createElement('div', null,
+      React.createElement('p', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1' },
+        '🧠 Alertas Anne',
+        React.createElement('span', { className: 'ml-1 text-[10px] px-1.5 py-0.5 bg-brand/10 text-brand rounded-full font-bold' }, analyses.length)
+      ),
+      React.createElement('div', { className: 'space-y-2' },
+        analyses.map((a, i) =>
+          React.createElement('div', { key: i, className: 'bg-white rounded-xl border border-gray-100 p-3 flex gap-2 items-start' },
+            React.createElement('span', { className: 'text-sm shrink-0 mt-0.5' }, urgencyIcon(a.urgency)),
+            React.createElement('div', { className: 'flex-1 min-w-0' },
+              React.createElement('p', { className: 'text-xs font-semibold text-gray-800' }, a.title),
+              React.createElement('p', { className: 'text-xs text-gray-500 mt-0.5 line-clamp-2' }, a.description),
+              React.createElement('span', { className: 'inline-block mt-1.5 text-[10px] px-2 py-0.5 rounded-full font-medium capitalize ' + urgencyClass(a.urgency) }, a.urgency)
+            )
+          )
+        )
+      )
+    ),
+
+    // ── Pedidos recentes ──
     orders.length > 0 && React.createElement('div', null,
       React.createElement('p', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2' }, 'Últimos pedidos'),
       React.createElement('div', { className: 'space-y-2' },
@@ -426,7 +542,7 @@ function ClientTab({ contact, clientData, loading }) {
           React.createElement('div', { key: order.id, className: 'bg-white rounded-xl border border-gray-100 p-3' },
             React.createElement('div', { className: 'flex justify-between items-start' },
               React.createElement('div', null,
-                React.createElement('p', { className: 'text-xs font-semibold text-gray-800' }, `Pedido #${order.order_number}`),
+                React.createElement('p', { className: 'text-xs font-semibold text-gray-800' }, `#${order.order_number}`),
                 React.createElement('p', { className: 'text-xs text-gray-500' },
                   new Date(order.created_at).toLocaleDateString('pt-BR')
                 )
@@ -441,6 +557,11 @@ function ClientTab({ contact, clientData, loading }) {
           )
         )
       )
+    ),
+
+    !clientData && !loading && React.createElement('div', { className: 'bg-amber-50 border border-amber-100 rounded-xl p-3 text-center' },
+      React.createElement('p', { className: 'text-xs text-amber-700' }, '⚠️ Cliente não encontrado no CRM'),
+      React.createElement('p', { className: 'text-[10px] text-amber-500 mt-1' }, 'O número pode não ter pedidos cadastrados')
     ),
 
     loading && React.createElement('div', { className: 'flex justify-center py-4' },
@@ -519,6 +640,142 @@ function NotesTab({ clientData, onSaveNote }) {
               )
             )
           )
+    )
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// COMPONENTE: Aba Anne (Chat com IA)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// Renderiza markdown simples: **negrito**, _itálico_, quebras de linha
+function renderMarkdown(text) {
+  const parts = [];
+  let rest = text || '';
+  let i = 0;
+  while (rest.length > 0) {
+    const boldIdx = rest.indexOf('**');
+    const italicIdx = rest.indexOf('_');
+    const brIdx = rest.indexOf('\n');
+    const indices = [boldIdx, italicIdx, brIdx].filter(x => x >= 0);
+    const next = indices.length > 0 ? Math.min(...indices) : -1;
+
+    if (next === -1) {
+      parts.push(React.createElement('span', { key: i++ }, rest));
+      break;
+    }
+    if (next > 0) {
+      parts.push(React.createElement('span', { key: i++ }, rest.slice(0, next)));
+      rest = rest.slice(next);
+    }
+    if (rest.startsWith('**')) {
+      const end = rest.indexOf('**', 2);
+      if (end === -1) { parts.push(React.createElement('span', { key: i++ }, rest)); break; }
+      parts.push(React.createElement('strong', { key: i++ }, rest.slice(2, end)));
+      rest = rest.slice(end + 2);
+    } else if (rest.startsWith('_')) {
+      const end = rest.indexOf('_', 1);
+      if (end === -1) { parts.push(React.createElement('span', { key: i++ }, rest)); break; }
+      parts.push(React.createElement('em', { key: i++ }, rest.slice(1, end)));
+      rest = rest.slice(end + 1);
+    } else if (rest.startsWith('\n')) {
+      parts.push(React.createElement('br', { key: i++ }));
+      rest = rest.slice(1);
+    }
+  }
+  return parts;
+}
+
+function AnneChatBubble({ msg }) {
+  const isUser = msg.role === 'user';
+  return React.createElement('div', {
+    className: 'flex ' + (isUser ? 'justify-end' : 'justify-start') + ' mb-2 fade-in',
+  },
+    React.createElement('div', {
+      className: 'max-w-[88%] px-3 py-2 rounded-2xl text-xs leading-relaxed ' +
+        (isUser
+          ? 'bg-brand text-white rounded-tr-sm'
+          : 'bg-white border border-gray-100 text-gray-800 rounded-tl-sm shadow-sm'),
+    },
+      isUser
+        ? msg.content
+        : React.createElement('span', null, ...renderMarkdown(msg.content))
+    )
+  );
+}
+
+function AnneTab({ contact, chatWithAnne }) {
+  const anne = useAnneChat(chatWithAnne, contact?.phone);
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      anne.send();
+    }
+  };
+
+  return React.createElement('div', { className: 'flex flex-col h-full' },
+    // Header informativo
+    React.createElement('div', { className: 'px-4 py-2.5 bg-brand/5 border-b border-brand/10' },
+      React.createElement('p', { className: 'text-xs text-brand font-medium flex items-center gap-1.5' },
+        React.createElement('span', null, '🤖'),
+        contact?.name
+          ? `Anne analisando: ${contact.name}`
+          : 'Anne — IA Assistente de Vendas'
+      ),
+      React.createElement('p', { className: 'text-[10px] text-gray-400 mt-0.5' },
+        'Contexto do cliente é enviado automaticamente'
+      )
+    ),
+
+    // Histórico de mensagens
+    React.createElement('div', { className: 'flex-1 overflow-y-auto scrollbar-thin p-4' },
+      anne.messages.map((msg, i) =>
+        React.createElement(AnneChatBubble, { key: i, msg })
+      ),
+      anne.loading && React.createElement('div', { className: 'flex justify-start mb-2' },
+        React.createElement('div', { className: 'bg-white border border-gray-100 rounded-2xl rounded-tl-sm px-4 py-2.5 shadow-sm' },
+          React.createElement('div', { className: 'flex items-center gap-1.5' },
+            [0,1,2].map(j =>
+              React.createElement('div', {
+                key: j,
+                className: 'w-1.5 h-1.5 bg-brand/50 rounded-full animate-bounce',
+                style: { animationDelay: `${j * 0.15}s` }
+              })
+            )
+          )
+        )
+      ),
+      React.createElement('div', { ref: anne.bottomRef })
+    ),
+
+    // Input de mensagem
+    React.createElement('div', { className: 'p-3 border-t border-gray-100 bg-white' },
+      React.createElement('div', { className: 'flex items-end gap-2 bg-gray-50 rounded-2xl px-3 py-2 border border-gray-200 focus-within:border-brand/40 focus-within:ring-2 focus-within:ring-brand/10 transition-all' },
+        React.createElement('textarea', {
+          value: anne.input,
+          onChange: e => anne.setInput(e.target.value),
+          onKeyDown: handleKeyDown,
+          placeholder: 'Pergunte à Anne... (Enter para enviar)',
+          rows: 1,
+          className: 'flex-1 text-xs bg-transparent outline-none resize-none text-gray-800 placeholder:text-gray-400 max-h-20',
+          disabled: anne.loading,
+        }),
+        React.createElement('button', {
+          onClick: anne.send,
+          disabled: !anne.input.trim() || anne.loading,
+          className: 'shrink-0 w-7 h-7 flex items-center justify-center rounded-full transition-all ' +
+            (anne.input.trim() && !anne.loading ? 'bg-brand text-white hover:bg-brand-light' : 'bg-gray-200 text-gray-400 cursor-not-allowed'),
+        },
+          React.createElement('svg', { width: 13, height: 13, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.5 },
+            React.createElement('line', { x1: 22, y1: 2, x2: 11, y2: 13 }),
+            React.createElement('polygon', { points: '22 2 15 22 11 13 2 9 22 2' })
+          )
+        )
+      ),
+      React.createElement('p', { className: 'text-[10px] text-gray-400 text-center mt-1.5' },
+        'Anne usa o contexto do cliente aberto automaticamente'
+      )
     )
   );
 }
@@ -624,10 +881,15 @@ function App() {
         contact: bridge.contact,
         clientData: api.clientData,
         loading: api.loading,
+        crmUrl: authData?.crmUrl,
       }),
       activeTab === 'notes' && React.createElement(NotesTab, {
         clientData: api.clientData,
         onSaveNote: api.saveNote,
+      }),
+      activeTab === 'anne' && React.createElement(AnneTab, {
+        contact: bridge.contact,
+        chatWithAnne: api.chatWithAnne,
       })
     )
   );

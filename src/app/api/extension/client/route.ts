@@ -111,11 +111,35 @@ export async function GET(req: NextRequest) {
       .order('created_at', { ascending: false })
       .limit(20);
 
+    // Buscar análises pendentes do Sentinela (Anne Intelligence)
+    const { data: analyses } = await supabase
+      .from('sentinela_analyses')
+      .select('type, urgency, title, description')
+      .eq('tenant_id', tenantId)
+      .eq('client_id', client.id)
+      .eq('status', 'pending')
+      .order('urgency', { ascending: false })
+      .limit(5);
+
+    // Buscar segmento RFM e status de saúde do cliente
+    const { data: clientStats } = await supabase
+      .from('clients')
+      .select('rfm_segment, health_status, total_orders, ltv, last_order_at')
+      .eq('id', client.id)
+      .eq('tenant_id', tenantId)
+      .single();
+
     return NextResponse.json({
       client: {
         ...client,
+        rfm_segment: clientStats?.rfm_segment || null,
+        health_status: clientStats?.health_status || null,
+        total_orders: clientStats?.total_orders || totalOrders,
+        ltv: clientStats?.ltv || totalSpent,
+        last_order_at: clientStats?.last_order_at || null,
         recentOrders: recentOrders || [],
         notes: notes || [],
+        analyses: analyses || [],
         stats: { totalOrders, totalSpent, avgTicket },
       },
     }, { headers });
