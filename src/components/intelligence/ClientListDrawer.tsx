@@ -24,6 +24,7 @@ import {
   Copy,
   Check,
   ExternalLink,
+  Download,
 } from 'lucide-react';
 import { formatCurrency, formatRelativeTime, cn } from '@/lib/utils';
 import { VariablePicker, CAMPAIGN_VARIABLES } from '@/components/ui/VariablePicker';
@@ -160,6 +161,7 @@ export function ClientListDrawer({
   const [showCampaignModal, setShowCampaignModal] = useState(false);
   const [copiedTemplate, setCopiedTemplate] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [sendResult, setSendResult] = useState<{ sent: number; failed: number; errors: string[]; campanha_id?: string } | null>(null);
   const [customMessage, setCustomMessage] = useState('');
   const customMessageRef = useRef<HTMLTextAreaElement>(null);
@@ -253,6 +255,88 @@ export function ClientListDrawer({
       setSendResult({ sent: 0, failed: targets.length, errors: [err instanceof Error ? err.message : 'Erro ao criar campanha'] });
     } finally {
       setIsSending(false);
+    }
+  };
+
+  // ── Exportar CSV ───────────────────────────────────────────────────────────
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const exportCount = selectedIds.size > 0 ? selectedIds.size : totalClients;
+
+      if (selectedIds.size > 0) {
+        // Exportar apenas selecionados (sem chamada de API — dados já na memória)
+        const rows = selectedClients;
+        const BOM = '\uFEFF';
+        const header = 'nome;telefone;email;segmento_rfm;total_pedidos;total_gasto;ticket_medio;ultimo_pedido;probabilidade_churn;vip;em_risco\r\n';
+
+        const body = rows.map(c => [
+          c.name || '',
+          c.phone || '',
+          c.email || '',
+          c.rfm_segment || segmentName || '',
+          String(c.total_orders ?? 0),
+          c.total_spent != null ? (c.total_spent / 100).toFixed(2) : '0.00',
+          c.avg_ticket != null ? (c.avg_ticket / 100).toFixed(2) : '0.00',
+          c.last_order_at ? new Date(c.last_order_at).toLocaleDateString('pt-BR') : '',
+          c.churn_probability != null ? `${c.churn_probability}%` : '',
+          c.is_vip ? 'Sim' : 'Não',
+          c.is_at_risk ? 'Sim' : 'Não',
+        ].map(v => (v.includes(';') || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v)).join(';')).join('\r\n');
+
+        const blob = new Blob([BOM + header + body], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const safeName = (segmentName || 'clientes').replace(/[^a-zA-Z0-9_\- ]/g, '').trim().replace(/\s+/g, '_').toLowerCase();
+        const today = new Date().toISOString().slice(0, 10);
+        a.download = `vexx_${safeName}_${today}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        // Exportar todo o segmento via endpoint (suporta até 5.000 registros)
+        // Usamos fetch diretamente pois o retorno é text/csv (não JSON)
+        const token = (() => {
+          try {
+            const raw = localStorage.getItem('vexx-auth');
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              return (parsed?.state?.accessToken as string | null) ?? null;
+            }
+          } catch { /* ignorar */ }
+          return null;
+        })();
+
+        const params = new URLSearchParams({ segment: segmentName ?? '' });
+        const res = await fetch(`/api/intelligence/rfm/export?${params.toString()}`, {
+          method: 'GET',
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
+
+        if (!res.ok) {
+          const msg = await res.text();
+          throw new Error(`Erro ${res.status}: ${msg}`);
+        }
+
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const safeName = (segmentName || 'clientes').replace(/[^a-zA-Z0-9_\- ]/g, '').trim().replace(/\s+/g, '_').toLowerCase();
+        const today = new Date().toISOString().slice(0, 10);
+        a.download = `vexx_${safeName}_${today}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    } catch (err) {
+      console.error('[handleExport]', err);
+      alert('Erro ao exportar. Tente novamente.');
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -544,6 +628,25 @@ export function ClientListDrawer({
               <Send size={14} />
               Disparo Rápido — página atual
               {selectedIds.size > 0 && <span className="ml-1 text-xs opacity-80">({selectedIds.size} selecionados)</span>}
+            </button>
+
+            {/* Exportar CSV */}
+            <button
+              onClick={handleExport}
+              disabled={isExporting}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl border border-violet-300 text-violet-700 hover:bg-violet-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isExporting ? (
+                <><Loader2 size={14} className="animate-spin" /> Exportando...</>
+              ) : (
+                <>
+                  <Download size={14} />
+                  Exportar CSV
+                  <span className="text-xs opacity-70">
+                    ({selectedIds.size > 0 ? selectedIds.size : totalClients.toLocaleString('pt-BR')} clientes)
+                  </span>
+                </>
+              )}
             </button>
           </div>
         )}
