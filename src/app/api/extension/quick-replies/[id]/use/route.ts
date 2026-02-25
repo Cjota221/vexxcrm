@@ -24,11 +24,13 @@ export async function OPTIONS(req: NextRequest) {
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const headers = corsHeaders(req);
 
   try {
+    const { id: replyId } = await params;
+
     const authHeader = req.headers.get('authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json({ error: 'Não autenticado' }, { status: 401, headers });
@@ -57,7 +59,7 @@ export async function POST(
 
     // Incrementar use_count
     await supabase.rpc('increment_quick_reply_use', {
-      p_id: params.id,
+      p_id: replyId,
       p_tenant_id: profile.tenant_id,
     });
 

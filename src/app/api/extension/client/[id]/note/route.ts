@@ -23,11 +23,13 @@ export async function OPTIONS(req: NextRequest) {
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const headers = corsHeaders(req);
 
   try {
+    const { id: clientId } = await params;
+
     const authHeader = req.headers.get('authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json({ error: 'Não autenticado' }, { status: 401, headers });
@@ -66,7 +68,7 @@ export async function POST(
       .from('clients')
       .select('id')
       .eq('tenant_id', profile.tenant_id)
-      .eq('id', params.id)
+      .eq('id', clientId)
       .single();
 
     if (!client) {
@@ -78,7 +80,7 @@ export async function POST(
       .from('client_notes')
       .insert({
         tenant_id:  profile.tenant_id,
-        client_id:  params.id,
+        client_id:  clientId,
         content:    note,
         created_by: user.id,
         source:     'extension',  // Marcar que veio da extensão
