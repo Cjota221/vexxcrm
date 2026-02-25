@@ -4,36 +4,18 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>VEXX CRM</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            brand: { DEFAULT: '#1e3a5f', light: '#2d5a8e', dark: '#142844' },
-            success: '#059669',
-          }
-        }
-      }
-    }
-  </script>
+  <!-- CSS local — sem CDN (CSP da extensão MV3 bloqueia scripts externos) -->
+  <link rel="stylesheet" href="tailwind.css" />
   <style>
-    * { box-sizing: border-box; }
     body { margin: 0; font-family: 'Inter', 'Segoe UI', sans-serif; background: #f7f8fa; }
-    .scrollbar-thin::-webkit-scrollbar { width: 4px; }
-    .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
-    .scrollbar-thin::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-    .fade-in { animation: fadeIn 0.2s ease; }
   </style>
 </head>
 <body class="h-screen overflow-hidden">
   <div id="root"></div>
 
-  <!-- React + ReactDOM via UMD (não precisa de bundler) -->
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-
+  <!-- React + ReactDOM locais (baixados de unpkg, sem CDN em runtime) -->
+  <script src="react.production.min.js"></script>
+  <script src="react-dom.production.min.js"></script>
   <script src="sidebar-app.js"></script>
 </body>
 </html>
