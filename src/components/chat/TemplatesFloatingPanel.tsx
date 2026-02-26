@@ -317,9 +317,9 @@ function NewTemplateEditor({ onSaved, onCancel }: { onSaved: () => void; onCance
               <WhatsAppTextEditor
                 value={block.content}
                 onChange={val => updateBlock(block.id, 'content', val)}
-                placeholder="Mensagem... use {{nome}}, {{produto}}, etc."
+                placeholder="Mensagem... use {{saudacao}}, {{nome}}, {{produto}}, etc."
                 rows={3}
-                variables={['{{nome}}', '{{produto}}', '{{cidade}}', '{{estado}}', '{{pedido}}']}
+                variables={['{{saudacao}}', '{{nome}}', '{{primeiro_nome}}', '{{produto}}', '{{cidade}}', '{{estado}}', '{{pedido}}']}
                 showPreview={true}
               />
             )}
@@ -570,7 +570,7 @@ export function TemplatesFloatingPanel({
             {/* Dica */}
             <div className="px-4 py-2 bg-gray-50/60 border-t border-gray-100 shrink-0">
               <p className="text-[10px] text-gray-400">
-                💡 Blocos enviados com delay para parecer envio humano. Use <code className="font-mono bg-gray-100 px-1 rounded">{'{{nome}}'}</code> para personalizar.
+                💡 Blocos enviados com delay para parecer envio humano. Use <code className="font-mono bg-gray-100 px-1 rounded">{'{{saudacao}}'}</code>, <code className="font-mono bg-gray-100 px-1 rounded">{'{{nome}}'}</code> para personalizar.
               </p>
             </div>
           </>

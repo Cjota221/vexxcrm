@@ -117,6 +117,17 @@ export async function POST(request: NextRequest) {
     if (clientName && !variables['nome']) {
       variables['nome'] = clientName;
     }
+    // Primeiro nome (ex: "João Silva" → "João")
+    if (!variables['primeiro_nome']) {
+      const nomeCompleto = variables['nome'] || clientName || '';
+      variables['primeiro_nome'] = nomeCompleto.split(' ')[0] || nomeCompleto;
+    }
+    // Saudação automática por horário de Brasília
+    if (!variables['saudacao']) {
+      const hora = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: 'numeric', hour12: false });
+      const h = parseInt(hora, 10);
+      variables['saudacao'] = h >= 5 && h < 12 ? 'Bom dia' : h >= 12 && h < 18 ? 'Boa tarde' : 'Boa noite';
+    }
 
     // Buscar ou criar conversa
     let conversationId: string | undefined;
