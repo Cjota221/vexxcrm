@@ -597,6 +597,29 @@ const STATUS_OPCOES = [
   { value: 'inativo', label: 'Inativo', cor: 'bg-gray-100 text-gray-700 border-gray-200'   },
 ];
 
+// Períodos de última compra — gera datas relativas a hoje
+type PeriodoPedido = 'todos' | '0-30' | '30-60' | '60-90' | '90+';
+
+function calcPeriodoRange(periodo: PeriodoPedido): { from: string; to: string } | null {
+  if (periodo === 'todos') return null;
+  const hoje = new Date();
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  const diasAtras = (n: number) => { const d = new Date(hoje); d.setDate(d.getDate() - n); return d; };
+  if (periodo === '0-30')  return { from: fmt(diasAtras(30)),  to: fmt(hoje)          };
+  if (periodo === '30-60') return { from: fmt(diasAtras(60)),  to: fmt(diasAtras(30)) };
+  if (periodo === '60-90') return { from: fmt(diasAtras(90)),  to: fmt(diasAtras(60)) };
+  if (periodo === '90+')   return { from: '2000-01-01',        to: fmt(diasAtras(90)) };
+  return null;
+}
+
+const PERIODO_OPCOES: { value: PeriodoPedido; label: string; emoji: string; cor: string }[] = [
+  { value: 'todos',  label: 'Qualquer data',    emoji: '📅', cor: '' },
+  { value: '0-30',   label: 'Últimos 30 dias',  emoji: '🔥', cor: 'bg-green-100 text-green-800 border-green-300' },
+  { value: '30-60',  label: 'Entre 30-60 dias', emoji: '🟡', cor: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
+  { value: '60-90',  label: 'Entre 60-90 dias', emoji: '🟠', cor: 'bg-orange-100 text-orange-800 border-orange-300' },
+  { value: '90+',    label: 'Mais de 90 dias',  emoji: '🔴', cor: 'bg-red-100 text-red-800 border-red-300' },
+];
+
 interface ClienteBase {
   id: string;
   telefone: string;
@@ -615,6 +638,7 @@ function SeletorTodaBase({ selecionados, onSetSelecionados }: SeletorTodaBasePro
   const [busca, setBusca] = useState('');
   const [statusFiltro, setStatusFiltro] = useState<string>('');
   const [pedidosFiltro, setPedidosFiltro] = useState<'todos' | 'com' | 'sem'>('todos');
+  const [periodoPedido, setPeriodoPedido] = useState<PeriodoPedido>('todos');
   const [clientes, setClientes] = useState<ClienteBase[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -625,7 +649,9 @@ function SeletorTodaBase({ selecionados, onSetSelecionados }: SeletorTodaBasePro
   const selectedIds = useMemo(() => new Set(selecionados.map(c => c.id)), [selecionados]);
   const LIMIT = 50;
 
-  const buscarClientes = useCallback(async (pg: number, q: string, st: string, ped: string) => {
+  const buscarClientes = useCallback(async (
+    pg: number, q: string, st: string, ped: string, periodo: PeriodoPedido
+  ) => {
     setCarregando(true);
     try {
       const params: Record<string, string> = { page: String(pg), limit: String(LIMIT) };
@@ -633,6 +659,15 @@ function SeletorTodaBase({ selecionados, onSetSelecionados }: SeletorTodaBasePro
       if (st) params.status = st;
       if (ped === 'com') params.has_orders = 'true';
       if (ped === 'sem') params.has_orders = 'false';
+
+      // Filtro por período da última compra
+      const range = calcPeriodoRange(periodo);
+      if (range) {
+        params.last_order_from = range.from;
+        params.last_order_to   = range.to;
+        // Período implica que o cliente tem pedidos
+        if (!params.has_orders) params.has_orders = 'true';
+      }
 
       const qs = new URLSearchParams(params).toString();
       const { data, error } = await api.get<{ clients: ClienteBase[]; total: number; pages: number }>(
@@ -654,14 +689,14 @@ function SeletorTodaBase({ selecionados, onSetSelecionados }: SeletorTodaBasePro
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       setPage(1);
-      buscarClientes(1, busca, statusFiltro, pedidosFiltro);
+      buscarClientes(1, busca, statusFiltro, pedidosFiltro, periodoPedido);
     }, 300);
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [busca, statusFiltro, pedidosFiltro, buscarClientes]);
+  }, [busca, statusFiltro, pedidosFiltro, periodoPedido, buscarClientes]);
 
   // Paginação
   useEffect(() => {
-    buscarClientes(page, busca, statusFiltro, pedidosFiltro);
+    buscarClientes(page, busca, statusFiltro, pedidosFiltro, periodoPedido);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
@@ -684,6 +719,14 @@ function SeletorTodaBase({ selecionados, onSetSelecionados }: SeletorTodaBasePro
       if (statusFiltro) params.status = statusFiltro;
       if (pedidosFiltro === 'com') params.has_orders = 'true';
       if (pedidosFiltro === 'sem') params.has_orders = 'false';
+
+      // Filtro por período da última compra
+      const range = calcPeriodoRange(periodoPedido);
+      if (range) {
+        params.last_order_from = range.from;
+        params.last_order_to   = range.to;
+        if (!params.has_orders) params.has_orders = 'true';
+      }
 
       const qs = new URLSearchParams(params).toString();
       const { data, error } = await api.get<{ clients: ClienteBase[] }>(
@@ -769,6 +812,35 @@ function SeletorTodaBase({ selecionados, onSetSelecionados }: SeletorTodaBasePro
               {opt.label}
             </button>
           ))}
+        </div>
+
+        {/* Período da última compra */}
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-txt-secondary">
+            <Calendar size={11} /> Última compra
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {PERIODO_OPCOES.map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => {
+                  setPeriodoPedido(opt.value);
+                  // Ao filtrar por período, garante "com pedidos"
+                  if (opt.value !== 'todos') setPedidosFiltro('com');
+                }}
+                className={`text-xs px-2.5 py-2 rounded-lg border font-medium transition-all text-left flex items-center gap-1.5 ${
+                  periodoPedido === opt.value
+                    ? opt.value === 'todos'
+                      ? 'border-crm-primary bg-crm-primary/5 text-crm-primary'
+                      : opt.cor + ' ring-2 ring-offset-1 ring-crm-primary/20'
+                    : 'border-surface-200 bg-white text-txt-secondary hover:border-crm-primary/40'
+                }`}
+              >
+                <span>{opt.emoji}</span>
+                <span>{opt.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

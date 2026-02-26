@@ -5,12 +5,14 @@ import { getTenantFromRequest } from '@/lib/auth-helpers';
 // ─── GET /api/v2/campanhas/clientes-base ─────────────────────────────────────
 // Retorna TODOS os clientes da base (com ou sem pedidos) para uso em campanhas.
 // Params:
-//   search?      — filtro por nome / telefone (ILIKE)
-//   status?      — novo | ativo | vip | risco | inativo  (filtra rfm_segment)
-//   estado?      — sigla UF (ex: SP)                     (filtra address_state)
-//   has_orders?  — "true" | "false" | omitido → todos
-//   page?        — página (1-based, default 1)
-//   limit?       — por página (default 50, máx 500)
+//   search?           — filtro por nome / telefone (ILIKE)
+//   status?           — novo | ativo | vip | risco | inativo  (filtra rfm_segment)
+//   estado?           — sigla UF (ex: SP)                     (filtra address_state)
+//   has_orders?       — "true" | "false" | omitido → todos
+//   last_order_from?  — data ISO 8601 (ex: 2026-01-27) — last_order_at >= este valor
+//   last_order_to?    — data ISO 8601 (ex: 2026-02-26) — last_order_at <= este valor
+//   page?             — página (1-based, default 1)
+//   limit?            — por página (default 50, máx 500)
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,13 +20,15 @@ export async function GET(request: NextRequest) {
     const supabase = createServerSupabaseClient();
 
     const { searchParams } = new URL(request.url);
-    const search     = searchParams.get('search')?.trim() ?? '';
-    const status     = searchParams.get('status')?.trim() ?? '';
-    const estado     = searchParams.get('estado')?.trim() ?? '';
-    const hasOrders  = searchParams.get('has_orders');   // 'true' | 'false' | null
-    const page       = Math.max(1, Number(searchParams.get('page') ?? '1'));
-    const limit      = Math.min(500, Math.max(1, Number(searchParams.get('limit') ?? '50')));
-    const offset     = (page - 1) * limit;
+    const search          = searchParams.get('search')?.trim() ?? '';
+    const status          = searchParams.get('status')?.trim() ?? '';
+    const estado          = searchParams.get('estado')?.trim() ?? '';
+    const hasOrders       = searchParams.get('has_orders');   // 'true' | 'false' | null
+    const lastOrderFrom   = searchParams.get('last_order_from')?.trim() ?? '';  // ISO date
+    const lastOrderTo     = searchParams.get('last_order_to')?.trim() ?? '';    // ISO date
+    const page            = Math.max(1, Number(searchParams.get('page') ?? '1'));
+    const limit           = Math.min(500, Math.max(1, Number(searchParams.get('limit') ?? '50')));
+    const offset          = (page - 1) * limit;
 
     // Mapeamento de status UI → rfm_segment do banco
     const RFM_MAP: Record<string, string> = {
@@ -35,11 +39,13 @@ export async function GET(request: NextRequest) {
       inativo: 'Inativo',
     };
 
+    // Quando filtrar por período de última compra, precisamos de last_order_at na query
+
     // ── Query base ─────────────────────────────────────────────────────────────
     let query = supabase
       .from('clients')
       .select(
-        'id, name, phone, phone_normalized, rfm_segment, address_city, address_state, total_orders',
+        'id, name, phone, phone_normalized, rfm_segment, address_city, address_state, total_orders, last_order_at',
         { count: 'exact' }
       )
       .eq('tenant_id', profile.tenant_id)
@@ -68,6 +74,19 @@ export async function GET(request: NextRequest) {
       query = query.or('total_orders.is.null,total_orders.eq.0');
     }
 
+    // ── Filtro por período da última compra ────────────────────────────────────
+    // Quando um desses filtros é usado, exige que o cliente tenha ao menos 1 pedido
+    if (lastOrderFrom) {
+      query = query.gte('last_order_at', lastOrderFrom);
+    }
+    if (lastOrderTo) {
+      // Inclui o dia inteiro do lastOrderTo (até 23:59:59)
+      const toEndOfDay = lastOrderTo.length === 10
+        ? `${lastOrderTo}T23:59:59.999Z`
+        : lastOrderTo;
+      query = query.lte('last_order_at', toEndOfDay);
+    }
+
     // ── Paginação e ordem ──────────────────────────────────────────────────────
     query = query
       .order('name', { ascending: true })
@@ -88,7 +107,7 @@ export async function GET(request: NextRequest) {
       cidade:        c.address_city as string | undefined,
       estado:        c.address_state as string | undefined,
       total_orders:  (c.total_orders as number) ?? 0,
-      ultimo_pedido: undefined as string | undefined,
+      ultimo_pedido: (c.last_order_at as string | undefined) ?? undefined,
       valor_ltv:     undefined as number | undefined,
     }));
 
