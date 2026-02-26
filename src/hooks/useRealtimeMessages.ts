@@ -65,6 +65,10 @@ export function useRealtimeMessages() {
   // Sem o filter, o canal depende 100% de RLS — se get_tenant_id() for
   // lento ou falhar, nenhum evento chega.
   const globalRealtimeChannelRef = useRef<RealtimeChannel | null>(null);
+  // Reconexão do canal Realtime com backoff exponencial (internet caiu/voltou)
+  const realtimeReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const realtimeReconnectAttemptsRef = useRef(0);
+  const MAX_REALTIME_RECONNECT = 10; // Para de tentar após ~17 minutos (backoff cap 120s)
   // Debounce para invalidateQueries(['chats']) — evita double-fetch quando o
   // canal global E o canal por-clientId disparam ao mesmo tempo.
   const chatsInvalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -80,6 +84,8 @@ export function useRealtimeMessages() {
   // Refs não causam re-render — quando o canal falha e a flag muda,
   // o useEffect nunca reexecuta e o canal sem filtro nunca é criado.
   const [realtimeFallback, setRealtimeFallback] = useState(false);
+  // Contador que incrementa para forçar useEffect a recriar o canal após CHANNEL_ERROR
+  const [realtimeVersion, setRealtimeVersion] = useState(0);
 
   useEffect(() => {
     // Aguardar o tenantId estar disponível antes de subscrever
@@ -205,6 +211,7 @@ export function useRealtimeMessages() {
           // Filtro rejeitado pelo Supabase (migration 025 não executada ainda)
           // → reconectar SEM filtro, deixando RLS fazer o isolamento
           console.warn('[Realtime] Filtro rejeitado — reconectando sem filtro (fallback RLS)');
+          realtimeReconnectAttemptsRef.current = 0; // nova fase, resetar contagem
           setRealtimeFallback(true); // FIX: setState causa re-render → useEffect reexecuta → canal sem filtro é criado
           supabase.removeChannel(channel);
           globalRealtimeChannelRef.current = null;
@@ -213,7 +220,35 @@ export function useRealtimeMessages() {
             queryClient.invalidateQueries({ queryKey: ['chats'] });
           }, 100);
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          // Canal nofilter falhou (internet caiu, JWT expirou, etc.)
+          // Reconectar com backoff exponencial — cap 120s, máx 10 tentativas
           queryClient.invalidateQueries({ queryKey: ['chats'] });
+
+          if (realtimeReconnectAttemptsRef.current < MAX_REALTIME_RECONNECT) {
+            const baseDelay = Math.min(2000 * Math.pow(2, realtimeReconnectAttemptsRef.current), 120_000);
+            const jitter = baseDelay * 0.2 * (Math.random() - 0.5);
+            const delay = Math.round(baseDelay + jitter);
+            console.warn(`[Realtime] Reconectando em ${Math.round(delay / 1000)}s (tentativa ${realtimeReconnectAttemptsRef.current + 1}/${MAX_REALTIME_RECONNECT})`);
+
+            if (realtimeReconnectTimerRef.current) clearTimeout(realtimeReconnectTimerRef.current);
+            realtimeReconnectTimerRef.current = setTimeout(() => {
+              if (!isMountedRef.current) return;
+              supabase.removeChannel(channel);
+              globalRealtimeChannelRef.current = null;
+              realtimeReconnectAttemptsRef.current++;
+              // Incrementar versão → força re-render → useEffect reexecuta → canal recriado
+              setRealtimeVersion(v => v + 1);
+            }, delay);
+          } else {
+            console.error('[Realtime] Máximo de tentativas atingido. Canal offline. Recarregue a página para reconectar.');
+          }
+        } else if (status === 'SUBSCRIBED') {
+          // Reconexão bem-sucedida — resetar contagem
+          realtimeReconnectAttemptsRef.current = 0;
+          if (realtimeReconnectTimerRef.current) {
+            clearTimeout(realtimeReconnectTimerRef.current);
+            realtimeReconnectTimerRef.current = null;
+          }
         }
       });
 
@@ -221,13 +256,17 @@ export function useRealtimeMessages() {
 
     return () => {
       if (chatsInvalidateTimerRef.current) clearTimeout(chatsInvalidateTimerRef.current);
+      if (realtimeReconnectTimerRef.current) {
+        clearTimeout(realtimeReconnectTimerRef.current);
+        realtimeReconnectTimerRef.current = null;
+      }
       if (globalRealtimeChannelRef.current) {
         supabase.removeChannel(globalRealtimeChannelRef.current);
         globalRealtimeChannelRef.current = null;
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantId, queryClient, debouncedInvalidateChats, realtimeFallback]);
+  }, [tenantId, queryClient, debouncedInvalidateChats, realtimeFallback, realtimeVersion]);
   // ─── Fim do canal Realtime global ────────────────────────────────────────
 
   const handleEvent = useCallback(
