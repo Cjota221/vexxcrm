@@ -824,7 +824,7 @@ export interface AnneTriggerLogEntry {
    TEMPLATE COMPOSTO (Mensagens Rápidas v2)
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-export type TemplateBlockType = 'text' | 'image' | 'video' | 'audio' | 'document' | 'link' | 'cta' | 'copy_code';
+export type TemplateBlockType = 'text' | 'image' | 'video' | 'audio' | 'document' | 'link' | 'link_banner' | 'cta' | 'copy_code';
 
 export interface TemplateBlock {
   id: string;
@@ -841,9 +841,13 @@ export interface TemplateBlock {
   image_url?: string;
   /** @deprecated use media_caption */
   image_caption?: string;
-  // link
+  // link simples
   link_title?: string;
   link_url?: string;
+  // link_banner: link com título, descrição e imagem opcional (preview WhatsApp-style)
+  link_banner_title?: string;
+  link_banner_description?: string;
+  link_banner_image?: string;
   // cta
   cta_label?: string;
   cta_url?: string;

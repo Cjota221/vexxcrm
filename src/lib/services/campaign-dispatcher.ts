@@ -313,6 +313,21 @@ async function enviarBlocoViaWhatsApp(
       break;
     }
 
+    case 'link_banner' as any: {
+      // Link com banner: enviar título, descrição e URL como mensagem de texto rica
+      const titulo = (bloco.conteudo as any).link_banner_title ?? (bloco.conteudo as any).titulo ?? '';
+      const descricao = (bloco.conteudo as any).link_banner_description ?? (bloco.conteudo as any).descricao ?? '';
+      const url = (bloco.conteudo as any).url ?? (bloco.conteudo as any).link_url ?? '';
+      const partes: string[] = [];
+      if (titulo) partes.push(`*${titulo}*`);
+      if (descricao) partes.push(descricao);
+      if (url) partes.push(url);
+      if (partes.length) {
+        await sendTextMessage(config, telefone, partes.join('\n'));
+      }
+      break;
+    }
+
     case 'copy_code': {
       const texto = bloco.conteudo.texto_formatado ?? bloco.conteudo.texto_raw ?? '';
       const code = bloco.conteudo.copy_code ?? '';

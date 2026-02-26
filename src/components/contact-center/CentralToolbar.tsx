@@ -65,14 +65,15 @@ const BLOCK_TYPE_CONFIG: Record<
   TemplateBlockType,
   { label: string; icon: typeof Type; placeholder: string }
 > = {
-  text:      { label: 'Texto',        icon: Type,              placeholder: 'Digite o conteúdo do bloco...' },
-  image:     { label: 'Imagem',       icon: ImageIcon,         placeholder: 'https://... (URL da imagem)' },
-  video:     { label: 'Vídeo',        icon: Video,             placeholder: 'https://... (URL do vídeo)' },
-  audio:     { label: 'Áudio',        icon: Mic,               placeholder: 'https://... (URL do áudio)' },
-  document:  { label: 'Documento',    icon: FileText,          placeholder: 'https://... (URL do documento)' },
-  link:      { label: 'Link',         icon: Link2,             placeholder: 'https://...' },
-  cta:       { label: 'Botão',        icon: MousePointerClick, placeholder: 'Texto do botão' },
-  copy_code: { label: 'Copiar Código', icon: Copy,             placeholder: 'Ex: CUPOM20 ou código de rastreio' },
+  text:        { label: 'Texto',           icon: Type,              placeholder: 'Digite o conteúdo do bloco...' },
+  image:       { label: 'Imagem',          icon: ImageIcon,         placeholder: 'https://... (URL da imagem)' },
+  video:       { label: 'Vídeo',           icon: Video,             placeholder: 'https://... (URL do vídeo)' },
+  audio:       { label: 'Áudio',           icon: Mic,               placeholder: 'https://... (URL do áudio)' },
+  document:    { label: 'Documento',       icon: FileText,          placeholder: 'https://... (URL do documento)' },
+  link:        { label: 'Link',            icon: Link2,             placeholder: 'https://...' },
+  link_banner: { label: 'Link c/ Banner',  icon: Link2,             placeholder: 'https://...' },
+  cta:         { label: 'Botão',           icon: MousePointerClick, placeholder: 'Texto do botão' },
+  copy_code:   { label: 'Copiar Código',   icon: Copy,              placeholder: 'Ex: CUPOM20 ou código de rastreio' },
 };
 
 function TemplateBlockItem({
@@ -133,6 +134,34 @@ function TemplateBlockItem({
               placeholder="https://..."
               value={block.link_url ?? ''}
               onChange={e => onUpdate(block.id, { link_url: e.target.value })}
+            />
+          </div>
+        )}
+        {block.type === 'link_banner' && (
+          <div className="flex flex-col gap-1">
+            <input
+              className="w-full text-xs bg-transparent border-none outline-none text-txt-secondary placeholder:text-txt-muted"
+              placeholder="Link (https://...)"
+              value={block.media_url ?? ''}
+              onChange={e => onUpdate(block.id, { media_url: e.target.value })}
+            />
+            <input
+              className="w-full text-xs bg-transparent border-none outline-none text-txt-primary font-medium placeholder:text-txt-muted"
+              placeholder="Título (ex: Material de Divulgação)"
+              value={block.link_banner_title ?? ''}
+              onChange={e => onUpdate(block.id, { link_banner_title: e.target.value })}
+            />
+            <input
+              className="w-full text-xs bg-transparent border-none outline-none text-txt-secondary placeholder:text-txt-muted"
+              placeholder="Descrição (ex: Baixe e divulgue para suas clientes 😍)"
+              value={block.link_banner_description ?? ''}
+              onChange={e => onUpdate(block.id, { link_banner_description: e.target.value })}
+            />
+            <input
+              className="w-full text-xs bg-transparent border-none outline-none text-txt-muted placeholder:text-txt-muted"
+              placeholder="URL da imagem do banner (opcional)"
+              value={block.link_banner_image ?? ''}
+              onChange={e => onUpdate(block.id, { link_banner_image: e.target.value })}
             />
           </div>
         )}

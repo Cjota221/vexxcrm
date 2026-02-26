@@ -31,6 +31,7 @@ const BLOCK_ICON: Record<string, React.ReactNode> = {
   audio: <Music size={11} />,
   document: <FileText size={11} />,
   link: <Link size={11} />,
+  link_banner: <Link size={11} />,
   cta: <Link size={11} />,
   copy_code: <Copy size={11} />,
 };
@@ -42,6 +43,7 @@ const BLOCK_LABEL: Record<string, string> = {
   audio: 'Áudio',
   document: 'Documento',
   link: 'Link',
+  link_banner: 'Link c/ Banner',
   cta: 'CTA',
   copy_code: 'Código',
 };
@@ -71,6 +73,8 @@ function BlockPreview({ block }: { block: TemplateBlock }) {
         <span className="font-semibold text-gray-600">{label}: </span>
         {block.type === 'text'
           ? (block.content || '').slice(0, 60) + ((block.content || '').length > 60 ? '…' : '')
+          : block.type === 'link_banner'
+          ? (block.link_banner_title ? `${block.link_banner_title} — ` : '') + (block.link_url || block.media_url || '—')
           : block.media_url || block.image_url || block.link_url || block.cta_url || '—'}
       </span>
     </div>
@@ -173,6 +177,10 @@ type BlockState = {
   media_url: string;
   copy_code: string;
   uploading: boolean;
+  // link_banner
+  link_banner_title: string;
+  link_banner_description: string;
+  link_banner_image: string;
 };
 
 function MediaUploadField({
@@ -282,8 +290,11 @@ function NewTemplateEditor({
             media_url: b.media_url ?? (b as any).link_url ?? (b as any).cta_url ?? '',
             copy_code: (b as any).copy_code ?? '',
             uploading: false,
+            link_banner_title: b.link_banner_title ?? '',
+            link_banner_description: b.link_banner_description ?? '',
+            link_banner_image: b.link_banner_image ?? '',
           }))
-      : [{ id: '1', type: 'text' as const, content: '', media_url: '', copy_code: '', uploading: false }]
+      : [{ id: '1', type: 'text' as const, content: '', media_url: '', copy_code: '', uploading: false, link_banner_title: '', link_banner_description: '', link_banner_image: '' }]
   );
 
   const { mutate: save, isPending } = useMutation({
@@ -294,6 +305,13 @@ function NewTemplateEditor({
           const base = { id: b.id, type: b.type, order: i, delay_ms: i === 0 ? 0 : 1200 };
           if (b.type === 'text') return { ...base, content: b.content };
           if (b.type === 'copy_code') return { ...base, copy_code: b.copy_code, content: b.content };
+          if (b.type === 'link_banner') return {
+            ...base,
+            media_url: b.media_url,
+            link_banner_title: b.link_banner_title,
+            link_banner_description: b.link_banner_description,
+            link_banner_image: b.link_banner_image,
+          };
           return { ...base, media_url: b.media_url };
         }),
       };
@@ -310,7 +328,7 @@ function NewTemplateEditor({
   });
 
   const addBlock = () => {
-    setBlocks(prev => [...prev, { id: String(Date.now()), type: 'text', content: '', media_url: '', copy_code: '', uploading: false }]);
+    setBlocks(prev => [...prev, { id: String(Date.now()), type: 'text', content: '', media_url: '', copy_code: '', uploading: false, link_banner_title: '', link_banner_description: '', link_banner_image: '' }]);
   };
 
   const removeBlock = (id: string) => setBlocks(prev => prev.filter(b => b.id !== id));
@@ -321,7 +339,8 @@ function NewTemplateEditor({
   const canSave = name.trim() && blocks.some(b =>
     (b.type === 'text' && b.content.trim()) ||
     (b.type === 'copy_code' && b.copy_code.trim()) ||
-    (b.type !== 'text' && b.type !== 'copy_code' && b.media_url.trim())
+    (b.type === 'link_banner' && b.media_url.trim()) ||
+    (b.type !== 'text' && b.type !== 'copy_code' && b.type !== 'link_banner' && b.media_url.trim())
   );
 
   return (
@@ -363,7 +382,8 @@ function NewTemplateEditor({
                 <option value="video">🎬 Vídeo</option>
                 <option value="audio">🎵 Áudio</option>
                 <option value="document">📄 Documento</option>
-                <option value="link">🔗 Link</option>
+                <option value="link">🔗 Link simples</option>
+                <option value="link_banner">🖼️🔗 Link com Banner</option>
               </select>
               <div className="flex-1" />
               {blocks.length > 1 && (
@@ -430,6 +450,60 @@ function NewTemplateEditor({
                 value={block.media_url}
                 onChange={e => updateBlock(block.id, 'media_url', e.target.value)}
               />
+            )}
+
+            {block.type === 'link_banner' && (
+              <div className="space-y-2">
+                {/* Campos de entrada */}
+                <input
+                  className="w-full text-xs px-2 py-1.5 bg-white border border-gray-200 rounded-lg outline-none focus:border-crm-primary placeholder:text-gray-400"
+                  placeholder="Link (https://...)..."
+                  value={block.media_url}
+                  onChange={e => updateBlock(block.id, 'media_url', e.target.value)}
+                />
+                <input
+                  className="w-full text-xs px-2 py-1.5 bg-white border border-gray-200 rounded-lg outline-none focus:border-crm-primary placeholder:text-gray-400 font-medium"
+                  placeholder="Título (ex: Material de Divulgação)..."
+                  value={block.link_banner_title}
+                  onChange={e => updateBlock(block.id, 'link_banner_title', e.target.value)}
+                />
+                <textarea
+                  className="w-full text-xs px-2 py-1.5 bg-white border border-gray-200 rounded-lg outline-none focus:border-crm-primary placeholder:text-gray-400 resize-none"
+                  placeholder="Descrição (ex: Baixe e divulgue para suas clientes 😍)..."
+                  rows={2}
+                  value={block.link_banner_description}
+                  onChange={e => updateBlock(block.id, 'link_banner_description', e.target.value)}
+                />
+                <input
+                  className="w-full text-xs px-2 py-1.5 bg-white border border-gray-200 rounded-lg outline-none focus:border-crm-primary placeholder:text-gray-400"
+                  placeholder="URL da imagem do banner (opcional)..."
+                  value={block.link_banner_image}
+                  onChange={e => updateBlock(block.id, 'link_banner_image', e.target.value)}
+                />
+                {/* Preview estilo WhatsApp */}
+                {block.media_url && (
+                  <div className="rounded-xl overflow-hidden border border-gray-200 bg-white text-xs shadow-sm">
+                    {block.link_banner_image && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={block.link_banner_image}
+                        alt="banner"
+                        className="w-full h-28 object-cover"
+                        onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                    )}
+                    <div className="px-3 py-2 space-y-0.5">
+                      {block.link_banner_title && (
+                        <p className="font-semibold text-gray-800 text-[11px] leading-tight">{block.link_banner_title}</p>
+                      )}
+                      {block.link_banner_description && (
+                        <p className="text-gray-500 text-[10px] leading-tight">{block.link_banner_description}</p>
+                      )}
+                      <p className="text-crm-primary text-[10px] break-all">{block.media_url}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         ))}

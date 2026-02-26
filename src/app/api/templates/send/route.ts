@@ -212,6 +212,23 @@ export async function POST(request: NextRequest) {
             break;
           }
 
+          case 'link_banner': {
+            // Envia título (negrito) + descrição + URL como mensagem de texto rica
+            const titulo = interpolate(block.link_banner_title || block.link_title) || '';
+            const descricao = interpolate(block.link_banner_description) || '';
+            const url = interpolate(block.media_url || block.link_url) || '';
+            const partes: string[] = [];
+            if (titulo) partes.push(`*${titulo}*`);
+            if (descricao) partes.push(descricao);
+            if (url) partes.push(url);
+            msgContent = partes.join('\n');
+            if (!msgContent.trim()) { results.push({ blockId: block.id, messageId: '', status: 'error', error: 'Link banner vazio' }); continue; }
+            msgType = 'text';
+            msgMetadata = { link_banner_title: titulo, link_banner_description: descricao, link_banner_image: block.link_banner_image };
+            messageId = await sendTextMessage(config, phoneNormalized, msgContent);
+            break;
+          }
+
           default:
             results.push({ blockId: block.id, messageId: '', status: 'error', error: `Tipo desconhecido: ${block.type}` });
             continue;
