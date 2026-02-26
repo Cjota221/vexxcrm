@@ -13,23 +13,29 @@ export function cn(...inputs: ClassValue[]): string {
 
 /**
  * Formata valor monetário em Real (BRL).
+ * Guard defensivo: undefined/null/NaN retornam 'R$ 0,00'
  *
  * @example
  * formatCurrency(1234.5) → 'R$ 1.234,50'
+ * formatCurrency(undefined) → 'R$ 0,00'
  */
-export function formatCurrency(value: number): string {
+export function formatCurrency(value: number | null | undefined): string {
+  const safe = typeof value === 'number' && !isNaN(value) ? value : 0;
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
     currency: 'BRL',
-  }).format(value);
+  }).format(safe);
 }
 
 /**
  * Formata data relativa ("5min atrás", "Ontem", etc.)
+ * Guard defensivo: null/undefined retornam ''
  */
-export function formatRelativeTime(date: string | Date): string {
+export function formatRelativeTime(date: string | Date | null | undefined): string {
+  if (!date) return '';
   const now = new Date();
   const then = new Date(date);
+  if (isNaN(then.getTime())) return '';
   const diffMs = now.getTime() - then.getTime();
   const diffSeconds = Math.floor(diffMs / 1000);
   const diffMinutes = Math.floor(diffSeconds / 60);
@@ -51,12 +57,16 @@ export function formatRelativeTime(date: string | Date): string {
 
 /**
  * Formata data completa.
+ * Guard defensivo: null/undefined retornam ''
  *
  * @example
  * formatDate('2026-01-15T10:30:00') → '15/01/2026'
  */
-export function formatDate(date: string | Date): string {
-  return new Date(date).toLocaleDateString('pt-BR');
+export function formatDate(date: string | Date | null | undefined): string {
+  if (!date) return '';
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('pt-BR');
 }
 
 /**

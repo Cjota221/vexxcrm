@@ -207,7 +207,7 @@ function StatCard({
 }: {
   icon: React.ReactNode;
   label: string;
-  value: number;
+  value?: number | null;
   bgColor: string;
   alert?: boolean;
 }) {
@@ -218,7 +218,7 @@ function StatCard({
         <div>
           <p className="text-xs text-gray-500">{label}</p>
           <p className={`text-xl font-bold ${alert ? 'text-amber-600' : 'text-gray-800'}`}>
-            {value.toLocaleString('pt-BR')}
+            {(value ?? 0).toLocaleString('pt-BR')}
           </p>
         </div>
       </div>
