@@ -329,6 +329,8 @@ const ChatListItem = memo(function ChatListItem({
   const hasUnread = chat.unread_count > 0;
   // "Fila" badge: exibido apenas para conversas não lidas com assignee vazio
   const showQueueBadge = hasUnread && !chat.assigned_to;
+  // Fallback para iniciais quando a URL do avatar falha (ex: domínio morto)
+  const [avatarError, setAvatarError] = useState(false);
 
   return (
     <button
@@ -343,11 +345,12 @@ const ChatListItem = memo(function ChatListItem({
     >
       {/* Avatar */}
       <div className="relative shrink-0">
-        {chat.client.avatar_url ? (
+        {chat.client.avatar_url && !avatarError ? (
           <img
             src={chat.client.avatar_url}
             alt={chat.client.name}
             className="w-11 h-11 rounded-full object-cover"
+            onError={() => setAvatarError(true)}
           />
         ) : (
           <div

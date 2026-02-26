@@ -98,6 +98,8 @@ export function AudioMessage({ url, duration, isFromMe = false, onTranscribe }: 
     setIsTranscribing(true);
     try {
       await onTranscribe();
+    } catch {
+      // erro já logado no MessageBubble — não propaga
     } finally {
       setIsTranscribing(false);
     }

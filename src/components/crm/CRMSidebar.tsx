@@ -236,6 +236,7 @@ function ClientTab({ client, status, orders, clientId, onNameSaved }: {
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState('');
   const [savingName, setSavingName] = useState(false);
+  const [avatarError, setAvatarError] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   const startEdit = () => {
@@ -319,8 +320,8 @@ function ClientTab({ client, status, orders, clientId, onNameSaved }: {
       )}
       
       <div className="flex items-start gap-3">
-        {c.avatar_url ? (
-          <img src={c.avatar_url} alt={c.name} className="w-14 h-14 rounded-full object-cover shrink-0 border-2 border-surface-200" />
+        {c.avatar_url && !avatarError ? (
+          <img src={c.avatar_url} alt={c.name} className="w-14 h-14 rounded-full object-cover shrink-0 border-2 border-surface-200" onError={() => setAvatarError(true)} />
         ) : (
           <div
             className="w-14 h-14 rounded-full flex items-center justify-center text-white font-semibold text-lg shrink-0"

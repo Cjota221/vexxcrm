@@ -67,7 +67,7 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
       onTranscriptionUpdate?.(message.id, text);
     } catch (err) {
       console.warn('[MessageBubble] Transcrição falhou:', err);
-      throw err; // re-throw para AudioMessage mostrar erro
+      // Não re-lança — AudioMessage permanece no estado "não transcrito" visualmente
     }
   }, [message.id, onTranscriptionUpdate]);
 
