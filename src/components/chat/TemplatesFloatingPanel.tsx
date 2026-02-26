@@ -14,7 +14,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Zap, X, Search, Plus, Loader2, FileText, Image, Video, Music,
   Link, Send, ChevronDown, ChevronRight, Trash2, Check, Upload,
-  Copy, Edit2, ArrowLeft,
+  Copy, Edit2, ArrowLeft, Pencil,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -82,11 +82,17 @@ function BlockPreview({ block }: { block: TemplateBlock }) {
 function TemplateCard({
   template,
   onSend,
+  onEdit,
+  onDelete,
   isSending,
+  isDeleting,
 }: {
   template: CompositeTemplate;
   onSend: (t: CompositeTemplate) => void;
+  onEdit: (t: CompositeTemplate) => void;
+  onDelete: (t: CompositeTemplate) => void;
   isSending: boolean;
+  isDeleting: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -105,20 +111,40 @@ function TemplateCard({
           </span>
         </button>
 
-        {/* Botão Usar */}
-        <button
-          onClick={() => onSend(template)}
-          disabled={isSending}
-          className={cn(
-            'flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all shrink-0',
-            isSending
-              ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-              : 'bg-crm-primary text-white hover:bg-crm-primary/90 shadow-sm'
-          )}
-        >
-          {isSending ? <Loader2 size={10} className="animate-spin" /> : <Send size={10} />}
-          Usar
-        </button>
+        {/* Botões de ação */}
+        <div className="flex items-center gap-1 shrink-0">
+          {/* Editar */}
+          <button
+            onClick={() => onEdit(template)}
+            className="p-1.5 rounded-lg text-gray-400 hover:text-crm-primary hover:bg-crm-primary/10 transition-all"
+            title="Editar template"
+          >
+            <Pencil size={11} />
+          </button>
+          {/* Excluir */}
+          <button
+            onClick={() => onDelete(template)}
+            disabled={isDeleting}
+            className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all disabled:opacity-40"
+            title="Excluir template"
+          >
+            {isDeleting ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
+          </button>
+          {/* Usar */}
+          <button
+            onClick={() => onSend(template)}
+            disabled={isSending}
+            className={cn(
+              'flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all',
+              isSending
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                : 'bg-crm-primary text-white hover:bg-crm-primary/90 shadow-sm'
+            )}
+          >
+            {isSending ? <Loader2 size={10} className="animate-spin" /> : <Send size={10} />}
+            Usar
+          </button>
+        </div>
       </div>
 
       {/* Blocos (expandível) */}
@@ -232,12 +258,33 @@ function MediaUploadField({
   );
 }
 
-function NewTemplateEditor({ onSaved, onCancel }: { onSaved: () => void; onCancel: () => void }) {
+function NewTemplateEditor({
+  onSaved,
+  onCancel,
+  templateToEdit,
+}: {
+  onSaved: () => void;
+  onCancel: () => void;
+  templateToEdit?: CompositeTemplate;
+}) {
   const qc = useQueryClient();
-  const [name, setName] = useState('');
-  const [blocks, setBlocks] = useState<BlockState[]>([
-    { id: '1', type: 'text', content: '', media_url: '', copy_code: '', uploading: false },
-  ]);
+  const isEditing = !!templateToEdit;
+
+  const [name, setName] = useState(templateToEdit?.name ?? '');
+  const [blocks, setBlocks] = useState<BlockState[]>(
+    templateToEdit?.blocks?.length
+      ? [...templateToEdit.blocks]
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+          .map(b => ({
+            id: b.id,
+            type: b.type as BlockState['type'],
+            content: b.content ?? '',
+            media_url: b.media_url ?? (b as any).link_url ?? (b as any).cta_url ?? '',
+            copy_code: (b as any).copy_code ?? '',
+            uploading: false,
+          }))
+      : [{ id: '1', type: 'text' as const, content: '', media_url: '', copy_code: '', uploading: false }]
+  );
 
   const { mutate: save, isPending } = useMutation({
     mutationFn: async () => {
@@ -250,8 +297,10 @@ function NewTemplateEditor({ onSaved, onCancel }: { onSaved: () => void; onCance
           return { ...base, media_url: b.media_url };
         }),
       };
-      const res = await api.post('/api/templates', payload);
-      if (res.error) throw new Error(res.error);
+      const res = isEditing
+        ? await api.put(`/api/templates/${templateToEdit!.id}`, payload)
+        : await api.post('/api/templates', payload);
+      if ((res as any).error) throw new Error((res as any).error);
       return res.data;
     },
     onSuccess: () => {
@@ -283,7 +332,9 @@ function NewTemplateEditor({ onSaved, onCancel }: { onSaved: () => void; onCance
           <ArrowLeft size={15} />
         </button>
         <Edit2 size={14} className="text-crm-primary" />
-        <span className="text-sm font-bold text-gray-800">Novo template</span>
+        <span className="text-sm font-bold text-gray-800">
+          {isEditing ? 'Editar template' : 'Novo template'}
+        </span>
       </div>
 
       {/* Corpo do editor */}
@@ -399,7 +450,7 @@ function NewTemplateEditor({ onSaved, onCancel }: { onSaved: () => void; onCance
           className="w-full flex items-center justify-center gap-1.5 py-2.5 bg-crm-primary text-white text-sm font-semibold rounded-xl hover:bg-crm-primary/90 disabled:opacity-40 transition-all"
         >
           {isPending ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-          Salvar template
+          {isEditing ? 'Salvar alterações' : 'Salvar template'}
         </button>
       </div>
     </div>
@@ -414,20 +465,25 @@ export function TemplatesFloatingPanel({
   variables = {},
   onClose,
 }: TemplatesFloatingPanelProps) {
+  const qc = useQueryClient();
   const panelRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState('');
   const [showEditor, setShowEditor] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<CompositeTemplate | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const isEditorOpen = showEditor || editingTemplate !== null;
 
   // Fechar com Escape (só quando não está no editor)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !showEditor) onClose();
+      if (e.key === 'Escape' && !isEditorOpen) onClose();
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [onClose, showEditor]);
+  }, [onClose, isEditorOpen]);
 
   // Fechar ao clicar fora
   useEffect(() => {
@@ -475,31 +531,50 @@ export function TemplatesFloatingPanel({
     }
   }, [recipientPhone, clientId, variables, sendingId, onClose]);
 
+  // Excluir template
+  const handleDelete = useCallback(async (template: CompositeTemplate) => {
+    if (!confirm(`Excluir o template "${template.name}"?`)) return;
+    setDeletingId(template.id);
+    try {
+      const res = await api.delete(`/api/templates/${template.id}`);
+      if ((res as any).error) { alert(`Erro ao excluir: ${(res as any).error}`); return; }
+      qc.invalidateQueries({ queryKey: ['templates'] });
+    } catch (err: any) {
+      alert(`Erro: ${err.message}`);
+    } finally {
+      setDeletingId(null);
+    }
+  }, [qc]);
+
+  const closeEditor = useCallback(() => {
+    setShowEditor(false);
+    setEditingTemplate(null);
+  }, []);
+
   return (
     <>
       {/* Overlay escuro quando editor está aberto */}
-      {showEditor && (
-        <div className="fixed inset-0 bg-black/30 z-40" onClick={() => setShowEditor(false)} />
+      {isEditorOpen && (
+        <div className="fixed inset-0 bg-black/30 z-40" onClick={closeEditor} />
       )}
 
       <div
         ref={panelRef}
         className={cn(
           'absolute bottom-full left-0 right-0 mb-2 z-50 bg-white rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.18)] border border-gray-100 overflow-hidden flex flex-col transition-all duration-200',
-          showEditor
-            // Quando editor aberto: painel alto para caber o formulário
-            ? 'mx-0 rounded-none' : 'mx-2'
+          isEditorOpen ? 'mx-0 rounded-none' : 'mx-2'
         )}
         style={{
-          height: showEditor ? '85vh' : 'auto',
-          maxHeight: showEditor ? '85vh' : '520px',
+          height: isEditorOpen ? '85vh' : 'auto',
+          maxHeight: isEditorOpen ? '85vh' : '520px',
         }}
       >
-        {/* ── Vista: Editor ─────────────────────────────── */}
-        {showEditor ? (
+        {/* ── Vista: Editor (novo ou editar) ─────────────── */}
+        {isEditorOpen ? (
           <NewTemplateEditor
-            onSaved={() => setShowEditor(false)}
-            onCancel={() => setShowEditor(false)}
+            templateToEdit={editingTemplate ?? undefined}
+            onSaved={closeEditor}
+            onCancel={closeEditor}
           />
         ) : (
           <>
@@ -571,7 +646,10 @@ export function TemplatesFloatingPanel({
                     key={t.id}
                     template={t}
                     onSend={handleSend}
+                    onEdit={setEditingTemplate}
+                    onDelete={handleDelete}
                     isSending={sendingId === t.id}
+                    isDeleting={deletingId === t.id}
                   />
                 ))
               )}
