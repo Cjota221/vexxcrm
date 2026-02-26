@@ -105,7 +105,9 @@ export default function CampanhaDetalhePage() {
   const [atualizando, setAtualizando] = useState(false);
   const [dispatchLog, setDispatchLog] = useState<string[]>([]);
   const [dispatching, setDispatching] = useState(false);
+  const [countdown, setCountdown] = useState<string>('');
   const dispatchAbortRef = useRef(false);
+  const scheduleCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const addLog = (msg: string) => {
     const ts = new Date().toLocaleTimeString('pt-BR');
@@ -124,6 +126,62 @@ export default function CampanhaDetalhePage() {
   }, [campaignId]);
 
   useEffect(() => { fetchCampanha(); }, [fetchCampanha]);
+
+  // ─── Polling de agendamento ────────────────────────────────────────────────
+  // Verifica a cada 30s se chegou a hora de disparar uma campanha 'scheduled'.
+  // Mostra countdown regressivo na UI para o usuário saber quando vai disparar.
+  useEffect(() => {
+    if (campanha?.status !== 'scheduled' || !campanha.scheduled_at) {
+      if (scheduleCheckRef.current) clearInterval(scheduleCheckRef.current);
+      setCountdown('');
+      return;
+    }
+
+    const scheduledTime = new Date(campanha.scheduled_at).getTime();
+
+    const tick = async () => {
+      const agora = Date.now();
+      const diff = scheduledTime - agora;
+
+      if (diff <= 0) {
+        // Chegou a hora — iniciar!
+        if (scheduleCheckRef.current) clearInterval(scheduleCheckRef.current);
+        setCountdown('');
+        addLog('⏰ Horário agendado atingido! Iniciando disparo automaticamente...');
+        const { error } = await api.post(`/api/v2/campanhas/${campaignId}/iniciar`, {});
+        if (error) {
+          addLog(`❌ Erro ao iniciar campanha agendada: ${error}`);
+        } else {
+          addLog('✅ Campanha iniciada com sucesso!');
+          await fetchCampanha();
+        }
+        return;
+      }
+
+      // Calcular tempo restante legível
+      const totalSecs = Math.ceil(diff / 1000);
+      const dias   = Math.floor(totalSecs / 86400);
+      const horas  = Math.floor((totalSecs % 86400) / 3600);
+      const minutos = Math.floor((totalSecs % 3600) / 60);
+      const segs   = totalSecs % 60;
+
+      if (dias > 0) {
+        setCountdown(`${dias}d ${horas}h ${minutos}min`);
+      } else if (horas > 0) {
+        setCountdown(`${horas}h ${minutos}min ${segs}s`);
+      } else {
+        setCountdown(`${minutos}min ${segs}s`);
+      }
+    };
+
+    tick(); // roda imediatamente
+    scheduleCheckRef.current = setInterval(tick, 1_000); // atualiza a cada 1s
+
+    return () => {
+      if (scheduleCheckRef.current) clearInterval(scheduleCheckRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campanha?.status, campanha?.scheduled_at, campaignId]);
 
   // ─── Dispatch Loop (orquestra envios com delay anti-ban) ───────────────────
   // Quando a campanha está "running", faz polling no /dispatch-batch
@@ -268,11 +326,37 @@ export default function CampanhaDetalhePage() {
             <p className="text-sm text-txt-secondary mt-1">{campanha.description}</p>
           )}
         </div>
+
+        {/* Countdown de agendamento */}
+        {campanha.status === 'scheduled' && campanha.scheduled_at && (
+          <div className="flex-1 flex justify-center">
+            <div className="flex items-center gap-3 px-5 py-3 bg-blue-50 border border-blue-200 rounded-xl">
+              <Clock size={18} className="text-blue-500 shrink-0 animate-pulse" />
+              <div>
+                <p className="text-xs text-blue-600 font-medium uppercase tracking-wide">Disparo agendado para</p>
+                <p className="text-sm font-bold text-blue-700">
+                  {new Date(campanha.scheduled_at).toLocaleString('pt-BR', {
+                    day: '2-digit', month: '2-digit', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit',
+                  })}
+                </p>
+                {countdown && (
+                  <p className="text-xs text-blue-500 font-mono mt-0.5">⏱ Começa em: <strong>{countdown}</strong></p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         <div className="flex items-center gap-2">
           {atualizando && <Loader2 size={16} className="animate-spin" />}
           {campanha.status === 'draft' && (
             <Button variant="primary" onClick={() => handleAction('iniciar')} disabled={atualizando}>
               <Play size={16} /> Disparar
+            </Button>
+          )}
+          {campanha.status === 'scheduled' && (
+            <Button variant="primary" onClick={() => handleAction('iniciar')} disabled={atualizando}>
+              <Play size={16} /> Disparar Agora
             </Button>
           )}
           {campanha.status === 'running' && (
