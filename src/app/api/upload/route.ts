@@ -3,7 +3,8 @@ import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import crypto from 'crypto';
 
-const MAX_FILE_SIZE = 16 * 1024 * 1024; // 16MB
+const MAX_FILE_SIZE = 16 * 1024 * 1024; // 16MB para imagens/docs
+const MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50MB para vídeos
 
 const ALLOWED_MIME: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -42,15 +43,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Nenhum arquivo enviado' }, { status: 400 });
     }
 
-    if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json({ error: 'Arquivo muito grande. Máximo 16MB.' }, { status: 400 });
-    }
-
     // Normalizar MIME type — remover parâmetros como "; codecs=opus"
     const baseMime = file.type.split(';')[0].trim();
     const ext = ALLOWED_MIME[baseMime];
     if (!ext) {
       return NextResponse.json({ error: 'Tipo de arquivo não suportado' }, { status: 400 });
+    }
+
+    // Limite diferente por tipo
+    const isVideo = baseMime.startsWith('video/');
+    const limit = isVideo ? MAX_VIDEO_SIZE : MAX_FILE_SIZE;
+    if (file.size > limit) {
+      const limitMB = limit / 1024 / 1024;
+      return NextResponse.json({ error: `Arquivo muito grande. Máximo ${limitMB}MB para ${isVideo ? 'vídeos' : 'este tipo de arquivo'}.` }, { status: 400 });
     }
 
     const supabase = createServerSupabaseClient();

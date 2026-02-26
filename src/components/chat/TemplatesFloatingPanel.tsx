@@ -177,7 +177,7 @@ function MediaUploadField({
       if (data.url) onChange(data.url);
       else alert('Erro no upload: ' + (data.error || 'desconhecido'));
     } catch {
-      alert('Falha no upload');
+      alert('Falha no upload. Verifique sua conexão e tente novamente.');
     } finally {
       setUploading(false);
     }
@@ -205,7 +205,7 @@ function MediaUploadField({
         className="w-full flex items-center justify-center gap-1.5 text-xs py-1.5 rounded-md border border-dashed border-crm-primary/40 text-crm-primary hover:bg-crm-primary/5 disabled:opacity-50 transition-colors"
       >
         {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
-        {uploading ? 'Enviando...' : 'Fazer upload de arquivo'}
+        {uploading ? 'Enviando... aguarde' : 'Fazer upload de arquivo'}
       </button>
       <input
         ref={fileRef}
@@ -217,6 +217,16 @@ function MediaUploadField({
       {/* Preview da URL se for imagem */}
       {value && /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(value) && (
         <img src={value} alt="preview" className="w-full max-h-28 object-cover rounded-md border border-gray-100" />
+      )}
+      {/* Preview da URL se for vídeo */}
+      {value && /\.(mp4|webm|mov|avi)(\?|$)/i.test(value) && (
+        <video src={value} controls className="w-full max-h-28 rounded-md border border-gray-100" />
+      )}
+      {/* Nome do arquivo após upload (para docs/audio) */}
+      {value && !/\.(jpg|jpeg|png|gif|webp|mp4|webm|mov|avi)(\?|$)/i.test(value) && (
+        <div className="flex items-center gap-1.5 text-[10px] text-green-600 bg-green-50 px-2 py-1 rounded-md">
+          <Check size={10} /> Arquivo enviado com sucesso
+        </div>
       )}
     </div>
   );
@@ -353,9 +363,9 @@ function NewTemplateEditor({ onSaved, onCancel }: { onSaved: () => void; onCance
                 value={block.media_url}
                 onChange={url => updateBlock(block.id, 'media_url', url)}
                 accept={
-                  block.type === 'image' ? 'image/*' :
-                  block.type === 'video' ? 'video/*' :
-                  block.type === 'audio' ? 'audio/*' :
+                  block.type === 'image' ? 'image/jpeg,image/png,image/gif,image/webp' :
+                  block.type === 'video' ? 'video/mp4,video/webm' :
+                  block.type === 'audio' ? 'audio/mpeg,audio/ogg,audio/wav,audio/aac' :
                   '.pdf,.doc,.docx,.xls,.xlsx'
                 }
                 placeholder={`URL do ${BLOCK_LABEL[block.type]?.toLowerCase() ?? block.type}...`}
