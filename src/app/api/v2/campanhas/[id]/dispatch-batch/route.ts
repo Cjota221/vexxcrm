@@ -273,6 +273,17 @@ export async function POST(request: NextRequest, { params }: { params: Params })
                 } else {
                   await supabase.from('messages').insert(msgPayload);
                 }
+
+                // Atualizar preview da conversa para aparecer na central de atendimento
+                await supabase
+                  .from('conversations')
+                  .update({
+                    last_message_at: msgPayload.created_at,
+                    last_message_preview: textoResumo.substring(0, 120),
+                    status: 'open',
+                  })
+                  .eq('id', convId)
+                  .eq('tenant_id', tenantId);
               }
             }
           } // end if (!isGrupo)

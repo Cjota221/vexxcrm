@@ -7,7 +7,9 @@ import {
   Image as ImageIcon, Type, Link2, ChevronDown, ChevronUp,
   Plus, Calendar, Users, Zap, Send, Loader2, AlertCircle,
   Search, Mic, Video, UsersRound, X, ChevronRight, Database, Filter, Copy,
+  FileSpreadsheet, CheckCircle2, AlertTriangle,
 } from 'lucide-react';
+import Papa from 'papaparse';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -18,7 +20,7 @@ import { WhatsAppTextEditor, renderWhatsApp } from '@/components/campaigns/Whats
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 type TipoBloco = 'imagem' | 'video' | 'audio' | 'texto' | 'cta' | 'copy_code';
-type ModoDestinatario = 'inteligencia' | 'toda_base' | 'manual' | 'grupos';
+type ModoDestinatario = 'inteligencia' | 'toda_base' | 'manual' | 'grupos' | 'planilha';
 
 interface Bloco {
   id: string;
@@ -1052,6 +1054,224 @@ function SeletorGrupos({ selecionados, onToggle }: SeletorGruposProps) {
   );
 }
 
+// ─── Seletor por Planilha CSV/XLSX ────────────────────────────────────────────
+
+interface SeletorPlanilhaProps {
+  contatos: Contato[];
+  onSetContatos: (lista: Contato[]) => void;
+}
+
+function SeletorPlanilha({ contatos, onSetContatos }: SeletorPlanilhaProps) {
+  const [erro, setErro] = useState('');
+  const [preview, setPreview] = useState<Contato[]>([]);
+  const [nomeArquivo, setNomeArquivo] = useState('');
+  const [invalidos, setInvalidos] = useState(0);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // Normaliza número: mantém só dígitos, garante DDI 55 para BR
+  const normalizarTelefone = (raw: string): string => {
+    const digits = raw.replace(/\D/g, '');
+    if (!digits) return '';
+    // Se começa com 55 e tem 12-13 dígitos → já tem DDI
+    if (digits.startsWith('55') && digits.length >= 12) return digits;
+    // Se tem 10-11 dígitos → DDD + número BR
+    if (digits.length >= 10 && digits.length <= 11) return '55' + digits;
+    return digits;
+  };
+
+  const processarArquivo = (file: File) => {
+    setErro('');
+    setPreview([]);
+    setInvalidos(0);
+    setNomeArquivo(file.name);
+
+    Papa.parse<Record<string, string>>(file, {
+      header: true,
+      skipEmptyLines: true,
+      encoding: 'UTF-8',
+      complete: (result) => {
+        const rows = result.data;
+        if (rows.length === 0) {
+          setErro('A planilha está vazia.');
+          return;
+        }
+
+        // Detectar coluna de telefone (case-insensitive, variações comuns)
+        const headers = Object.keys(rows[0] ?? {});
+        const telCol = headers.find(h =>
+          /telefone|phone|fone|celular|whatsapp|numero|número|tel\b/i.test(h)
+        );
+        const nomeCol = headers.find(h =>
+          /nome|name|cliente|contact/i.test(h)
+        );
+        const cidadeCol = headers.find(h => /cidade|city/i.test(h));
+        const estadoCol = headers.find(h => /estado|state|uf/i.test(h));
+
+        if (!telCol) {
+          setErro(
+            `Coluna de telefone não encontrada. Colunas detectadas: ${headers.join(', ')}. ` +
+            `Use um cabeçalho como "telefone", "phone", "celular" ou "whatsapp".`
+          );
+          return;
+        }
+
+        const validos: Contato[] = [];
+        let inv = 0;
+
+        rows.forEach((row, i) => {
+          const rawTel = String(row[telCol] ?? '').trim();
+          const tel = normalizarTelefone(rawTel);
+
+          if (!tel || tel.length < 10) {
+            inv++;
+            return;
+          }
+
+          validos.push({
+            id: `planilha_${i}_${tel}`,
+            telefone: tel,
+            nome: nomeCol ? String(row[nomeCol] ?? '').trim() || undefined : undefined,
+            cidade: cidadeCol ? String(row[cidadeCol] ?? '').trim() || undefined : undefined,
+            estado: estadoCol ? String(row[estadoCol] ?? '').trim() || undefined : undefined,
+          });
+        });
+
+        if (validos.length === 0) {
+          setErro('Nenhum contato válido encontrado. Verifique se os telefones estão corretos.');
+          return;
+        }
+
+        setPreview(validos.slice(0, 5));
+        setInvalidos(inv);
+        onSetContatos(validos);
+      },
+      error: () => {
+        setErro('Erro ao ler o arquivo. Use CSV (separado por vírgula ou ponto-e-vírgula) ou XLSX.');
+      },
+    });
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processarArquivo(file);
+    e.target.value = '';
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file) processarArquivo(file);
+  };
+
+  const limpar = () => {
+    setPreview([]);
+    setNomeArquivo('');
+    setErro('');
+    setInvalidos(0);
+    onSetContatos([]);
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Dica de formato */}
+      <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800 space-y-1">
+        <p className="font-semibold">📋 Formato da planilha:</p>
+        <p>A planilha precisa ter pelo menos uma coluna com o cabeçalho <strong>telefone</strong>, <strong>phone</strong>, <strong>celular</strong> ou <strong>whatsapp</strong>.</p>
+        <p>Colunas opcionais reconhecidas: <strong>nome</strong>, <strong>cidade</strong>, <strong>estado</strong>.</p>
+        <p>Formatos aceitos: <strong>.csv</strong> ou <strong>.xlsx</strong> (Excel).</p>
+      </div>
+
+      {/* Área de drop / upload */}
+      {contatos.length === 0 ? (
+        <div
+          onDrop={handleDrop}
+          onDragOver={e => e.preventDefault()}
+          onClick={() => fileRef.current?.click()}
+          className="border-2 border-dashed border-surface-300 hover:border-crm-primary/60 rounded-xl p-8 flex flex-col items-center gap-3 cursor-pointer transition-colors bg-surface-50 hover:bg-crm-primary/5"
+        >
+          <FileSpreadsheet size={32} className="text-crm-primary/60" />
+          <div className="text-center">
+            <p className="text-sm font-medium text-txt-primary">Clique ou arraste sua planilha aqui</p>
+            <p className="text-xs text-txt-muted mt-1">CSV ou XLSX • máx. 10.000 contatos</p>
+          </div>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,.xlsx,.xls"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {/* Resumo do arquivo */}
+          <div className="flex items-start justify-between gap-3 p-3 bg-green-50 border border-green-200 rounded-xl">
+            <div className="flex items-start gap-2 min-w-0">
+              <CheckCircle2 size={16} className="text-green-600 shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-green-800 truncate">{nomeArquivo}</p>
+                <p className="text-xs text-green-700 mt-0.5">
+                  <strong>{contatos.length.toLocaleString('pt-BR')}</strong> contatos válidos importados
+                  {invalidos > 0 && ` · ${invalidos} linha${invalidos > 1 ? 's' : ''} ignorada${invalidos > 1 ? 's' : ''} (telefone inválido)`}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={limpar}
+              className="shrink-0 p-1.5 rounded-lg hover:bg-red-100 text-red-500 transition-colors"
+              title="Remover planilha"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+
+          {/* Preview das primeiras linhas */}
+          {preview.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-txt-secondary mb-1.5">Prévia (primeiros {preview.length}):</p>
+              <div className="border border-surface-200 rounded-xl divide-y divide-surface-100 overflow-hidden">
+                {preview.map((c, i) => (
+                  <div key={i} className="flex items-center gap-3 px-4 py-2.5">
+                    <div className="w-5 h-5 rounded-full bg-crm-primary/10 flex items-center justify-center text-[10px] font-bold text-crm-primary shrink-0">
+                      {i + 1}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-txt-primary truncate">{c.nome || '(sem nome)'}</p>
+                      <p className="text-xs text-txt-muted">+{c.telefone}</p>
+                    </div>
+                    {c.cidade && <span className="text-xs text-txt-muted shrink-0">{c.cidade}</span>}
+                  </div>
+                ))}
+                {contatos.length > 5 && (
+                  <div className="px-4 py-2 text-xs text-txt-muted text-center bg-surface-50">
+                    + {(contatos.length - 5).toLocaleString('pt-BR')} contatos adicionais...
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Aviso de linhas ignoradas */}
+          {invalidos > 0 && (
+            <div className="flex items-center gap-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+              <AlertTriangle size={13} className="shrink-0" />
+              {invalidos} linha{invalidos > 1 ? 's foram ignoradas' : ' foi ignorada'} por ter telefone inválido ou em branco.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Erro */}
+      {erro && (
+        <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700">
+          <AlertCircle size={14} className="shrink-0 mt-0.5" />
+          <span>{erro}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Page inner (precisa de useSearchParams) ──────────────────────────────────
 
 function NovaCampanhaInner() {
@@ -1314,7 +1534,7 @@ function NovaCampanhaInner() {
         destinatarios,
         scheduled_at: scheduledAt || undefined,
         config_antiban: antiban,
-        origem: origemParam || modoDestinatario,  // preserva 'inteligencia'|'manual'|'grupos' no campo origem
+        origem: origemParam || modoDestinatario,  // preserva 'inteligencia'|'manual'|'grupos'|'planilha' no campo origem
         origem_grupo_nome: grupoNomeParam || undefined,
         tipo_destinatario: tipoDestinatarioDB,
         // Recorrência (apenas para grupos)
@@ -1358,6 +1578,7 @@ function NovaCampanhaInner() {
       if (modoDestinatario === 'grupos') return gruposSelecionados.length > 0;
       if (modoDestinatario === 'manual') return contatos.length > 0;
       if (modoDestinatario === 'toda_base') return contatos.length > 0;
+      if (modoDestinatario === 'planilha') return contatos.length > 0;
       return contatos.length > 0 || totalParam > 0; // inteligencia
     }
     if (step === 1) return blocos.length > 0;
@@ -1413,12 +1634,13 @@ function NovaCampanhaInner() {
               <h2 className="text-base font-semibold text-txt-primary">Destinatários</h2>
 
               {/* Seletor de modo */}
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                 {([
                   { modo: 'inteligencia' as ModoDestinatario, icon: <Zap size={15} />, label: 'Inteligência' },
                   { modo: 'toda_base' as ModoDestinatario, icon: <Database size={15} />, label: 'Toda a Base' },
                   { modo: 'manual' as ModoDestinatario, icon: <Users size={15} />, label: 'Manual' },
                   { modo: 'grupos' as ModoDestinatario, icon: <UsersRound size={15} />, label: 'Grupos WA' },
+                  { modo: 'planilha' as ModoDestinatario, icon: <FileSpreadsheet size={15} />, label: 'Planilha' },
                 ]).map(({ modo, icon, label }) => (
                   <button
                     key={modo}
@@ -1617,6 +1839,14 @@ function NovaCampanhaInner() {
                 <SeletorGrupos
                   selecionados={gruposSelecionados}
                   onToggle={toggleGrupo}
+                />
+              )}
+
+              {/* Modo: Planilha */}
+              {modoDestinatario === 'planilha' && (
+                <SeletorPlanilha
+                  contatos={contatos}
+                  onSetContatos={setContatos}
                 />
               )}
             </div>
