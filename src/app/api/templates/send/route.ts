@@ -21,12 +21,15 @@ export async function POST(request: NextRequest) {
     const config = getTenantEvolutionConfig(tenantId);
 
     const body = await request.json();
-    const { templateId, to, variables = {}, clientId: clientIdFromBody } = body as {
+    const { templateId, to, variables: variablesFromBody = {}, clientId: clientIdFromBody } = body as {
       templateId: string;
       to: string;
       variables?: Record<string, string>;
       clientId?: string;
     };
+
+    // Variáveis mutáveis — serão enriquecidas com dados do cliente antes de interpolar
+    let variables: Record<string, string> = { ...variablesFromBody };
 
     if (!templateId || !to) {
       return NextResponse.json(
@@ -78,21 +81,22 @@ export async function POST(request: NextRequest) {
 
     // ── Resolver cliente e conversa ──────────────────────────────
     let clientId: string | undefined;
+    let clientName: string | undefined;
 
     if (clientIdFromBody) {
       const { data: valid } = await supabase
-        .from('clients').select('id')
+        .from('clients').select('id, name')
         .eq('tenant_id', tenantId).eq('id', clientIdFromBody).single();
-      if (valid) clientId = valid.id;
+      if (valid) { clientId = valid.id; clientName = valid.name; }
     }
 
     if (!clientId) {
       const { data: byPhone } = await supabase
-        .from('clients').select('id')
+        .from('clients').select('id, name')
         .eq('tenant_id', tenantId)
         .eq('phone_normalized', phoneNormalized)
         .single();
-      clientId = byPhone?.id;
+      if (byPhone) { clientId = byPhone.id; clientName = byPhone.name; }
     }
 
     if (!clientId) {
@@ -103,8 +107,15 @@ export async function POST(request: NextRequest) {
           { tenant_id: tenantId, phone: phoneDisplay, phone_normalized: phoneNormalized, name: phoneDisplay },
           { onConflict: 'tenant_id,phone_normalized', ignoreDuplicates: false }
         )
-        .select('id').single();
+        .select('id, name').single();
       clientId = newClient?.id;
+      clientName = clientName ?? newClient?.name;
+    }
+
+    // ── Enriquecer variáveis com dados do cliente ────────────────
+    // Garante que {{nome}} seja substituído mesmo se o frontend não enviou
+    if (clientName && !variables['nome']) {
+      variables['nome'] = clientName;
     }
 
     // Buscar ou criar conversa
@@ -182,7 +193,7 @@ export async function POST(request: NextRequest) {
           case 'link':
           case 'cta': {
             const label = interpolate(block.link_title || block.cta_label) || '';
-            const url = interpolate(block.link_url || block.cta_url) || '';
+            const url = interpolate(block.link_url || block.cta_url || block.media_url) || '';
             msgContent = label ? `${label}\n${url}` : url;
             if (!msgContent.trim()) { results.push({ blockId: block.id, messageId: '', status: 'error', error: 'Link vazio' }); continue; }
             msgType = 'text';

@@ -51,6 +51,8 @@ const BLOCK_LABEL: Record<string, string> = {
 interface TemplatesFloatingPanelProps {
   /** Telefone do destinatário atual */
   recipientPhone: string;
+  /** ID do cliente atual (para a API buscar nome e dados automaticamente) */
+  clientId?: string;
   /** Variáveis disponíveis para interpolação (ex: { nome: 'João' }) */
   variables?: Record<string, string>;
   onClose: () => void;
@@ -398,6 +400,7 @@ function NewTemplateEditor({ onSaved, onCancel }: { onSaved: () => void; onCance
 
 export function TemplatesFloatingPanel({
   recipientPhone,
+  clientId,
   variables = {},
   onClose,
 }: TemplatesFloatingPanelProps) {
@@ -450,6 +453,7 @@ export function TemplatesFloatingPanel({
         templateId: template.id,
         to: recipientPhone,
         variables,
+        ...(clientId ? { clientId } : {}),
       });
       if (res.error) { alert(`Erro ao enviar: ${res.error}`); return; }
       setSentIds(prev => new Set([...prev, template.id]));
@@ -459,7 +463,7 @@ export function TemplatesFloatingPanel({
     } finally {
       setSendingId(null);
     }
-  }, [recipientPhone, variables, sendingId, onClose]);
+  }, [recipientPhone, clientId, variables, sendingId, onClose]);
 
   return (
     <>

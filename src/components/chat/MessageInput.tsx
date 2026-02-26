@@ -428,6 +428,8 @@ function MessageInputComponent({ onSend, onSendMedia, isLoading, disabled, recip
       {templatesOpen && recipientPhone && (
         <TemplatesFloatingPanel
           recipientPhone={recipientPhone}
+          clientId={clientId}
+          variables={{ nome: recipientName || '' }}
           onClose={() => setTemplatesOpen(false)}
         />
       )}
