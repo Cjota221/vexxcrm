@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { api } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
-import { WhatsAppTextEditor } from '@/components/campaigns/WhatsAppTextEditor';
+import { WhatsAppTextEditor, renderWhatsApp } from '@/components/campaigns/WhatsAppTextEditor';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -193,11 +193,16 @@ function BlocoEditor({
                   <WhatsAppTextEditor
                     value={bloco.conteudo.caption ?? ''}
                     onChange={val => set({ caption: val })}
-                    placeholder="Legenda da mídia... Use *negrito*, _itálico_, {{nome}}, etc."
-                    rows={3}
+                    label="Legenda (opcional)"
+                    placeholder="Digite a legenda aqui..."
+                    rows={5}
                     variables={VARIAVEIS_DISPONIVEIS}
                     showPreview={false}
                   />
+                  {/* Dica de formatação */}
+                  <p className="text-[11px] text-txt-muted leading-relaxed">
+                    💡 <strong>Enter</strong> = nova linha &nbsp;·&nbsp; <strong>Enter duas vezes</strong> = parágrafo com espaço &nbsp;·&nbsp; Use <code className="bg-surface-100 px-1 rounded font-mono">*negrito*</code>, <code className="bg-surface-100 px-1 rounded font-mono">_itálico_</code>
+                  </p>
                   {/* Preview combinado: thumbnail + legenda formatada */}
                   {bloco.conteudo.caption?.trim() && (
                     <div className="rounded-xl border border-green-100 bg-green-50 p-3 space-y-1.5">
@@ -213,7 +218,7 @@ function BlocoEditor({
                         <div className="px-3 py-2">
                           <p
                             className="text-sm text-[#111b21] leading-relaxed wrap-break-word [&_strong]:font-bold [&_em]:italic [&_s]:line-through [&_.wa-code]:font-mono [&_.wa-code]:bg-black/10 [&_.wa-code]:px-1 [&_.wa-code]:rounded"
-                            dangerouslySetInnerHTML={{ __html: (bloco.conteudo.caption ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\*([^*\n]+)\*/g,'<strong>$1</strong>').replace(/_([^_\n]+)_/g,'<em>$1</em>').replace(/~([^~\n]+)~/g,'<s>$1</s>').replace(/`([^`\n]+)`/g,'<code class="wa-code">$1</code>').replace(/\n/g,'<br/>') }}
+                            dangerouslySetInnerHTML={{ __html: renderWhatsApp(bloco.conteudo.caption ?? '') }}
                           />
                         </div>
                       </div>
