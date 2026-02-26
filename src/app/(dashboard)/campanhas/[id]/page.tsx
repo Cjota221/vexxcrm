@@ -240,10 +240,10 @@ export default function CampanhaDetalhePage() {
 
   const statusInfo = STATUS_MAP[campanha.status] ?? STATUS_MAP.draft;
   const blocos: BlocoSnapshot[] = campanha.blocos_snapshot ?? campanha.messages ?? [];
-  const totalDest = campanha.destinatarios ?? metricas?.total ?? 0;
-  const enviadas = campanha.sent_count ?? metricas?.enviado ?? 0;
-  const falhas = campanha.failed_count ?? metricas?.erro ?? 0;
-  const pendentes = metricas?.pendente ?? 0;
+  const totalDest = Number(campanha.destinatarios ?? metricas?.total ?? 0) || 0;
+  const enviadas = Number(campanha.sent_count ?? metricas?.enviado ?? 0) || 0;
+  const falhas = Number(campanha.failed_count ?? metricas?.erro ?? 0) || 0;
+  const pendentes = Number(metricas?.pendente ?? 0) || 0;
   const progress = totalDest > 0 ? Math.min(100, Math.round((enviadas / totalDest) * 100)) : 0;
 
   return (

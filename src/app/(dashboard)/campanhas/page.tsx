@@ -108,12 +108,14 @@ async function iniciarCampanha(id: string) {
 
 // ─── ProgressBar ─────────────────────────────────────────────────────────────
 
-function ProgressBar({ value, max }: { value: number; max: number }) {
-  const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
+function ProgressBar({ value, max }: { value?: number | null; max?: number | null }) {
+  const safeValue = value ?? 0;
+  const safeMax = max ?? 0;
+  const pct = safeMax > 0 ? Math.min(100, Math.round((safeValue / safeMax) * 100)) : 0;
   return (
     <div>
       <div className="flex justify-between text-xs text-txt-secondary mb-1">
-        <span>{value.toLocaleString('pt-BR')} / {max.toLocaleString('pt-BR')}</span>
+        <span>{safeValue.toLocaleString('pt-BR')} / {safeMax.toLocaleString('pt-BR')}</span>
         <span>{pct}%</span>
       </div>
       <div className="h-1.5 bg-surface-200 rounded-full overflow-hidden">
