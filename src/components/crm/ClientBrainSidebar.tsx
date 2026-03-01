@@ -416,30 +416,12 @@ const ORDER_STATUS_CONFIG: Record<
   completed:  { label: 'Concluído',     color: 'text-emerald-700',bg: 'bg-emerald-50',  icon: CheckCircle2 },
 };
 
-function OrdersTab({ clientId }: { clientId: string }) {
+function OrdersTab({ clientId, orders = [] }: { clientId: string; orders?: Order[] }) {
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  const { data: orders = [], isLoading } = useQuery<Order[]>({
-    queryKey: ['client-orders', clientId],
-    queryFn: async () => {
-      const res = await api.get<{ data: Record<string, unknown> }>(`/api/clients/${clientId}`);
-      const raw = res.data as Record<string, unknown>;
-      const clientData = (raw?.data ?? raw) as Record<string, unknown>;
-      return (clientData?.recent_orders as Order[]) ?? [];
-    },
-    enabled: !!clientId,
-    staleTime: 30_000,
-  });
+  const isLoading = !orders || orders.length === 0;
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 size={24} className="animate-spin text-crm-primary" />
-      </div>
-    );
-  }
-
-  if (!orders.length) {
+  if (!orders || orders.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
         <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center mb-3">
@@ -1841,8 +1823,9 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
       return (raw?.data ?? raw) as Record<string, unknown>;
     },
     enabled: !!selectedChatId,
-    staleTime: 30_000,
+    staleTime: 10_000, // reduzido: 10s em vez de 30s para atualizar pedidos mais rápido
     refetchOnMount: 'always',
+    refetchInterval: 15_000, // refetch automático a cada 15 segundos quando a aba está aberta
   });
 
   if (!selectedChatId) return null;
@@ -1983,7 +1966,10 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
               />
             )}
             {activeTab === 'orders' && (
-              <OrdersTab clientId={(client.id as string) ?? selectedChatId} />
+              <OrdersTab 
+                clientId={(client.id as string) ?? selectedChatId} 
+                orders={(client?.recent_orders as Order[]) ?? []}
+              />
             )}
             {activeTab === 'tracking' && (
               <TrackingTab clientId={(client.id as string) ?? selectedChatId} />
