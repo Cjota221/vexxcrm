@@ -449,6 +449,12 @@ function OrdersTab({ clientId, orders = [] }: { clientId: string; orders?: Order
 
   return (
     <div className="p-4 space-y-2.5">
+      {/* Aviso de sincronização */}
+      <div className="flex items-start gap-2 p-2.5 bg-blue-50 rounded-lg border border-blue-200 text-[11px] text-blue-700">
+        <Info size={12} className="shrink-0 mt-0.5" />
+        <span>Pedidos atualizam a cada <strong>10 segundos</strong>. Clique 🔄 para atualizar agora.</span>
+      </div>
+
       {/* Resumo rápido */}
       <div className="grid grid-cols-2 gap-2 mb-3">
         <MetricCard
@@ -606,26 +612,10 @@ function OrdersTab({ clientId, orders = [] }: { clientId: string; orders?: Order
    ABA 3 — RASTREIO AUTOMÁTICO
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-function TrackingTab({ clientId }: { clientId: string }) {
-  const { data: orders = [], isLoading } = useQuery<Order[]>({
-    queryKey: ['client-orders', clientId],
-    queryFn: async () => {
-      const res = await api.get<{ data: Record<string, unknown> }>(`/api/clients/${clientId}`);
-      const raw = res.data as Record<string, unknown>;
-      const clientData = (raw?.data ?? raw) as Record<string, unknown>;
-      return (clientData?.recent_orders as Order[]) ?? [];
-    },
-    enabled: !!clientId,
-    staleTime: 30_000,
-  });
-
+function TrackingTab({ clientId, orders = [] }: { clientId: string; orders?: Order[] }) {
   const trackableOrders = orders.filter(o =>
     (o as unknown as Record<string, unknown>).tracking_code
   );
-
-  if (isLoading) {
-    return <div className="flex justify-center py-16"><Loader2 size={24} className="animate-spin text-crm-primary" /></div>;
-  }
 
   if (!trackableOrders.length) {
     return (
@@ -1837,9 +1827,9 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
       return (raw?.data ?? raw) as Record<string, unknown>;
     },
     enabled: !!selectedChatId,
-    staleTime: 10_000, // reduzido: 10s em vez de 30s para atualizar pedidos mais rápido
+    staleTime: 5_000, // 5 segundos: muito agressivo, sinc. rápida
     refetchOnMount: 'always',
-    refetchInterval: 15_000, // refetch automático a cada 15 segundos quando a aba está aberta
+    refetchInterval: 10_000, // refetch automático a cada 10 segundos (reduzido de 15s)
   });
 
   if (!selectedChatId) return null;
@@ -1987,7 +1977,10 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
               />
             )}
             {activeTab === 'tracking' && (
-              <TrackingTab clientId={(client.id as string) ?? selectedChatId} />
+              <TrackingTab 
+                clientId={(client.id as string) ?? selectedChatId}
+                orders={(client?.recent_orders as Order[]) ?? []}
+              />
             )}
             {activeTab === 'pipeline' && (
               <PipelineTab clientId={(client.id as string) ?? selectedChatId} />
