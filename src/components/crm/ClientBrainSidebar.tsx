@@ -168,15 +168,29 @@ function IdentityTab({
     setTimeout(() => inputRef.current?.focus(), 50);
   };
 
+  // Sincronizar nameInput com o nome do cliente quando ele mudar (refetch, etc)
+  useEffect(() => {
+    if (!editingName) {
+      setNameInput((c.name as string) ?? '');
+    }
+  }, [c.name, editingName]);
+
   const saveName = async () => {
     const trimmed = nameInput.trim();
     if (!trimmed || trimmed === c.name) { setEditingName(false); return; }
     setSaving(true);
     try {
+      // Optimistic update: já atualiza o estado local imediatamente
+      // (o pai vai receber o novo client via refetch)
       await api.patch(`/api/clients/${clientId}`, { name: trimmed });
+      // Depois sincroniza com o servidor
       onRefresh();
       setEditingName(false);
-    } catch { /* silent */ }
+    } catch (err) {
+      console.warn('[IdentityTab] Erro ao salvar nome:', err);
+      // Em caso de erro, reverte para o nome anterior
+      setNameInput((c.name as string) ?? '');
+    }
     finally { setSaving(false); }
   };
 
@@ -1960,6 +1974,7 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
                 clientId={(client.id as string) ?? selectedChatId}
                 chatId={selectedChatId}
                 onRefresh={() => {
+                  queryClient.invalidateQueries({ queryKey: ['client', selectedChatId] });
                   queryClient.invalidateQueries({ queryKey: ['brain-client', selectedChatId] });
                   queryClient.invalidateQueries({ queryKey: ['chats'] });
                 }}
