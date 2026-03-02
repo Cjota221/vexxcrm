@@ -1827,9 +1827,9 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
       return (raw?.data ?? raw) as Record<string, unknown>;
     },
     enabled: !!selectedChatId,
-    staleTime: 5_000, // 5 segundos: muito agressivo, sinc. rápida
-    refetchOnMount: 'always',
-    refetchInterval: 10_000, // refetch automático a cada 10 segundos (reduzido de 15s)
+    staleTime: 0,              // ← SEMPRE stale, força refetch do servidor
+    refetchOnMount: 'always',  // ← Sempre busca fresco ao montar
+    refetchInterval: 10_000,   // ← Refetch automático a cada 10 segundos
   });
 
   if (!selectedChatId) return null;
