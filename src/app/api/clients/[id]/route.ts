@@ -218,7 +218,11 @@ export async function GET(
 
     // Se temos um client.id real, buscar pedidos diretamente
     if (client.id) {
+      console.log(`[clients/${id}] Buscando pedidos para client_id: ${client.id}`);
       orders = await fetchOrdersWithItems([client.id]);
+      console.log(`[clients/${id}] Pedidos encontrados: ${orders.length}`);
+    } else {
+      console.warn(`[clients/${id}] ⚠️ client.id está vazio!`);
     }
 
     // Fallback 1: buscar outros clientes com o mesmo telefone (duplicatas de importação)
@@ -341,11 +345,15 @@ export async function GET(
 
     console.log(`[clients/${id}] Total pedidos retornados: ${orders.length}`);
 
+    const responseData = {
+      ...client,
+      recent_orders: orders,
+    };
+
+    console.log(`[clients/${id}] ✅ Retornando response com recent_orders: ${responseData.recent_orders?.length ?? 0} item(s)`);
+
     return NextResponse.json({
-      data: {
-        ...client,
-        recent_orders: orders,
-      },
+      data: responseData,
     });
   } catch (error: any) {
     console.error('Erro ao buscar cliente:', error);
