@@ -208,6 +208,11 @@ async function handleNewMessage(
   else if (messageContent.documentMessage) type = 'document';
   else if (messageContent.stickerMessage) type = 'sticker';
 
+  // DEBUG: Log tipos de mídia recebidas
+  if (type !== 'text') {
+    console.log(`[Webhook] Tipos de mídia no payload: ${Object.keys(messageContent).filter(k => k.includes('Message')).join(', ') || 'nenhum'}`);
+  }
+
   // ── FIX NOMES ────────────────────────────────────────────────────────────
   // Buscar cliente existente ANTES do upsert para preservar nome e avatar
   const { data: existingClient } = await supabase
@@ -325,6 +330,7 @@ async function handleNewMessage(
   // INCLUI mensagens fromMe=true (áudios/mídias enviados pelo nosso sistema)
   if (mediaUrl && ['image', 'video', 'audio', 'document', 'sticker'].includes(type)) {
     try {
+      console.log(`[Webhook] Tentando baixar mídia: type=${type}, mediaUrl=${mediaUrl.substring(0, 80)}...`);
       const config = getTenantEvolutionConfig(tenantId);
       const permanentUrl = await downloadMediaToStorage(
         config,
@@ -335,22 +341,26 @@ async function handleNewMessage(
       );
 
       if (permanentUrl) {
+        console.log(`[Webhook] Mídia salva permanentemente: ${permanentUrl.substring(0, 80)}...`);
         mediaUrl = permanentUrl;
       } else {
         // Fallback: manter URL original (pode expirar)
+        console.warn(`[Webhook] Falha ao baixar mídia para Storage, usando URL original`);
         if (mediaUrl && !mediaUrl.startsWith('http')) {
           const config2 = getTenantEvolutionConfig(tenantId);
           mediaUrl = `${config2.apiUrl}${mediaUrl}`;
         }
       }
     } catch (err) {
-      console.warn('[Webhook] Falha no download de mídia, mantendo URL original:', err);
+      console.warn('[Webhook] Erro ao processar mídia, mantendo URL original:', err);
       // Fallback: manter URL original
       if (mediaUrl && !mediaUrl.startsWith('http')) {
         const config3 = getTenantEvolutionConfig(tenantId);
         mediaUrl = `${config3.apiUrl}${mediaUrl}`;
       }
     }
+  } else if (mediaUrl) {
+    console.log(`[Webhook] Mídia ignorada: type=${type} não é suportado ou mediaUrl vazio`);
   }
 
   // ━━━ DEDUPLICAÇÃO ━━━
