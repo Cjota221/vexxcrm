@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { ConversationSidebar } from '@/components/contact-center/ConversationSidebar';
 import { ChatArea } from '@/components/chat/ChatArea';
 import { ClientBrainSidebar } from '@/components/crm/ClientBrainSidebar';
+import { QuickMessagesSidebar } from '@/components/contact-center/QuickMessagesSidebar';
 import { AnnePanel } from '@/components/anne/AnnePanel';
 import { KanbanModal } from '@/components/crm/KanbanModal';
 import { CatalogoDrawer } from '@/components/contact-center/CatalogoDrawer';
@@ -29,6 +30,7 @@ import {
   X,
   Eye,
   Bot,
+  Zap,
 } from 'lucide-react';
 
 /* Tipo da view mobile */
@@ -97,9 +99,10 @@ export default function CentralAtendimentoPage() {
   const [campaignOpen, setCampaignOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [anneEnabled, setAnneEnabled] = useState(true);
-  const [brainOpen, setBrainOpen] = useState(true);
-  // Painel lateral direito mobile: null = fechado, 'brain' ou 'anne'
-  const [mobileSidePanel, setMobileSidePanel] = useState<'brain' | 'anne' | null>(null);
+  // Desktop: qual aba está aberta no sidebar direito (Cérebro, Mensagens Rápidas, ou nenhuma)
+  const [rightSidebarTab, setRightSidebarTab] = useState<'brain' | 'quick-messages' | null>('brain');
+  // Painel lateral direito mobile: null = fechado, 'brain', 'anne', ou 'quick-messages'
+  const [mobileSidePanel, setMobileSidePanel] = useState<'brain' | 'anne' | 'quick-messages' | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
 
@@ -188,7 +191,8 @@ export default function CentralAtendimentoPage() {
 
         {/* ZONA DIREITA — ações + perfil */}
         <div className="flex items-center gap-2 w-64 justify-end shrink-0">
-          <NavBtn icon={<Brain size={15} />} label="Cérebro" active={brainOpen} onClick={() => setBrainOpen(v => !v)} />
+          <NavBtn icon={<Brain size={15} />} label="Cérebro" active={rightSidebarTab === 'brain'} onClick={() => setRightSidebarTab(v => v === 'brain' ? null : 'brain')} />
+          <NavBtn icon={<Zap size={15} />} label="Rápidas" active={rightSidebarTab === 'quick-messages'} onClick={() => setRightSidebarTab(v => v === 'quick-messages' ? null : 'quick-messages')} />
 
           <div className="w-px h-5 bg-gray-200 mx-1" />
 
@@ -254,10 +258,17 @@ export default function CentralAtendimentoPage() {
           />
         </div>
 
-        {/* ── COLUNA 3: Cérebro do Cliente — somente desktop ── */}
-        {brainOpen && selectedChatId && (
+        {/* ── COLUNA 3: Sidebar Direito (Cérebro ou Mensagens Rápidas) — somente desktop ── */}
+        {selectedChatId && (
           <div className="hidden md:flex">
-            <ClientBrainSidebar onClose={() => setBrainOpen(false)} />
+            {rightSidebarTab === 'brain' && <ClientBrainSidebar onClose={() => setRightSidebarTab(null)} />}
+            {rightSidebarTab === 'quick-messages' && (
+              <QuickMessagesSidebar
+                recipientPhone=""
+                clientId={selectedChatId}
+                onClose={() => setRightSidebarTab(null)}
+              />
+            )}
           </div>
         )}
       </div>
@@ -284,6 +295,22 @@ export default function CentralAtendimentoPage() {
               <Brain size={18} />
               <span className="text-[9px] font-bold leading-none tracking-wide" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
                 Cérebro
+              </span>
+            </button>
+            {/* Botão Mensagens Rápidas */}
+            <button
+              onClick={() => setMobileSidePanel(p => p === 'quick-messages' ? null : 'quick-messages')}
+              className={cn(
+                'flex flex-col items-center justify-center gap-1 px-2.5 py-3 transition-colors border-b border-gray-100',
+                mobileSidePanel === 'quick-messages'
+                  ? 'bg-crm-primary text-white'
+                  : 'bg-white/95 text-crm-primary',
+              )}
+              title="Mensagens Rápidas"
+            >
+              <Zap size={18} />
+              <span className="text-[9px] font-bold leading-none tracking-wide" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
+                Rápidas
               </span>
             </button>
             {/* Botão Anne */}
@@ -314,15 +341,21 @@ export default function CentralAtendimentoPage() {
               />
               {/* Painel */}
               <div className="fixed top-0 right-0 bottom-0 z-51 bg-white w-[88vw] max-w-sm shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
-                {/* Cabeçalho */}
+              {/* Cabeçalho */}
                 <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-crm-primary shrink-0">
                   <div className="flex items-center gap-2">
                     {mobileSidePanel === 'brain'
                       ? <Brain size={16} className="text-white" />
+                      : mobileSidePanel === 'quick-messages'
+                      ? <Zap size={16} className="text-white" />
                       : <Bot size={16} className="text-white" />
                     }
                     <span className="text-sm font-bold text-white">
-                      {mobileSidePanel === 'brain' ? 'Cérebro do Cliente' : 'Anne — IA'}
+                      {mobileSidePanel === 'brain'
+                        ? 'Cérebro do Cliente'
+                        : mobileSidePanel === 'quick-messages'
+                        ? 'Respostas Rápidas'
+                        : 'Anne — IA'}
                     </span>
                   </div>
                   <button
@@ -336,6 +369,8 @@ export default function CentralAtendimentoPage() {
                 <div className="flex-1 overflow-y-auto overscroll-contain">
                   {mobileSidePanel === 'brain'
                     ? <ClientBrainSidebar onClose={() => setMobileSidePanel(null)} />
+                    : mobileSidePanel === 'quick-messages'
+                    ? <QuickMessagesSidebar recipientPhone="" clientId={selectedChatId} onClose={() => setMobileSidePanel(null)} />
                     : <AnnePanel clientId={selectedChatId} />
                   }
                 </div>
