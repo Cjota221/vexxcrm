@@ -353,67 +353,137 @@ export async function POST(request: NextRequest) {
     }
 
     // ========================================
-    // RECALCULAR STATS (incremental — só clientes afetados)
+    // RECALCULAR STATS (incremental ou completo)
     // ========================================
     const elapsed = Date.now() - startTime;
+    
+    // Se houver pedidos revinculados, é crítico fazer recalculo completo
+    const shouldFullRecalc = results.relinked > 5;
+    
     if ((results.orders > 0 || results.relinked > 0) && elapsed < 18000) {
       try {
-        // Coletar IDs dos clientes afetados (dos pedidos sincronizados + revinculados)
-        const affectedClientIds = new Set<string>();
-        // Buscar client_ids dos pedidos que acabaram de ser upserted
-        const { data: recentOrders } = await supabaseAdmin
-          .from('orders')
-          .select('client_id')
-          .eq('tenant_id', tenantId)
-          .not('client_id', 'is', null)
-          .order('updated_at', { ascending: false })
-          .limit(100);
-
-        for (const o of recentOrders || []) {
-          if (o.client_id) affectedClientIds.add(o.client_id);
-        }
-
-        if (affectedClientIds.size > 0 && (Date.now() - startTime) < 20000) {
-          console.log(`[Auto-Sync] 🔄 Recalculando stats de ${affectedClientIds.size} clientes afetados...`);
-
-          // Buscar pedidos APENAS dos clientes afetados
-          const clientIdArray = Array.from(affectedClientIds);
-          const { data: clientOrders } = await supabaseAdmin
+        if (shouldFullRecalc) {
+          console.log(`[Auto-Sync] ⚠️ ${results.relinked} pedidos revinculados → recalculo COMPLETO de todos os clientes`);
+          
+          // Buscar TODOS os pedidos vinculados (completo)
+          const { data: allOrders } = await supabaseAdmin
             .from('orders')
             .select('client_id, total, created_at')
             .eq('tenant_id', tenantId)
-            .in('client_id', clientIdArray);
+            .not('client_id', 'is', null);
 
-          const clientStats = new Map<string, { total: number; count: number; last: string }>();
-          for (const order of clientOrders || []) {
+          const allClientStats = new Map<string, { total: number; count: number; last: string }>();
+          for (const order of allOrders || []) {
             if (!order.client_id) continue;
-            const existing = clientStats.get(order.client_id) || { total: 0, count: 0, last: '' };
+            const existing = allClientStats.get(order.client_id) || { total: 0, count: 0, last: '' };
             existing.total += Number(order.total) || 0;
             existing.count += 1;
             if (!existing.last || order.created_at > existing.last) {
               existing.last = order.created_at;
             }
-            clientStats.set(order.client_id, existing);
+            allClientStats.set(order.client_id, existing);
           }
 
-          const updates = Array.from(clientStats.entries()).map(([clientId, stats]) => ({
-            id: clientId,
-            tenant_id: tenantId,
-            total_orders: stats.count,
-            ltv: Math.round(stats.total * 100) / 100,
-            avg_ticket: stats.count > 0 ? Math.round((stats.total / stats.count) * 100) / 100 : 0,
-            last_order_at: stats.last || null,
-          }));
+          // Buscar TODOS os clientes existentes
+          const { data: allClients } = await supabaseAdmin
+            .from('clients')
+            .select('id')
+            .eq('tenant_id', tenantId);
+
+          const updates = [];
+
+          // Clientes COM pedidos
+          for (const [clientId, stats] of allClientStats.entries()) {
+            updates.push({
+              id: clientId,
+              tenant_id: tenantId,
+              total_orders: stats.count,
+              ltv: Math.round(stats.total * 100) / 100,
+              avg_ticket: stats.count > 0 ? Math.round((stats.total / stats.count) * 100) / 100 : 0,
+              last_order_at: stats.last || null,
+            });
+          }
+
+          // Clientes SEM pedidos (resetar)
+          for (const client of allClients || []) {
+            if (!allClientStats.has(client.id)) {
+              updates.push({
+                id: client.id,
+                tenant_id: tenantId,
+                total_orders: 0,
+                ltv: 0,
+                avg_ticket: 0,
+                last_order_at: null,
+              });
+            }
+          }
 
           // Batch update
           for (let i = 0; i < updates.length; i += 50) {
-            if (Date.now() - startTime > 22000) break; // safety: parar antes do timeout
+            if (Date.now() - startTime > 22000) break;
             const batch = updates.slice(i, i + 50);
             await supabaseAdmin.from('clients').upsert(batch, { onConflict: 'id' });
           }
 
-          console.log(`[Auto-Sync] ✅ Stats recalculadas: ${updates.length} clientes`);
+          console.log(`[Auto-Sync] ✅ Recalculo COMPLETO: ${updates.length} clientes atualizados`);
           results.stats_updated = updates.length;
+        } else {
+          // Recalculo incremental (apenas clientes afetados)
+          const affectedClientIds = new Set<string>();
+          
+          // Buscar client_ids dos pedidos recentes
+          const { data: recentOrders } = await supabaseAdmin
+            .from('orders')
+            .select('client_id')
+            .eq('tenant_id', tenantId)
+            .not('client_id', 'is', null)
+            .order('updated_at', { ascending: false })
+            .limit(100);
+
+          for (const o of recentOrders || []) {
+            if (o.client_id) affectedClientIds.add(o.client_id);
+          }
+
+          if (affectedClientIds.size > 0 && (Date.now() - startTime) < 20000) {
+            console.log(`[Auto-Sync] 🔄 Recalculando stats de ${affectedClientIds.size} clientes afetados (incremental)...`);
+
+            const clientIdArray = Array.from(affectedClientIds);
+            const { data: clientOrders } = await supabaseAdmin
+              .from('orders')
+              .select('client_id, total, created_at')
+              .eq('tenant_id', tenantId)
+              .in('client_id', clientIdArray);
+
+            const clientStats = new Map<string, { total: number; count: number; last: string }>();
+            for (const order of clientOrders || []) {
+              if (!order.client_id) continue;
+              const existing = clientStats.get(order.client_id) || { total: 0, count: 0, last: '' };
+              existing.total += Number(order.total) || 0;
+              existing.count += 1;
+              if (!existing.last || order.created_at > existing.last) {
+                existing.last = order.created_at;
+              }
+              clientStats.set(order.client_id, existing);
+            }
+
+            const updates = Array.from(clientStats.entries()).map(([clientId, stats]) => ({
+              id: clientId,
+              tenant_id: tenantId,
+              total_orders: stats.count,
+              ltv: Math.round(stats.total * 100) / 100,
+              avg_ticket: stats.count > 0 ? Math.round((stats.total / stats.count) * 100) / 100 : 0,
+              last_order_at: stats.last || null,
+            }));
+
+            for (let i = 0; i < updates.length; i += 50) {
+              if (Date.now() - startTime > 22000) break;
+              const batch = updates.slice(i, i + 50);
+              await supabaseAdmin.from('clients').upsert(batch, { onConflict: 'id' });
+            }
+
+            console.log(`[Auto-Sync] ✅ Stats recalculadas: ${updates.length} clientes`);
+            results.stats_updated = updates.length;
+          }
         }
       } catch (e: any) {
         console.error('[Auto-Sync] Erro ao recalcular stats:', e.message);

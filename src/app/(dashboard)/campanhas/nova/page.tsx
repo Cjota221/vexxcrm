@@ -73,8 +73,8 @@ const ANTIBAN_PADRAO: AntibanConfig = {
   delay_max_ms: 45_000,
   cooloff_a_cada: 10,           // Regra da Carol: pausa a cada 10
   cooloff_duracao_ms: 60_000,   // Regra da Carol: 60s de pausa
-  janela_horaria_inicio: 8,
-  janela_horaria_fim: 20,
+  janela_horaria_inicio: 0,     // Sem restrição horária (Carol)
+  janela_horaria_fim: 24,       // Sem restrição horária (Carol)
 };
 
 const LIMITE_DIARIO = 200; // Regra da Carol: máx 200 envios/24h

@@ -60,7 +60,7 @@ export interface ContatoJob {
  * • 15 segundos de intervalo FIXO entre contatos
  * • 60 segundos de pausa obrigatória a cada 10 envios
  * • Máximo 200 contatos por período de 24h (com alerta)
- * • Janela horária: 8h–20h
+ * • Janela horária: 24h (sem restrição)
  * 
  * Esses valores são o PISO de segurança. O usuário pode
  * aumentar (mais lento), mas NUNCA diminuir abaixo disso.
@@ -71,8 +71,8 @@ export const REGRA_DA_CAROL = {
   COOLOFF_A_CADA: 10,               // pausa a cada 10 envios
   COOLOFF_DURACAO_MS: 60_000,       // 60s de pausa
   MAX_ENVIOS_24H: 200,              // trava de volume diário
-  JANELA_INICIO: 8,                 // início às 8h
-  JANELA_FIM: 20,                   // fim às 20h
+  JANELA_INICIO: 0,                 // início à meia-noite (sem limite)
+  JANELA_FIM: 24,                   // fim no ciclo seguinte (sem limite)
 } as const;
 
 export const CONFIG_PADRAO: AntibanConfig = {
