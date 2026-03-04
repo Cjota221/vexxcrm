@@ -1821,10 +1821,14 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
     queryKey: ['client', selectedChatId],
     queryFn: async () => {
       if (!selectedChatId) return null;
+      console.log(`[Brain] 🔄 Fetching client ${selectedChatId}`);
       const res = await api.get(`/api/clients/${selectedChatId}`);
       if (res.error) throw new Error(res.error);
       const raw = res.data as Record<string, unknown>;
-      return (raw?.data ?? raw) as Record<string, unknown>;
+      const data = (raw?.data ?? raw) as Record<string, unknown>;
+      const orderCount = ((data?.recent_orders as Record<string, unknown>[] | undefined) ?? []).length;
+      console.log(`[Brain] ✅ Client loaded with ${orderCount} orders`);
+      return data;
     },
     enabled: !!selectedChatId,
     staleTime: 0,              // ← SEMPRE stale, força refetch do servidor
@@ -1846,6 +1850,12 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
           </div>
           <h3 className="text-sm font-bold text-gray-900">Cérebro do Cliente</h3>
           {isFetching && <Loader2 size={12} className="animate-spin text-crm-primary" />}
+          {/* Debug: mostrar count de pedidos */}
+          {activeTab === 'orders' && (
+            <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 font-semibold">
+              {((client?.recent_orders as Record<string, unknown>[] | undefined) ?? []).length} 📦
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-0.5">
           <button
