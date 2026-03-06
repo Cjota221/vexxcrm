@@ -11,20 +11,40 @@ import { useAuthStore } from '@/store/auth';
  */
 const AUTO_SYNC_INTERVAL = 5 * 60 * 1000;
 
+/** Chave do localStorage para persistir o timestamp do último sync entre remontagens */
+const LAST_SYNC_KEY = 'vexx-auto-sync-last';
+
+/** Lê o timestamp do último sync do localStorage (sobrevive a remontagens do componente) */
+function getLastSyncTime(): number {
+  try {
+    return parseInt(localStorage.getItem(LAST_SYNC_KEY) || '0', 10) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Salva o timestamp do último sync no localStorage */
+function setLastSyncTime(ts: number): void {
+  try {
+    localStorage.setItem(LAST_SYNC_KEY, String(ts));
+  } catch {
+    // localStorage bloqueado — ignora
+  }
+}
+
 /**
  * Hook de sincronização automática com FacilZap.
- * 
+ *
  * Roda em background no dashboard:
  * 1. Ao montar (primeira vez que o dashboard abre), faz sync imediato
  * 2. A cada 5 minutos, faz sync leve (página 1 de pedidos/produtos/clientes)
  * 3. Ao receber foco na janela, verifica se precisa sincronizar
  * 4. Invalida caches do React Query após sync para atualizar UIs
- * 
+ *
  * Usa o endpoint /api/facilzap/auto-sync que é uma versão leve do sync completo.
  */
 export function useAutoSync() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const lastSyncRef = useRef<number>(0);
   const isSyncingRef = useRef(false);
   const queryClient = useQueryClient();
   const { isAuthenticated } = useAuthStore();
@@ -33,9 +53,10 @@ export function useAutoSync() {
     // Não sincronizar se já está em andamento ou não autenticado
     if (isSyncingRef.current || !isAuthenticated) return;
 
-    // Não sincronizar mais de 1x a cada 2 minutos
+    // Não sincronizar mais de 1x a cada 2 minutos — lê do localStorage para
+    // sobreviver a remontagens do componente (evita syncs a cada 3s)
     const now = Date.now();
-    if (now - lastSyncRef.current < 2 * 60 * 1000) return;
+    if (now - getLastSyncTime() < 2 * 60 * 1000) return;
 
     isSyncingRef.current = true;
 
@@ -59,7 +80,7 @@ export function useAutoSync() {
 
       if (response.ok) {
         const data = await response.json();
-        lastSyncRef.current = Date.now();
+        setLastSyncTime(Date.now());
 
         const { results } = data;
         const total = (results?.products || 0) + (results?.clients || 0) + (results?.orders || 0);
@@ -115,7 +136,7 @@ export function useAutoSync() {
     // Sync ao voltar para a aba (window focus)
     const handleFocus = () => {
       // Só sync se passou mais de 2 minutos desde o último
-      if (Date.now() - lastSyncRef.current > 2 * 60 * 1000) {
+      if (Date.now() - getLastSyncTime() > 2 * 60 * 1000) {
         doSync();
       }
     };

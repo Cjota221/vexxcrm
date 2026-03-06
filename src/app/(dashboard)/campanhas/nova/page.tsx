@@ -501,7 +501,7 @@ function SeletorContatosManual({ selecionados, onToggle }: SeletorContatosManual
   const pesquisar = useCallback((q: string) => {
     if (!q.trim()) { setResultados([]); return; }
     setCarregando(true);
-    api.get<Record<string, unknown>>(`/api/v1/clients`, { q, limit: '20' })
+    api.get<Record<string, unknown>>(`/api/clients`, { search: q, per_page: '20' })
       .then(({ data }) => {
         const lista = ((data as Record<string, unknown>)?.clients ?? (data as Record<string, unknown>)?.data ?? []) as Record<string, unknown>[];
         setResultados(lista.map(c => ({
@@ -1434,7 +1434,7 @@ function NovaCampanhaInner() {
       // Legado: veio com IDs de contatos na URL
       setCarregandoContatos(true);
       const ids = contatosIdsParam.split(',').filter(Boolean);
-      api.get<Record<string, unknown>>(`/api/v1/clients`, { ids: ids.join(','), limit: '500' })
+      api.get<Record<string, unknown>>(`/api/clients`, { ids: ids.join(','), per_page: '500' })
         .then(({ data }) => {
           setContatos((((data as Record<string, unknown>)?.clients ?? (data as Record<string, unknown>)?.data) as Record<string, unknown>[] ?? []).map((c) => ({
             id: c.id as string,
@@ -1528,8 +1528,10 @@ function NovaCampanhaInner() {
       const tipoDestinatarioDB =
         modoDestinatario === 'grupos' ? 'grupos' : 'contatos';
 
+      const nomeGerado = nomeCampanha.trim() || `Disparo ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+
       const { data: json, error } = await api.post<{ campanha_id: string; status: string }>('/api/v2/campanhas', {
-        nome: nomeCampanha,
+        nome: nomeGerado,
         blocos,
         destinatarios,
         scheduled_at: scheduledAt || undefined,
@@ -1574,7 +1576,6 @@ function NovaCampanhaInner() {
 
   const podeProsseguir = (() => {
     if (step === 0) {
-      if (!nomeCampanha.trim()) return false;
       if (modoDestinatario === 'grupos') return gruposSelecionados.length > 0;
       if (modoDestinatario === 'manual') return contatos.length > 0;
       if (modoDestinatario === 'toda_base') return contatos.length > 0;
@@ -1619,9 +1620,9 @@ function NovaCampanhaInner() {
             <div className="p-5 space-y-4">
               <h2 className="text-base font-semibold text-txt-primary">Informações básicas</h2>
               <div>
-                <label className="text-sm text-txt-secondary mb-1 block">Nome da campanha *</label>
+                <label className="text-sm text-txt-secondary mb-1 block">Nome da campanha <span className="text-txt-muted font-normal">(opcional)</span></label>
                 <Input
-                  placeholder="Ex: Reativação Julho 2025"
+                  placeholder="Ex: Reativação Julho 2025 — deixe em branco para gerar automaticamente"
                   value={nomeCampanha}
                   onChange={e => setNomeCampanha(e.target.value)}
                 />
@@ -2143,7 +2144,7 @@ function NovaCampanhaInner() {
           <Button
             variant="primary"
             onClick={handleSubmit}
-            disabled={enviando || !nomeCampanha.trim() || (
+            disabled={enviando || (
               volumeCheck != null && totalContatos > volumeCheck.restantes && !confirmaRisco
             )}
           >

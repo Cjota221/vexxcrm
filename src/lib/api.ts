@@ -11,29 +11,17 @@ const API_BASE_URL = '';
  * Obtém o access token da sessão atual.
  *
  * Estratégia em ordem de prioridade:
- * 1. Zustand store (auth-storage no localStorage) — síncrono, zero latência, sem race condition
- * 2. supabase.auth.getSession() — fallback assíncrono para quando o store ainda não hidratou
+ * 1. supabase.auth.getSession() — sempre a fonte de verdade (faz refresh automático se expirado)
+ * 2. Zustand store (auth-storage no localStorage) — fallback rápido se getSession falhar por AbortError
  *
- * O AbortError acontecia porque getSession() faz fetch ao servidor durante a
- * inicialização do Supabase, que pode ser abortado pela hidratação do React.
- * Lendo do store Zustand primeiro, evitamos esse problema completamente.
+ * IMPORTANTE: localStorage NÃO é mais a fonte primária porque armazena tokens que podem
+ * estar expirados. getSession() verifica expiração e rotaciona o token automaticamente,
+ * evitando o ciclo de 401 infinito no dispatch-batch.
  */
 async function getAccessToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null;
 
-  // 1. Tentar ler do Zustand persistido (mais rápido, sem risco de AbortError)
-  try {
-    const raw = localStorage.getItem('vexx-auth');
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      const token = parsed?.state?.accessToken as string | null | undefined;
-      if (token) return token;
-    }
-  } catch {
-    // localStorage pode estar bloqueado em alguns contextos — ignora e tenta Supabase
-  }
-
-  // 2. Fallback: Supabase getSession (pode ser lento ou falhar na primeira hidratação)
+  // 1. Supabase getSession — faz refresh automático de token expirado
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -47,10 +35,23 @@ async function getAccessToken(): Promise<string | null> {
         await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
         continue;
       }
-      console.error('❌ Erro ao obter sessão do Supabase:', err);
-      return null;
+      // Se getSession falhou por erro não-AbortError, tenta o fallback do localStorage
+      break;
     }
   }
+
+  // 2. Fallback: Zustand store persistido (usado apenas se getSession falhar por AbortError)
+  try {
+    const raw = localStorage.getItem('vexx-auth');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const token = parsed?.state?.accessToken as string | null | undefined;
+      if (token) return token;
+    }
+  } catch {
+    // localStorage pode estar bloqueado em alguns contextos
+  }
+
   return null;
 }
 

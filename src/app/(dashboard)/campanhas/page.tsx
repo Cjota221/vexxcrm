@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Plus, Search, Play, Pause, Square, BarChart3,
   Send, Clock, CheckCircle, XCircle, FileText,
-  TrendingUp, Users, Loader2, RefreshCw,
+  TrendingUp, Users, Loader2, RefreshCw, Copy,
 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -189,6 +189,21 @@ function CampanhaCardItem({ campanha, onAction }: { campanha: CampanhaCard; onAc
             {['running', 'paused', 'scheduled', 'draft'].includes(campanha.status) && (
               <button onClick={e => handleAction(() => cancelarCampanha(campanha.id), e)} className="p-1 rounded hover:bg-red-50 text-red-500" title="Cancelar"><Square size={14} /></button>
             )}
+            <button
+              onClick={async e => {
+                e.stopPropagation();
+                setAtualizando(true);
+                const { data, error } = await api.post<{ campanha_id: string }>(`/api/v2/campanhas/${campanha.id}/duplicar`, {});
+                setAtualizando(false);
+                if (!error && data?.campanha_id) {
+                  router.push(`/campanhas/${data.campanha_id}`);
+                }
+              }}
+              className="p-1 rounded hover:bg-surface-100 text-txt-muted"
+              title="Duplicar campanha"
+            >
+              <Copy size={14} />
+            </button>
           </div>
         </div>
       </div>

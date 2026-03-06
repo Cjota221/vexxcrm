@@ -21,6 +21,7 @@ import {
   Type,
   ExternalLink,
   Zap,
+  Copy,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -374,6 +375,21 @@ export default function CampanhaDetalhePage() {
               <Square size={16} /> Cancelar
             </Button>
           )}
+          <Button
+            variant="ghost"
+            disabled={atualizando}
+            onClick={async () => {
+              setAtualizando(true);
+              const { data, error } = await api.post<{ campanha_id: string }>(`/api/v2/campanhas/${campanha.id}/duplicar`, {});
+              setAtualizando(false);
+              if (!error && data?.campanha_id) {
+                router.push(`/campanhas/${data.campanha_id}`);
+              }
+            }}
+            title="Duplicar campanha"
+          >
+            <Copy size={16} /> Duplicar
+          </Button>
         </div>
       </div>
 

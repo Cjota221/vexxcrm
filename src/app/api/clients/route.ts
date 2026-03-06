@@ -29,12 +29,31 @@ export async function GET(request: NextRequest) {
     // Parâmetros de busca
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search');
+    const ids = searchParams.get('ids'); // lista de UUIDs separados por vírgula
     const status = searchParams.get('status');
     const hasOrders = searchParams.get('has_orders'); // 'true' | 'false' | null
     const source = searchParams.get('source');
     const hasName = searchParams.get('has_name'); // 'true' | 'false' | null
     const page = parseInt(searchParams.get('page') || '1');
     const perPage = parseInt(searchParams.get('per_page') || '20');
+
+    // Busca direta por IDs (usado para carregar contatos pré-selecionados da Inteligência)
+    if (ids) {
+      const idList = ids.split(',').map(s => s.trim()).filter(Boolean);
+      if (idList.length === 0) {
+        return NextResponse.json({ data: [], total: 0, page: 1, per_page: perPage, total_pages: 0 });
+      }
+      const { data, error } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .in('id', idList)
+        .limit(500);
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      return NextResponse.json({ data: data || [], total: data?.length ?? 0, page: 1, per_page: 500, total_pages: 1 });
+    }
 
     // Query builder
     let query = supabase
