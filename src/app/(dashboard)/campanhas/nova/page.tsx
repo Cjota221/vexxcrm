@@ -536,34 +536,34 @@ const SEGMENTOS_RFM: { nome: string; label: string; cor: string }[] = [
 ];
 
 interface SeletorSegmentoInteligenciaProps {
-  segmentoAtivo: string | null;
+  segmentosAtivos: string[];
   totalContatos: number;
   carregando: boolean;
-  onSelecionar: (segmento: { nome: string; label: string }) => void;
+  onToggle: (segmento: { nome: string; label: string }) => void;
   distribuicao: Record<string, number>; // segmento → count
 }
 
 function SeletorSegmentoInteligencia({
-  segmentoAtivo,
+  segmentosAtivos,
   totalContatos,
   carregando,
-  onSelecionar,
+  onToggle,
   distribuicao,
 }: SeletorSegmentoInteligenciaProps) {
   return (
     <div className="space-y-3">
       <p className="text-sm text-txt-secondary">
-        Selecione um segmento de Inteligência para carregar os contatos automaticamente:
+        Selecione um ou mais segmentos de Inteligência — os contatos serão combinados automaticamente:
       </p>
 
       <div className="grid grid-cols-1 gap-2 max-h-72 overflow-y-auto pr-1">
         {SEGMENTOS_RFM.map(seg => {
           const count = distribuicao[seg.nome] ?? 0;
-          const ativo = segmentoAtivo === seg.nome;
+          const ativo = segmentosAtivos.includes(seg.nome);
           return (
             <button
               key={seg.nome}
-              onClick={() => onSelecionar(seg)}
+              onClick={() => onToggle(seg)}
               disabled={count === 0}
               className={`flex items-center justify-between px-4 py-3 rounded-xl border-2 text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                 ativo
@@ -585,18 +585,22 @@ function SeletorSegmentoInteligencia({
                   {count.toLocaleString('pt-BR')}
                 </span>
                 {ativo && carregando && <Loader2 size={13} className="animate-spin text-crm-primary" />}
-                {ativo && !carregando && totalContatos > 0 && <ChevronRight size={13} className="text-crm-primary" />}
+                {ativo && !carregando && <ChevronRight size={13} className="text-crm-primary" />}
               </div>
             </button>
           );
         })}
       </div>
 
-      {segmentoAtivo && !carregando && totalContatos > 0 && (
+      {segmentosAtivos.length > 0 && !carregando && totalContatos > 0 && (
         <div className="flex items-center gap-2 p-3 bg-crm-primary/5 rounded-xl border border-crm-primary/20">
           <Zap size={14} className="text-crm-primary shrink-0" />
           <p className="text-sm text-crm-primary font-medium">
-            {totalContatos.toLocaleString('pt-BR')} contatos carregados do segmento &ldquo;{SEGMENTOS_RFM.find(s => s.nome === segmentoAtivo)?.label}&rdquo;
+            {totalContatos.toLocaleString('pt-BR')} contatos carregados
+            {segmentosAtivos.length > 1
+              ? ` de ${segmentosAtivos.length} segmentos`
+              : ` do segmento "${SEGMENTOS_RFM.find(s => s.nome === segmentosAtivos[0])?.label}"`
+            }
           </p>
         </div>
       )}
@@ -613,18 +617,24 @@ interface SeletorContatosManualProps {
 
 function SeletorContatosManual({ selecionados, onToggle }: SeletorContatosManualProps) {
   const [busca, setBusca] = useState('');
-  const [resultados, setResultados] = useState<Contato[]>([]);
-  const [carregando, setCarregando] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [todos, setTodos] = useState<Contato[]>([]);
+  const [carregando, setCarregando] = useState(true);
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [total, setTotal] = useState(0);
   const selectedIds = useMemo(() => new Set(selecionados.map(c => c.id)), [selecionados]);
 
-  const pesquisar = useCallback((q: string) => {
-    if (!q.trim()) { setResultados([]); return; }
+  // Carrega contatos com paginação
+  const carregarPagina = useCallback((pg: number, q: string) => {
     setCarregando(true);
-    api.get<Record<string, unknown>>(`/api/clients`, { search: q, per_page: '20' })
+    const params: Record<string, string> = { page: String(pg), per_page: '100' };
+    if (q.trim()) params.search = q.trim();
+    api.get<Record<string, unknown>>(`/api/clients`, params)
       .then(({ data }) => {
         const lista = ((data as Record<string, unknown>)?.clients ?? (data as Record<string, unknown>)?.data ?? []) as Record<string, unknown>[];
-        setResultados(lista.map(c => ({
+        const totalCount = ((data as Record<string, unknown>)?.total ?? lista.length) as number;
+        const pagesCount = Math.ceil(totalCount / 100) || 1;
+        setTodos(lista.map(c => ({
           id: c.id as string,
           telefone: (c.phone ?? c.telefone) as string,
           nome: (c.name ?? c.nome) as string,
@@ -632,23 +642,75 @@ function SeletorContatosManual({ selecionados, onToggle }: SeletorContatosManual
           estado: c.estado as string | undefined,
           valor_ltv: (c.ltv ?? c.valor_ltv) as number | undefined,
         })));
+        setTotal(totalCount);
+        setPages(pagesCount);
       })
-      .catch(() => setResultados([]))
+      .catch(() => setTodos([]))
       .finally(() => setCarregando(false));
   }, []);
 
+  // Carga inicial
+  useEffect(() => {
+    carregarPagina(1, '');
+  }, [carregarPagina]);
+
+  // Busca com debounce
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleBusca = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value;
     setBusca(v);
+    setPage(1);
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => pesquisar(v), 300);
+    timerRef.current = setTimeout(() => carregarPagina(1, v), 300);
+  };
+
+  const handlePage = (pg: number) => {
+    setPage(pg);
+    carregarPagina(pg, busca);
+  };
+
+  const limparSelecao = () => selecionados.forEach(c => onToggle(c));
+
+  const selecionarTodos = () => {
+    const novos = todos.filter(c => !selectedIds.has(c.id));
+    novos.forEach(c => onToggle(c));
   };
 
   return (
     <div className="space-y-3">
+      {/* Contador + ações */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <p className="text-xs text-txt-secondary">
+          {carregando
+            ? 'Carregando...'
+            : <><strong className="text-txt-primary">{total.toLocaleString('pt-BR')}</strong> contatos</>
+          }
+          {selecionados.length > 0 && (
+            <span className="ml-2 text-crm-primary font-medium">· {selecionados.length} selecionado{selecionados.length > 1 ? 's' : ''}</span>
+          )}
+        </p>
+        <div className="flex items-center gap-2">
+          {selecionados.length > 0 && (
+            <button
+              onClick={limparSelecao}
+              className="text-xs px-2.5 py-1.5 rounded-lg border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 transition-colors"
+            >
+              Limpar seleção
+            </button>
+          )}
+          <button
+            onClick={selecionarTodos}
+            disabled={carregando || todos.length === 0}
+            className="text-xs px-2.5 py-1.5 rounded-lg border border-crm-primary/30 text-crm-primary bg-crm-primary/5 hover:bg-crm-primary/10 transition-colors disabled:opacity-50"
+          >
+            Selecionar página
+          </button>
+        </div>
+      </div>
+
       {/* Tags dos selecionados */}
       {selecionados.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 p-3 bg-surface-50 rounded-xl border border-surface-200">
+        <div className="flex flex-wrap gap-1.5 p-3 bg-surface-50 rounded-xl border border-surface-200 max-h-24 overflow-y-auto">
           {selecionados.map(c => (
             <span
               key={c.id}
@@ -676,10 +738,14 @@ function SeletorContatosManual({ selecionados, onToggle }: SeletorContatosManual
         {carregando && <Loader2 size={14} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-txt-muted" />}
       </div>
 
-      {/* Resultados */}
-      {resultados.length > 0 && (
-        <div className="border border-surface-200 rounded-xl divide-y divide-surface-100 max-h-64 overflow-y-auto">
-          {resultados.map(c => {
+      {/* Lista */}
+      <div className="border border-surface-200 rounded-xl divide-y divide-surface-100 max-h-72 overflow-y-auto">
+        {!carregando && todos.length === 0 ? (
+          <p className="text-xs text-txt-muted text-center py-6">
+            {busca.trim() ? 'Nenhum contato encontrado' : 'Nenhum contato na base'}
+          </p>
+        ) : (
+          todos.map(c => {
             const sel = selectedIds.has(c.id);
             return (
               <button
@@ -697,19 +763,30 @@ function SeletorContatosManual({ selecionados, onToggle }: SeletorContatosManual
                 {c.cidade && <span className="text-xs text-txt-muted shrink-0">{c.cidade}</span>}
               </button>
             );
-          })}
+          })
+        )}
+      </div>
+
+      {/* Paginação */}
+      {pages > 1 && (
+        <div className="flex items-center justify-center gap-2">
+          <button
+            onClick={() => handlePage(Math.max(1, page - 1))}
+            disabled={page === 1 || carregando}
+            className="text-xs px-3 py-1.5 rounded-lg border border-surface-200 disabled:opacity-40 hover:bg-surface-50 transition-colors"
+          >
+            ← Anterior
+          </button>
+          <span className="text-xs text-txt-muted">{page} / {pages}</span>
+          <button
+            onClick={() => handlePage(Math.min(pages, page + 1))}
+            disabled={page === pages || carregando}
+            className="text-xs px-3 py-1.5 rounded-lg border border-surface-200 disabled:opacity-40 hover:bg-surface-50 transition-colors"
+          >
+            Próxima →
+          </button>
         </div>
       )}
-
-      {busca.trim() && !carregando && resultados.length === 0 && (
-        <p className="text-xs text-txt-muted text-center py-2">Nenhum contato encontrado</p>
-      )}
-
-      <p className="text-xs text-txt-muted">
-        {selecionados.length > 0
-          ? `${selecionados.length} contato${selecionados.length > 1 ? 's' : ''} selecionado${selecionados.length > 1 ? 's' : ''}`
-          : 'Busque e selecione os contatos desejados'}
-      </p>
     </div>
   );
 }
@@ -1411,7 +1488,7 @@ function NovaCampanhaInner() {
   const [contatos, setContatos] = useState<Contato[]>([]);
   const [gruposSelecionados, setGruposSelecionados] = useState<GrupoWA[]>([]);
   const [carregandoContatos, setCarregandoContatos] = useState(false);
-  const [segmentoRFM, setSegmentoRFM] = useState<string | null>(segmentoParam || null);
+  const [segmentosRFM, setSegmentosRFM] = useState<string[]>(segmentoParam ? [segmentoParam] : []);
   const [distribuicaoRFM, setDistribuicaoRFM] = useState<Record<string, number>>({});
   const [carregandoDistribuicao, setCarregandoDistribuicao] = useState(false);
   const [blocos, setBlocos] = useState<Bloco[]>([]);
@@ -1475,14 +1552,15 @@ function NovaCampanhaInner() {
       .finally(() => setCarregandoDistribuicao(false));
   }, [modoDestinatario]);
 
-  // Busca histórico de campanhas já disparadas para o segmento atual
-  // (para sugerir o offset correto)
+  // Busca histórico de campanhas já disparadas para o primeiro segmento selecionado
+  // (para sugerir o offset correto no painel de lotes)
   useEffect(() => {
-    if (!segmentoRFM || modoDestinatario !== 'inteligencia') return;
+    const primeiroSeg = segmentosRFM[0];
+    if (!primeiroSeg || modoDestinatario !== 'inteligencia') return;
     setCarregandoHistorico(true);
     api.get<Record<string, unknown>>('/api/v2/campanhas', {
       origem: 'inteligencia',
-      segmento: segmentoRFM,
+      segmento: primeiroSeg,
       limit: '10',
     })
       .then(({ data }) => {
@@ -1503,53 +1581,74 @@ function NovaCampanhaInner() {
       .catch(() => setHistoricoLotes([]))
       .finally(() => setCarregandoHistorico(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [segmentoRFM]);
+  }, [segmentosRFM[0]]);
 
-  // Função para selecionar segmento e carregar lote com offset
-  const selecionarSegmento = useCallback(async (seg: { nome: string; label: string }, offsetOverride?: number) => {
-    if (segmentoRFM === seg.nome && offsetOverride === undefined) {
-      setSegmentoRFM(null);
+  // Carrega contatos de um segmento e faz union com os já existentes (sem duplicatas por id)
+  const carregarSegmento = useCallback(async (nomeSegmento: string, offsetUsado: number, limit: number): Promise<Contato[]> => {
+    const page = Math.floor(offsetUsado / limit) + 1;
+    const { data } = await api.get<Record<string, unknown>>(
+      '/api/intelligence/rfm/clients',
+      { segment: nomeSegmento, page: String(page), limit: String(limit) }
+    );
+    const paginationData = (data as Record<string, unknown>)?.pagination as Record<string, unknown> | undefined;
+    const totalCount = (paginationData?.total as number) ?? 0;
+    setTotalSegmento(prev => Math.max(prev, totalCount));
+    const lista = ((data as Record<string, unknown>)?.clients ?? []) as Record<string, unknown>[];
+    return lista.map(c => ({
+      id: c.id as string,
+      telefone: (c.phone ?? c.telefone) as string,
+      nome: (c.name ?? c.nome) as string,
+      cidade: c.cidade as string | undefined,
+      estado: c.estado as string | undefined,
+      valor_ltv: (c.total_spent ?? c.ltv ?? c.valor_ltv) as number | undefined,
+    }));
+  }, []);
+
+  // Toggle de segmento: adiciona ou remove da lista e recarrega contatos em union
+  const toggleSegmento = useCallback(async (seg: { nome: string; label: string }, offsetOverride?: number) => {
+    const jaAtivo = segmentosRFM.includes(seg.nome);
+    const novosSegmentos = jaAtivo
+      ? segmentosRFM.filter(s => s !== seg.nome)
+      : [...segmentosRFM, seg.nome];
+
+    setSegmentosRFM(novosSegmentos);
+
+    if (novosSegmentos.length === 0) {
       setContatos([]);
+      setTotalSegmento(0);
       return;
     }
-    const offsetUsado = offsetOverride ?? segmentoOffset;
-    setSegmentoRFM(seg.nome);
-    setContatos([]);
+
     setCarregandoContatos(true);
+    setTotalSegmento(0);
     try {
-      // Calcula page e limit para implementar offset via paginação da API
-      // A API ordena por LTV desc — page 1 = clientes mais valiosos
+      const offsetUsado = offsetOverride ?? segmentoOffset;
       const limit = segmentoLote;
-      const page = Math.floor(offsetUsado / limit) + 1;
-      // Se o offset não cai exato numa página, busca a página certa e fatia
-      const { data } = await api.get<Record<string, unknown>>(
-        '/api/intelligence/rfm/clients',
-        { segment: seg.nome, page: String(page), limit: String(limit) }
+      // Carrega contatos de cada segmento ativo em paralelo
+      const resultados = await Promise.all(
+        novosSegmentos.map(nome => carregarSegmento(nome, offsetUsado, limit))
       );
-      const paginationData = (data as Record<string, unknown>)?.pagination as Record<string, unknown> | undefined;
-      const totalCount = (paginationData?.total as number) ?? 0;
-      setTotalSegmento(totalCount);
-      const lista = ((data as Record<string, unknown>)?.clients ?? []) as Record<string, unknown>[];
-      setContatos(lista.map(c => ({
-        id: c.id as string,
-        telefone: (c.phone ?? c.telefone) as string,
-        nome: (c.name ?? c.nome) as string,
-        cidade: c.cidade as string | undefined,
-        estado: c.estado as string | undefined,
-        valor_ltv: (c.total_spent ?? c.ltv ?? c.valor_ltv) as number | undefined,
-      })));
+      // Union sem duplicatas (por id)
+      const vistos = new Set<string>();
+      const union: Contato[] = [];
+      for (const lote of resultados) {
+        for (const c of lote) {
+          if (!vistos.has(c.id)) { vistos.add(c.id); union.push(c); }
+        }
+      }
+      setContatos(union);
     } catch {
       // silencia erro
     } finally {
       setCarregandoContatos(false);
     }
-  }, [segmentoRFM, segmentoOffset, segmentoLote]);
+  }, [segmentosRFM, segmentoOffset, segmentoLote, carregarSegmento]);
 
   // Pré-carrega contatos se veio da Inteligência via segmentoParam
   useEffect(() => {
     if (segmentoParam) {
       const seg = SEGMENTOS_RFM.find(s => s.nome === segmentoParam);
-      if (seg) selecionarSegmento(seg, 0); // sempre começa do 0 ao entrar; usuário ajusta depois
+      if (seg) toggleSegmento(seg); // sempre começa do 0 ao entrar; usuário ajusta depois
     } else if (origemParam === 'inteligencia' && contatosIdsParam) {
       // Legado: veio com IDs de contatos na URL
       setCarregandoContatos(true);
@@ -1654,10 +1753,10 @@ function NovaCampanhaInner() {
         nome: nomeGerado,
         blocos,
         destinatarios,
-        scheduled_at: scheduledAt || undefined,
+        scheduled_at: scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
         config_antiban: antiban,
         origem: origemParam || modoDestinatario,  // preserva 'inteligencia'|'manual'|'grupos'|'planilha' no campo origem
-        origem_grupo_nome: grupoNomeParam || undefined,
+        origem_grupo_nome: grupoNomeParam || (segmentosRFM.length > 0 ? segmentosRFM.join(', ') : undefined),
         tipo_destinatario: tipoDestinatarioDB,
         // Recorrência (apenas para grupos)
         ...(isRecurring && modoDestinatario === 'grupos' ? {
@@ -1786,21 +1885,24 @@ function NovaCampanhaInner() {
                     </div>
                   ) : (
                     <SeletorSegmentoInteligencia
-                      segmentoAtivo={segmentoRFM}
+                      segmentosAtivos={segmentosRFM}
                       totalContatos={contatos.length}
                       carregando={carregandoContatos}
-                      onSelecionar={selecionarSegmento}
+                      onToggle={toggleSegmento}
                       distribuicao={distribuicaoRFM}
                     />
                   )}
 
                   {/* ── Painel de Lotes: mostra offset + histórico de campanhas anteriores ── */}
-                  {segmentoRFM && !carregandoContatos && contatos.length > 0 && (
+                  {segmentosRFM.length > 0 && !carregandoContatos && contatos.length > 0 && (
                     <div className="mt-3 space-y-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
                       <div className="flex items-center gap-2">
                         <Users size={15} className="text-amber-700 shrink-0" />
                         <p className="text-sm font-semibold text-amber-800">
-                          Gerenciamento de Lotes — {SEGMENTOS_RFM.find(s => s.nome === segmentoRFM)?.label}
+                          Gerenciamento de Lotes
+                          {segmentosRFM.length === 1
+                            ? ` — ${SEGMENTOS_RFM.find(s => s.nome === segmentosRFM[0])?.label}`
+                            : ` — ${segmentosRFM.length} segmentos`}
                         </p>
                       </div>
 
@@ -1882,8 +1984,11 @@ function NovaCampanhaInner() {
                             onClick={() => {
                               setSegmentoOffset(b.offset);
                               setSegmentoLote(LIMITE_DIARIO);
-                              const seg = SEGMENTOS_RFM.find(s => s.nome === segmentoRFM);
-                              if (seg) selecionarSegmento(seg, b.offset);
+                              // Re-carrega todos os segmentos ativos com novo offset
+                              segmentosRFM.forEach(nome => {
+                                const seg = SEGMENTOS_RFM.find(s => s.nome === nome);
+                                if (seg) toggleSegmento(seg, b.offset);
+                              });
                             }}
                             className={`text-[11px] px-2.5 py-1 rounded-lg border font-medium transition-all ${
                               segmentoOffset === b.offset
@@ -1899,8 +2004,10 @@ function NovaCampanhaInner() {
                       {/* Botão: Recarregar lote atual */}
                       <button
                         onClick={() => {
-                          const seg = SEGMENTOS_RFM.find(s => s.nome === segmentoRFM);
-                          if (seg) selecionarSegmento(seg, segmentoOffset);
+                          segmentosRFM.forEach(nome => {
+                            const seg = SEGMENTOS_RFM.find(s => s.nome === nome);
+                            if (seg) toggleSegmento(seg, segmentoOffset);
+                          });
                         }}
                         disabled={carregandoContatos}
                         className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-amber-300 text-amber-800 bg-amber-100 hover:bg-amber-200 transition-colors disabled:opacity-50"
@@ -2035,7 +2142,7 @@ function NovaCampanhaInner() {
               <h2 className="text-base font-semibold text-txt-primary">Agendamento</h2>
               <div>
                 <label className="text-sm text-txt-secondary mb-1 flex items-center gap-1">
-                  <Calendar size={13} /> Data e hora de início (deixe em branco para iniciar agora)
+                  <Calendar size={13} /> Data e hora de início — horário local do dispositivo (deixe em branco para iniciar agora)
                 </label>
                 <input
                   type="datetime-local"
@@ -2043,6 +2150,11 @@ function NovaCampanhaInner() {
                   onChange={e => setScheduledAt(e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-crm-primary/40"
                 />
+                {scheduledAt && (
+                  <p className="text-xs text-txt-muted mt-1">
+                    ✅ Agendado para: <strong>{new Date(scheduledAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</strong> (seu fuso horário local)
+                  </p>
+                )}
               </div>
 
               {/* ━━━ RECORRÊNCIA (apenas para grupos) ━━━ */}
@@ -2169,8 +2281,11 @@ function NovaCampanhaInner() {
                 { label: 'ETA estimado', value: eta },
                 ...(modoDestinatario === 'grupos'
                   ? [{ label: 'Grupos', value: gruposSelecionados.map(g => g.nome).join(', ') }]
-                  : modoDestinatario === 'inteligencia' && segmentoRFM
-                    ? [{ label: 'Segmento', value: `${SEGMENTOS_RFM.find(s => s.nome === segmentoRFM)?.label ?? segmentoRFM} — ${filtroDescricao || segmentoRFM}` }]
+                  : modoDestinatario === 'inteligencia' && segmentosRFM.length > 0
+                    ? [{
+                        label: segmentosRFM.length === 1 ? 'Segmento' : 'Segmentos',
+                        value: segmentosRFM.map(n => SEGMENTOS_RFM.find(s => s.nome === n)?.label ?? n).join(', '),
+                      }]
                     : []
                 ),
               ].map(({ label, value }) => (

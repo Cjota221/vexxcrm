@@ -146,7 +146,7 @@ export function VirtualizedMessageList({
       ref={parentRef}
       className="flex-1 overflow-y-auto wa-chat-bg wa-scrollbar px-4 py-3"
       onScroll={handleScroll}
-      style={{ position: 'relative' }}
+      style={{ position: 'relative', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
     >
       {/* Spinner de carga de mensagens anteriores */}
       {isLoadingMore && (

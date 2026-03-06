@@ -423,7 +423,7 @@ function MessageInputComponent({ onSend, onSendMedia, isLoading, disabled, recip
   }
 
   return (
-    <div ref={containerRef} className="relative bg-wa-bg-panel border-t border-wa-border px-2 py-2 md:px-4 md:py-3">
+    <div ref={containerRef} className="relative bg-wa-bg-panel border-t border-wa-border px-2 py-2 md:px-4 md:py-3 shrink-0">
       {/* ── Templates Floating Panel ── */}
       {templatesOpen && recipientPhone && (
         <TemplatesFloatingPanel
