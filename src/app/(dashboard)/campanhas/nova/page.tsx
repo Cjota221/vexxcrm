@@ -163,22 +163,29 @@ function BlocoEditor({
     album:     { icon: <ImageIcon size={14} className="text-pink-500" />,  label: 'Álbum de Mídia', hint: 'Adicione fotos e vídeos para enviar como álbum'   },
   };
 
-  const handleAlbumUpload = async (file: File) => {
+  const handleAlbumUpload = async (files: File[]) => {
     setAlbumUploading(true);
+    const novos: ArquivoAlbum[] = [];
     try {
-      const compressed = await comprimirImagem(file);
-      const form = new FormData();
-      form.append('file', compressed);
       const { data: { session } } = await supabase.auth.getSession();
       const headers: HeadersInit = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
-      const res = await fetch('/api/v2/upload/criativo', { method: 'POST', body: form, headers });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? 'Erro no upload');
-      const tipo: 'image' | 'video' = (json.kind === 'video') ? 'video' : 'image';
-      const novoArquivo: ArquivoAlbum = { url: json.url, tipo, nome: file.name };
-      set({ arquivos: [...(bloco.conteudo.arquivos ?? []), novoArquivo] });
-    } catch (e) {
-      console.error('[ALBUM_UPLOAD]', e);
+      for (const file of files) {
+        try {
+          const compressed = await comprimirImagem(file);
+          const form = new FormData();
+          form.append('file', compressed);
+          const res = await fetch('/api/v2/upload/criativo', { method: 'POST', body: form, headers });
+          const json = await res.json();
+          if (!res.ok) continue;
+          const tipo: 'image' | 'video' = json.kind === 'video' ? 'video' : 'image';
+          novos.push({ url: json.url, tipo, nome: file.name });
+        } catch {
+          // skip arquivo com erro, continua os próximos
+        }
+      }
+      if (novos.length > 0) {
+        set({ arquivos: [...(bloco.conteudo.arquivos ?? []), ...novos] });
+      }
     } finally {
       setAlbumUploading(false);
     }
@@ -444,12 +451,16 @@ function BlocoEditor({
           <input
             ref={albumFileRef}
             type="file"
+            multiple
             accept={acceptMap.album}
             className="hidden"
             onChange={async e => {
-              const file = e.target.files?.[0];
-              if (file) await handleAlbumUpload(file);
+              const selecionados = Array.from(e.target.files ?? []);
               e.target.value = '';
+              const limite = 10 - (bloco.conteudo.arquivos?.length ?? 0);
+              if (selecionados.length > 0 && limite > 0) {
+                await handleAlbumUpload(selecionados.slice(0, limite));
+              }
             }}
           />
 
