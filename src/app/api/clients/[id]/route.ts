@@ -137,22 +137,25 @@ export async function GET(
 
     /** Normaliza um item vindo de metadata.itens (FacilZap JSON) */
     const normalizeMetaItem = (item: any) => {
-      const qty  = Number(item.quantidade ?? item.quantity ?? 1);
-      // preco_unitario e valor são AMBOS o preço unitário no JSON do sync
-      const unit = Number(item.preco_unitario ?? item.valor ?? item.price ?? 0);
-      // total_price = unitário × quantidade (não usar item.valor como total pois é unitário)
-      const tot  = Number(item.total_price ?? item.subtotal ?? (unit * qty));
+      const qty  = Math.max(1, Number(item.quantidade ?? item.quantity ?? 1));
+      // Tentar extrair preço unitário de vários campos (FacilZap varia por versão da API)
+      const parseP = (v: any) => { const n = parseFloat(String(v || '0').replace(',', '.')); return isNaN(n) ? 0 : n; };
+      const unit = parseP(item.preco_unitario) || parseP(item.valor_unitario) || parseP(item.preco) || parseP(item.price) || parseP(item.valor) || 0;
+      // Total: tenta campo direto, senão calcula (mas se unit=0 e temos total, derivar unitário)
+      const tot  = parseP(item.total_price) || parseP(item.subtotal) || parseP(item.preco_total) || (unit * qty);
+      const finalUnit = unit > 0 ? unit : (tot > 0 && qty > 0 ? tot / qty : 0);
+      const finalTot  = tot > 0 ? tot : finalUnit * qty;
       return {
         product_name:   item.nome ?? item.name ?? item.product_name ?? 'Produto',
         nome:           item.nome ?? item.name ?? item.product_name ?? 'Produto',
         product_sku:    item.sku ?? item.product_sku ?? null,
         quantity:       qty,
         quantidade:     qty,
-        price:          unit,
-        unit_price:     unit,
-        preco_unitario: unit,
-        total_price:    tot,
-        valor:          tot,
+        price:          finalUnit,
+        unit_price:     finalUnit,
+        preco_unitario: finalUnit,
+        total_price:    finalTot,
+        valor:          finalTot,
         variacao:       item.variacao ?? null,
         image_url:      resolveItemImage(item),
         metadata:       null,

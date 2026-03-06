@@ -259,7 +259,7 @@ export function QuickMessagesSidebar({
   }, [qc]);
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="w-[360px] shrink-0 flex flex-col h-full bg-white border-l border-gray-200 overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-linear-to-r from-crm-primary to-crm-primary/80 shrink-0">
         <div className="flex items-center gap-2">
