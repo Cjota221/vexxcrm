@@ -19,7 +19,13 @@ import { WhatsAppTextEditor, renderWhatsApp } from '@/components/campaigns/Whats
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
-type TipoBloco = 'imagem' | 'video' | 'audio' | 'texto' | 'cta' | 'copy_code';
+type TipoBloco = 'imagem' | 'video' | 'audio' | 'texto' | 'cta' | 'copy_code' | 'album';
+
+interface ArquivoAlbum {
+  url: string;
+  tipo: 'image' | 'video';
+  nome?: string;
+}
 type ModoDestinatario = 'inteligencia' | 'toda_base' | 'manual' | 'grupos' | 'planilha';
 
 interface Bloco {
@@ -37,6 +43,9 @@ interface Bloco {
     // copy_code
     copy_code?: string;        // código que será copiado pelo cliente
     copy_code_footer?: string; // rodapé opcional
+    // album
+    arquivos?: ArquivoAlbum[];
+    legenda?: string;
   };
 }
 
@@ -126,6 +135,8 @@ function BlocoEditor({
   onUpload: (file: File, blocoId: string) => Promise<void>;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const albumFileRef = useRef<HTMLInputElement>(null);
+  const [albumUploading, setAlbumUploading] = useState(false);
 
   const set = (partial: Partial<Bloco['conteudo']>) =>
     onChange({ ...bloco, conteudo: { ...bloco.conteudo, ...partial } });
@@ -139,6 +150,7 @@ function BlocoEditor({
     texto:  '',
     cta:    '',
     copy_code: '',
+    album:  'image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm',
   };
 
   const metaMap = {
@@ -148,6 +160,28 @@ function BlocoEditor({
     texto:     { icon: <Type size={14} className="text-green-600" />,      label: 'Texto',          hint: ''                                                 },
     cta:       { icon: <Link2 size={14} className="text-purple-600" />,    label: 'Botão CTA',      hint: ''                                                 },
     copy_code: { icon: <Copy size={14} className="text-amber-600" />,      label: 'Botão Copiar',   hint: ''                                                 },
+    album:     { icon: <ImageIcon size={14} className="text-pink-500" />,  label: 'Álbum de Mídia', hint: 'Adicione fotos e vídeos para enviar como álbum'   },
+  };
+
+  const handleAlbumUpload = async (file: File) => {
+    setAlbumUploading(true);
+    try {
+      const compressed = await comprimirImagem(file);
+      const form = new FormData();
+      form.append('file', compressed);
+      const { data: { session } } = await supabase.auth.getSession();
+      const headers: HeadersInit = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+      const res = await fetch('/api/v2/upload/criativo', { method: 'POST', body: form, headers });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? 'Erro no upload');
+      const tipo: 'image' | 'video' = (json.kind === 'video') ? 'video' : 'image';
+      const novoArquivo: ArquivoAlbum = { url: json.url, tipo, nome: file.name };
+      set({ arquivos: [...(bloco.conteudo.arquivos ?? []), novoArquivo] });
+    } catch (e) {
+      console.error('[ALBUM_UPLOAD]', e);
+    } finally {
+      setAlbumUploading(false);
+    }
   };
 
   const meta = metaMap[bloco.tipo];
@@ -354,6 +388,81 @@ function BlocoEditor({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Álbum de Mídia ── */}
+      {bloco.tipo === 'album' && (
+        <div className="space-y-3">
+          <p className="text-xs text-txt-muted">Até 10 fotos/vídeos — legenda enviada apenas com a última mídia</p>
+
+          {/* Grid de arquivos já carregados */}
+          {(bloco.conteudo.arquivos ?? []).length > 0 && (
+            <div className="grid grid-cols-3 gap-2">
+              {(bloco.conteudo.arquivos ?? []).map((arq, idx) => (
+                <div key={idx} className="relative group rounded-lg overflow-hidden bg-surface-50 border border-surface-200 aspect-square">
+                  {arq.tipo === 'image' ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={arq.url} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <video src={arq.url} className="w-full h-full object-cover" />
+                  )}
+                  <button
+                    onClick={() => set({ arquivos: (bloco.conteudo.arquivos ?? []).filter((_, i) => i !== idx) })}
+                    className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+              {/* Botão adicionar mais (máx 10) */}
+              {(bloco.conteudo.arquivos ?? []).length < 10 && (
+                <button
+                  onClick={() => albumFileRef.current?.click()}
+                  disabled={albumUploading}
+                  className="aspect-square border-2 border-dashed border-surface-300 rounded-lg flex flex-col items-center justify-center gap-1 text-txt-muted hover:border-crm-primary hover:text-crm-primary transition-colors disabled:opacity-60"
+                >
+                  {albumUploading ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+                  <span className="text-xs">{albumUploading ? '...' : 'Adicionar'}</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Botão inicial quando sem arquivos */}
+          {(bloco.conteudo.arquivos ?? []).length === 0 && (
+            <button
+              onClick={() => albumFileRef.current?.click()}
+              disabled={albumUploading}
+              className="w-full border-2 border-dashed border-surface-300 rounded-xl py-8 flex flex-col items-center gap-2 text-txt-secondary hover:border-crm-primary hover:text-crm-primary transition-colors disabled:opacity-60"
+            >
+              {albumUploading ? <Loader2 size={20} className="animate-spin" /> : <ImageIcon size={20} />}
+              <span className="text-sm">{albumUploading ? 'Enviando...' : 'Clique para adicionar fotos/vídeos'}</span>
+            </button>
+          )}
+
+          <input
+            ref={albumFileRef}
+            type="file"
+            accept={acceptMap.album}
+            className="hidden"
+            onChange={async e => {
+              const file = e.target.files?.[0];
+              if (file) await handleAlbumUpload(file);
+              e.target.value = '';
+            }}
+          />
+
+          {/* Legenda única do álbum */}
+          <WhatsAppTextEditor
+            value={bloco.conteudo.legenda ?? ''}
+            onChange={val => set({ legenda: val })}
+            label="Legenda (opcional — enviada com a última mídia)"
+            placeholder="Digite a legenda do álbum..."
+            rows={3}
+            variables={VARIAVEIS_DISPONIVEIS}
+            showPreview={false}
+          />
         </div>
       )}
     </div>
@@ -1867,6 +1976,7 @@ function NovaCampanhaInner() {
                     { tipo: 'imagem' as TipoBloco, icon: <ImageIcon size={12} />, label: 'Imagem' },
                     { tipo: 'video' as TipoBloco, icon: <Video size={12} />, label: 'Vídeo' },
                     { tipo: 'audio' as TipoBloco, icon: <Mic size={12} />, label: 'Áudio' },
+                    { tipo: 'album' as TipoBloco, icon: <ImageIcon size={12} className="text-pink-500" />, label: 'Álbum' },
                     { tipo: 'texto' as TipoBloco, icon: <Type size={12} />, label: 'Texto' },
                     { tipo: 'cta' as TipoBloco, icon: <Link2 size={12} />, label: 'CTA' },
                     { tipo: 'copy_code' as TipoBloco, icon: <Copy size={12} />, label: 'Copiar Código' },

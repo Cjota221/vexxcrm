@@ -10,6 +10,12 @@ import { PhoneNormalizer } from '@/lib/phone-normalizer';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
+export interface ArquivoAlbum {
+  url: string;
+  tipo: 'image' | 'video';
+  nome?: string;
+}
+
 export interface BlocoConteudo {
   url?: string;
   storage_path?: string;
@@ -22,12 +28,15 @@ export interface BlocoConteudo {
   // copy_code
   copy_code?: string;   // Código que será copiado pelo cliente
   copy_code_footer?: string; // Rodapé opcional da mensagem
+  // album
+  arquivos?: ArquivoAlbum[];  // lista de mídias do álbum
+  legenda?: string;            // caption única — vai apenas no último arquivo
 }
 
 export interface Bloco {
   id: string;
   ordem: number;
-  tipo: 'imagem' | 'video' | 'audio' | 'texto' | 'cta' | 'copy_code';
+  tipo: 'imagem' | 'video' | 'audio' | 'texto' | 'cta' | 'copy_code' | 'album';
   conteudo: BlocoConteudo;
 }
 
@@ -193,6 +202,18 @@ export function resolverBlocos(blocos: Bloco[], contato: ContatoJob): Bloco[] {
         },
       };
     }
+    // Álbum: resolve variáveis na legenda (caption do grupo)
+    if (bloco.tipo === 'album') {
+      return {
+        ...bloco,
+        conteudo: {
+          ...bloco.conteudo,
+          legenda: bloco.conteudo.legenda
+            ? resolverVariaveis(bloco.conteudo.legenda, contato)
+            : undefined,
+        },
+      };
+    }
     return {
       ...bloco,
       conteudo: {
@@ -348,6 +369,22 @@ async function enviarBlocoViaWhatsApp(
             code,
             bloco.conteudo.copy_code_footer,
           );
+        }
+      }
+      break;
+    }
+
+    case 'album': {
+      const arquivos = bloco.conteudo.arquivos;
+      if (arquivos && arquivos.length > 0) {
+        for (let i = 0; i < arquivos.length; i++) {
+          const arquivo = arquivos[i];
+          const isLast = i === arquivos.length - 1;
+          const caption = isLast ? bloco.conteudo.legenda : undefined;
+          await sendMediaMessage(config, telefone, arquivo.url, caption, arquivo.tipo);
+          if (!isLast) {
+            await sleep(300); // 300ms entre arquivos do álbum
+          }
         }
       }
       break;

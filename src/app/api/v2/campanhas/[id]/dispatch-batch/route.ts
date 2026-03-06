@@ -458,6 +458,21 @@ async function enviarBlocos(telefone: string, blocos: Bloco[], tenantId: string)
         }
         break;
       }
+      case 'album': {
+        const arquivos = bloco.conteudo.arquivos;
+        if (arquivos && arquivos.length > 0) {
+          for (let i = 0; i < arquivos.length; i++) {
+            const arquivo = arquivos[i];
+            const isLast = i === arquivos.length - 1;
+            const caption = isLast ? bloco.conteudo.legenda : undefined;
+            const id = await sendMediaMessage(config, telefone, arquivo.url, caption, arquivo.tipo);
+            if (id) messageIds.push(id);
+            if (!primeiraMediaUrl) { primeiraMediaUrl = arquivo.url; primeiroTipo = arquivo.tipo; }
+            if (!isLast) await sleep(300);
+          }
+        }
+        break;
+      }
     }
   }
 
