@@ -228,13 +228,13 @@ export async function GET(
     // Fallback 1: buscar outros clientes com o mesmo telefone (duplicatas de importação)
     // BUG FIX: antes filtrava o próprio client.id, deixando clientIds vazio quando não há duplicatas
     if (orders.length === 0) {
-      const phone = client.phone_canonical || client.phone_normalized;
+      const phone = client.phone_normalized || client.phone_canonical;
       if (phone) {
         const { data: clientsWithSamePhone } = await supabase
           .from('clients')
           .select('id')
           .eq('tenant_id', tenantId)
-          .or(`phone_canonical.eq.${phone},phone_normalized.eq.${phone}`);
+          .eq('phone_normalized', phone);
 
         if (clientsWithSamePhone && clientsWithSamePhone.length > 0) {
           // Incluir TODOS os ids (incluindo o próprio client.id) — deduplicar com Set

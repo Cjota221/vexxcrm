@@ -48,9 +48,9 @@ export async function POST(request: NextRequest) {
 
     // ─── SYNC RÁPIDO: apenas página 1 de cada (dados mais recentes) ───
 
-    // 1. PRODUTOS (página 1 — apenas 30 para ser rápido)
+    // 1. PRODUTOS (página 1 — 100 itens para cobrir lojas com mais produtos)
     try {
-      const { products } = await fetchProducts(facilzapConfig, 1, 30);
+      const { products } = await fetchProducts(facilzapConfig, 1, 100);
       if (products.length > 0) {
         const data = (products as any[]).map((p: any) => {
           let stock = parseInt(String(p.stock ?? 0), 10);
@@ -90,9 +90,9 @@ export async function POST(request: NextRequest) {
       results.errors.push('Produtos: ' + e.message);
     }
 
-    // 2. CLIENTES (página 1 — apenas 30 para ser rápido)
+    // 2. CLIENTES (página 1 — 100 itens para cobrir mais clientes recentes)
     try {
-      const { clients } = await fetchClients(facilzapConfig, 1, 30);
+      const { clients } = await fetchClients(facilzapConfig, 1, 100);
       if (clients.length > 0) {
         const mapped = clients.map((c: any) => {
           const ph = (c.whatsapp_e164 || c.whatsapp || c.telefone || c.celular || '').replace(/\D/g, '');
@@ -152,7 +152,54 @@ export async function POST(request: NextRequest) {
       const { orders } = await fetchOrders(facilzapConfig, 1, 50, { data_inicial: dis, data_final: df });
       console.log(`[AutoSync] Recebidos ${orders.length} pedidos da API`);
       if (orders.length > 0) {
-        // Buscar clientes existentes para linkagem
+        // ─── AUTO-CRIAR CLIENTES dos pedidos (CRÍTICO: resolve órfãos de clientes antigos) ───
+        // Extrai dados de clientes dos pedidos e faz upsert ANTES de linkar pedidos
+        const clientesFromOrders: any[] = [];
+        for (const o of orders as any[]) {
+          const cliente = o.cliente;
+          if (cliente && (cliente.whatsapp_e164 || cliente.whatsapp || cliente.telefone)) {
+            clientesFromOrders.push(cliente);
+          }
+        }
+        if (clientesFromOrders.length > 0) {
+          const seenPhones = new Set<string>();
+          const clientesParaUpsert = clientesFromOrders.map((c: any) => {
+            const ph = (c.whatsapp_e164 || c.whatsapp || c.telefone || '').replace(/\D/g, '');
+            if (!ph || ph.length < 8) return null;
+            const phoneCanonical = PhoneNormalizer.canonical(ph);
+            const phoneDisplay = PhoneNormalizer.normalize(ph);
+            if (!phoneCanonical || seenPhones.has(phoneCanonical)) return null;
+            seenPhones.add(phoneCanonical);
+            return {
+              tenant_id: tenantId,
+              phone: phoneDisplay,
+              phone_normalized: phoneCanonical,
+              name: c.nome || c.name || 'Sem nome',
+              email: c.email || null,
+              source: 'facilzap',
+              status: 'active',
+              custom_fields: {
+                facilzap_id: c.id || null,
+                cpf_cnpj: c.cpf_cnpj || null,
+                source: 'auto-sync-from-order',
+              },
+            };
+          }).filter(Boolean);
+
+          if (clientesParaUpsert.length > 0) {
+            const { error: cErr } = await supabaseAdmin
+              .from('clients')
+              .upsert(clientesParaUpsert as any, { onConflict: 'tenant_id,phone_normalized' });
+            if (cErr) {
+              console.warn(`[AutoSync] Aviso ao criar clientes de pedidos: ${cErr.message}`);
+            } else {
+              console.log(`[AutoSync] Auto-criados/atualizados ${clientesParaUpsert.length} clientes a partir de pedidos`);
+              results.clients += clientesParaUpsert.length;
+            }
+          }
+        }
+
+        // Buscar clientes existentes para linkagem (inclui os recém-criados acima)
         const { data: ec } = await supabaseAdmin.from('clients').select('id, phone_normalized, phone, name, email, custom_fields').eq('tenant_id', tenantId);
         const cm = new Map<string, string>();
         const fzIdMap = new Map<string, string>();
