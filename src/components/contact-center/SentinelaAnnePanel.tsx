@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Brain,
   AlertTriangle,
@@ -19,6 +20,7 @@ import {
   ThumbsDown,
   MessageSquare,
   Gift,
+  Megaphone,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -53,6 +55,17 @@ const ACTION_ICONS: Record<string, typeof Brain> = {
   create_campaign: Sparkles,
   add_tag: Star,
   schedule_followup: Calendar,
+};
+
+const CAMPAIGN_LABELS: Record<string, string> = {
+  churn_risk: 'Recuperação de Clientes',
+  upsell_opportunity: 'Upsell',
+  vip_care: 'Cuidado VIP',
+  win_back: 'Win-Back',
+  reactivation: 'Reativação',
+  new_customer_nurture: 'Nutrir Novo Cliente',
+  cross_sell: 'Cross-Sell',
+  seasonal_opportunity: 'Campanha Sazonal',
 };
 
 /**
@@ -286,6 +299,40 @@ function ExpandedContent({
   onFeedback: (id: string, score: number) => void;
   isProcessing: boolean;
 }) {
+  const router = useRouter();
+  const [loadingCampaign, setLoadingCampaign] = useState(false);
+
+  const handleDispararCampanha = async () => {
+    setLoadingCampaign(true);
+    try {
+      const res = await fetch(`/api/v2/sentinela/analysis-clients/${analysis.id}`);
+      const data = await res.json();
+
+      const params = new URLSearchParams({
+        origem: 'sentinela',
+        insight_type: analysis.type,
+        insight_label: data.label || analysis.title,
+      });
+
+      sessionStorage.setItem(
+        'sentinela_campaign_clients',
+        JSON.stringify({
+          clients: data.clients,
+          total: data.total,
+          label: data.label,
+          insight_type: analysis.type,
+          analysis_id: analysis.id,
+        })
+      );
+
+      router.push(`/campanhas/nova?${params.toString()}`);
+    } catch (err) {
+      console.error('Erro ao preparar campanha:', err);
+    } finally {
+      setLoadingCampaign(false);
+    }
+  };
+
   const actionLabel =
     analysis.recommended_action === 'generate_coupon'
       ? 'Gerar cupom personalizado'
@@ -338,6 +385,19 @@ function ExpandedContent({
             Rejeitar
           </button>
         </div>
+      )}
+
+      {(analysis.status === 'pending' || analysis.status === 'approved') && (
+        <button
+          onClick={handleDispararCampanha}
+          disabled={loadingCampaign || isProcessing}
+          className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg bg-crm-primary text-white text-xs font-medium hover:bg-crm-primary/90 transition-colors disabled:opacity-50"
+        >
+          {loadingCampaign
+            ? <><Loader2 size={13} className="animate-spin" /> Preparando base...</>
+            : <><Megaphone size={13} /> Disparar Campanha ({CAMPAIGN_LABELS[analysis.type] ?? 'Engajamento'})</>
+          }
+        </button>
       )}
 
       {(analysis.status === 'executed' || analysis.status === 'approved') &&

@@ -7,7 +7,7 @@ import {
   Image as ImageIcon, Type, Link2, ChevronDown, ChevronUp,
   Plus, Calendar, Users, Zap, Send, Loader2, AlertCircle,
   Search, Mic, Video, UsersRound, X, ChevronRight, Database, Filter, Copy,
-  FileSpreadsheet, CheckCircle2, AlertTriangle,
+  FileSpreadsheet, CheckCircle2, AlertTriangle, Brain,
 } from 'lucide-react';
 import Papa from 'papaparse';
 import { Card } from '@/components/ui/Card';
@@ -1508,6 +1508,12 @@ function NovaCampanhaInner() {
     percentual: number;
   } | null>(null);
   const [confirmaRisco, setConfirmaRisco] = useState(false);
+  const [origemSentinela, setOrigemSentinela] = useState<{
+    total: number;
+    label: string;
+    insight_type: string;
+    analysis_id: string;
+  } | null>(null);
 
   // ━━━ Estado para lote/offset do segmento ━━━
   // Controla "a partir de qual cliente" o próximo lote começa (ordenado por LTV desc)
@@ -1532,6 +1538,39 @@ function NovaCampanhaInner() {
   useEffect(() => {
     if (origemParam === 'inteligencia') setModoDestinatario('inteligencia');
   }, [origemParam]);
+
+  // Lê dados do Sentinela salvos no sessionStorage ao vir da Central
+  useEffect(() => {
+    if (origemParam !== 'sentinela') return;
+    try {
+      const raw = sessionStorage.getItem('sentinela_campaign_clients');
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as {
+        clients: Array<{ id: string; name: string; phone: string; tier: string | null; ltv: number }>;
+        total: number;
+        label: string;
+        insight_type: string;
+        analysis_id: string;
+      };
+      setOrigemSentinela({
+        total: parsed.total,
+        label: parsed.label,
+        insight_type: parsed.insight_type,
+        analysis_id: parsed.analysis_id,
+      });
+      setContatos(parsed.clients.map(c => ({
+        id: c.id,
+        telefone: c.phone,
+        nome: c.name,
+        valor_ltv: c.ltv,
+      })));
+      setModoDestinatario('manual');
+      sessionStorage.removeItem('sentinela_campaign_clients');
+    } catch (e) {
+      console.error('Erro ao ler dados do Sentinela:', e);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Carrega distribuição RFM ao entrar em modo inteligência
   useEffect(() => {
@@ -1831,6 +1870,19 @@ function NovaCampanhaInner() {
       <div className="overflow-x-auto pb-1">
         <StepIndicator current={step} />
       </div>
+
+      {/* Banner Sentinela */}
+      {origemSentinela && (
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-start gap-2">
+          <Brain size={16} className="text-blue-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-semibold text-blue-800">Campanha gerada pela Sentinela</p>
+            <p className="text-xs text-blue-600">
+              Base: <strong>{origemSentinela.label}</strong> · {origemSentinela.total} destinatários pré-selecionados
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ── Step 0: Destinatários ── */}
       {step === 0 && (
