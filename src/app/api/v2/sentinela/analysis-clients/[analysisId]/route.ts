@@ -23,13 +23,13 @@ const ANALYSIS_LABELS: Record<string, string> = {
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { analysisId: string } }
+  { params }: { params: Promise<{ analysisId: string }> }
 ) {
   try {
     const { profile } = await getTenantFromRequest(request);
     const supabase = createServerSupabaseClient();
     const tenantId = profile.tenant_id;
-    const { analysisId } = params;
+    const { analysisId } = await params;
 
     // Buscar a análise para obter o tipo
     const { data: analysis, error: analysisError } = await supabase
