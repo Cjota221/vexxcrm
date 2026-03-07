@@ -11,6 +11,7 @@ import { CatalogoDrawer } from '@/components/contact-center/CatalogoDrawer';
 import { TransferDialog } from '@/components/contact-center/TransferDialog';
 import { EmbeddedCampaignPanel } from '@/components/contact-center/EmbeddedCampaignPanel';
 import { StatusPanel } from '@/components/contact-center/StatusPanel';
+import { SentinelaAnnePanel } from '@/components/contact-center/SentinelaAnnePanel';
 import { useRealtimeMessages } from '@/hooks/useRealtimeMessages';
 import { useWhatsAppConnection } from '@/hooks/useWhatsApp';
 import { useChatsStore } from '@/store/chats';
@@ -31,6 +32,7 @@ import {
   Eye,
   Bot,
   Zap,
+  Shield,
 } from 'lucide-react';
 
 /* Tipo da view mobile */
@@ -99,10 +101,10 @@ export default function CentralAtendimentoPage() {
   const [campaignOpen, setCampaignOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [anneEnabled, setAnneEnabled] = useState(true);
-  // Desktop: qual aba está aberta no sidebar direito (Cérebro, Mensagens Rápidas, ou nenhuma)
-  const [rightSidebarTab, setRightSidebarTab] = useState<'brain' | 'quick-messages' | null>('brain');
-  // Painel lateral direito mobile: null = fechado, 'brain', 'anne', ou 'quick-messages'
-  const [mobileSidePanel, setMobileSidePanel] = useState<'brain' | 'anne' | 'quick-messages' | null>(null);
+  // Desktop: qual aba está aberta no sidebar direito (Cérebro, Mensagens Rápidas, Sentinela, ou nenhuma)
+  const [rightSidebarTab, setRightSidebarTab] = useState<'brain' | 'quick-messages' | 'sentinela' | null>('brain');
+  // Painel lateral direito mobile: null = fechado, 'brain', 'anne', 'quick-messages' ou 'sentinela'
+  const [mobileSidePanel, setMobileSidePanel] = useState<'brain' | 'anne' | 'quick-messages' | 'sentinela' | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
 
@@ -193,6 +195,7 @@ export default function CentralAtendimentoPage() {
         <div className="flex items-center gap-2 w-64 justify-end shrink-0">
           <NavBtn icon={<Brain size={15} />} label="Cérebro" active={rightSidebarTab === 'brain'} onClick={() => setRightSidebarTab(v => v === 'brain' ? null : 'brain')} />
           <NavBtn icon={<Zap size={15} />} label="Rápidas" active={rightSidebarTab === 'quick-messages'} onClick={() => setRightSidebarTab(v => v === 'quick-messages' ? null : 'quick-messages')} />
+          <NavBtn icon={<Shield size={15} />} label="Sentinela" active={rightSidebarTab === 'sentinela'} onClick={() => setRightSidebarTab(v => v === 'sentinela' ? null : 'sentinela')} />
 
           <div className="w-px h-5 bg-gray-200 mx-1" />
 
@@ -258,17 +261,18 @@ export default function CentralAtendimentoPage() {
           />
         </div>
 
-        {/* ── COLUNA 3: Sidebar Direito (Cérebro ou Mensagens Rápidas) — somente desktop ── */}
-        {selectedChatId && (
+        {/* ── COLUNA 3: Sidebar Direito — somente desktop ── */}
+        {(selectedChatId || rightSidebarTab === 'sentinela') && rightSidebarTab && (
           <div className="hidden md:flex">
-            {rightSidebarTab === 'brain' && <ClientBrainSidebar onClose={() => setRightSidebarTab(null)} />}
-            {rightSidebarTab === 'quick-messages' && (
+            {rightSidebarTab === 'brain' && selectedChatId && <ClientBrainSidebar onClose={() => setRightSidebarTab(null)} />}
+            {rightSidebarTab === 'quick-messages' && selectedChatId && (
               <QuickMessagesSidebar
                 recipientPhone=""
                 clientId={selectedChatId}
                 onClose={() => setRightSidebarTab(null)}
               />
             )}
+            {rightSidebarTab === 'sentinela' && <SentinelaAnnePanel />}
           </div>
         )}
       </div>
@@ -317,7 +321,7 @@ export default function CentralAtendimentoPage() {
             <button
               onClick={() => setMobileSidePanel(p => p === 'anne' ? null : 'anne')}
               className={cn(
-                'flex flex-col items-center justify-center gap-1 px-2.5 py-3 transition-colors',
+                'flex flex-col items-center justify-center gap-1 px-2.5 py-3 transition-colors border-b border-gray-100',
                 mobileSidePanel === 'anne'
                   ? 'bg-crm-primary text-white'
                   : 'bg-white/95 text-crm-primary',
@@ -327,6 +331,22 @@ export default function CentralAtendimentoPage() {
               <Bot size={18} />
               <span className="text-[9px] font-bold leading-none tracking-wide" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
                 Anne
+              </span>
+            </button>
+            {/* Botão Sentinela */}
+            <button
+              onClick={() => setMobileSidePanel(p => p === 'sentinela' ? null : 'sentinela')}
+              className={cn(
+                'flex flex-col items-center justify-center gap-1 px-2.5 py-3 transition-colors',
+                mobileSidePanel === 'sentinela'
+                  ? 'bg-crm-primary text-white'
+                  : 'bg-white/95 text-crm-primary',
+              )}
+              title="Sentinela"
+            >
+              <Shield size={18} />
+              <span className="text-[9px] font-bold leading-none tracking-wide" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
+                Sentinela
               </span>
             </button>
           </div>
@@ -348,6 +368,8 @@ export default function CentralAtendimentoPage() {
                       ? <Brain size={16} className="text-white" />
                       : mobileSidePanel === 'quick-messages'
                       ? <Zap size={16} className="text-white" />
+                      : mobileSidePanel === 'sentinela'
+                      ? <Shield size={16} className="text-white" />
                       : <Bot size={16} className="text-white" />
                     }
                     <span className="text-sm font-bold text-white">
@@ -355,6 +377,8 @@ export default function CentralAtendimentoPage() {
                         ? 'Cérebro do Cliente'
                         : mobileSidePanel === 'quick-messages'
                         ? 'Respostas Rápidas'
+                        : mobileSidePanel === 'sentinela'
+                        ? 'Sentinela Anne'
                         : 'Anne — IA'}
                     </span>
                   </div>
@@ -371,8 +395,42 @@ export default function CentralAtendimentoPage() {
                     ? <ClientBrainSidebar onClose={() => setMobileSidePanel(null)} />
                     : mobileSidePanel === 'quick-messages'
                     ? <QuickMessagesSidebar recipientPhone="" clientId={selectedChatId} onClose={() => setMobileSidePanel(null)} />
+                    : mobileSidePanel === 'sentinela'
+                    ? <SentinelaAnnePanel />
                     : <AnnePanel clientId={selectedChatId} />
                   }
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ━━━ SENTINELA MOBILE — botão flutuante na lista de conversas ━━━ */}
+      {mobileView === 'list' && (
+        <div className="md:hidden">
+          <button
+            onClick={() => setMobileSidePanel(p => p === 'sentinela' ? null : 'sentinela')}
+            className="fixed bottom-6 right-4 z-40 flex items-center gap-2 px-4 py-2.5 bg-crm-primary text-white rounded-full shadow-lg text-sm font-semibold"
+          >
+            <Shield size={16} />
+            Sentinela
+          </button>
+          {mobileSidePanel === 'sentinela' && (
+            <>
+              <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm" onClick={() => setMobileSidePanel(null)} />
+              <div className="fixed top-0 right-0 bottom-0 z-51 bg-white w-[88vw] max-w-sm shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-crm-primary shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Shield size={16} className="text-white" />
+                    <span className="text-sm font-bold text-white">Sentinela Anne</span>
+                  </div>
+                  <button onClick={() => setMobileSidePanel(null)} className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-white hover:bg-white/30">
+                    <X size={15} />
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto overscroll-contain">
+                  <SentinelaAnnePanel />
                 </div>
               </div>
             </>
