@@ -79,18 +79,17 @@ export async function POST(request: NextRequest, { params }: { params: Params })
       }, { status: 400 });
     }
 
-    // ━━━ REGRA DA CAROL: Verificar trava de volume 24h ━━━
+    // ━━━ REGRA DA CAROL: Volume 24h (limite virtual, sem restrição prática) ━━━
+    // Apenas logging — não bloqueia mais
     try {
       const { data: enviadosHoje } = await supabase.rpc('get_daily_send_count', {
         p_tenant_id: profile.tenant_id,
       });
-      if ((enviadosHoje ?? 0) >= REGRA_DA_CAROL.MAX_ENVIOS_24H) {
-        return NextResponse.json({
-          error: `Limite diário de ${REGRA_DA_CAROL.MAX_ENVIOS_24H} envios atingido. Aguarde 24h para continuar.`,
-          enviados_hoje: enviadosHoje,
-          limite: REGRA_DA_CAROL.MAX_ENVIOS_24H,
-          bloqueado: true,
-        }, { status: 429 });
+      if ((enviadosHoje ?? 0) > 1000) {
+        console.warn(
+          `[DISPATCH_BATCH] ⚠️  Volume alto hoje: ${enviadosHoje} envios. ` +
+          `Respeite os delays (15s) e cooloffs (60s a cada 10) para evitar ban.`
+        );
       }
     } catch {
       // Se a RPC não existir ainda, continua normalmente

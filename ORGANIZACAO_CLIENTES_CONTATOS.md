@@ -242,9 +242,9 @@ Todas as campanhas e disparos rápidos respeitam os seguintes limites **hardcode
 | Delay máximo entre mensagens | **45 segundos** |
 | Pausa a cada X envios | **A cada 10 mensagens** |
 | Duração da pausa | **60 segundos** |
-| Recomendação de volume diário | **Máximo 200 disparos/dia** |
+| Limite de volume diário | **Sem limite (use com cautela)** |
 
-> ⚠️ Ultrapassar esses limites aumenta drasticamente o risco de banimento do número pelo WhatsApp.
+> ⚠️ **AVISO CRÍTICO**: Embora sem limite de volume, ultrapassar os delays (15s entre mensagens + 60s de pausa a cada 10) aumenta drasticamente o risco de banimento do número pelo WhatsApp. Respeite SEMPRE os intervalos.
 
 ---
 

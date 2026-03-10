@@ -516,8 +516,8 @@ campaign_jobs (Supabase)
       ▼ (minutely via Netlify Scheduled Function)
 campaign-dispatcher.ts
       │
-      ├── L1: Verificar janela horária (8h–20h REGRA DA CAROL)
-      ├── L2: Verificar cota diária (MAX_ENVIOS_24H)
+      ├── L1: Sem restrição de janela horária (24/7)
+      ├── L2: Volume diário monitorado (sem bloqueio)
       ├── L3: Para cada contato:
       │    ├── resolverVariaveis() — injeta {{nome}}, {{cidade}}, etc.
       │    ├── gerarDelayHumanizado() — delay estatístico (Box-Muller)
@@ -535,23 +535,23 @@ const REGRA_CAROL_FLOOR = {
   DELAY_MIN_MS:        15_000,   // 15s mínimo entre contatos
   COOLOFF_A_CADA:      10,       // pausa obrigatória a cada 10 envios
   COOLOFF_DURACAO_MS:  60_000,   // 60s de pausa
-  MAX_ENVIOS_24H:      200,      // teto diário de envios
-  JANELA_INICIO:       8,        // início da janela de envio (8h)
-  JANELA_FIM:          20,       // fim da janela (20h)
+  MAX_ENVIOS_24H:      999_999,  // sem limite de volume (respeite os delays!)
+  JANELA_INICIO:       0,        // sem restrição de horário
+  JANELA_FIM:          24,       // sem restrição de horário
 };
 
 function aplicarRegraCarol(config: AntibanConfig): AntibanConfig {
-  // O usuário pode AUMENTAR os valores, nunca diminuir abaixo do floor
+  // O usuário não pode diminuir os delays CRÍTICOS (15s, 60s)
   return {
     delayMin: Math.max(config.delayMin, REGRA_CAROL_FLOOR.DELAY_MIN_MS),
     cooloffACada: Math.min(config.cooloffACada, REGRA_CAROL_FLOOR.COOLOFF_A_CADA),
-    maxEnvios24h: Math.min(config.maxEnvios24h, REGRA_CAROL_FLOOR.MAX_ENVIOS_24H),
+    cooloffDuracao: Math.max(config.cooloffDuracao, REGRA_CAROL_FLOOR.COOLOFF_DURACAO_MS),
     // ...
   };
 }
 ```
 
-**Propósito:** Proteger o número WhatsApp do tenant de banimento pelo Meta. A "Regra da Carol" é o diferencial de segurança do produto — nenhum usuário pode configurar valores mais agressivos que o floor.
+**Propósito:** Proteger o número WhatsApp do tenant de banimento pelo Meta. A "Regra da Carol" garante os **delays críticos invioláveis** (15s entre contatos + 60s de pausa). Respeite sempre esses intervalos independente do volume disparado.
 
 #### Delays Humanizados (Box-Muller)
 
@@ -737,7 +737,7 @@ A cada minuto, o motor de campanhas é acordado, processa a fila de envios pende
 | Recurso | Capacidade Atual | Gargalo |
 |---|---|---|
 | Mensagens/min por tenant | 60 (rate limit) | Rate limiter in-memory |
-| Envios campanha/dia por tenant | 200 (REGRA DA CAROL) | Hardcoded safety floor |
+| Envios campanha/dia por tenant | Sem limite (respeitar delays: 15s + 60s a cada 10) | Delays críticos enforçados |
 | Histórico de mensagens exibido | 10.000+ (virtualizado) | `@tanstack/react-virtual` |
 | Múltiplos tenants | Isolamento por RLS | Sem gargalo técnico |
 | Supabase Realtime | N conexões simultâneas | Limite do plano Supabase |

@@ -68,18 +68,19 @@ export interface ContatoJob {
  * 
  * • 15 segundos de intervalo FIXO entre contatos
  * • 60 segundos de pausa obrigatória a cada 10 envios
- * • Máximo 200 contatos por período de 24h (com alerta)
+ * ⚠️  Sem limite de volume diário (respeite os delays e cooloffs!)
  * • Janela horária: 24h (sem restrição)
  * 
- * Esses valores são o PISO de segurança. O usuário pode
- * aumentar (mais lento), mas NUNCA diminuir abaixo disso.
+ * ⚠️  AVISO CRÍTICO: Disparos em excesso SEM RESPEITAR os delays
+ * podem resultar em BAN do número WhatsApp pelo Meta.
+ * Respeite SEMPRE: 15s entre contatos + 60s a cada 10 envios.
  * ═══════════════════════════════════════════════════════════════
  */
 export const REGRA_DA_CAROL = {
   DELAY_MIN_MS: 15_000,            // 15s mínimo entre contatos
   COOLOFF_A_CADA: 10,               // pausa a cada 10 envios
   COOLOFF_DURACAO_MS: 60_000,       // 60s de pausa
-  MAX_ENVIOS_24H: 200,              // trava de volume diário
+  MAX_ENVIOS_24H: 999_999,          // limite virtual (sem restrição prática)
   JANELA_INICIO: 0,                 // início à meia-noite (sem limite)
   JANELA_FIM: 24,                   // fim no ciclo seguinte (sem limite)
 } as const;
