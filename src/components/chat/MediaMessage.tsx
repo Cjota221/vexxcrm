@@ -87,7 +87,6 @@ export function MediaMessage({
               alt={caption ?? 'Imagem'}
               onLoad={() => setLoaded(true)}
               onError={handleImgError}
-              loading="lazy"
               style={{
                 width: '100%',
                 maxHeight: 380,
