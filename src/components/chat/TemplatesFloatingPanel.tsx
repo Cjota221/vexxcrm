@@ -627,10 +627,8 @@ export function TemplatesFloatingPanel({
 
   return (
     <>
-      {/* Overlay escuro quando editor está aberto */}
-      {isEditorOpen && (
-        <div className="fixed inset-0 bg-black/30 z-40" onClick={closeEditor} />
-      )}
+      {/* Overlay removido: cobria toda a tela e bloqueava o histórico do chat.
+          O click-outside via useEffect já fecha o painel corretamente. */}
 
       <div
         ref={panelRef}
@@ -639,8 +637,8 @@ export function TemplatesFloatingPanel({
           isEditorOpen ? 'mx-0 rounded-none' : 'mx-2'
         )}
         style={{
-          height: isEditorOpen ? '85vh' : 'auto',
-          maxHeight: isEditorOpen ? '85vh' : '520px',
+          height: isEditorOpen ? '55vh' : 'auto',
+          maxHeight: isEditorOpen ? '55vh' : '380px',
         }}
       >
         {/* ── Vista: Editor (novo ou editar) ─────────────── */}

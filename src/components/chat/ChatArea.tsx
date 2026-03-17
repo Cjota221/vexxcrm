@@ -265,7 +265,7 @@ export function ChatArea({
   }
 
   return (
-    <div className="flex flex-1 flex-col h-full min-h-0">
+    <div className="flex flex-1 flex-col h-full min-h-0 overflow-x-hidden">
       {/* ━━━ HEADER MOBILE — WhatsApp style (md: hidden, usa header desktop) ━━━ */}
       <div className="md:hidden flex items-center h-14 px-2 bg-crm-primary gap-2 shrink-0">
         {/* Back button */}

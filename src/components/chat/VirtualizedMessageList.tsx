@@ -144,9 +144,9 @@ export function VirtualizedMessageList({
   return (
     <div
       ref={parentRef}
-      className="flex-1 overflow-y-auto wa-chat-bg wa-scrollbar px-4 py-3"
+      className="flex-1 overflow-y-auto overflow-x-hidden wa-chat-bg wa-scrollbar px-4 py-3"
       onScroll={handleScroll}
-      style={{ position: 'relative', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
+      style={{ position: 'relative', overscrollBehavior: 'contain' }}
     >
       {/* Spinner de carga de mensagens anteriores */}
       {isLoadingMore && (
@@ -161,6 +161,7 @@ export function VirtualizedMessageList({
           height: `${virtualizer.getTotalSize()}px`,
           width: '100%',
           position: 'relative',
+          overflow: 'hidden',
         }}
       >
         {virtualizer.getVirtualItems().map((virtualRow) => {
@@ -177,6 +178,7 @@ export function VirtualizedMessageList({
                 top: 0,
                 left: 0,
                 width: '100%',
+                maxWidth: '100%',
                 transform: `translateY(${virtualRow.start}px)`,
               }}
             >
