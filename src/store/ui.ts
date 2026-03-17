@@ -3,6 +3,8 @@ import { create } from 'zustand';
 interface UIState {
   /** Sidebar expandida ou colapsada */
   sidebarExpanded: boolean;
+  /** Sidebar aberta como drawer no mobile */
+  mobileSidebarOpen: boolean;
   /** CRM sidebar visível (no atendimento) */
   crmSidebarOpen: boolean;
   /** Modal ativa (null = nenhuma) */
@@ -15,6 +17,10 @@ interface UIState {
   /** Toggle sidebar */
   toggleSidebar: () => void;
   setSidebarExpanded: (expanded: boolean) => void;
+
+  /** Toggle sidebar drawer no mobile */
+  toggleMobileSidebar: () => void;
+  setMobileSidebarOpen: (open: boolean) => void;
 
   /** Toggle CRM sidebar */
   toggleCrmSidebar: () => void;
@@ -39,6 +45,7 @@ export interface Toast {
 
 export const useUIStore = create<UIState>()((set) => ({
   sidebarExpanded: true,
+  mobileSidebarOpen: false,
   crmSidebarOpen: true,
   activeModal: null,
   modalData: null,
@@ -49,6 +56,12 @@ export const useUIStore = create<UIState>()((set) => ({
 
   setSidebarExpanded: (expanded) =>
     set({ sidebarExpanded: expanded }),
+
+  toggleMobileSidebar: () =>
+    set((state) => ({ mobileSidebarOpen: !state.mobileSidebarOpen })),
+
+  setMobileSidebarOpen: (open) =>
+    set({ mobileSidebarOpen: open }),
 
   toggleCrmSidebar: () =>
     set((state) => ({ crmSidebarOpen: !state.crmSidebarOpen })),

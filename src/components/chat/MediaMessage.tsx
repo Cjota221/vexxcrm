@@ -59,19 +59,20 @@ export function MediaMessage({
   if (type === 'image') {
     return (
       <>
-        {/* Container sempre 300×max400 — NUNCA quebra o layout */}
+        {/* Container sempre 280×max380 — NUNCA quebra o layout */}
         <div
           className="relative rounded-xl overflow-hidden cursor-zoom-in group"
-          style={{ width: 280, maxHeight: 380 }}
+          style={{ width: 280, maxHeight: 380, minHeight: loaded || imgError ? undefined : 200 }}
           onClick={openLightbox}
           role="button"
           tabIndex={0}
           aria-label="Abrir imagem em tela cheia"
           onKeyDown={e => e.key === 'Enter' && openLightbox()}
         >
-          {/* Skeleton */}
+          {/* Skeleton overlay — fica por cima enquanto !loaded.
+              NÃO usar display:none no <img> pois impede onLoad em alguns browsers. */}
           {!loaded && !imgError && (
-            <div className="w-70 h-50 bg-gray-200 animate-pulse rounded-xl" />
+            <div className="absolute inset-0 bg-gray-200 animate-pulse rounded-xl z-10" />
           )}
 
           {imgError ? (
@@ -91,7 +92,7 @@ export function MediaMessage({
                 width: '100%',
                 maxHeight: 380,
                 objectFit: 'cover',
-                display: loaded ? 'block' : 'none',
+                // sem display:none — garante que onLoad dispara em todos os browsers
               }}
               className="rounded-xl transition-[filter] duration-150 group-hover:brightness-90"
             />

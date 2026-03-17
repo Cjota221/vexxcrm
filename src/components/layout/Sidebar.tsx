@@ -44,14 +44,30 @@ const NAV_ITEMS: NavItem[] = [
  */
 export function Sidebar() {
   const pathname = usePathname();
-  const { sidebarExpanded, toggleSidebar } = useUIStore();
+  const { sidebarExpanded, toggleSidebar, mobileSidebarOpen, setMobileSidebarOpen } = useUIStore();
+
+  // Fecha o drawer quando navega em telas mobile
+  const handleNavClick = () => setMobileSidebarOpen(false);
 
   return (
+    <>
+      {/* Backdrop mobile — visível apenas quando drawer aberto */}
+      {mobileSidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
+
     <aside
       className={cn(
-        'h-screen flex flex-col transition-all duration-300 relative shrink-0',
-        'bg-crm-primary',
-        sidebarExpanded ? 'w-65' : 'w-18'
+        'h-screen flex flex-col transition-all duration-300 bg-crm-primary',
+        // Mobile: drawer fixed da esquerda (fora do fluxo, não empurra conteúdo)
+        'fixed inset-y-0 left-0 z-50 w-72',
+        mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full',
+        // Desktop: posição estática no fluxo flex, largura dinâmica, sempre visível
+        'md:static md:z-auto md:translate-x-0 md:relative md:shrink-0',
+        sidebarExpanded ? 'md:w-65' : 'md:w-18',
       )}
     >
       {/* ─── TOPO: Logo ─── */}
@@ -96,6 +112,7 @@ export function Sidebar() {
                 <Link
                   key={item.href}
                   href={item.href}
+                  onClick={handleNavClick}
                   className={cn(
                     'flex items-center gap-3 px-3 py-4 rounded-xl text-[15px] font-semibold transition-all duration-200',
                     isActive
@@ -135,13 +152,14 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* ─── BOTÃO COLAPSAR ─── */}
+      {/* ─── BOTÃO COLAPSAR — apenas no desktop ─── */}
       <button
         onClick={toggleSidebar}
-        className="absolute -right-3 top-20 w-6 h-6 bg-crm-primary border border-white/20 rounded-full flex items-center justify-center shadow-sm hover:shadow-md transition-shadow text-white/70 hover:text-white z-10"
+        className="absolute -right-3 top-20 w-6 h-6 bg-crm-primary border border-white/20 rounded-full hidden md:flex items-center justify-center shadow-sm hover:shadow-md transition-shadow text-white/70 hover:text-white z-10"
       >
         {sidebarExpanded ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
       </button>
     </aside>
+    </>
   );
 }

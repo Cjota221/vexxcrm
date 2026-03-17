@@ -124,7 +124,7 @@ export function CRMSidebar() {
   ];
 
   return (
-    <aside className="w-80 bg-white border-l border-surface-200 flex flex-col h-full overflow-hidden">
+    <aside className="w-full md:w-80 bg-white border-l border-surface-200 flex flex-col h-full overflow-hidden">
       <div className="h-16 flex items-center justify-between px-4 border-b border-surface-200 shrink-0">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-semibold text-txt-primary">Painel CRM</h3>

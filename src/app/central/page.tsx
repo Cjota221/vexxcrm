@@ -53,14 +53,16 @@ function NavBtn({
       onClick={onClick}
       title={label}
       className={cn(
-        'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all select-none',
+        // Compacto em md–lg, espaçoso em lg+
+        'flex items-center gap-1.5 px-2.5 py-1.5 lg:px-4 lg:py-2 rounded-lg text-sm font-medium transition-all select-none shrink-0',
         active
           ? 'bg-crm-primary text-white shadow-sm'
           : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
       )}
     >
       {icon}
-      <span>{label}</span>
+      {/* Label oculta em md, visível em lg+ */}
+      <span className="hidden lg:inline">{label}</span>
     </button>
   );
 }
@@ -146,21 +148,23 @@ export default function CentralAtendimentoPage() {
       {/* ━━━ HEADER DESKTOP — oculto em mobile ━━━ */}
       <header className="hidden md:flex h-14 shrink-0 bg-white border-b border-gray-100 items-center px-5 z-20" style={{ boxShadow: '0 1px 0 #e5e7eb' }}>
 
-        {/* ZONA ESQUERDA — marca */}
-        <div className="flex items-center gap-3 w-64 shrink-0">
+        {/* ZONA ESQUERDA — marca (sem width fixo, não rouba espaço do centro) */}
+        <div className="flex items-center gap-2 shrink-0">
           <ConnectionDot />
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-crm-primary flex items-center justify-center shadow-sm">
+            <div className="w-8 h-8 rounded-xl bg-crm-primary flex items-center justify-center shadow-sm shrink-0">
               <span className="text-[11px] font-black text-white tracking-tight">VX</span>
             </div>
-            <span className="text-sm font-bold text-gray-900">Central de Atendimento</span>
+            {/* Título abreviado em md, completo em lg+ */}
+            <span className="text-sm font-bold text-gray-900 lg:hidden">Central</span>
+            <span className="text-sm font-bold text-gray-900 hidden lg:block">Central de Atendimento</span>
           </div>
         </div>
 
-        {/* ZONA CENTRAL — navegação principal */}
-        <nav className="flex items-center gap-1 flex-1 justify-center">
+        {/* ZONA CENTRAL — navegação principal (flex-1 + overflow para nunca sobrepor as laterais) */}
+        <nav className="flex items-center gap-0.5 flex-1 justify-center overflow-x-auto scrollbar-none min-w-0 px-2">
           {searchOpen ? (
-            <div className="flex items-center gap-2 w-80 px-3 py-2 bg-gray-50 border border-crm-primary/40 rounded-xl shadow-sm">
+            <div className="flex items-center gap-2 w-56 lg:w-80 px-3 py-2 bg-gray-50 border border-crm-primary/40 rounded-xl shadow-sm shrink-0">
               <Search size={14} className="text-crm-primary shrink-0" />
               <input
                 autoFocus
@@ -191,8 +195,8 @@ export default function CentralAtendimentoPage() {
           )}
         </nav>
 
-        {/* ZONA DIREITA — ações + perfil */}
-        <div className="flex items-center gap-2 w-64 justify-end shrink-0">
+        {/* ZONA DIREITA — ações + perfil (sem width fixo, não rouba espaço do centro) */}
+        <div className="flex items-center gap-1 justify-end shrink-0">
           <NavBtn icon={<Brain size={15} />} label="Cérebro" active={rightSidebarTab === 'brain'} onClick={() => setRightSidebarTab(v => v === 'brain' ? null : 'brain')} />
           <NavBtn icon={<Zap size={15} />} label="Rápidas" active={rightSidebarTab === 'quick-messages'} onClick={() => setRightSidebarTab(v => v === 'quick-messages' ? null : 'quick-messages')} />
           <NavBtn icon={<Shield size={15} />} label="Sentinela" active={rightSidebarTab === 'sentinela'} onClick={() => setRightSidebarTab(v => v === 'sentinela' ? null : 'sentinela')} />

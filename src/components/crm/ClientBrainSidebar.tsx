@@ -1841,7 +1841,7 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
   const client = clientData as Record<string, unknown> | null;
 
   return (
-    <aside className="w-[360px] shrink-0 flex flex-col bg-white border-l border-gray-200 h-full overflow-hidden">
+    <aside className="w-full md:w-[360px] shrink-0 flex flex-col bg-white border-l border-gray-200 h-full overflow-hidden">
       {/* ── Header ── */}
       <div className="flex items-center justify-between h-14 px-4 border-b border-gray-100 shrink-0">
         <div className="flex items-center gap-2">

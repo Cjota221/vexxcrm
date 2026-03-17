@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Bell, Camera, Trash2, LogOut, Loader2, Wifi, WifiOff, ShoppingCart, Package, GitBranch, Bot, Zap } from 'lucide-react';
+import { Bell, Camera, Trash2, LogOut, Loader2, Wifi, WifiOff, ShoppingCart, Package, GitBranch, Bot, Zap, Menu } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
 import { useConnectionStore } from '@/store/connection';
+import { useUIStore } from '@/store/ui';
 import { supabase } from '@/lib/supabase';
 import { getInitials } from '@/lib/utils';
 import { KanbanModal } from '@/components/crm/KanbanModal';
@@ -18,6 +19,7 @@ import Link from 'next/link';
 export function Header() {
   const { user, accessToken, tenant, updateUser, clearSession } = useAuthStore();
   const { whatsappStatus } = useConnectionStore();
+  const { toggleMobileSidebar } = useUIStore();
   const [showMenu, setShowMenu] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -167,6 +169,14 @@ export function Header() {
 
       {/* Lado esquerdo — Botão Fluxo de Vendas */}
       <div className="flex items-center gap-2">
+        {/* Hamburguer — abre a sidebar como drawer no mobile */}
+        <button
+          onClick={toggleMobileSidebar}
+          className="md:hidden p-2 rounded-xl text-txt-muted hover:text-txt-primary hover:bg-slate-50 transition-colors"
+          aria-label="Abrir menu"
+        >
+          <Menu size={20} />
+        </button>
         <button
           onClick={() => setShowKanban(true)}
           className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-crm-primary/8 hover:bg-crm-primary/15 text-crm-primary transition-colors group"
