@@ -35,6 +35,7 @@ import {
   Layers,
   MessageCircle,
   ShoppingCart,
+  TrendingUp,
 } from 'lucide-react';
 import type { FacilZapKanbanCard } from '@/lib/services/facilzap.service';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -149,6 +150,34 @@ const COLUMN_CONFIG: Record<KanbanColumn, ColumnConfig> = {
     dot: 'bg-violet-400',
   },
 };
+
+/* ─── StatPill ────────────────────────────────────────────────── */
+
+function StatPill({
+  icon,
+  label,
+  value,
+  color = 'default',
+}: {
+  icon: string;
+  label: string;
+  value: string;
+  color?: 'default' | 'amber' | 'green';
+}) {
+  const valueClass =
+    color === 'amber' ? 'text-amber-700' :
+    color === 'green' ? 'text-emerald-700' :
+    'text-gray-800';
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-xl border border-gray-100 shrink-0">
+      <span className="text-sm">{icon}</span>
+      <div className="leading-tight">
+        <p className="text-[10px] text-gray-400">{label}</p>
+        <p className={cn('text-xs font-bold', valueClass)}>{value}</p>
+      </div>
+    </div>
+  );
+}
 
 /* ─── Tipos locais ────────────────────────────────────────────── */
 
@@ -786,6 +815,27 @@ export function KanbanModal({ open, onClose }: KanbanModalProps) {
     );
   }, [moveMutation, queryClient]);
 
+  // ── Query: estatísticas FacilZap ─────────────────────────────
+  const { data: facilzapStats } = useQuery({
+    queryKey: ['facilzap-stats'],
+    queryFn: async () => {
+      const res = await api.get<{
+        total_clientes: number;
+        total_pedidos: number;
+        receita_total: number;
+        receita_mes: number;
+        ticket_medio: number;
+        pedidos_pendentes: number;
+        taxa_conversao: string;
+        clientes_novos_mes: number;
+      }>('/api/v2/facilzap/stats');
+      if (res.error) throw new Error(res.error);
+      return res.data as any;
+    },
+    staleTime: 60_000,
+    enabled: open,
+  });
+
   // ── Mutation: sincronizar kanban com realidade ────────────────
   const [syncResult, setSyncResult] = useState<{ criados: number; atualizados: number; removidos: number } | null>(null);
   const syncMutation = useMutation({
@@ -798,6 +848,7 @@ export function KanbanModal({ open, onClose }: KanbanModalProps) {
       setSyncResult(data as any);
       queryClient.invalidateQueries({ queryKey: ['kanban-all-cards'] });
       queryClient.invalidateQueries({ queryKey: ['kanban-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['facilzap-stats'] });
       setTimeout(() => setSyncResult(null), 5000);
     },
   });
@@ -970,6 +1021,18 @@ export function KanbanModal({ open, onClose }: KanbanModalProps) {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Stats FacilZap — só no board */}
+        {activeView === 'board' && facilzapStats && (
+          <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-50 shrink-0 overflow-x-auto">
+            <StatPill icon="💰" label="Receita/mês" value={formatCurrency(facilzapStats.receita_mes)} />
+            <StatPill icon="🎫" label="Ticket médio" value={formatCurrency(facilzapStats.ticket_medio)} />
+            <StatPill icon="👥" label="Clientes" value={String(facilzapStats.total_clientes)} />
+            <StatPill icon="⏳" label="Pendentes" value={String(facilzapStats.pedidos_pendentes)} color="amber" />
+            <StatPill icon="🆕" label="Novos/mês" value={String(facilzapStats.clientes_novos_mes)} color="green" />
+            <StatPill icon="📈" label="Conversão" value={facilzapStats.taxa_conversao} />
           </div>
         )}
 

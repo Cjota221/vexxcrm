@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
-import { processMessage } from '@/lib/anne-triggers';
+import { processMessage, getLabelForTrigger } from '@/lib/anne-triggers';
 import { validateTransition } from '@/lib/kanban-state-machine';
+import { applyLabel } from '@/lib/services/whatsapp-labels';
 import type { KanbanColumn } from '@/types';
 
 /**
@@ -34,8 +35,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── Buscar card do Kanban + contagem de mensagens ─────────────────
-    const [{ data: kanbanCard }, { count: msgCount }] = await Promise.all([
+    // ── Buscar card do Kanban + contagem de mensagens + phone do cliente ──
+    const [{ data: kanbanCard }, { count: msgCount }, { data: clientRow }] = await Promise.all([
       supabase
         .from('kanban_cards')
         .select('id, coluna, tentativas_reativacao')
@@ -48,7 +49,16 @@ export async function POST(request: NextRequest) {
         .select('id', { count: 'exact', head: true })
         .eq('client_id', contato_id)
         .eq('tenant_id', tenantId),
+
+      supabase
+        .from('clients')
+        .select('phone')
+        .eq('id', contato_id)
+        .eq('tenant_id', tenantId)
+        .single(),
     ]);
+
+    const clientPhone = clientRow?.phone ?? null;
 
     const colunaAtual = (kanbanCard?.coluna ?? null) as KanbanColumn | null;
     const totalMsgs = msgCount ?? 1;
@@ -115,6 +125,24 @@ export async function POST(request: NextRequest) {
           p_tag: result.nova_tag,
         });
         acoes_executadas.push(`atualiza_tag:${result.nova_tag}`);
+      }
+
+      // Etiqueta WhatsApp (fire-and-forget + salvar no banco)
+      const whatsappLabel = getLabelForTrigger(result.trigger);
+      if (whatsappLabel && result.acoes_executadas.length > 0) {
+        if (clientPhone) {
+          applyLabel(clientPhone, whatsappLabel).catch(err =>
+            console.warn('[Anne] Falha ao aplicar etiqueta WhatsApp:', err)
+          );
+        }
+        supabase.from('client_labels').upsert({
+          tenant_id: tenantId,
+          client_id: contato_id,
+          label_name: whatsappLabel,
+          applied_by: 'anne',
+          applied_at: new Date().toISOString(),
+        }, { onConflict: 'tenant_id,client_id,label_name' }).then(() => {});
+        acoes_executadas.push(`whatsapp_label:${whatsappLabel}`);
       }
 
       // Log do gatilho

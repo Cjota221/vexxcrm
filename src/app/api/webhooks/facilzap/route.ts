@@ -19,7 +19,8 @@ export async function POST(request: NextRequest) {
   const startTime = Date.now();
   try {
     const body = await request.json();
-    const event = body.event || body.tipo || body.type || 'unknown';
+    // FacilZap usa "evento" (PT) no novo formato e "event"/"tipo" no legado
+    const event = body.evento || body.event || body.tipo || body.type || 'unknown';
     
     console.log(`[Webhook FacilZap] Evento recebido: ${event}`);
 
@@ -57,6 +58,10 @@ export async function POST(request: NextRequest) {
 
     // Processar evento
     switch (event) {
+      // ── Pedidos (novo formato: pedido_criado | legado: order.created)
+      case 'pedido_criado':
+      case 'pedido_atualizado':
+      case 'pedido_pago':
       case 'order.created':
       case 'order.updated':
       case 'order.paid':
@@ -66,6 +71,7 @@ export async function POST(request: NextRequest) {
         await handleOrderEvent(supabase, tenantId, body);
         break;
 
+      // ── Produtos
       case 'product.created':
       case 'product.updated':
       case 'produto.criado':
@@ -73,6 +79,7 @@ export async function POST(request: NextRequest) {
         await handleProductEvent(supabase, tenantId, body);
         break;
 
+      // ── Clientes
       case 'client.created':
       case 'client.updated':
       case 'cliente.criado':
@@ -82,7 +89,15 @@ export async function POST(request: NextRequest) {
         await handleClientEvent(supabase, tenantId, body);
         break;
 
-      // Carrinho abandonado — Anne captura nome e move Kanban
+      // ── Leads
+      case 'lead_criado':
+      case 'lead.criado':
+      case 'lead.created':
+        await handleLeadEvent(supabase, tenantId, body);
+        break;
+
+      // ── Carrinho abandonado
+      case 'carrinho_abandonado_criado':
       case 'cart.abandoned':
       case 'carrinho.abandonado':
       case 'abandoned_cart':
@@ -111,7 +126,8 @@ async function handleOrderEvent(
   tenantId: string,
   body: any
 ) {
-  const order = body.data || body.pedido || body.order || body;
+  // Novo formato FacilZap usa "dados"; legado usa "data"/"pedido"/"order"
+  const order = body.dados || body.data || body.pedido || body.order || body;
 
   if (!order.id) {
     console.warn('[Webhook FacilZap] Pedido sem ID, ignorando');
@@ -258,8 +274,45 @@ async function handleOrderEvent(
   if (clientId) {
     await updateClientStats(supabase, tenantId, clientId);
 
-    // ── PIPELINE AUTOMÁTICO ──────────────────────────────────
-    // Mover kanban_card automaticamente baseado no evento
+    // ── KANBAN DIRETO por status do pedido ───────────────────
+    const kanbancol = mapOrderStatusToKanban(orderStatus);
+    try {
+      // Buscar coluna atual
+      const chatId = await getChatIdForClient(supabase, tenantId, clientId);
+      const lookupId = chatId ?? clientId;
+
+      const { data: existingCard } = await supabase
+        .from('kanban_cards')
+        .select('coluna')
+        .eq('tenant_id', tenantId)
+        .eq('client_id', clientId)
+        .limit(1)
+        .single();
+
+      await supabase.from('kanban_cards').upsert({
+        tenant_id: tenantId,
+        client_id: clientId,
+        chat_id: lookupId,
+        coluna: kanbancol,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'chat_id' });
+
+      if (existingCard && existingCard.coluna !== kanbancol) {
+        await supabase.from('kanban_transitions').insert({
+          tenant_id: tenantId,
+          client_id: clientId,
+          chat_id: lookupId,
+          de_coluna: existingCard.coluna,
+          para_coluna: kanbancol,
+          autor: 'facilzap_webhook',
+          motivo: `Pedido ${orderNumber} — status: ${orderStatus}`,
+        });
+      }
+    } catch (kanbanErr) {
+      console.warn('[Webhook FacilZap] Kanban upsert ignorado:', kanbanErr);
+    }
+
+    // ── PIPELINE AUTOMÁTICO (mensagem sintética Anne) ─────────
     const webhookEvent = body.event || body.tipo || 'unknown';
     try {
       await triggerPipelineForOrder(supabase, tenantId, clientId, webhookEvent, orderNumber);
@@ -267,6 +320,23 @@ async function handleOrderEvent(
       console.warn('[Webhook FacilZap] Pipeline trigger ignorado:', pipelineErr);
     }
   }
+}
+
+/**
+ * Mapeia o status do pedido FacilZap para a coluna do Kanban VEXX.
+ */
+function mapOrderStatusToKanban(status: string): string {
+  const map: Record<string, string> = {
+    pending:    'AGUARDANDO_PAGAMENTO',
+    confirmed:  'PAGO',
+    processing: 'PAGO',
+    shipped:    'DESPACHADO',
+    delivered:  'CONCLUIDO',
+    completed:  'CONCLUIDO',
+    cancelled:  'CANCELADO',
+    refunded:   'CANCELADO',
+  };
+  return map[status] ?? 'PRIMEIRO_CONTATO';
 }
 
 /**
@@ -440,7 +510,7 @@ async function handleCartAbandonedEvent(
   tenantId: string,
   body: any
 ) {
-  const cart = body.data || body.carrinho || body.cart || body;
+  const cart = body.dados || body.data || body.carrinho || body.cart || body;
   const rawPhone = cart.cliente?.whatsapp_e164 || cart.cliente?.whatsapp || cart.cliente?.telefone || '';
   const ph = rawPhone.replace(/\D/g, '');
 
@@ -479,6 +549,68 @@ async function handleCartAbandonedEvent(
     if (extracted) {
       await supabase.from('clients').update({ name: extracted }).eq('id', client.id).eq('tenant_id', tenantId);
       eventBus.emitToTenant('client_updated', tenantId, { client_id: client.id, updated_name: extracted });
+    }
+  }
+}
+
+/**
+ * Processa evento de lead criado na FacilZap.
+ * Upsert como cliente com source = 'lead'.
+ */
+async function handleLeadEvent(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+  body: any
+) {
+  const lead = body.dados || body.data || body.lead || body;
+
+  const rawPhone = String(lead.whatsapp || lead.telefone || '').replace(/\D/g, '');
+  if (!rawPhone || rawPhone.length < 8) {
+    console.warn('[Webhook FacilZap] Lead sem WhatsApp válido, ignorando');
+    return;
+  }
+
+  const phoneCanonical = PhoneNormalizer.canonical(rawPhone);
+  const phoneDisplay = PhoneNormalizer.normalize(rawPhone);
+  if (!phoneCanonical) return;
+
+  const { data: client, error } = await supabase
+    .from('clients')
+    .upsert(
+      {
+        tenant_id: tenantId,
+        phone: phoneDisplay,
+        phone_normalized: phoneCanonical,
+        name: String(lead.nome || phoneDisplay).trim(),
+        email: lead.email || null,
+        source: 'lead',
+        custom_fields: {
+          facilzap_id: lead.id || null,
+          lead_canal: lead.canal || null,
+          lead_funil: lead.funil_origem?.nome || null,
+          lead_funil_id: lead.funil_origem?.id || null,
+          lead_vendedor: lead.vendedor?.nome || null,
+          lead_created_at: lead.created_at || null,
+          source: 'lead',
+        },
+      },
+      { onConflict: 'tenant_id,phone_normalized', ignoreDuplicates: false }
+    )
+    .select('id')
+    .single();
+
+  if (error) {
+    console.error('[Webhook FacilZap] Erro ao upsert lead:', error.message);
+    return;
+  }
+
+  console.log(`[Webhook FacilZap] Lead upserted: ${phoneDisplay} (${lead.nome}) → client ${client?.id}`);
+
+  // Disparar pipeline se houver automações configuradas para lead
+  if (client?.id) {
+    const chatId = await getChatIdForClient(supabase, tenantId, client.id);
+    if (chatId) {
+      await processPipelineTriggers(supabase, tenantId, chatId, `[LEAD] ${lead.nome || phoneDisplay} via ${lead.canal || 'desconhecido'}`).catch(() => {});
     }
   }
 }

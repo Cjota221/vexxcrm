@@ -121,6 +121,7 @@ export function detectTriggers(
 interface TriggerConfig {
   acoes: AnneActionType[];
   tag: string;
+  whatsapp_label?: string;
   escalona_motivo?: string;
 }
 
@@ -128,29 +129,40 @@ const TRIGGER_CONFIG: Record<AnneTriggerType, TriggerConfig> = {
   primeiro_contato: {
     acoes: ['move_kanban'],
     tag: 'lead_novo',
+    whatsapp_label: 'Novo Lead',
   },
   pedido_recebido: {
     acoes: ['atualiza_tag', 'move_kanban', 'dispara_template', 'notifica_atendente'],
     tag: 'aguardando_pgt',
+    whatsapp_label: 'Aguard. Pagamento',
   },
   pagamento_aprovado: {
     acoes: ['atualiza_tag', 'move_kanban', 'notifica_atendente'],
     tag: 'cliente_pago',
+    whatsapp_label: 'Pago',
   },
   sinal_rejeicao: {
     acoes: ['atualiza_tag', 'notifica_atendente'],
     tag: 'risco_churn',
+    whatsapp_label: 'Em Risco',
     escalona_motivo: 'Sinal de rejeição detectado — intervenção humana recomendada.',
   },
   engajamento_alto: {
     acoes: ['atualiza_tag', 'dispara_template'],
     tag: 'lead_quente',
+    whatsapp_label: 'Lead Quente',
   },
   ghosting: {
     acoes: ['atualiza_tag', 'move_kanban'],
     tag: 'inativo',
+    whatsapp_label: 'Inativo',
   },
 };
+
+/** Retorna o nome da etiqueta WhatsApp para um dado gatilho, ou null se não configurado. */
+export function getLabelForTrigger(trigger: AnneTriggerType): string | null {
+  return TRIGGER_CONFIG[trigger].whatsapp_label ?? null;
+}
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    EXECUTOR DE AÇÕES
