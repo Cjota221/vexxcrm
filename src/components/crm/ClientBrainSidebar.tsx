@@ -1860,9 +1860,7 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
       return data;
     },
     enabled: !!selectedChatId,
-    staleTime: 0,              // ← SEMPRE stale, força refetch do servidor
-    refetchOnMount: 'always',  // ← Sempre busca fresco ao montar
-    refetchInterval: 10_000,   // ← Refetch automático a cada 10 segundos
+    staleTime: 60_000,
   });
 
   if (!selectedChatId) return null;
