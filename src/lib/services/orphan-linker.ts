@@ -79,10 +79,11 @@ export class OrphanLinkerService {
       console.log('🔗 [OrphanLinker] Passada 1: Religar via lookup...');
       const { data: dbClients } = await this.supabase
         .from('clients')
-        .select('id, phone, phone_normalized, name, email, custom_fields')
+        .select('id, phone, phone_normalized, name, email, cpf, custom_fields')
         .eq('tenant_id', this.tenantId);
 
       const lookup = buildClientLookup(dbClients || []);
+      console.log(`[OrphanLinker] Lookup: ${lookup.byPhone.size} phones, ${lookup.byFacilZapId.size} fzIds, ${lookup.byCpf.size} CPFs, ${lookup.byEmail.size} emails, ${lookup.byName.size} names`);
       const relinked1 = await relinkOrphans(this.supabase, this.tenantId, lookup, batchSize);
       result.relinked_by_lookup = relinked1;
       console.log(`🔗 [OrphanLinker] Passada 1: ${relinked1} religados`);
@@ -113,7 +114,7 @@ export class OrphanLinkerService {
         console.log('🔗 [OrphanLinker] Passada 3: Religar com novos clientes...');
         const { data: updatedClients } = await this.supabase
           .from('clients')
-          .select('id, phone, phone_normalized, name, email, custom_fields')
+          .select('id, phone, phone_normalized, name, email, cpf, custom_fields')
           .eq('tenant_id', this.tenantId);
 
         const updatedLookup = buildClientLookup(updatedClients || []);

@@ -335,12 +335,14 @@ export interface MappedOrder {
 export interface ClientLookup {
   byPhone: Map<string, string>;       // phone_normalized → client_id
   byFacilZapId: Map<string, string>;  // facilzap_id → client_id
+  byCpf: Map<string, string>;         // cpf/cnpj (só dígitos) → client_id
   byEmail: Map<string, string>;       // email → client_id
   byName: Map<string, string>;        // name (lowercase) → client_id
 }
 
 /**
  * Constrói o contexto de lookup a partir de clientes do banco.
+ * Aceita opcionalmente a coluna `cpf` para matching por CPF/CNPJ.
  */
 export function buildClientLookup(
   dbClients: Array<{
@@ -349,11 +351,13 @@ export function buildClientLookup(
     phone_normalized: string | null;
     name: string | null;
     email: string | null;
+    cpf?: string | null;
     custom_fields: unknown;
   }>
 ): ClientLookup {
   const byPhone = new Map<string, string>();
   const byFacilZapId = new Map<string, string>();
+  const byCpf = new Map<string, string>();
   const byEmail = new Map<string, string>();
   const byName = new Map<string, string>();
 
@@ -372,13 +376,19 @@ export function buildClientLookup(
     const cf = c.custom_fields as Record<string, unknown> | null;
     const fzId = cf?.facilzap_id;
     if (fzId) byFacilZapId.set(String(fzId), c.id);
+    // CPF/CNPJ — coluna cpf + custom_fields.cpf_cnpj
+    const cpfSources = [c.cpf, cf?.cpf_cnpj as string, cf?.cpf as string].filter(Boolean);
+    for (const raw of cpfSources) {
+      const digits = String(raw).replace(/\D/g, '');
+      if (digits.length >= 11) byCpf.set(digits, c.id);
+    }
     // Email
     if (c.email) byEmail.set(c.email.toLowerCase().trim(), c.id);
     // Nome
     if (c.name && c.name !== 'Sem nome') byName.set(c.name.toLowerCase().trim(), c.id);
   }
 
-  return { byPhone, byFacilZapId, byEmail, byName };
+  return { byPhone, byFacilZapId, byCpf, byEmail, byName };
 }
 
 /**
@@ -762,55 +772,75 @@ export async function relinkOrphans(
   supabase: SupabaseAdmin,
   tenantId: string,
   lookup: ClientLookup,
-  limit: number = 500
+  limit: number = 5000
 ): Promise<number> {
-  const { data: orphans } = await supabase
-    .from('orders')
-    .select('id, metadata')
-    .eq('tenant_id', tenantId)
-    .is('client_id', null)
-    .order('created_at', { ascending: false })
-    .limit(limit);
-
-  if (!orphans || orphans.length === 0) return 0;
-
+  // Processar em batches para não estourar timeout
   let relinked = 0;
-  for (const order of orphans) {
-    const meta = order.metadata as Record<string, unknown> | null;
-    if (!meta) continue;
+  let offset = 0;
+  const batchSize = Math.min(limit, 1000);
 
-    let cid: string | null = null;
+  while (offset < limit) {
+    const { data: orphans } = await supabase
+      .from('orders')
+      .select('id, metadata')
+      .eq('tenant_id', tenantId)
+      .is('client_id', null)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + batchSize - 1);
 
-    // 1. Telefone
-    const rawPh = String(
-      meta.cliente_whatsapp_e164 || meta.cliente_whatsapp || meta.cliente_telefone || ''
-    ).replace(/\D/g, '');
-    if (rawPh && rawPh.length >= 8) {
-      cid = lookup.byPhone.get(rawPh)
-        || lookup.byPhone.get(PhoneNormalizer.canonical(rawPh))
-        || lookup.byPhone.get(PhoneNormalizer.normalize(rawPh))
-        || null;
+    if (!orphans || orphans.length === 0) break;
+
+    const updates: Array<{ id: string; client_id: string }> = [];
+
+    for (const order of orphans) {
+      const meta = order.metadata as Record<string, unknown> | null;
+      if (!meta) continue;
+
+      let cid: string | null = null;
+
+      // 1. Telefone (whatsapp_e164 > whatsapp > telefone)
+      const rawPh = String(
+        meta.cliente_whatsapp_e164 || meta.cliente_whatsapp || meta.cliente_telefone || ''
+      ).replace(/\D/g, '');
+      if (rawPh && rawPh.length >= 8) {
+        cid = lookup.byPhone.get(rawPh)
+          || lookup.byPhone.get(PhoneNormalizer.canonical(rawPh))
+          || lookup.byPhone.get(PhoneNormalizer.normalize(rawPh))
+          || null;
+      }
+
+      // 2. FacilZap ID
+      if (!cid && meta.cliente_id_facilzap) {
+        cid = lookup.byFacilZapId.get(String(meta.cliente_id_facilzap)) || null;
+      }
+
+      // 3. CPF/CNPJ
+      if (!cid && meta.cliente_cpf_cnpj) {
+        const digits = String(meta.cliente_cpf_cnpj).replace(/\D/g, '');
+        if (digits.length >= 11) cid = lookup.byCpf.get(digits) || null;
+      }
+
+      // 4. Email
+      if (!cid && meta.cliente_email) {
+        cid = lookup.byEmail.get(String(meta.cliente_email).toLowerCase().trim()) || null;
+      }
+
+      // 5. Nome (último recurso — match exato)
+      if (!cid && meta.cliente_nome && String(meta.cliente_nome) !== 'Sem nome') {
+        cid = lookup.byName.get(String(meta.cliente_nome).toLowerCase().trim()) || null;
+      }
+
+      if (cid) updates.push({ id: order.id, client_id: cid });
     }
 
-    // 2. FacilZap ID
-    if (!cid && meta.cliente_id_facilzap) {
-      cid = lookup.byFacilZapId.get(String(meta.cliente_id_facilzap)) || null;
-    }
-
-    // 3. Email
-    if (!cid && meta.cliente_email) {
-      cid = lookup.byEmail.get(String(meta.cliente_email).toLowerCase().trim()) || null;
-    }
-
-    // 4. Nome
-    if (!cid && meta.cliente_nome && String(meta.cliente_nome) !== 'Sem nome') {
-      cid = lookup.byName.get(String(meta.cliente_nome).toLowerCase().trim()) || null;
-    }
-
-    if (cid) {
-      await supabase.from('orders').update({ client_id: cid }).eq('id', order.id);
+    // Batch update (evita N queries individuais)
+    for (const u of updates) {
+      await supabase.from('orders').update({ client_id: u.client_id }).eq('id', u.id);
       relinked++;
     }
+
+    if (orphans.length < batchSize) break;
+    offset += batchSize;
   }
 
   if (relinked > 0) {
