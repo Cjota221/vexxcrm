@@ -610,7 +610,16 @@ async function handleLeadEvent(
   if (client?.id) {
     const chatId = await getChatIdForClient(supabase, tenantId, client.id);
     if (chatId) {
-      await processPipelineTriggers(supabase, tenantId, chatId, `[LEAD] ${lead.nome || phoneDisplay} via ${lead.canal || 'desconhecido'}`).catch(() => {});
+      const leadClient = { id: client.id, name: String(lead.nome || phoneDisplay).trim(), name_manual: null };
+      await processPipelineTriggers(
+        supabase,
+        tenantId,
+        leadClient,
+        chatId,
+        `[LEAD] ${lead.nome || phoneDisplay} via ${lead.canal || 'desconhecido'}`,
+        false,
+        'facilzap'
+      ).catch(() => {});
     }
   }
 }
