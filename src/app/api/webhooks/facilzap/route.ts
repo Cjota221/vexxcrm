@@ -610,7 +610,7 @@ async function handleLeadEvent(
   if (client?.id) {
     const chatId = await getChatIdForClient(supabase, tenantId, client.id);
     if (chatId) {
-      const leadClient = { id: client.id, name: String(lead.nome || phoneDisplay).trim(), name_manual: null };
+      const leadClient = { id: client.id, name: String(lead.nome || phoneDisplay).trim(), name_manual: false };
       await processPipelineTriggers(
         supabase,
         tenantId,
