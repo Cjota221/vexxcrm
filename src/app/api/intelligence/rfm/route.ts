@@ -128,18 +128,20 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, client: data });
     }
 
-    // Distribuição geral
-    let query = supabase
+    // ── Distribuição geral — seleciona só colunas necessárias com LIMIT de segurança
+    // Evita carregar toda a tabela no serverless (causa timeout 502)
+    let summaryQuery = supabase
       .from('clients')
       .select('rfm_segment, rfm_recency, rfm_frequency, rfm_monetary, churn_probability, flag_auto_vip, flag_churn_risk')
       .eq('tenant_id', tenant.id)
-      .not('rfm_segment', 'is', null);
+      .not('rfm_segment', 'is', null)
+      .limit(5000); // máx 5k linhas no serverless — segurança contra timeout
 
     if (segment) {
-      query = query.eq('rfm_segment', segment);
+      summaryQuery = summaryQuery.eq('rfm_segment', segment);
     }
 
-    const { data: clients } = await query;
+    const { data: clients } = await summaryQuery;
 
     if (!clients || clients.length === 0) {
       return NextResponse.json({
@@ -149,35 +151,38 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Montar distribuição
+    // Montar distribuição em memória (máx 5k registros — seguro)
     const distribution: Record<string, { count: number; avg_churn: number; vip_count: number; risk_count: number }> = {};
+    let sumRecency = 0, sumFrequency = 0, sumMonetary = 0, vipTotal = 0, riskTotal = 0;
+
     for (const c of clients) {
       const seg = c.rfm_segment || 'Unknown';
-      if (!distribution[seg]) {
-        distribution[seg] = { count: 0, avg_churn: 0, vip_count: 0, risk_count: 0 };
-      }
+      if (!distribution[seg]) distribution[seg] = { count: 0, avg_churn: 0, vip_count: 0, risk_count: 0 };
       distribution[seg].count++;
       distribution[seg].avg_churn += c.churn_probability || 0;
-      if (c.flag_auto_vip) distribution[seg].vip_count++;
-      if (c.flag_churn_risk) distribution[seg].risk_count++;
+      if (c.flag_auto_vip) { distribution[seg].vip_count++; vipTotal++; }
+      if (c.flag_churn_risk) { distribution[seg].risk_count++; riskTotal++; }
+      sumRecency += c.rfm_recency || 0;
+      sumFrequency += c.rfm_frequency || 0;
+      sumMonetary += c.rfm_monetary || 0;
     }
 
-    // Calcular médias
     for (const key of Object.keys(distribution)) {
       distribution[key].avg_churn = parseFloat((distribution[key].avg_churn / distribution[key].count).toFixed(1));
     }
 
+    const n = clients.length;
     return NextResponse.json({
       success: true,
       distribution,
       summary: {
-        total: clients.length,
+        total: n,
         calculated: true,
-        vip_total: clients.filter(c => c.flag_auto_vip).length,
-        risk_total: clients.filter(c => c.flag_churn_risk).length,
-        avg_recency: parseFloat((clients.reduce((s, c) => s + (c.rfm_recency || 0), 0) / clients.length).toFixed(1)),
-        avg_frequency: parseFloat((clients.reduce((s, c) => s + (c.rfm_frequency || 0), 0) / clients.length).toFixed(1)),
-        avg_monetary: parseFloat((clients.reduce((s, c) => s + (c.rfm_monetary || 0), 0) / clients.length).toFixed(1)),
+        vip_total: vipTotal,
+        risk_total: riskTotal,
+        avg_recency: parseFloat((sumRecency / n).toFixed(1)),
+        avg_frequency: parseFloat((sumFrequency / n).toFixed(1)),
+        avg_monetary: parseFloat((sumMonetary / n).toFixed(1)),
       },
     });
   } catch (error) {
