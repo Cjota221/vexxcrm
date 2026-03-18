@@ -815,28 +815,74 @@ function SyncStatusCard({ config }: { config?: TenantConfig }) {
   const { accessToken } = useAuthStore();
   const [isSyncing, setIsSyncing] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [isRepairing, setIsRepairing] = useState(false);
+  const [isRecalculating, setIsRecalculating] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [syncProgress, setSyncProgress] = useState('');
   const [lastSyncInfo, setLastSyncInfo] = useState<string | null>(null);
   const [syncResults, setSyncResults] = useState<{ products: number; clients: number; orders: number; errors: string[] } | null>(null);
   const [clearResults, setClearResults] = useState<{ products_deleted: number; clients_deleted: number; orders_deleted: number } | null>(null);
+  const [repairResults, setRepairResults] = useState<{ total_orphans: number; relinked_by_lookup: number; clients_auto_created: number; relinked_after_creation: number; still_orphaned: number } | null>(null);
+  const [orphanCount, setOrphanCount] = useState<number | null>(null);
 
   const fetchLastSync = useCallback(async () => {
     if (!accessToken) return;
     try {
-      const res = await fetch('/api/facilzap/sync-admin/stats', { headers: { Authorization: `Bearer \${accessToken}` } });
+      const res = await fetch('/api/facilzap/sync-admin/stats', { headers: { Authorization: `Bearer ${accessToken}` } });
       if (res.ok) {
         const data = await res.json();
         if (data.data?.last_sync) {
           const syncDate = new Date(data.data.last_sync);
           const diffMin = Math.floor((Date.now() - syncDate.getTime()) / 60000);
           if (diffMin < 1) setLastSyncInfo('Sincronizado agora mesmo');
-          else if (diffMin < 60) setLastSyncInfo(`Sincronizado automaticamente há \${diffMin} minutos`);
-          else if (diffMin < 1440) setLastSyncInfo(`Sincronizado há \${Math.floor(diffMin / 60)} horas`);
-          else setLastSyncInfo(`Sincronizado em \${syncDate.toLocaleDateString('pt-BR')}`);
+          else if (diffMin < 60) setLastSyncInfo(`Sincronizado automaticamente há ${diffMin} minutos`);
+          else if (diffMin < 1440) setLastSyncInfo(`Sincronizado há ${Math.floor(diffMin / 60)} horas`);
+          else setLastSyncInfo(`Sincronizado em ${syncDate.toLocaleDateString('pt-BR')}`);
+        }
+        if (typeof data.data?.orphan_count === 'number') {
+          setOrphanCount(data.data.orphan_count);
         }
       }
     } catch { /* silent */ }
+  }, [accessToken]);
+
+  const handleRepairOrphans = useCallback(async () => {
+    if (!accessToken) return;
+    setIsRepairing(true); setRepairResults(null);
+    try {
+      const res = await fetch('/api/facilzap/sync-admin/repair-orphans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ createMissingClients: true, batchSize: 500 }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Erro ao reparar órfãos');
+      setRepairResults(json.data);
+      setOrphanCount(json.data?.still_orphaned ?? 0);
+    } catch (err: unknown) {
+      alert('Erro: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
+    } finally {
+      setIsRepairing(false);
+    }
+  }, [accessToken]);
+
+  const handleRecalcStats = useCallback(async () => {
+    if (!accessToken) return;
+    setIsRecalculating(true);
+    try {
+      const res = await fetch('/api/facilzap/recalc-stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({}),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Erro ao recalcular stats');
+      alert(`✅ Stats recalculadas: ${json.data?.clients_updated ?? json.clients_updated ?? '?'} clientes atualizados.`);
+    } catch (err: unknown) {
+      alert('Erro: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
+    } finally {
+      setIsRecalculating(false);
+    }
   }, [accessToken]);
 
   useEffect(() => { fetchLastSync(); }, [fetchLastSync]);
@@ -894,6 +940,20 @@ function SyncStatusCard({ config }: { config?: TenantConfig }) {
           hasMore = data.results?.hasMore?.orders || false; page++;
         } catch (err: unknown) { const msg = err instanceof Error ? err.message : 'Erro'; totals.errors.push(`Página ${page}: ${msg}`); break; }
       }
+      setSyncProgress('Reparando pedidos órfãos...');
+      try {
+        const repairRes = await fetch('/api/facilzap/sync-admin/repair-orphans', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ createMissingClients: true, batchSize: 500 }),
+        });
+        const repairJson = await repairRes.json();
+        if (repairRes.ok && repairJson.data) {
+          setRepairResults(repairJson.data);
+          setOrphanCount(repairJson.data.still_orphaned ?? 0);
+        }
+      } catch { /* silencioso — não bloquear resultado do sync */ }
+
       setSyncProgress('Sincronização completa!'); setSyncResults(totals); fetchLastSync();
     } catch (error) { setSyncProgress(''); alert('Erro: ' + (error as Error).message); }
     finally { setIsSyncing(false); }
@@ -914,12 +974,31 @@ function SyncStatusCard({ config }: { config?: TenantConfig }) {
           </div>
         ) : (
           <>
+            {/* Estatísticas de órfãos */}
+            {orphanCount !== null && (
+              <div className={`flex items-center gap-2 p-3 rounded-xl border text-sm ${orphanCount === 0 ? 'bg-green-50 border-green-200 text-green-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
+                {orphanCount === 0 ? (
+                  <><CheckCircle size={14} /> <span>Nenhum pedido órfão — dados 100% vinculados!</span></>
+                ) : (
+                  <><AlertCircle size={14} /> <span><strong>{orphanCount}</strong> pedido{orphanCount !== 1 ? 's' : ''} órfão{orphanCount !== 1 ? 's' : ''} (sem cliente vinculado)</span></>
+                )}
+              </div>
+            )}
+
             <div className="flex flex-wrap gap-2">
-              <Button variant="primary" onClick={handleSync} disabled={isSyncing || isClearing}>
+              <Button variant="primary" onClick={handleSync} disabled={isSyncing || isClearing || isRepairing}>
                 <RefreshCw size={16} className={isSyncing ? 'animate-spin' : ''} />
                 {isSyncing ? 'Sincronizando...' : 'Sincronizar Agora'}
               </Button>
-              <Button variant="ghost" onClick={() => setShowClearConfirm(true)} disabled={isSyncing || isClearing} className="text-red-600 hover:bg-red-50 hover:text-red-700">
+              <Button variant="secondary" onClick={handleRepairOrphans} disabled={isSyncing || isClearing || isRepairing || isRecalculating}>
+                <Wrench size={16} className={isRepairing ? 'animate-spin' : ''} />
+                {isRepairing ? 'Reparando...' : 'Reparar Órfãos'}
+              </Button>
+              <Button variant="ghost" onClick={handleRecalcStats} disabled={isSyncing || isClearing || isRepairing || isRecalculating} className="text-violet-600 hover:bg-violet-50">
+                <Activity size={16} />
+                {isRecalculating ? 'Calculando...' : 'Recalc. Stats (LTV)'}
+              </Button>
+              <Button variant="ghost" onClick={() => setShowClearConfirm(true)} disabled={isSyncing || isClearing || isRepairing} className="text-red-600 hover:bg-red-50 hover:text-red-700">
                 <Trash2 size={16} />{isClearing ? 'Limpando...' : 'Limpar e Ressincronizar'}
               </Button>
             </div>
@@ -956,6 +1035,22 @@ function SyncStatusCard({ config }: { config?: TenantConfig }) {
             <p className="text-xs text-orange-600">{clearResults.products_deleted} produtos removidos</p>
             <p className="text-xs text-orange-600">{clearResults.clients_deleted} clientes removidos</p>
             <p className="text-xs text-orange-600">{clearResults.orders_deleted} pedidos removidos</p>
+          </div>
+        )}
+        {repairResults && (
+          <div className="p-3 bg-violet-50 border border-violet-200 rounded-xl space-y-1">
+            <p className="text-sm font-medium text-violet-700">Reparo de Órfãos concluído!</p>
+            <p className="text-xs text-violet-600">{repairResults.total_orphans} pedidos órfãos encontrados</p>
+            <p className="text-xs text-violet-600">{repairResults.relinked_by_lookup} vinculados via telefone / e-mail / CPF</p>
+            {repairResults.clients_auto_created > 0 && (
+              <p className="text-xs text-violet-600">{repairResults.clients_auto_created} clientes criados automaticamente</p>
+            )}
+            {repairResults.relinked_after_creation > 0 && (
+              <p className="text-xs text-violet-600">{repairResults.relinked_after_creation} vinculados após criação</p>
+            )}
+            <p className={`text-xs font-medium ${repairResults.still_orphaned === 0 ? 'text-green-600' : 'text-amber-600'}`}>
+              {repairResults.still_orphaned === 0 ? '✅ Todos os pedidos vinculados!' : `⚠️ ${repairResults.still_orphaned} pedidos sem dados suficientes para vincular`}
+            </p>
           </div>
         )}
       </div>
