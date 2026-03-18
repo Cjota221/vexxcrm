@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo, useRef, useCallback, useEffect, memo } from 'react';
-import { Search, Filter, Loader2, RefreshCw } from 'lucide-react';
+import { Search, Filter, Loader2, RefreshCw, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatRelativeTime, truncate, getInitials, getAvatarColor } from '@/lib/utils';
 import { useChatsStore } from '@/store/chats';
@@ -202,13 +202,19 @@ const ChatListItem = memo(function ChatListItem({ chat, isSelected, onSelect }: 
       )}
     >
       {/* Avatar */}
-      <AvatarImage
-        src={chat.client.avatar_url}
-        name={chat.client.name}
-        size={44}
-        rounded="full"
-        className="shrink-0"
-      />
+      <div className="relative shrink-0">
+        <AvatarImage
+          src={chat.is_group ? null : chat.client.avatar_url}
+          name={chat.client.name}
+          size={44}
+          rounded="full"
+        />
+        {chat.is_group && (
+          <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
+            <Users size={9} className="text-white" />
+          </span>
+        )}
+      </div>
 
       {/* Content */}
       <div className="flex-1 min-w-0">

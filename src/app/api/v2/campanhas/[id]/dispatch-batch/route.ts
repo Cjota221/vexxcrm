@@ -257,13 +257,15 @@ export async function POST(request: NextRequest, { params }: { params: Params })
                   await supabase.from('messages').insert(msgPayload);
                 }
 
-                // Atualizar preview da conversa para aparecer na central de atendimento
+                // Atualizar conversa para aparecer na central de atendimento
                 await supabase
                   .from('conversations')
                   .update({
                     last_message_at: msgPayload.created_at,
-                    last_message_preview: textoResumo.substring(0, 120),
+                    last_message_text: textoResumo.substring(0, 120),
+                    last_message_type: msgType,
                     status: 'open',
+                    updated_at: new Date().toISOString(),
                   })
                   .eq('id', convId)
                   .eq('tenant_id', tenantId);

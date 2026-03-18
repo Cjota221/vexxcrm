@@ -251,9 +251,41 @@ async function syncOneChatFull(
 ): Promise<{ clientCreated: boolean; conversationCreated: boolean; messagesInserted: number }> {
   const jid = chat.remoteJid;
 
-  // Ignorar grupos e broadcasts
-  if (jid.includes('@g.us') || jid.includes('@broadcast')) {
+  // Ignorar broadcasts
+  if (jid.includes('@broadcast')) {
     return { clientCreated: false, conversationCreated: false, messagesInserted: 0 };
+  }
+
+  // Grupos: criar/atualizar conversa de grupo sem client
+  if (jid.includes('@g.us')) {
+    const jidNum = jid.replace('@g.us', '');
+    const groupLabel = chat.pushName || `Grupo ${jidNum.slice(-9)}`;
+
+    const { data: existingGroupConv } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('remote_jid', jid)
+      .maybeSingle();
+
+    if (!existingGroupConv) {
+      await supabase.from('conversations').insert({
+        tenant_id: tenantId,
+        client_id: null,
+        channel: 'whatsapp',
+        status: 'open',
+        remote_jid: jid,
+        contact_name: groupLabel,
+      });
+    } else if (chat.pushName && existingGroupConv) {
+      // Atualizar nome do grupo se disponível
+      await supabase
+        .from('conversations')
+        .update({ contact_name: groupLabel })
+        .eq('id', existingGroupConv.id);
+    }
+
+    return { clientCreated: false, conversationCreated: !existingGroupConv, messagesInserted: 0 };
   }
 
   const phone = jid.replace('@s.whatsapp.net', '').replace('@lid', '');

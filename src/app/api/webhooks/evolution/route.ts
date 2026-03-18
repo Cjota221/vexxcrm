@@ -175,8 +175,12 @@ async function handleNewMessage(
   const messageId = data.key.id;
   const pushName = data.pushName || '';
 
-  // Ignorar mensagens de grupo e broadcast
-  if (remoteJid.includes('@g.us') || remoteJid.includes('@broadcast')) return;
+  // Ignorar broadcasts; grupos são processados separadamente
+  if (remoteJid.includes('@broadcast')) return;
+  if (remoteJid.includes('@g.us')) {
+    await handleGroupMessage(supabase, tenantId, payload);
+    return;
+  }
 
   // Extrair telefone do JID
   let phone = remoteJid.replace('@s.whatsapp.net', '').replace('@lid', '');
@@ -472,6 +476,116 @@ async function handleNewMessage(
       timestamp: savedMessage.created_at,
     }).catch(err => console.warn('[Webhook] Erro no transbordo n8n:', err));
   }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// GRUPOS — Processa mensagens de grupo WhatsApp (@g.us)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Processa mensagens recebidas em grupos WhatsApp.
+ * Cria/atualiza uma conversation sem client_id (keyed by remote_jid).
+ */
+async function handleGroupMessage(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+  payload: EvolutionWebhookPayload
+) {
+  const { data } = payload;
+  const groupJid = data.key.remoteJid;
+  const fromMe = data.key.fromMe;
+  const senderName = data.pushName || 'Grupo';
+
+  const messageContent = data.message || {};
+  const text =
+    messageContent.conversation ||
+    messageContent.extendedTextMessage?.text ||
+    messageContent.imageMessage?.caption ||
+    messageContent.videoMessage?.caption ||
+    '';
+
+  let type = 'text';
+  if (messageContent.imageMessage) type = 'image';
+  else if (messageContent.videoMessage) type = 'video';
+  else if (messageContent.audioMessage) type = 'audio';
+  else if (messageContent.documentMessage) type = 'document';
+  else if (messageContent.stickerMessage) type = 'sticker';
+
+  const content = text || `📎 ${type}`;
+  const now = new Date().toISOString();
+  const msgTs = data.messageTimestamp
+    ? new Date(Number(data.messageTimestamp) * 1000).toISOString()
+    : now;
+
+  // Buscar ou criar conversa do grupo
+  const { data: existingConv } = await supabase
+    .from('conversations')
+    .select('id, contact_name')
+    .eq('tenant_id', tenantId)
+    .eq('remote_jid', groupJid)
+    .maybeSingle();
+
+  let convId: string;
+  if (existingConv) {
+    convId = existingConv.id;
+  } else {
+    // Usar últimos 9 dígitos do JID como nome fallback do grupo
+    const jidNum = groupJid.replace('@g.us', '');
+    const groupLabel = `Grupo ${jidNum.slice(-9)}`;
+    const { data: newConv, error } = await supabase
+      .from('conversations')
+      .insert({
+        tenant_id: tenantId,
+        client_id: null,
+        channel: 'whatsapp',
+        status: 'open',
+        remote_jid: groupJid,
+        contact_name: groupLabel,
+      })
+      .select('id')
+      .single();
+
+    if (error || !newConv) {
+      console.error('[Webhook Grupo] Erro ao criar conversa de grupo:', error);
+      return;
+    }
+    convId = newConv.id;
+  }
+
+  // Inserir mensagem
+  const externalId = data.key.id;
+  const msgPayload = {
+    tenant_id: tenantId,
+    conversation_id: convId,
+    client_id: null as string | null,
+    external_id: externalId || undefined,
+    direction: fromMe ? 'outbound' : 'inbound',
+    sender_name: fromMe ? 'Você' : senderName,
+    content,
+    type,
+    status: fromMe ? 'sent' : 'delivered',
+    created_at: msgTs,
+  };
+
+  if (externalId) {
+    await supabase
+      .from('messages')
+      .upsert(msgPayload, { onConflict: 'tenant_id,external_id', ignoreDuplicates: true });
+  } else {
+    await supabase.from('messages').insert(msgPayload);
+  }
+
+  // Atualizar preview da conversa
+  await supabase
+    .from('conversations')
+    .update({
+      last_message_text: content.substring(0, 120),
+      last_message_at: msgTs,
+      last_message_type: type,
+      updated_at: now,
+    })
+    .eq('id', convId)
+    .eq('tenant_id', tenantId);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

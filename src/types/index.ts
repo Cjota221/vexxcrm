@@ -177,6 +177,7 @@ export interface Chat {
   is_pinned: boolean;
   is_archived: boolean;
   is_muted: boolean;
+  is_group?: boolean;
   assigned_to?: string;
   updated_at: string;
   /** Campo interno para paginação cursor-based (não exibido na UI) */

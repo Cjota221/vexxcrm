@@ -56,6 +56,8 @@ export async function GET(request: NextRequest) {
         message_count,
         is_pinned,
         is_muted,
+        remote_jid,
+        contact_name,
         created_at,
         updated_at,
         client:clients!conversations_client_id_fkey (
@@ -141,39 +143,44 @@ export async function GET(request: NextRequest) {
 
     // 9. Transformar no formato esperado pelo ChatList (interface Chat)
     const chats = filteredItems
-      .filter((conv: Record<string, unknown>) => conv.client) // Ignorar conversas sem cliente
+      .filter((conv: Record<string, unknown>) => conv.client || conv.remote_jid) // Incluir grupos (sem client)
       .map((conv: Record<string, unknown>) => {
-        const client = conv.client as Record<string, unknown>;
-        
-        // Identidade Progressiva: priorizar nome real sobre qualquer fallback genérico.
-        // A coluna 'name' já vem com a hierarquia aplicada pelo motor de sync,
-        // mas protegemos aqui contra valores vazio/nulo retornando o telefone.
-        const rawName = (client.name as string) || '';
-        const phone = (client.phone as string) || (client.phone_normalized as string) || '';
-        const displayName = rawName.trim() !== '' ? rawName.trim() : phone || 'Desconhecido';
-        
+        const client = conv.client as Record<string, unknown> | null;
+        const isGroup = !!(conv.remote_jid as string)?.includes('@g.us');
+
+        // Para grupos: usar contact_name como nome; para individuais: nome do cliente
+        let displayName: string;
+        if (isGroup) {
+          displayName = (conv.contact_name as string) || `Grupo ${String(conv.remote_jid || '').slice(-9)}`;
+        } else {
+          const rawName = (client?.name as string) || '';
+          const phone = (client?.phone as string) || (client?.phone_normalized as string) || '';
+          displayName = rawName.trim() !== '' ? rawName.trim() : phone || 'Desconhecido';
+        }
+
         return {
           id: conv.id,
+          is_group: isGroup,
           client: {
-            id: client.id,
-            name: displayName as string,
-            phone: client.phone || '',
-            phone_normalized: client.phone_normalized || '',
-            email: client.email || '',
-            status: client.status || 'active',
-            tags: client.tags || [],
-            avatar_url: client.avatar_url || null,
-            ltv: client.ltv || 0,
-            ticket_medio: client.avg_ticket || 0,
-            total_pedidos: client.total_orders || 0,
-            ultima_compra: client.last_order_at || null,
+            id: (client?.id as string) || (conv.remote_jid as string) || '',
+            name: displayName,
+            phone: (client?.phone as string) || '',
+            phone_normalized: (client?.phone_normalized as string) || '',
+            email: (client?.email as string) || '',
+            status: (client?.status as string) || 'active',
+            tags: (client?.tags as string[]) || [],
+            avatar_url: (client?.avatar_url as string) || null,
+            ltv: (client?.ltv as number) || 0,
+            ticket_medio: (client?.avg_ticket as number) || 0,
+            total_pedidos: (client?.total_orders as number) || 0,
+            ultima_compra: (client?.last_order_at as string) || null,
           },
           last_message: conv.last_message_text
             ? {
-                id: conv.id, // placeholder
+                id: conv.id,
                 tenant_id: tenantId,
-                client_id: (client.id as string) || '',
-                remote_jid: '',
+                client_id: (client?.id as string) || '',
+                remote_jid: (conv.remote_jid as string) || '',
                 message_id: '',
                 from_me: false,
                 content: conv.last_message_text as string,
@@ -189,7 +196,6 @@ export async function GET(request: NextRequest) {
           is_muted: (conv.is_muted as boolean) || false,
           assigned_to: (conv.assigned_to as string) || undefined,
           updated_at: (conv.updated_at as string) || (conv.created_at as string) || '',
-          // Cursor usa last_message_at; fallback para updated_at em chats sem mensagem
           _cursor: (conv.last_message_at as string) || (conv.updated_at as string) || (conv.created_at as string) || '',
         };
       });
