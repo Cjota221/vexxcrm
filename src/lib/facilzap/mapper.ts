@@ -21,8 +21,10 @@ export function parseNum(v: unknown): number {
   if (typeof v === 'number') return isNaN(v) ? 0 : v;
   if (!v) return 0;
   const s = String(v).trim();
-  // Detectar formato BR: "1.234,56" → trocar vírgula por ponto
-  const n = parseFloat(s.replace(/[^\d.,-]/g, '').replace(',', '.'));
+  // BR: tem vírgula → vírgula é decimal, pontos são milhar (ex: "1.234,56" → 1234.56)
+  // EN: só pontos → ponto é decimal (ex: "1234.56")
+  const normalized = s.includes(',') ? s.replace(/\./g, '').replace(',', '.') : s;
+  const n = parseFloat(normalized.replace(/[^\d.]/g, ''));
   return isNaN(n) ? 0 : n;
 }
 
@@ -563,15 +565,34 @@ export function mapOrders(
           cliente_email: cliente.email || null,
           cliente_id_facilzap: cliente.id || null,
           total_items: totalItems,
-          itens: items.slice(0, 50).map((it) => ({
-            id: it.id || null,
-            produto_id: it.produto_id || null,
-            nome: String(it.nome || it.name || ''),
-            quantidade: parseNum(it.quantidade) || 1,
-            valor: parseNum(it.preco_unitario || it.valor || it.preco),
-            variacao: it.variacao || null,
-            sku: it.sku || it.codigo || null,
-          })),
+          itens: items.slice(0, 50).map((it) => {
+            // Extrair preço unitário — múltiplos campos possíveis por versão da API
+            let precoUnit = 0;
+            for (const key of ['preco_unitario', 'valor_unitario', 'preco', 'valor', 'price']) {
+              const v = parseNum((it as Record<string, unknown>)[key]);
+              if (v > 0) { precoUnit = v; break; }
+            }
+            // Fallback: derivar de subtotal/total do item ÷ quantidade
+            if (precoUnit === 0) {
+              const qty = parseNum(it.quantidade) || 1;
+              const sub = parseNum((it.subtotal as unknown) || it.total);
+              if (sub > 0) precoUnit = sub / qty;
+            }
+            const variacaoRaw = it.variacao || it.variacao_nome || null;
+            const variacao = variacaoRaw && typeof variacaoRaw === 'object'
+              ? ((variacaoRaw as Record<string, unknown>).nome ?? (variacaoRaw as Record<string, unknown>).name ?? JSON.stringify(variacaoRaw))
+              : (variacaoRaw || null);
+            return {
+              id: it.id || null,
+              produto_id: it.produto_id || null,
+              nome: String(it.nome || it.name || ''),
+              quantidade: parseNum(it.quantidade) || 1,
+              valor: precoUnit,
+              preco_unitario: precoUnit,
+              variacao,
+              sku: it.sku || it.codigo || null,
+            };
+          }),
           pagamentos: o.pagamentos || [],
           status_original: o.status || null,
           status_pedido: o.status_pedido || null,

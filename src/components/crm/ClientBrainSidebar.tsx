@@ -494,14 +494,23 @@ function OrdersTab({ clientId, orders = [] }: { clientId: string; orders?: Order
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-bold text-gray-800 truncate">
-                    #{String(o.external_id ?? o.id).slice(-8).toUpperCase()}
+                    {o.order_number
+                      ? `#${String(o.order_number)}`
+                      : `#${String(o.external_id ?? o.id).slice(-8).toUpperCase()}`}
                   </p>
                   <span className="text-xs font-bold text-gray-700 shrink-0">
                     {formatCurrency((o.total as number) ?? 0)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between mt-0.5">
-                  <span className={cn('text-[10px] font-semibold', cfg.color)}>{cfg.label}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className={cn('text-[10px] font-semibold', cfg.color)}>{cfg.label}</span>
+                    {(o.payment_method as string) && (
+                      <span className="text-[9px] text-gray-400 bg-gray-100 px-1 rounded">
+                        {String(o.payment_method)}
+                      </span>
+                    )}
+                  </div>
                   <span className="text-[10px] text-gray-400">
                     {o.created_at ? formatRelativeTime(o.created_at as string) : ''}
                   </span>
@@ -520,8 +529,8 @@ function OrdersTab({ clientId, orders = [] }: { clientId: string; orders?: Order
                     {(o.items as Record<string, unknown>[]).map((item, i) => {
                       const nome = String(item.product_name ?? item.nome ?? item.name ?? 'Produto');
                       const qty = Number(item.quantity ?? item.quantidade ?? 1);
-                      const unitPrice = Number(item.unit_price ?? item.price ?? item.preco_unitario ?? item.valor ?? 0);
-                      const totalPrice = Number(item.total_price ?? item.valor ?? unitPrice * qty);
+                      const unitPrice = Number(item.unit_price ?? item.preco_unitario ?? item.price ?? 0);
+                      const totalPrice = Number(item.total_price ?? (unitPrice * qty));
                       const variacaoRaw = String(item.variacao ?? item.variation ?? item.product_sku ?? '');
                       const numMatch = (nome + ' ' + variacaoRaw).match(/\b(3[3-9]|4[0-8]|[PpMmGg]{1,2}|[Pp]eq|[Mm]ed|[Gg]rand)\b/);
                       const numeracao = numMatch?.[0] ?? null;
@@ -565,7 +574,14 @@ function OrdersTab({ clientId, orders = [] }: { clientId: string; orders?: Order
                     })}
                   </div>
                 ) : (
-                  <p className="text-[10px] text-gray-400 mt-2 italic">Nenhum item registrado neste pedido.</p>
+                  <div className="mt-2">
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-1">Itens</p>
+                    <p className="text-[10px] text-gray-400 italic">
+                      {Number((o.metadata as Record<string,unknown>)?.total_items) > 0
+                        ? `${(o.metadata as Record<string,unknown>).total_items} item(s) — detalhes não disponíveis nesta sincronização`
+                        : 'Nenhum item registrado neste pedido.'}
+                    </p>
+                  </div>
                 )}
 
                 {/* Endereço de entrega */}
@@ -585,20 +601,33 @@ function OrdersTab({ clientId, orders = [] }: { clientId: string; orders?: Order
                   );
                 })()}
 
-                {/* Código de rastreio */}
-                {(o.tracking_code as string) && (
-                  <div className="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-100">
-                    <Truck size={12} className="text-violet-500 shrink-0" />
-                    <span className="text-xs font-mono text-gray-700 flex-1 truncate">{o.tracking_code as string}</span>
-                    <button
-                      onClick={() => navigator.clipboard.writeText(o.tracking_code as string)}
-                      className="p-1 rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
-                      title="Copiar rastreio"
-                    >
-                      <Copy size={11} />
-                    </button>
+                {/* Valores financeiros */}
+                {((o.discount as number) > 0 || (o.shipping as number) > 0) && (
+                  <div className="flex items-center gap-3 pt-1 border-t border-gray-100 mt-1 text-[10px] text-gray-500">
+                    {(o.subtotal as number) > 0 && <span>Subtotal: <span className="font-semibold">{formatCurrency(o.subtotal as number)}</span></span>}
+                    {(o.discount as number) > 0 && <span className="text-red-500">Desconto: -{formatCurrency(o.discount as number)}</span>}
+                    {(o.shipping as number) > 0 && <span>Frete: <span className="font-semibold">{formatCurrency(o.shipping as number)}</span></span>}
                   </div>
                 )}
+
+                {/* Código de rastreio */}
+                <div className="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-100">
+                  <Truck size={12} className={cn('shrink-0', (o.tracking_code as string) ? 'text-violet-500' : 'text-gray-300')} />
+                  {(o.tracking_code as string) ? (
+                    <>
+                      <span className="text-xs font-mono text-gray-700 flex-1 truncate">{o.tracking_code as string}</span>
+                      <button
+                        onClick={() => navigator.clipboard.writeText(o.tracking_code as string)}
+                        className="p-1 rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                        title="Copiar rastreio"
+                      >
+                        <Copy size={11} />
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-[10px] text-gray-400 italic">Sem código de rastreio</span>
+                  )}
+                </div>
               </div>
             )}
           </div>

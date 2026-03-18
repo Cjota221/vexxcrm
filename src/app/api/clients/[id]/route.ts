@@ -139,7 +139,16 @@ export async function GET(
     const normalizeMetaItem = (item: any) => {
       const qty  = Math.max(1, Number(item.quantidade ?? item.quantity ?? 1));
       // Tentar extrair preço unitário de vários campos (FacilZap varia por versão da API)
-      const parseP = (v: any) => { const n = parseFloat(String(v || '0').replace(',', '.')); return isNaN(n) ? 0 : n; };
+      // parseP: suporta BR "1.234,56" (ponto=milhar, vírgula=decimal) e EN "1234.56"
+      const parseP = (v: any): number => {
+        if (typeof v === 'number') return isNaN(v) ? 0 : v;
+        const s = String(v || '').trim();
+        if (!s) return 0;
+        // BR: tem vírgula → vírgula é decimal, pontos são milhar
+        const normalized = s.includes(',') ? s.replace(/\./g, '').replace(',', '.') : s;
+        const n = parseFloat(normalized.replace(/[^\d.]/g, ''));
+        return isNaN(n) ? 0 : n;
+      };
       const unit = parseP(item.preco_unitario) || parseP(item.valor_unitario) || parseP(item.preco) || parseP(item.price) || parseP(item.valor) || 0;
       // Total: tenta campo direto, senão calcula (mas se unit=0 e temos total, derivar unitário)
       const tot  = parseP(item.total_price) || parseP(item.subtotal) || parseP(item.preco_total) || (unit * qty);
