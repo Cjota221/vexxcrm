@@ -32,7 +32,11 @@ import {
   Minimize2,
   Activity,
   Zap,
+  Layers,
+  MessageCircle,
+  ShoppingCart,
 } from 'lucide-react';
+import type { FacilZapKanbanCard } from '@/lib/services/facilzap.service';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/auth';
@@ -414,6 +418,198 @@ function KanbanColumnView({
   );
 }
 
+/* ─── FacilZap Kanban View ────────────────────────────────────── */
+
+function FacilZapKanbanView({
+  cards,
+  isLoading,
+  isError,
+  onRefetch,
+}: {
+  cards: FacilZapKanbanCard[];
+  isLoading: boolean;
+  isError: boolean;
+  onRefetch: () => void;
+}) {
+  // Agrupar cards por coluna_id
+  const grouped = cards.reduce<Record<number, FacilZapKanbanCard[]>>((acc, card) => {
+    if (!acc[card.coluna_id]) acc[card.coluna_id] = [];
+    acc[card.coluna_id].push(card);
+    return acc;
+  }, {});
+
+  const columnIds = Object.keys(grouped)
+    .map(Number)
+    .sort((a, b) => a - b);
+
+  const COLUMN_COLORS = [
+    { bg: 'bg-sky-50', border: 'border-sky-200', header: 'bg-sky-100', text: 'text-sky-700', dot: 'bg-sky-400' },
+    { bg: 'bg-amber-50', border: 'border-amber-200', header: 'bg-amber-100', text: 'text-amber-700', dot: 'bg-amber-400' },
+    { bg: 'bg-violet-50', border: 'border-violet-200', header: 'bg-violet-100', text: 'text-violet-700', dot: 'bg-violet-400' },
+    { bg: 'bg-emerald-50', border: 'border-emerald-200', header: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-400' },
+    { bg: 'bg-rose-50', border: 'border-rose-200', header: 'bg-rose-100', text: 'text-rose-700', dot: 'bg-rose-400' },
+    { bg: 'bg-orange-50', border: 'border-orange-200', header: 'bg-orange-100', text: 'text-orange-700', dot: 'bg-orange-400' },
+    { bg: 'bg-blue-50', border: 'border-blue-200', header: 'bg-blue-100', text: 'text-blue-700', dot: 'bg-blue-400' },
+  ];
+
+  if (isLoading) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 size={28} className="animate-spin text-crm-primary" />
+          <p className="text-sm text-gray-400">Carregando Kanban FacilZap...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-center max-w-xs">
+          <span className="text-3xl">⚠️</span>
+          <p className="text-sm font-semibold text-gray-700">Erro ao carregar Kanban FacilZap</p>
+          <p className="text-xs text-gray-400">Verifique se o token FacilZap está configurado.</p>
+          <button
+            onClick={onRefetch}
+            className="mt-1 px-4 py-2 bg-crm-primary text-white text-xs rounded-lg hover:opacity-90 transition-opacity"
+          >
+            Tentar novamente
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (cards.length === 0) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-2 text-center">
+          <Layers size={32} className="text-gray-200" />
+          <p className="text-sm text-gray-400">Nenhum card encontrado no Kanban FacilZap.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-auto p-4">
+      <div className="flex gap-3 h-full min-w-max">
+        {columnIds.map((colId, idx) => {
+          const colCards = grouped[colId];
+          const colors = COLUMN_COLORS[idx % COLUMN_COLORS.length];
+          return (
+            <div
+              key={colId}
+              className={cn(
+                'flex flex-col min-w-55 max-w-60 w-full rounded-2xl border',
+                colors.bg,
+                colors.border
+              )}
+            >
+              {/* Header */}
+              <div className={cn('px-3 py-2.5 rounded-t-2xl border-b', colors.header, colors.border)}>
+                <div className="flex items-center justify-between">
+                  <span className={cn('text-xs font-bold', colors.text)}>
+                    Coluna {colId}
+                  </span>
+                  <span className={cn(
+                    'text-[10px] font-black min-w-5.5 text-center px-1.5 py-0.5 rounded-full text-white',
+                    colCards.length > 0 ? 'bg-gray-700' : 'bg-gray-300'
+                  )}>
+                    {colCards.length}
+                  </span>
+                </div>
+              </div>
+
+              {/* Cards */}
+              <div className="flex-1 overflow-y-auto p-2 space-y-2 max-h-125 min-h-20">
+                {colCards
+                  .filter(c => !c.arquivado)
+                  .sort((a, b) => a.posicao - b.posicao)
+                  .map(card => (
+                    <FacilZapCard key={card.id} card={card} />
+                  ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function FacilZapCard({ card }: { card: FacilZapKanbanCard }) {
+  // Pegar primeiro vínculo com whatsapp/telefone para abrir chat
+  const contatoVinculo = card.vinculos.find(v => v.whatsapp || v.telefone);
+  const phone = contatoVinculo?.whatsapp || contatoVinculo?.telefone;
+  const nome = contatoVinculo?.nome || card.titulo;
+
+  const handleOpenChat = () => {
+    if (!phone) return;
+    window.dispatchEvent(
+      new CustomEvent('vexx:open-chat-by-phone', { detail: { phone } })
+    );
+  };
+
+  const ultimaInteracao = card.ultima_interacao
+    ? new Date(card.ultima_interacao).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+    : null;
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+      {/* Título */}
+      <div className="flex items-start gap-2 mb-2">
+        <div className="w-7 h-7 rounded-full bg-crm-primary/10 flex items-center justify-center shrink-0">
+          <User size={13} className="text-crm-primary" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p
+            className={cn(
+              'text-xs font-bold text-gray-800 truncate leading-tight',
+              phone && 'cursor-pointer hover:text-crm-primary transition-colors'
+            )}
+            onClick={phone ? handleOpenChat : undefined}
+            title={phone ? 'Abrir chat' : undefined}
+          >
+            {nome}
+          </p>
+          {card.titulo !== nome && (
+            <p className="text-[10px] text-gray-400 truncate mt-0.5">{card.titulo}</p>
+          )}
+        </div>
+      </div>
+
+      {/* Vínculos */}
+      {card.total_vinculos > 0 && (
+        <div className="flex items-center gap-2 mb-1.5">
+          {card.vinculos.slice(0, 2).map(v => (
+            <span key={v.id} className="flex items-center gap-1 text-[9px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-medium truncate max-w-24">
+              {v.tipo === 'pedido' ? <ShoppingCart size={8} /> : <MessageCircle size={8} />}
+              {v.nome ?? v.tipo}
+            </span>
+          ))}
+          {card.total_vinculos > 2 && (
+            <span className="text-[9px] text-gray-400">+{card.total_vinculos - 2}</span>
+          )}
+        </div>
+      )}
+
+      {/* Footer */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {card.total_comentarios > 0 && (
+            <span className="text-[9px] text-gray-400">{card.total_comentarios} coment.</span>
+          )}
+        </div>
+        {ultimaInteracao && (
+          <span className="text-[9px] text-gray-300">{ultimaInteracao}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ─── Modal Principal ─────────────────────────────────────────── */
 
 interface KanbanModalProps {
@@ -428,7 +624,7 @@ export function KanbanModal({ open, onClose }: KanbanModalProps) {
   const [draggingCard, setDraggingCard] = useState<KanbanCardData | null>(null);
   const [justMovedIds, setJustMovedIds] = useState<Set<string>>(new Set());
   const [isExpanded, setIsExpanded] = useState(false);
-  const [activeView, setActiveView] = useState<'board' | 'automacoes'>('board');
+  const [activeView, setActiveView] = useState<'board' | 'automacoes' | 'facilzap'>('board');
 
   // ── Query: todos os cards ─────────────────────────────────────
   const { data: cardsData, isLoading, isError: cardsError, error: cardsQueryError, refetch } = useQuery({
@@ -455,6 +651,20 @@ export function KanbanModal({ open, onClose }: KanbanModalProps) {
     },
     enabled: open,
     staleTime: 15_000,
+  });
+
+  // ── Query: cards do Kanban FacilZap ──────────────────────────
+  const { data: facilzapData, isLoading: facilzapLoading, isError: facilzapError, refetch: refetchFacilzap } = useQuery({
+    queryKey: ['facilzap-kanban-cards'],
+    queryFn: async () => {
+      const res = await api.get<{ data: FacilZapKanbanCard[]; total: number }>('/api/facilzap/kanban');
+      if (res.error) throw new Error(res.error);
+      return (res.data as any)?.data as FacilZapKanbanCard[] ?? [];
+    },
+    enabled: open && activeView === 'facilzap',
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   });
 
   // ── Mutation: mover card ──────────────────────────────────────
@@ -678,6 +888,18 @@ export function KanbanModal({ open, onClose }: KanbanModalProps) {
                 <Activity size={12} />
                 Automações
               </button>
+              <button
+                onClick={() => setActiveView('facilzap')}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+                  activeView === 'facilzap'
+                    ? 'bg-white text-crm-primary shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                )}
+              >
+                <Layers size={12} />
+                FacilZap
+              </button>
             </div>
 
             {/* Botão sincronizar com realidade */}
@@ -707,7 +929,7 @@ export function KanbanModal({ open, onClose }: KanbanModalProps) {
             </button>
 
             <button
-              onClick={() => refetch()}
+              onClick={() => activeView === 'facilzap' ? refetchFacilzap() : refetch()}
               className="p-2 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
               title="Atualizar"
             >
@@ -751,11 +973,18 @@ export function KanbanModal({ open, onClose }: KanbanModalProps) {
           </div>
         )}
 
-        {/* Conteúdo principal: Board ou Automações */}
+        {/* Conteúdo principal: Board, Automações ou FacilZap */}
         {activeView === 'automacoes' ? (
           <div className="flex-1 overflow-hidden">
             <AutomationLogPanel limit={60} />
           </div>
+        ) : activeView === 'facilzap' ? (
+          <FacilZapKanbanView
+            cards={facilzapData ?? []}
+            isLoading={facilzapLoading}
+            isError={facilzapError}
+            onRefetch={refetchFacilzap}
+          />
         ) : (
           <div className="flex-1 overflow-auto p-4">
             {isLoading ? (

@@ -524,6 +524,66 @@ export async function generateCartLink(
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   KANBAN
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+export interface FacilZapKanbanVinculo {
+  id: number;
+  tipo: string; // 'contato', 'pedido', etc.
+  nome?: string;
+  whatsapp?: string;
+  telefone?: string;
+  [key: string]: unknown;
+}
+
+export interface FacilZapKanbanUsuario {
+  id: number;
+  nome: string;
+}
+
+export interface FacilZapKanbanCard {
+  id: number;
+  coluna_id: number;
+  titulo: string;
+  descricao?: string;
+  posicao: number;
+  vinculos: FacilZapKanbanVinculo[];
+  usuarios: FacilZapKanbanUsuario[];
+  total_vinculos: number;
+  total_usuarios: number;
+  total_comentarios: number;
+  ultima_interacao?: string;
+  created_at: string;
+  arquivado: boolean;
+}
+
+/**
+ * Busca cards do Kanban FacilZap.
+ *
+ * @param config - Configuração FacilZap
+ * @param params - Filtros opcionais (coluna_id, arquivado)
+ * @returns Lista de cards do kanban
+ */
+export async function fetchKanbanCards(
+  config: FacilZapConfig,
+  params?: { coluna_id?: number; arquivado?: boolean }
+): Promise<FacilZapKanbanCard[]> {
+  const qs = new URLSearchParams();
+  if (params?.coluna_id !== undefined) qs.set('coluna_id', String(params.coluna_id));
+  if (params?.arquivado !== undefined) qs.set('arquivado', params.arquivado ? '1' : '0');
+
+  const query = qs.toString();
+  const response = await request<{ data: FacilZapKanbanCard[] } | FacilZapKanbanCard[]>(
+    config,
+    `/kanban/cards${query ? `?${query}` : ''}`
+  );
+
+  if (Array.isArray(response)) return response;
+  const data = (response as { data: FacilZapKanbanCard[] }).data;
+  return Array.isArray(data) ? data : [];
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    SINCRONIZAÇÃO
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
