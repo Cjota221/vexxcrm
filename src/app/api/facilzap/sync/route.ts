@@ -89,8 +89,11 @@ export async function POST(request: NextRequest) {
           }
           
           const mapped = clients.map((c: any) => {
-            // Priorizar whatsapp_e164 (com DDI), depois whatsapp, telefone, celular
-            const ph = (c.whatsapp_e164 || c.whatsapp || c.telefone || c.celular || '').replace(/\D/g, '');
+            // Parsear demais_dados (FacilZap armazena telefone/endereço como JSON string)
+            let dd: Record<string, unknown> = {};
+            try { dd = typeof c.demais_dados === 'string' ? JSON.parse(c.demais_dados) : (c.demais_dados || {}); } catch { /* ignore */ }
+            // Priorizar whatsapp_e164 (com DDI), depois whatsapp, telefone, celular; fallback: demais_dados
+            const ph = (c.whatsapp_e164 || c.whatsapp || c.telefone || c.celular || dd.whatsapp_e164 || dd.whatsapp || dd.telefone || dd.celular || '').toString().replace(/\D/g, '');
             
             // 🔍 DEBUG: Ver problemas de telefone
             if (page === 1 && clients.indexOf(c) < 3) {
@@ -121,15 +124,14 @@ export async function POST(request: NextRequest) {
               email: c.email || null,
               source: 'facilzap',
               status: clientStatus,
-              // Dados de endereço — nível raiz da API tem prioridade;
-              // fallback: extrair de demais_dados (JSON salvo pelo FacilZap)
-              address_city: c.cidade || c.city || (() => { try { const dd = typeof c.demais_dados === 'string' ? JSON.parse(c.demais_dados) : (c.demais_dados || {}); return dd.cidade || null; } catch { return null; } })() || null,
-              address_state: c.estado || c.state || c.uf || (() => { try { const dd = typeof c.demais_dados === 'string' ? JSON.parse(c.demais_dados) : (c.demais_dados || {}); return dd.estado || dd.uf || null; } catch { return null; } })() || null,
-              address_zip: c.cep || c.zip || c.codigo_postal || (() => { try { const dd = typeof c.demais_dados === 'string' ? JSON.parse(c.demais_dados) : (c.demais_dados || {}); return dd.cep || null; } catch { return null; } })() || null,
-              address_neighborhood: c.bairro || c.neighborhood || (() => { try { const dd = typeof c.demais_dados === 'string' ? JSON.parse(c.demais_dados) : (c.demais_dados || {}); return dd.bairro || null; } catch { return null; } })() || null,
-              address_street: c.endereco || c.logradouro || c.rua || (() => { try { const dd = typeof c.demais_dados === 'string' ? JSON.parse(c.demais_dados) : (c.demais_dados || {}); return dd.endereco || dd.rua || dd.logradouro || null; } catch { return null; } })() || null,
-              address_number: c.numero || c.number || (() => { try { const dd = typeof c.demais_dados === 'string' ? JSON.parse(c.demais_dados) : (c.demais_dados || {}); return dd.numero || null; } catch { return null; } })() || null,
-              address_complement: c.complemento || (() => { try { const dd = typeof c.demais_dados === 'string' ? JSON.parse(c.demais_dados) : (c.demais_dados || {}); return dd.complemento || null; } catch { return null; } })() || null,
+              // Dados de endereço — nível raiz da API tem prioridade; fallback: demais_dados (já parseado acima)
+              address_city: c.cidade || c.city || dd.cidade || null,
+              address_state: c.estado || c.state || c.uf || dd.estado || dd.uf || null,
+              address_zip: c.cep || c.zip || c.codigo_postal || dd.cep || null,
+              address_neighborhood: c.bairro || c.neighborhood || dd.bairro || null,
+              address_street: c.endereco || c.logradouro || c.rua || dd.endereco || dd.rua || dd.logradouro || null,
+              address_number: c.numero || c.number || dd.numero || null,
+              address_complement: c.complemento || dd.complemento || null,
               // Notas com dados ricos
               notes: c.observacoes || null,
               // Metadata completa do FacilZap

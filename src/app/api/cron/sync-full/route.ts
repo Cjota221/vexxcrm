@@ -158,7 +158,7 @@ async function handleFullSync(request: NextRequest) {
         // 3c. Construir lookup ATUALIZADO
         const { data: dbClients } = await supabase
           .from('clients')
-          .select('id, phone, phone_normalized, name, email, custom_fields')
+          .select('id, phone, phone_normalized, name, email, cpf, custom_fields')
           .eq('tenant_id', tenantId);
         const lookup = buildClientLookup(dbClients || []);
 

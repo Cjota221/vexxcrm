@@ -123,9 +123,20 @@ export function mapClients(
     try {
       const c = raw as Record<string, unknown>;
 
-      // ─── Extrair telefone (prioridade: whatsapp_e164 > whatsapp > telefone > celular)
+      // ─── Parsear demais_dados (FacilZap armazena telefone/endereço como JSON string)
+      let dd: Record<string, unknown> = {};
+      if (c.demais_dados) {
+        try {
+          dd = typeof c.demais_dados === 'string'
+            ? JSON.parse(c.demais_dados)
+            : (c.demais_dados as Record<string, unknown>);
+        } catch { /* ignore parse error */ }
+      }
+
+      // ─── Extrair telefone (top-level tem prioridade; fallback: demais_dados)
       const rawPhone = String(
-        c.whatsapp_e164 || c.whatsapp || c.telefone || c.celular || c.phone || ''
+        c.whatsapp_e164 || c.whatsapp || c.telefone || c.celular || c.phone ||
+        dd.whatsapp_e164 || dd.whatsapp || dd.telefone || dd.celular || ''
       ).replace(/\D/g, '');
 
       if (!rawPhone || rawPhone.length < 8) {
@@ -155,26 +166,26 @@ export function mapClients(
       else if (statusRaw === 'bloqueado' || statusRaw === 'blocked') clientStatus = 'blocked';
       else if (statusRaw === 'vip') clientStatus = 'vip';
 
-      // ─── CPF/CNPJ
-      const cpf = cleanCpfCnpj(c.cpf_cnpj || c.cpf || c.cnpj);
+      // ─── CPF/CNPJ (top-level tem prioridade; fallback: demais_dados)
+      const cpf = cleanCpfCnpj(c.cpf_cnpj || c.cpf || c.cnpj || dd.cpf_cnpj || dd.cpf);
 
       valid.push({
         tenant_id: tenantId,
         phone: phoneDisplay,
         phone_normalized: phoneCanonical,
-        name: String(c.nome || c.name || 'Sem nome').trim(),
-        email: cleanEmail(c.email),
+        name: String(c.nome || c.name || dd.nome || 'Sem nome').trim(),
+        email: cleanEmail(c.email || dd.email),
         cpf,
         source,
         status: clientStatus,
-        address_city: String(c.cidade || c.city || '').trim() || null,
-        address_state: String(c.estado || c.state || c.uf || '').trim() || null,
-        address_zip: String(c.cep || c.zip || c.codigo_postal || '').trim() || null,
-        address_neighborhood: String(c.bairro || c.neighborhood || '').trim() || null,
-        address_street: String(c.endereco || c.logradouro || c.rua || '').trim() || null,
-        address_number: String(c.numero || c.number || '').trim() || null,
-        address_complement: String(c.complemento || '').trim() || null,
-        notes: String(c.observacoes || '').trim() || null,
+        address_city: String(c.cidade || c.city || dd.cidade || '').trim() || null,
+        address_state: String(c.estado || c.state || c.uf || dd.estado || dd.uf || '').trim() || null,
+        address_zip: String(c.cep || c.zip || c.codigo_postal || dd.cep || '').trim() || null,
+        address_neighborhood: String(c.bairro || c.neighborhood || dd.bairro || '').trim() || null,
+        address_street: String(c.endereco || c.logradouro || c.rua || dd.endereco || dd.logradouro || dd.rua || '').trim() || null,
+        address_number: String(c.numero || c.number || dd.numero || '').trim() || null,
+        address_complement: String(c.complemento || dd.complemento || '').trim() || null,
+        notes: String(c.observacoes || dd.observacoes || '').trim() || null,
         custom_fields: {
           facilzap_id: c.id || null,
           tipo_contato: c.tipo_contato || null,
