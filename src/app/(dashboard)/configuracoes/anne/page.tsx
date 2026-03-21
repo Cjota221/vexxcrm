@@ -64,6 +64,14 @@ interface SandboxResult {
   kanban_move: string | null;
   message_suggestion: string | null;
   chain_of_thought: string[];
+  // Intelligent pipeline fields
+  intent?: string;
+  intent_confidence?: number;
+  agent_used?: string;
+  llm_response?: string | null;
+  response_type?: string;
+  is_crisis?: boolean;
+  duration_ms?: number;
 }
 
 type AddToast = (t: { type: 'success' | 'error' | 'warning' | 'info'; title: string; message?: string }) => void;
@@ -816,8 +824,27 @@ function TabSandbox({ addToast }: { addToast: AddToast }) {
           {/* Cards de resultado */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Card padding="sm">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Padrão Detectado</p>
-              {result.event ? (
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                {result.intent ? 'Intenção Classificada' : 'Padrão Detectado'}
+              </p>
+              {result.intent ? (
+                <>
+                  <p className="text-sm font-bold text-gray-900 mb-1">{result.intent}</p>
+                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-crm-primary rounded-full"
+                      style={{ width: `${Math.round((result.intent_confidence ?? 0) * 100)}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1">{Math.round((result.intent_confidence ?? 0) * 100)}% confiança</p>
+                  {result.is_crisis && (
+                    <Badge variant="danger" className="mt-2">Crise detectada</Badge>
+                  )}
+                  {result.event && (
+                    <p className="text-xs text-gray-400 mt-2">Pipeline: {result.event.trigger}</p>
+                  )}
+                </>
+              ) : result.event ? (
                 <>
                   <p className="text-sm font-bold text-gray-900 mb-2">{result.event.trigger}</p>
                   <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
@@ -835,7 +862,17 @@ function TabSandbox({ addToast }: { addToast: AddToast }) {
 
             <Card padding="sm">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Ação Prevista</p>
-              <p className="text-sm text-gray-800 leading-relaxed">{result.action_preview || '—'}</p>
+              {result.agent_used ? (
+                <>
+                  <p className="text-sm font-bold text-gray-900 mb-1">Agente: {result.agent_used}</p>
+                  <p className="text-xs text-gray-500">{result.response_type === 'mensagem' ? 'Resposta gerada' : result.response_type === 'incapaz' ? 'Escalonar para humano' : result.response_type === 'acao' ? 'Ação executada' : result.action_preview || '—'}</p>
+                </>
+              ) : (
+                <p className="text-sm text-gray-800 leading-relaxed">{result.action_preview || '—'}</p>
+              )}
+              {result.duration_ms != null && (
+                <p className="text-xs text-gray-400 mt-2">⏱️ {result.duration_ms}ms</p>
+              )}
             </Card>
 
             <Card padding="sm">
