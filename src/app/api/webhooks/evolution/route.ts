@@ -6,6 +6,7 @@ import { forwardMediaToN8n, getTenantEvolutionConfig, fetchChats, fetchMessages,
 import { processPipelineTriggers } from '@/lib/services/pipeline-triggers';
 import { extractTrackingCode, extractOrderNumber } from '@/lib/services/anne-pipeline';
 import { processAutoReply } from '@/lib/services/anne-auto-reply';
+import { transcribeAudio } from '@/lib/services/audio-transcription';
 import type { EvolutionWebhookPayload } from '@/types';
 
 // Nomes conhecidos da instância que NUNCA devem ser salvos como nome de cliente
@@ -490,6 +491,88 @@ async function handleNewMessage(
       clientPhone: phoneNormalized,
     }).catch(err => console.warn('[Webhook] Erro no auto-reply:', err));
   }
+
+  // ━━━ ANNE AUDIO TRANSCRIPTION + AUTO-REPLY ━━━
+  // Transcreve áudio inbound via Whisper e processa como texto pela Anne
+  if (!fromMe && type === 'audio' && mediaUrl) {
+    transcribeAndReply(supabase, {
+      tenantId,
+      clientId: client.id,
+      conversationId,
+      remoteJid,
+      messageId: savedMessage.id,
+      audioUrl: mediaUrl,
+      clientPhone: phoneNormalized,
+    }).catch(err => console.warn('[Webhook] Erro na transcrição de áudio:', err));
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// ÁUDIO — Transcrição + auto-reply para mensagens de voz
+// ──────────────────────────────────────────────────────────────────────────────
+
+async function transcribeAndReply(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  input: {
+    tenantId: string;
+    clientId: string;
+    conversationId: string;
+    remoteJid: string;
+    messageId: string;
+    audioUrl: string;
+    clientPhone: string;
+  },
+): Promise<void> {
+  const { tenantId, clientId, conversationId, remoteJid, messageId, audioUrl, clientPhone } = input;
+
+  // 1. Carregar config do tenant para obter API key
+  const { data: tenant } = await supabase
+    .from('tenants')
+    .select('openai_api_key, openai_provider, openai_base_url')
+    .eq('id', tenantId)
+    .single();
+
+  if (!tenant?.openai_api_key) {
+    console.log('[audio-transcription] Tenant sem API key configurada, pulando');
+    return;
+  }
+
+  // 2. Transcrever áudio
+  const result = await transcribeAudio(
+    audioUrl,
+    tenant.openai_api_key,
+    tenant.openai_provider || undefined,
+    tenant.openai_base_url || undefined,
+  );
+
+  if (!result) return;
+
+  const transcribedText = result.text;
+
+  // 3. Atualizar mensagem no DB com o texto transcrito
+  await supabase
+    .from('messages')
+    .update({
+      content: `🎤 ${transcribedText}`,
+      metadata: { transcription: transcribedText, transcribed_at: new Date().toISOString() },
+    })
+    .eq('id', messageId);
+
+  // 4. Emitir SSE para atualizar o chat em tempo real
+  eventBus.emitToTenant('message_updated', tenantId, {
+    message_id: messageId,
+    content: `🎤 ${transcribedText}`,
+  });
+
+  // 5. Processar auto-reply com o texto transcrito
+  await processAutoReply(supabase, {
+    tenantId,
+    clientId,
+    conversationId,
+    remoteJid,
+    message: transcribedText,
+    clientPhone,
+  });
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
