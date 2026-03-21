@@ -5,6 +5,7 @@ import { eventBus } from '@/lib/event-bus';
 import { forwardMediaToN8n, getTenantEvolutionConfig, fetchChats, fetchMessages, downloadMediaToStorage, fetchProfilePicUrl } from '@/lib/services/evolution.service';
 import { processPipelineTriggers } from '@/lib/services/pipeline-triggers';
 import { extractTrackingCode, extractOrderNumber } from '@/lib/services/anne-pipeline';
+import { processAutoReply } from '@/lib/services/anne-auto-reply';
 import type { EvolutionWebhookPayload } from '@/types';
 
 // Nomes conhecidos da instância que NUNCA devem ser salvos como nome de cliente
@@ -475,6 +476,19 @@ async function handleNewMessage(
       senderName: pushName,
       timestamp: savedMessage.created_at,
     }).catch(err => console.warn('[Webhook] Erro no transbordo n8n:', err));
+  }
+
+  // ━━━ ANNE AUTO-REPLY — Resposta automática via IA ━━━
+  // Fire-and-forget: processa mensagens inbound de texto (não grupo, não fromMe)
+  if (!fromMe && text && type === 'text') {
+    processAutoReply(supabase, {
+      tenantId,
+      clientId: client.id,
+      conversationId,
+      remoteJid,
+      message: text,
+      clientPhone: phoneNormalized,
+    }).catch(err => console.warn('[Webhook] Erro no auto-reply:', err));
   }
 }
 

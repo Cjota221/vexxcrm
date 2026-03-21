@@ -19,6 +19,7 @@ import {
   runLogisticsAgent,
   runFAQAgent,
   runOnboardingAgent,
+  runCentralAgent,
 } from '@/lib/services/agent-executor';
 
 /**
@@ -141,14 +142,56 @@ export async function POST(request: NextRequest) {
     chainOfThought.push(`🔍 Intenção classificada: ${intent} (confiança: ${(confidence * 100).toFixed(0)}%)`);
 
     if (intent === 'AMBIGUO') {
-      chainOfThought.push('❓ Intenção ambígua — aguardando clarificação');
-      return NextResponse.json({
-        handled:          false,
-        reason:           'ambiguo',
-        clarification:    'Por favor, pode me dar mais detalhes sobre o que você precisa?',
-        chain_of_thought: chainOfThought,
-        duration_ms:      Date.now() - t0,
-      });
+      chainOfThought.push('❓ Intenção ambígua — roteando para Anne Central (LLM)');
+
+      const centralInput = {
+        message,
+        clientProfile,
+        tenantId,
+        chatId,
+        supabase,
+      };
+
+      try {
+        const centralResponse = await runCentralAgent(centralInput);
+        const centralLatency = Date.now() - t0;
+        chainOfThought.push(`⚡ Anne Central respondeu em ${centralLatency}ms — tipo: ${centralResponse.tipo}`);
+
+        await logExecution(supabase, tenantId, {
+          clientId:     clientId ?? null,
+          chatId,
+          tipo:         centralResponse.tipo === 'mensagem' ? 'ativa' : 'erro',
+          agente:       'anne_central',
+          gatilho:      'intent:AMBIGUO',
+          confianca:    confidence,
+          acoes:        centralResponse.acoes_sistema,
+          mensagem:     centralResponse.tipo === 'mensagem' ? centralResponse.conteudo : null,
+          chainOfThought,
+          duracaoMs:    Date.now() - t0,
+        });
+
+        return NextResponse.json({
+          handled:          centralResponse.tipo === 'mensagem',
+          intent,
+          agent_used:       'anne_central',
+          response_type:    centralResponse.tipo,
+          message_to_send:  centralResponse.tipo === 'mensagem' ? centralResponse.conteudo : null,
+          actions_taken:    centralResponse.acoes_sistema,
+          chain_of_thought: chainOfThought,
+          duration_ms:      Date.now() - t0,
+        });
+      } catch (centralErr) {
+        console.warn('[anne/process] Erro no Anne Central:', centralErr);
+        chainOfThought.push(`❌ Erro no Anne Central: ${String(centralErr)}`);
+        // Fallback to original behavior
+        return NextResponse.json({
+          handled:          false,
+          reason:           'ambiguo',
+          clarification:    'Por favor, pode me dar mais detalhes sobre o que você precisa?',
+          chain_of_thought: chainOfThought,
+          duration_ms:      Date.now() - t0,
+        });
+      }
     }
 
     // ── ETAPA 4: Rotear para agente especialista ───────────────────────
