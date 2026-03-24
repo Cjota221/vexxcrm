@@ -26,6 +26,7 @@ import {
   Clock,
   Activity,
   Coins,
+  Users,
 } from 'lucide-react';
 import { useTenantConfig } from '@/hooks/useTenantConfig';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
