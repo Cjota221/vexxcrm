@@ -25,6 +25,9 @@
 [functions."api/cron/campaign-dispatcher"]
   timeout = 26
 
+[functions."api/v2/upload/criativo"]
+  timeout = 26
+
 # SSE: desabilitado como fonte de mensagens (eventBus in-memory não funciona
 # em Netlify serverless — processos isolados por request).
 # O hook useRealtimeMessages usa Supabase Realtime (WebSocket) como fonte

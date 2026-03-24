@@ -164,7 +164,8 @@ export async function POST(request: NextRequest) {
       tamanho_original,
     });
   } catch (err) {
-    console.error('[UPLOAD_CRIATIVO_UNEXPECTED]', err);
-    return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[UPLOAD_CRIATIVO_UNEXPECTED]', message, err);
+    return NextResponse.json({ error: message || 'Erro interno' }, { status: 500 });
   }
 }
