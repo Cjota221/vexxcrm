@@ -881,3 +881,79 @@ export async function relinkOrphans(
 
   return relinked;
 }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   MAPPER: LEAD → clients table (source = 'lead')
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+import type { FacilZapLead } from '@/lib/services/facilzap.service';
+
+/**
+ * Mapeia leads da FacilZap para o schema de clientes do VEXX CRM.
+ * Leads são clientes em estágio inicial — upsert seguro por phone_normalized.
+ */
+export function mapLeads(
+  rawLeads: FacilZapLead[],
+  tenantId: string
+): MapperResult<MappedClient> {
+  const valid: MappedClient[] = [];
+  const rejected: Array<{ raw: unknown; reason: string }> = [];
+  const seen = new Set<string>();
+
+  for (const lead of rawLeads) {
+    try {
+      const rawPhone = String(lead.whatsapp || '').replace(/\D/g, '');
+      if (!rawPhone || rawPhone.length < 8) {
+        rejected.push({ raw: lead, reason: 'WhatsApp ausente ou inválido' });
+        continue;
+      }
+
+      const phoneCanonical = PhoneNormalizer.canonical(rawPhone);
+      const phoneDisplay = PhoneNormalizer.normalize(rawPhone);
+
+      if (!phoneCanonical) {
+        rejected.push({ raw: lead, reason: `Falha ao normalizar: ${rawPhone}` });
+        continue;
+      }
+
+      if (seen.has(phoneCanonical)) {
+        rejected.push({ raw: lead, reason: `Duplicado no lote: ${phoneCanonical}` });
+        continue;
+      }
+      seen.add(phoneCanonical);
+
+      valid.push({
+        tenant_id: tenantId,
+        phone: phoneDisplay,
+        phone_normalized: phoneCanonical,
+        name: String(lead.nome || phoneDisplay).trim(),
+        email: cleanEmail(lead.email),
+        cpf: null,
+        source: 'lead',
+        status: 'active',
+        address_city: null,
+        address_state: null,
+        address_zip: null,
+        address_neighborhood: null,
+        address_street: null,
+        address_number: null,
+        address_complement: null,
+        notes: null,
+        custom_fields: {
+          facilzap_id: lead.id || null,
+          lead_canal: lead.canal || null,
+          lead_funil: lead.funil_origem?.nome || null,
+          lead_funil_id: lead.funil_origem?.id || null,
+          lead_vendedor: lead.vendedor?.nome || null,
+          lead_produtos: lead.produtos?.map(p => p.nome).join(', ') || null,
+          lead_created_at: lead.created_at || null,
+          source: 'lead',
+        },
+      });
+    } catch (err: unknown) {
+      rejected.push({ raw: lead, reason: `Erro: ${(err as Error).message}` });
+    }
+  }
+
+  return { valid, rejected };
+}

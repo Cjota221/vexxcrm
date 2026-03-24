@@ -602,6 +602,61 @@ export async function fetchKanbanCards(
  * // Sync completo (todas as páginas)
  * const fullData = await syncStoreData({ token: 'abc123' }, true);
  */
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   LEADS
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+export interface FacilZapLead {
+  id: string;
+  canal: string;
+  nome: string;
+  whatsapp: string;
+  email?: string;
+  funil_origem?: { id: string; nome: string; frases_ativacao?: string; status?: string };
+  vendedor?: { id: number; nome: string };
+  produtos?: Array<{ id: string; nome: string; preco?: string; imagem?: string; sku?: string }>;
+  created_at: string;
+}
+
+/**
+ * Busca leads da loja (paginado).
+ */
+export async function fetchLeads(
+  config: FacilZapConfig,
+  page = 1,
+  length = 100
+): Promise<{ leads: FacilZapLead[]; hasMore: boolean }> {
+  const response = await request<{ data: FacilZapLead[] }>(
+    config,
+    `/leads?page=${page}&length=${length}`
+  );
+  const leads = Array.isArray(response?.data) ? response.data : [];
+  return { leads, hasMore: leads.length >= length };
+}
+
+/**
+ * Busca TODOS os leads (paginação sequencial).
+ */
+export async function fetchAllLeads(
+  config: FacilZapConfig,
+  length = 100,
+  maxPages = 50
+): Promise<FacilZapLead[]> {
+  const all: FacilZapLead[] = [];
+  let page = 1;
+
+  while (page <= maxPages) {
+    const { leads, hasMore } = await fetchLeads(config, page, length);
+    if (leads.length === 0) break;
+    all.push(...leads);
+    if (!hasMore) break;
+    page++;
+  }
+
+  console.log(`✅ Leads: ${all.length} leads em ${page - 1} páginas`);
+  return all;
+}
+
 export async function syncStoreData(
   config: FacilZapConfig,
   fullSync = false

@@ -168,17 +168,30 @@ function BlocoEditor({
     const novos: ArquivoAlbum[] = [];
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const headers: HeadersInit = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+      const authHeaders: HeadersInit = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
       for (const file of files) {
         try {
           const compressed = await comprimirImagem(file);
-          const form = new FormData();
-          form.append('file', compressed);
-          const res = await fetch('/api/v2/upload/criativo', { method: 'POST', body: form, headers });
-          const json = await res.json();
-          if (!res.ok) continue;
-          const tipo: 'image' | 'video' = json.kind === 'video' ? 'video' : 'image';
-          novos.push({ url: json.url, tipo, nome: file.name });
+
+          // 1. Obter signed URL
+          const signRes = await fetch('/api/v2/upload/criativo', {
+            method: 'POST',
+            headers: { ...authHeaders, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contentType: compressed.type, size: compressed.size }),
+          });
+          const signJson = await signRes.json();
+          if (!signRes.ok) continue;
+
+          // 2. Upload direto ao Supabase Storage
+          const uploadRes = await fetch(signJson.signedUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': compressed.type },
+            body: compressed,
+          });
+          if (!uploadRes.ok) continue;
+
+          const tipo: 'image' | 'video' = signJson.kind === 'video' ? 'video' : 'image';
+          novos.push({ url: signJson.publicUrl, tipo, nome: file.name });
         } catch {
           // skip arquivo com erro, continua os próximos
         }
@@ -1748,21 +1761,32 @@ function NovaCampanhaInner() {
     setUploadingId(blocoId);
     try {
       const compressed = await comprimirImagem(file); // bypass automático para video/audio
-      const form = new FormData();
-      form.append('file', compressed);
 
-      // Injetar token de auth (rota exige Authorization: Bearer)
       const { data: { session } } = await supabase.auth.getSession();
-      const headers: HeadersInit = session?.access_token
+      const authHeaders: HeadersInit = session?.access_token
         ? { Authorization: `Bearer ${session.access_token}` }
         : {};
 
-      const res = await fetch('/api/v2/upload/criativo', { method: 'POST', body: form, headers });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? 'Erro no upload');
+      // 1. Obter signed URL (rápido, sem enviar o arquivo)
+      const signRes = await fetch('/api/v2/upload/criativo', {
+        method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contentType: compressed.type, size: compressed.size }),
+      });
+      const signJson = await signRes.json();
+      if (!signRes.ok) throw new Error(signJson.error ?? 'Erro ao preparar upload');
+
+      // 2. Upload direto ao Supabase Storage via signed URL
+      const uploadRes = await fetch(signJson.signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': compressed.type },
+        body: compressed,
+      });
+      if (!uploadRes.ok) throw new Error('Erro no upload do arquivo');
+
       setBlocos(prev => prev.map(b =>
         b.id === blocoId
-          ? { ...b, conteudo: { ...b.conteudo, url: json.url, storage_path: json.path, kind: json.kind } }
+          ? { ...b, conteudo: { ...b.conteudo, url: signJson.publicUrl, storage_path: signJson.path, kind: signJson.kind } }
           : b
       ));
     } catch (e) {

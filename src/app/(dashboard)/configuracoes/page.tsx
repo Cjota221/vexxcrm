@@ -817,6 +817,8 @@ function SyncStatusCard({ config }: { config?: TenantConfig }) {
   const [isClearing, setIsClearing] = useState(false);
   const [isRepairing, setIsRepairing] = useState(false);
   const [isRecalculating, setIsRecalculating] = useState(false);
+  const [isSyncingLeads, setIsSyncingLeads] = useState(false);
+  const [leadsResult, setLeadsResult] = useState<{ synced: number; total_leads: number; rejected: number } | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [syncProgress, setSyncProgress] = useState('');
   const [lastSyncInfo, setLastSyncInfo] = useState<string | null>(null);
@@ -863,6 +865,24 @@ function SyncStatusCard({ config }: { config?: TenantConfig }) {
       alert('Erro: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
     } finally {
       setIsRepairing(false);
+    }
+  }, [accessToken]);
+
+  const handleSyncLeads = useCallback(async () => {
+    if (!accessToken) return;
+    setIsSyncingLeads(true); setLeadsResult(null);
+    try {
+      const res = await fetch('/api/facilzap/sync-admin/sync-leads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Erro ao sincronizar leads');
+      setLeadsResult({ synced: json.synced, total_leads: json.total_leads, rejected: json.rejected });
+    } catch (err: unknown) {
+      alert('Erro: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
+    } finally {
+      setIsSyncingLeads(false);
     }
   }, [accessToken]);
 
@@ -993,6 +1013,10 @@ function SyncStatusCard({ config }: { config?: TenantConfig }) {
               <Button variant="secondary" onClick={handleRepairOrphans} disabled={isSyncing || isClearing || isRepairing || isRecalculating}>
                 <Wrench size={16} className={isRepairing ? 'animate-spin' : ''} />
                 {isRepairing ? 'Reparando...' : 'Reparar Órfãos'}
+              </Button>
+              <Button variant="ghost" onClick={handleSyncLeads} disabled={isSyncing || isClearing || isRepairing || isSyncingLeads} className="text-emerald-600 hover:bg-emerald-50">
+                <Users size={16} className={isSyncingLeads ? 'animate-spin' : ''} />
+                {isSyncingLeads ? 'Sincronizando...' : 'Sincronizar Leads'}
               </Button>
               <Button variant="ghost" onClick={handleRecalcStats} disabled={isSyncing || isClearing || isRepairing || isRecalculating} className="text-violet-600 hover:bg-violet-50">
                 <Activity size={16} />
