@@ -14,8 +14,9 @@ import {
   ArrowLeft,
   ArrowRight,
   AlertCircle,
+  Tag,
 } from 'lucide-react';
-import { useAuthStore } from '@/store/auth';
+import { supabase } from '@/lib/supabase';
 
 /* ───────── Types ───────── */
 
@@ -59,7 +60,6 @@ const STEPS: { key: Step; label: string; icon: typeof Upload }[] = [
 /* ───────── Page ───────── */
 
 export default function ImportacaoPage() {
-  const { accessToken } = useAuthStore();
   const queryClient = useQueryClient();
 
   // Wizard state
@@ -67,6 +67,7 @@ export default function ImportacaoPage() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [mapping, setMapping] = useState<Record<string, string>>({});
+  const [importTag, setImportTag] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,7 +79,11 @@ export default function ImportacaoPage() {
   const [stats, setStats] = useState<ImportStats | null>(null);
   const [details, setDetails] = useState<ImportDetail[]>([]);
 
-  const token = accessToken;
+  /** Pega token fresco do Supabase (evita usar token expirado do store) */
+  const getFreshToken = useCallback(async (): Promise<string | null> => {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token ?? null;
+  }, []);
 
   /* ─── Step 1: Upload + Preview ─── */
   const handleFileSelected = useCallback(
@@ -93,7 +98,6 @@ export default function ImportacaoPage() {
 
         const res = await fetch('/api/import/preview', {
           method: 'POST',
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
           body: formData,
         });
 
@@ -113,7 +117,7 @@ export default function ImportacaoPage() {
         setIsLoading(false);
       }
     },
-    [token]
+    [getFreshToken]
   );
 
   /* ─── Step 3: Process Import ─── */
@@ -148,10 +152,16 @@ export default function ImportacaoPage() {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('mapping', JSON.stringify(mapping));
+      formData.append('tag', importTag.trim());
+
+      const token = await getFreshToken();
+      if (!token) {
+        throw new Error('Sessão expirada. Faça login novamente.');
+      }
 
       const res = await fetch('/api/import/process', {
         method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
 
@@ -182,7 +192,7 @@ export default function ImportacaoPage() {
       setError(msg);
       setStep('mapping'); // volta ao mapeamento
     }
-  }, [file, preview, mapping, token]);
+  }, [file, preview, mapping, getFreshToken, importTag, queryClient]);
 
   /* ─── Reset ─── */
   const handleReset = useCallback(() => {
@@ -195,6 +205,7 @@ export default function ImportacaoPage() {
     setStats(null);
     setDetails([]);
     setError(null);
+    setImportTag('');
   }, []);
 
   /* ─── Navigation helpers ─── */
@@ -300,6 +311,23 @@ export default function ImportacaoPage() {
               Relacione cada coluna do seu arquivo com o campo correspondente no CRM.
               O sistema já sugeriu mapeamentos automáticos (indicados com ✨).
             </p>
+
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-txt-primary flex items-center gap-1.5">
+                <Tag size={13} className="text-crm-primary" />
+                Tag de origem (opcional)
+              </label>
+              <input
+                type="text"
+                placeholder="Ex: Grupo Calçados WhatsApp, Leads Instagram..."
+                value={importTag}
+                onChange={(e) => setImportTag(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-crm-primary/30 placeholder:text-txt-muted"
+              />
+              <p className="text-[11px] text-txt-muted">
+                Todos os contatos desta importação receberão esta tag automaticamente.
+              </p>
+            </div>
 
             <ColumnMapper
               preview={preview}
