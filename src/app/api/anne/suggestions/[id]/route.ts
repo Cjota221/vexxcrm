@@ -10,9 +10,10 @@ import { getTenantFromRequest } from '@/lib/auth-helpers';
  */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const { profile } = await getTenantFromRequest(request);
     const { status } = await request.json() as { status: 'sent' | 'dismissed' };
 
@@ -25,7 +26,7 @@ export async function PATCH(
     const { error } = await supabase
       .from('anne_suggestions')
       .update({ status })
-      .eq('id', params.id)
+      .eq('id', id)
       .eq('tenant_id', profile.tenant_id);
 
     if (error) {
