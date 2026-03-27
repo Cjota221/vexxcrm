@@ -45,6 +45,12 @@ interface MessageInputProps {
   recipientName?: string;
   /** ID do cliente — passado ao enviar Pix para salvar na conversa correta */
   clientId?: string;
+  /**
+   * Quando preenchido, substitui o texto atual do input.
+   * Usado pelo AnneSuggestionCard para "Editar antes de enviar".
+   * Use junto com um contador/key para garantir que o efeito re-dispara.
+   */
+  fillText?: { text: string; seq: number };
 }
 
 const ACCEPTED_TYPES: Record<string, string> = {
@@ -69,7 +75,7 @@ const MAX_FILE_SIZE = 16 * 1024 * 1024; // 16MB
 /**
  * Input de mensagem com auto-resize estilo WhatsApp + envio de mídia.
  */
-function MessageInputComponent({ onSend, onSendMedia, isLoading, disabled, recipientPhone, recipientName, clientId }: MessageInputProps) {
+function MessageInputComponent({ onSend, onSendMedia, isLoading, disabled, recipientPhone, recipientName, clientId, fillText }: MessageInputProps) {
   const [text, setText] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
@@ -80,6 +86,13 @@ function MessageInputComponent({ onSend, onSendMedia, isLoading, disabled, recip
   const [emojiCategory, setEmojiCategory] = useState(0);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Preencher input quando o AnneSuggestionCard acionar "Editar"
+  useEffect(() => {
+    if (!fillText) return;
+    setText(fillText.text);
+    setTimeout(() => textareaRef.current?.focus(), 50);
+  }, [fillText?.seq]); // eslint-disable-line react-hooks/exhaustive-deps
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileDocInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);

@@ -85,6 +85,7 @@ export async function POST(request: NextRequest) {
     }
 
     const mapping: Record<string, string> = JSON.parse(mappingStr);
+    const importTag = (formData.get('tag') as string | null)?.trim() || '';
 
     // ─── 3. Parsear arquivo ───
     const buffer = await file.arrayBuffer();
@@ -216,7 +217,8 @@ export async function POST(request: NextRequest) {
         byCpf,
         byPhone,
         stats,
-        columnFlags
+        columnFlags,
+        importTag
       );
       results.push(...batchResults);
     }
@@ -255,7 +257,8 @@ async function processBatch(
   byCpf: Map<string, Record<string, unknown>>,
   byPhone: Map<string, Record<string, unknown>>,
   stats: { total: number; merged: number; created: number; enriched: number; skipped: number; errors: number },
-  columnFlags: { hasCpfColumn: boolean; hasBirthdayColumn: boolean }
+  columnFlags: { hasCpfColumn: boolean; hasBirthdayColumn: boolean },
+  importTag: string
 ): Promise<ImportRowResult[]> {
   const results: ImportRowResult[] = [];
   const toInsert: Record<string, unknown>[] = [];
@@ -318,6 +321,14 @@ async function processBatch(
         // ─── MERGE: Cliente já existe ───
         const mergeData = buildMergeData(existingClient, mapped, columnFlags);
 
+        // Adicionar importTag se não existir nas tags do cliente
+        if (importTag) {
+          const existingTags: string[] = Array.isArray(existingClient.tags) ? (existingClient.tags as string[]) : [];
+          if (!existingTags.includes(importTag)) {
+            mergeData.tags = [...new Set([...existingTags, ...(mergeData.tags as string[] || []), importTag])];
+          }
+        }
+
         if (Object.keys(mergeData).length > 0) {
           toUpdate.push({ id: existingClient.id as string, data: mergeData });
           stats.merged++;
@@ -359,7 +370,10 @@ async function processBatch(
           avg_ticket: parseFloat(String(mapped.avg_ticket || mapped.ticket_medio || '0').replace(',', '.')) || 0,
           status: 'active',
           source: 'import',
-          tags: mapped.tags ? parseTags(mapped.tags) : [],
+          tags: [
+            ...(mapped.tags ? parseTags(mapped.tags) : []),
+            ...(importTag ? [importTag] : []),
+          ],
           notes: mapped.notas || null,
           address_street: mapped.address_street || null,
           address_number: mapped.address_number || null,

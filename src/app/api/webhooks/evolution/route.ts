@@ -446,7 +446,7 @@ async function handleNewMessage(
   // A Anne intercepta APENAS mensagens fromMe com código de rastreio para vincular
   // automaticamente ao pedido correspondente — sem responder ao cliente.
   if (fromMe && text) {
-    handleTrackingFromMe(supabase, tenantId, client.id, text).catch(
+    handleTrackingFromMe(supabase, tenantId, client.id, conversationId, text).catch(
       err => console.warn('[Webhook] Erro no detector de rastreio:', err)
     );
   }
@@ -704,6 +704,7 @@ async function handleTrackingFromMe(
   supabase: ReturnType<typeof createServerSupabaseClient>,
   tenantId: string,
   clientId: string,
+  conversationId: string,
   text: string
 ): Promise<void> {
   // 1. Extrair código de rastreio
@@ -785,15 +786,19 @@ async function handleTrackingFromMe(
     return;
   }
 
-  // 6. Mover kanban → DESPACHADO
+  // 6. Mover kanban → DESPACHADO (upsert garante criação do card se ainda não existe)
   await supabase
     .from('kanban_cards')
-    .update({
-      column_id: 'DESPACHADO',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('tenant_id', tenantId)
-    .eq('order_id', orderId);
+    .upsert(
+      {
+        tenant_id: tenantId,
+        chat_id: conversationId,
+        client_id: clientId,
+        coluna: 'DESPACHADO',
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'tenant_id,chat_id' }
+    );
 
   // 7. Emitir SSE para atualizar a UI em tempo real
   eventBus.emitToTenant('order_updated', tenantId, {

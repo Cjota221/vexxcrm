@@ -36,29 +36,31 @@ import { applyLabel } from '@/lib/services/whatsapp-labels';
 import { eventBus } from '@/lib/event-bus';
 
 // ─── Throttle: max 1 reply per chat per 30 seconds ──────────────────────────
+// Usa anne_logs_v2 para persistir o estado — funciona em ambientes serverless
+// onde cada invocação roda em processo isolado (Netlify, Vercel, AWS Lambda).
 
-const replyThrottle = new Map<string, number>();
 const THROTTLE_MS = 30_000;
 
-function isThrottled(tenantId: string, chatId: string): boolean {
-  const key = `${tenantId}:${chatId}`;
-  const last = replyThrottle.get(key);
-  if (last && Date.now() - last < THROTTLE_MS) return true;
-  return false;
+async function isThrottled(
+  supabase: SupabaseClient,
+  tenantId: string,
+  chatId: string,
+): Promise<boolean> {
+  const since = new Date(Date.now() - THROTTLE_MS).toISOString();
+  const { data } = await supabase
+    .from('anne_logs_v2')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('chat_id', chatId)
+    .eq('tipo', 'ativa')
+    .gte('created_at', since)
+    .limit(1)
+    .maybeSingle();
+  return data !== null;
 }
 
-function markReplied(tenantId: string, chatId: string): void {
-  const key = `${tenantId}:${chatId}`;
-  replyThrottle.set(key, Date.now());
-
-  // Cleanup old entries periodically
-  if (replyThrottle.size > 1000) {
-    const now = Date.now();
-    for (const [k, v] of replyThrottle) {
-      if (now - v > THROTTLE_MS * 2) replyThrottle.delete(k);
-    }
-  }
-}
+// markReplied removido: o próprio logExecution (tipo='ativa') já persiste o
+// registro que isThrottled usa para checar. Não há necessidade de chamada extra.
 
 // ─── Human-like delay ────────────────────────────────────────────────────────
 
@@ -187,7 +189,7 @@ export async function processAutoReply(
 
   try {
     // ── 1. Check throttle ────────────────────────────────────────────────
-    if (isThrottled(tenantId, conversationId)) {
+    if (await isThrottled(supabase, tenantId, conversationId)) {
       console.log(`[auto-reply] Throttled: ${conversationId}`);
       return;
     }
@@ -352,7 +354,20 @@ export async function processAutoReply(
         chainOfThought.push(`❌ Erro no envio: ${String(sendErr)}`);
       }
     } else {
-      // suggest mode — emit event for frontend
+      // suggest mode — persistir no banco (SSE in-memory não funciona em serverless)
+      // O AnneSuggestionCard no ChatArea lê de anne_suggestions via Realtime/polling.
+      await supabase.from('anne_suggestions').insert({
+        tenant_id: tenantId,
+        conversation_id: conversationId,
+        client_id: clientId,
+        agent: agentSlug,
+        intent,
+        confidence,
+        mensagem: replyText,
+        status: 'pending',
+      });
+
+      // Emitir SSE como canal secundário (funciona em ambientes não-serverless)
       eventBus.emitToTenant('anne_suggestion', tenantId, {
         type: 'anne_suggestion',
         chat_id: conversationId,
@@ -362,11 +377,9 @@ export async function processAutoReply(
         intent,
         confidence,
       });
-      chainOfThought.push('💡 Sugestão emitida para frontend');
-    }
 
-    // Mark throttle
-    markReplied(tenantId, conversationId);
+      chainOfThought.push('💡 Sugestão persistida no banco e emitida para frontend');
+    }
 
     // ── 12. Log execution ────────────────────────────────────────────────
     await logExecution(supabase, tenantId, {

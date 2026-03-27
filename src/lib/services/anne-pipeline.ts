@@ -302,11 +302,24 @@ export async function isAutomationSuspended(
 ): Promise<boolean> {
   const { data } = await supabase
     .from('conversations')
-    .select('automacao_suspensa')
+    .select('automacao_suspensa, automacao_suspensa_ate')
     .eq('tenant_id', tenantId)
     .eq('id', chatId)
     .single();
-  return data?.automacao_suspensa === true;
+
+  if (!data?.automacao_suspensa) return false;
+
+  // Se tem TTL definido e já expirou, retomar automação e limpar o flag
+  if (data.automacao_suspensa_ate && new Date(data.automacao_suspensa_ate) <= new Date()) {
+    void supabase
+      .from('conversations')
+      .update({ automacao_suspensa: false, automacao_suspensa_ate: null })
+      .eq('tenant_id', tenantId)
+      .eq('id', chatId); // fire-and-forget
+    return false;
+  }
+
+  return true;
 }
 
 // ─── Suspender automação para um chat ────────────────────────────────────────
@@ -316,10 +329,19 @@ export async function suspendAutomation(
   tenantId: string,
   chatId: string,
   motivo: string,
+  duracaoHoras?: number, // undefined = suspensão permanente até ação manual
 ): Promise<void> {
+  const suspensaAte = duracaoHoras
+    ? new Date(Date.now() + duracaoHoras * 60 * 60 * 1000).toISOString()
+    : null;
+
   await supabase
     .from('conversations')
-    .update({ automacao_suspensa: true, automacao_suspensa_motivo: motivo })
+    .update({
+      automacao_suspensa: true,
+      automacao_suspensa_motivo: motivo,
+      automacao_suspensa_ate: suspensaAte,
+    })
     .eq('tenant_id', tenantId)
     .eq('id', chatId);
 }

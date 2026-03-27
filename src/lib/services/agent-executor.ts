@@ -300,13 +300,20 @@ export async function runLogisticsAgent(input: AgentInput): Promise<AgentRespons
       latencia_ms: Date.now() - t1,
     });
 
-    // Mover kanban
+    // Mover kanban → DESPACHADO (upsert garante criação do card se ainda não existe)
     const t2 = Date.now();
     await supabase
       .from('kanban_cards')
-      .update({ column_id: 'DESPACHADO', updated_at: new Date().toISOString() })
-      .eq('tenant_id', tenantId)
-      .eq('order_id', orderId);
+      .upsert(
+        {
+          tenant_id: tenantId,
+          chat_id: chatId,
+          client_id: clientProfile!.id,
+          coluna: 'DESPACHADO',
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'tenant_id,chat_id' }
+      );
 
     actions.push({
       acao:        'mover_kanban',

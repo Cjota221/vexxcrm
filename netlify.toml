@@ -43,6 +43,11 @@
   schedule = "* * * * *"
   function = "api/cron/campaign-dispatcher"
 
+# Marca mensagens outbound presas em 'pending' há +5 min como 'failed'.
+[scheduled-functions."pending-messages-timeout-cron"]
+  schedule = "*/5 * * * *"
+  function = "api/cron/pending-messages-timeout"
+
 # Redirects and rewrites — NÃO interceptar rotas de API
 # O plugin @netlify/plugin-nextjs gerencia todas as rotas do Next.js automaticamente
 

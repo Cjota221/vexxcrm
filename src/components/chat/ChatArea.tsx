@@ -8,7 +8,9 @@ import { useChatsStore } from '@/store/chats';
 import { usePresence } from '@/hooks/usePresence';
 import { VirtualizedMessageList } from './VirtualizedMessageList';
 import { MessageInput } from './MessageInput';
+import { AnneSuggestionCard } from './AnneSuggestionCard';
 import { AvatarImage } from '@/components/ui/AvatarImage';
+import { useAnneSuggestion } from '@/hooks/useAnneSuggestion';
 import { api } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
@@ -36,6 +38,10 @@ export function ChatArea({
   const { mutate: sendMessage, isPending: isSending } = useSendMessage();
   const queryClient = useQueryClient();
   const [isSyncing] = useState(false);
+
+  // ── Anne Suggestion Card ──────────────────────────────────────────────────
+  const { suggestion, updateStatus } = useAnneSuggestion(selectedChatId);
+  const [fillText, setFillText] = useState<{ text: string; seq: number } | undefined>();
 
   // ── Lazy History Loading ──────────────────────────────────────────────────
   // Guarda quais clientIds já tiveram o histórico solicitado nesta sessão
@@ -403,8 +409,24 @@ export function ChatArea({
         />
       )}
 
+      {/* Anne Suggestion Card — exibido quando send_mode='suggest' */}
+      {suggestion && (
+        <AnneSuggestionCard
+          suggestion={suggestion}
+          onSend={(text) => {
+            handleSend(text);
+            void updateStatus({ id: suggestion.id, status: 'sent' });
+          }}
+          onEdit={(text) => {
+            setFillText(prev => ({ text, seq: (prev?.seq ?? 0) + 1 }));
+            void updateStatus({ id: suggestion.id, status: 'dismissed' });
+          }}
+          onDismiss={() => void updateStatus({ id: suggestion.id, status: 'dismissed' })}
+        />
+      )}
+
       {/* Message input */}
-      <MessageInput onSend={handleSend} onSendMedia={handleSendMedia} isLoading={isSending} disabled={!resolvedPhone} recipientPhone={resolvedPhone || undefined} recipientName={clientData?.name || undefined} clientId={selectedChatId || undefined} />
+      <MessageInput onSend={handleSend} onSendMedia={handleSendMedia} isLoading={isSending} disabled={!resolvedPhone} recipientPhone={resolvedPhone || undefined} recipientName={clientData?.name || undefined} clientId={selectedChatId || undefined} fillText={fillText} />
     </div>
   );
 }
