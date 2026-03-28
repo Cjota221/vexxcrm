@@ -4,14 +4,30 @@ import { getTenantFromRequest } from '@/lib/auth-helpers';
 
 const META_BASE = 'https://graph.facebook.com/v23.0';
 
+// Meta Graph API mutations require form-encoded body.
+// Complex fields (targeting, object_story_spec, creative, call_to_action, special_ad_categories)
+// must be JSON-stringified as individual form values.
+const FORM_COMPLEX_FIELDS = new Set([
+  'targeting', 'object_story_spec', 'creative', 'call_to_action',
+  'special_ad_categories', 'link_data', 'promoted_object',
+]);
+
 async function metaPost<T>(url: string, body: Record<string, unknown>): Promise<T> {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(body)) {
+    if (v === undefined || v === null) continue;
+    params.set(k, FORM_COMPLEX_FIELDS.has(k) || typeof v === 'object' ? JSON.stringify(v) : String(v));
+  }
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString(),
   });
-  const data = await res.json() as T & { error?: { message: string } };
-  if (!res.ok) throw new Error((data as Record<string, unknown> & { error?: { message: string } }).error?.message || `Meta HTTP ${res.status}`);
+  const data = await res.json() as T & { error?: { message: string; error_user_msg?: string } };
+  if (!res.ok) {
+    const errData = data as Record<string, unknown> & { error?: { message: string; error_user_msg?: string } };
+    throw new Error(errData.error?.error_user_msg || errData.error?.message || `Meta HTTP ${res.status}`);
+  }
   return data;
 }
 

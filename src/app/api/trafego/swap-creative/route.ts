@@ -57,27 +57,33 @@ export async function POST(req: NextRequest) {
     if (body.image_url) linkData.picture = body.image_url;
     if (body.image_hash) linkData.image_hash = body.image_hash;
 
+    // Meta Graph API mutations require form-encoded body with complex fields as JSON strings
+    const creativeParams = new URLSearchParams();
+    creativeParams.set('access_token', token);
+    creativeParams.set('name', `Criativo trocado — ${new Date().toISOString()}`);
+    creativeParams.set('object_story_spec', JSON.stringify({ page_id: pageId, link_data: linkData }));
+
     // Create new adcreative
     const creativeRes = await fetch(`${META_BASE}/${accountId}/adcreatives`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: `Criativo trocado — ${new Date().toISOString()}`,
-        object_story_spec: { page_id: pageId, link_data: linkData },
-        access_token: token,
-      }),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: creativeParams.toString(),
     });
-    const creativeData = await creativeRes.json() as { id?: string; error?: { message: string } };
-    if (!creativeRes.ok) return NextResponse.json({ error: creativeData.error?.message }, { status: 502 });
+    const creativeData = await creativeRes.json() as { id?: string; error?: { message: string; error_user_msg?: string } };
+    if (!creativeRes.ok) return NextResponse.json({ error: creativeData.error?.error_user_msg || creativeData.error?.message }, { status: 502 });
 
     // Link new creative to ad
+    const adParams = new URLSearchParams();
+    adParams.set('access_token', token);
+    adParams.set('creative', JSON.stringify({ creative_id: creativeData.id }));
+
     const adRes = await fetch(`${META_BASE}/${body.ad_id}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ creative: { creative_id: creativeData.id }, access_token: token }),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: adParams.toString(),
     });
-    const adData = await adRes.json() as { success?: boolean; error?: { message: string } };
-    if (!adRes.ok) return NextResponse.json({ error: adData.error?.message }, { status: 502 });
+    const adData = await adRes.json() as { success?: boolean; error?: { message: string; error_user_msg?: string } };
+    if (!adRes.ok) return NextResponse.json({ error: adData.error?.error_user_msg || adData.error?.message }, { status: 502 });
 
     return NextResponse.json({ ok: true, creative_id: creativeData.id });
   } catch (err) {

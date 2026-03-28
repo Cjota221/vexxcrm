@@ -65,7 +65,9 @@ export async function PATCH(req: NextRequest) {
 
     if (!config?.meta_access_token) return NextResponse.json({ error: 'Meta não configurado' }, { status: 400 });
 
-    const updates: Record<string, unknown> = { access_token: config.meta_access_token };
+    // Meta Graph API mutations require form-encoded body, with complex fields JSON-stringified
+    const params = new URLSearchParams();
+    params.set('access_token', config.meta_access_token);
 
     if (body.targeting) {
       const t = body.targeting;
@@ -75,20 +77,20 @@ export async function PATCH(req: NextRequest) {
       if (t.idade_max) targeting.age_max = t.idade_max;
       if (t.genero !== undefined && t.genero !== 0) targeting.genders = [t.genero];
       if (t.interesses && t.interesses.length > 0) targeting.flexible_spec = [{ interests: t.interesses }];
-      updates.targeting = targeting;
+      params.set('targeting', JSON.stringify(targeting));
     }
 
     if (body.orcamento_diario) {
-      updates.daily_budget = String(Math.round(body.orcamento_diario * 100));
+      params.set('daily_budget', String(Math.round(body.orcamento_diario * 100)));
     }
 
     const res = await fetch(`${META_BASE}/${body.adset_id}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
     });
-    const data = await res.json() as { success?: boolean; error?: { message: string } };
-    if (!res.ok) return NextResponse.json({ error: data.error?.message }, { status: 502 });
+    const data = await res.json() as { success?: boolean; error?: { message: string; error_user_msg?: string } };
+    if (!res.ok) return NextResponse.json({ error: data.error?.error_user_msg || data.error?.message }, { status: 502 });
 
     return NextResponse.json({ ok: true });
   } catch (err) {
