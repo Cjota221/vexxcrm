@@ -935,11 +935,18 @@ async function handleMessageStatus(
 ) {
   const { data } = payload;
 
+  // DEBUG: logar payload completo de messages.update para diagnóstico
+  console.log(`[Webhook] messages.update RAW:`, JSON.stringify(data).substring(0, 500));
+
   // A Evolution API às vezes envia messages.update sem data.key (ex: receipt updates)
   // Guardar defensivamente para não crashar
   const messageId = data?.key?.id;
-  // Evolution envia status em data.status OU data.update?.status
-  const status = data?.status || (data as { update?: { status?: unknown } })?.update?.status;
+  // Evolution envia status em múltiplos formatos:
+  // data.status, data.update?.status, ou data.update (número direto)
+  const rawStatus = data?.status
+    || (data as { update?: { status?: unknown } })?.update?.status
+    || (data as { update?: unknown })?.update;
+  const status = rawStatus;
 
   // Verificar se é edição de mensagem (editedMessage)
   const editedMessage = (data as { update?: { editedMessage?: { message?: { conversation?: string; extendedTextMessage?: { text?: string } } } } }).update?.editedMessage;

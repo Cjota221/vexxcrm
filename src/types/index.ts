@@ -404,8 +404,22 @@ export interface EvolutionWebhookPayload {
       stickerMessage?: { url?: string; directPath?: string };
     };
     messageTimestamp?: number;
-    status?: string;
-  };
+    status?: string | number;
+    update?: Record<string, unknown>;
+    // Labels events
+    id?: string;
+    name?: string;
+    color?: number;
+    deleted?: boolean;
+    // Presence events
+    presences?: Record<string, { lastKnownPresence: string }>;
+    // Call events
+    from?: string;
+    isVideo?: boolean;
+    // Contacts events
+    notify?: string;
+    imgUrl?: string;
+  } & Record<string, unknown>;
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
