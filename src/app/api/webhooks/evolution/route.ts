@@ -979,7 +979,7 @@ async function handleMessageStatus(
   };
 
   const statusStr = String(status);
-  const mappedStatus = statusMap[statusStr] || statusMap[status] || 'sent';
+  const mappedStatus = statusMap[statusStr] || 'sent';
   console.log(`[Webhook] messages.update — ${messageId}: ${status} → ${mappedStatus}`);
 
   const { error } = await supabase
