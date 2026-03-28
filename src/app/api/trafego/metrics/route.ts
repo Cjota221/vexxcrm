@@ -116,10 +116,10 @@ export async function GET(req: NextRequest) {
 
     // Mapear period para date_preset da Meta API
     const datePreset =
-      period === '1d'  ? 'today'      :
-      period === '7d'  ? 'last_7_d'   :
-      period === '15d' ? 'last_14_d'  :
-      'last_30_d';
+      period === '1d'  ? 'today'    :
+      period === '7d'  ? 'last_7d'  :
+      period === '15d' ? 'last_14d' :
+      'last_30d';
 
     const insightFields = [
       'spend', 'impressions', 'clicks', 'reach', 'cpc', 'cpm', 'ctr',
