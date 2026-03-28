@@ -393,7 +393,7 @@ export async function executeApprovedAction(actionId: string): Promise<{
  */
 export async function getAgentStatus(tenantId: string): Promise<{
   anne: { active: boolean; provider: string; model: string };
-  jose: { active: boolean; metaConnected: boolean; accountName?: string; lastRun?: string };
+  jose: { active: boolean; metaConnected: boolean; accountName?: string; lastRun?: string; metaError?: string };
   claudio: { active: boolean; hasApiKey: boolean };
   pedro: { active: boolean; hasApiKey: boolean };
   judite: { active: boolean; hasApiKey: boolean };
@@ -434,6 +434,7 @@ export async function getAgentStatus(tenantId: string): Promise<{
       metaConnected: metaStatus.ok,
       accountName: metaStatus.accountName,
       lastRun: lastRun?.created_at,
+      metaError: metaStatus.error,
     },
     claudio: {
       active: config?.analysis_enabled || false,

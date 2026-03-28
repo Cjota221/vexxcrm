@@ -25,7 +25,7 @@ function authFetch(url: string, options?: RequestInit): Promise<Response> {
 
 interface AgentStatus {
   anne: { active: boolean; provider: string; model: string };
-  jose: { active: boolean; metaConnected: boolean; accountName?: string; lastRun?: string };
+  jose: { active: boolean; metaConnected: boolean; accountName?: string; lastRun?: string; metaError?: string };
   claudio: { active: boolean; hasApiKey: boolean };
   pedro: { active: boolean; hasApiKey: boolean };
   judite: { active: boolean; hasApiKey: boolean };
@@ -642,7 +642,7 @@ export default function TimeIAPage() {
               <span className="text-xs">
                 {agentStatus?.jose.metaConnected
                   ? <span className="text-green-600">🟢 {agentStatus.jose.accountName || 'Conectado'}</span>
-                  : <span className="text-red-500">🔴 Não conectado</span>}
+                  : <span className="text-red-500">🔴 Não conectado{agentStatus?.jose.metaError ? ` — ${agentStatus.jose.metaError}` : ''}</span>}
               </span>
             </div>
 
