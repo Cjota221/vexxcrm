@@ -1211,6 +1211,26 @@ function NovaCampanhaModal({ onClose, onCreated }: { onClose: () => void; onCrea
 
 /* ─── Abas de conteúdo ─────────────────────────────────────────────────────── */
 
+/* ─── Tipos para públicos IA ───────────────────────────────────────────────── */
+
+interface IAPublico {
+  id: string;
+  nome: string;
+  descricao?: string;
+  tipo: string;
+  status: string;
+  estimativa_alcance_min?: number;
+  estimativa_alcance_max?: number;
+  criado_por_ia: boolean;
+  jose_justificativa?: string;
+  claudio_copy?: { headline: string; texto: string; cta: string };
+  created_at: string;
+  tamanho_estimado?: string;
+  copy_sugerido?: { headline: string; texto: string; cta: string };
+  estrategia?: string;
+  erro?: string;
+}
+
 // Públicos pré-configurados CJ Rasteirinhas
 const PUBLICOS_CJ = [
   {
@@ -1432,63 +1452,211 @@ function formatAudienceSize(lower?: number, upper?: number): string {
   return `~${fmt(lower || upper || 0)} pessoas`;
 }
 
+type IALoadingStep = 'jose' | 'claudio' | 'meta' | 'remarketing' | null;
+
+const IA_STEP_LABELS: Record<string, string> = {
+  jose: '🔍 José analisando seus clientes...',
+  claudio: '🎯 Cláudio configurando os públicos...',
+  meta: '📡 Criando no Meta Ads...',
+  remarketing: '🔄 Criando público de remarketing...',
+};
+
+function formatTamanhoEstimado(min?: number, max?: number, texto?: string): string {
+  if (texto && texto !== 'Estimativa indisponível' && texto !== 'Calculando...') return texto;
+  if (!min && !max) return 'Calculando...';
+  const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}K` : String(n);
+  if (min && max) return `~${fmt(min)} – ${fmt(max)} pessoas`;
+  return `~${fmt(min || max || 0)} pessoas`;
+}
+
 function PublicosTab() {
   const [savedAudiences, setSavedAudiences] = useState<SavedAudience[]>([]);
   const [customAudiences, setCustomAudiences] = useState<SavedAudience[]>([]);
   const [loading, setLoading] = useState(true);
   const [metaConnected, setMetaConnected] = useState(false);
 
-  useEffect(() => {
-    authFetch('/api/trafego/saved-audiences')
-      .then(r => r.json())
-      .then((d: { connected?: boolean; savedAudiences?: SavedAudience[]; customAudiences?: SavedAudience[] }) => {
-        setMetaConnected(d.connected || false);
-        setSavedAudiences(d.savedAudiences || []);
-        setCustomAudiences(d.customAudiences || []);
+  // Públicos IA (do banco local)
+  const [iaPublicos, setIaPublicos] = useState<IAPublico[]>([]);
+  const [criandoComIA, setCriandoComIA] = useState(false);
+  const [iaStep, setIaStep] = useState<IALoadingStep>(null);
+  const [iaAnaliseResumo, setIaAnaliseResumo] = useState<string | null>(null);
+
+  const carregarDados = useCallback(() => {
+    setLoading(true);
+    Promise.all([
+      authFetch('/api/trafego/saved-audiences').then(r => r.json()),
+      authFetch('/api/ai-team/create-audiences').then(r => r.json()),
+    ])
+      .then(([metaData, iaData]: [
+        { connected?: boolean; savedAudiences?: SavedAudience[]; customAudiences?: SavedAudience[] },
+        { publicos?: IAPublico[] }
+      ]) => {
+        setMetaConnected(metaData.connected || false);
+        setSavedAudiences(metaData.savedAudiences || []);
+        setCustomAudiences(metaData.customAudiences || []);
+        setIaPublicos(iaData.publicos || []);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => { carregarDados(); }, [carregarDados]);
+
+  const handleCriarComIA = useCallback(async () => {
+    if (criandoComIA) return;
+    setCriandoComIA(true);
+    setIaStep('jose');
+    setIaAnaliseResumo(null);
+
+    try {
+      const res = await authFetch('/api/ai-team/create-audiences', { method: 'POST' });
+      const data = await res.json() as {
+        ok?: boolean;
+        publicos?: IAPublico[];
+        analise_resumo?: string;
+        criados?: number;
+        erros?: number;
+        error?: string;
+      };
+
+      if (!res.ok || data.error) throw new Error(data.error || 'Erro ao criar públicos');
+
+      setIaPublicos(prev => {
+        const novosIds = new Set((data.publicos || []).map(p => p.id));
+        return [...(data.publicos || []), ...prev.filter(p => !novosIds.has(p.id))];
+      });
+      if (data.analise_resumo) setIaAnaliseResumo(data.analise_resumo);
+    } catch (err) {
+      console.error('[PublicosTab] Erro ao criar com IA:', err);
+    } finally {
+      setCriandoComIA(false);
+      setIaStep(null);
+    }
+  }, [criandoComIA]);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="font-bold text-gray-900">Públicos</h2>
         <button
-          onClick={() => {
-            setLoading(true);
-            authFetch('/api/trafego/saved-audiences')
-              .then(r => r.json())
-              .then((d: { connected?: boolean; savedAudiences?: SavedAudience[]; customAudiences?: SavedAudience[] }) => {
-                setMetaConnected(d.connected || false);
-                setSavedAudiences(d.savedAudiences || []);
-                setCustomAudiences(d.customAudiences || []);
-              })
-              .catch(() => {})
-              .finally(() => setLoading(false));
-          }}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 text-gray-600 text-sm hover:bg-gray-50"
+          onClick={carregarDados}
+          disabled={loading || criandoComIA}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 text-gray-600 text-sm hover:bg-gray-50 disabled:opacity-40"
         >
-          <RefreshCw size={13} /> Atualizar
+          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Atualizar
         </button>
+      </div>
+
+      {/* Card IA — Criar públicos com IA */}
+      <div className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-2xl border border-purple-100 p-4">
+        <div className="flex items-start gap-3">
+          <div className="text-2xl shrink-0">🤖</div>
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold text-gray-900 text-sm">Criar públicos com IA</div>
+            <div className="text-xs text-gray-500 mt-0.5">
+              José analisa seus clientes + Cláudio configura os públicos certos para cada objetivo
+            </div>
+            {criandoComIA && iaStep && (
+              <div className="mt-2 flex items-center gap-2 text-xs text-purple-700 font-medium">
+                <Loader2 size={12} className="animate-spin shrink-0" />
+                {IA_STEP_LABELS[iaStep]}
+              </div>
+            )}
+            {iaAnaliseResumo && !criandoComIA && (
+              <div className="mt-2 text-xs text-gray-600 bg-white/70 rounded-lg p-2 border border-purple-100/50">
+                💡 {iaAnaliseResumo}
+              </div>
+            )}
+          </div>
+          <button
+            onClick={handleCriarComIA}
+            disabled={criandoComIA}
+            className={cn(
+              'shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all',
+              criandoComIA
+                ? 'bg-purple-100 text-purple-400 cursor-not-allowed'
+                : 'bg-purple-600 text-white hover:bg-purple-700 shadow-sm'
+            )}
+          >
+            {criandoComIA
+              ? <><Loader2 size={13} className="animate-spin" /> Criando...</>
+              : <><Wand2 size={13} /> Criar com IA</>
+            }
+          </button>
+        </div>
       </div>
 
       {loading && (
         <div className="text-center py-8 text-gray-400 text-sm flex items-center justify-center gap-2">
-          <Loader2 size={15} className="animate-spin" /> Carregando públicos do Meta...
+          <Loader2 size={15} className="animate-spin" /> Carregando públicos...
         </div>
       )}
 
-      {!loading && !metaConnected && (
+      {!loading && !metaConnected && iaPublicos.length === 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
           Meta Ads não conectado — configure o token em <a href="/time-ia" className="underline font-medium">Time de IAs</a>.
         </div>
       )}
 
-      {/* Públicos Salvos */}
+      {/* Públicos criados pela IA */}
+      {!loading && iaPublicos.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+            Criados pela IA ({iaPublicos.length})
+          </h3>
+          {iaPublicos.map(p => {
+            const copy = p.claudio_copy || p.copy_sugerido;
+            const tamanho = formatTamanhoEstimado(p.estimativa_alcance_min, p.estimativa_alcance_max, p.tamanho_estimado);
+            const tipoLabel = p.tipo === 'remarketing' ? '🔄 Remarketing' : p.tipo === 'lookalike' ? '👥 Lookalike' : '🎯 Interesse';
+            return (
+              <div key={p.id} className={cn(
+                'bg-white rounded-2xl border p-4',
+                p.erro ? 'border-red-100 bg-red-50/30' : 'border-gray-100'
+              )}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-gray-900 text-sm">{p.nome}</span>
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 font-medium">{tipoLabel}</span>
+                      {p.criado_por_ia && (
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">IA</span>
+                      )}
+                    </div>
+                    {p.descricao && <div className="text-xs text-gray-500 mt-0.5">{p.descricao}</div>}
+                    <div className="text-xs text-gray-400 mt-1 font-medium">{tamanho}</div>
+                    {p.jose_justificativa && (
+                      <div className="text-xs text-gray-400 mt-0.5 italic">💡 {p.jose_justificativa}</div>
+                    )}
+                    {copy && (
+                      <div className="mt-2 p-2 bg-gray-50 rounded-lg border border-gray-100 text-xs space-y-0.5">
+                        <div><span className="font-medium text-gray-700">Headline:</span> {copy.headline}</div>
+                        <div><span className="font-medium text-gray-700">Texto:</span> {copy.texto}</div>
+                        <div><span className="font-medium text-gray-700">CTA:</span> {copy.cta}</div>
+                      </div>
+                    )}
+                    {p.erro && (
+                      <div className="text-xs text-red-500 mt-1">⚠ {p.erro}</div>
+                    )}
+                  </div>
+                  <span className={cn(
+                    'text-xs px-2 py-0.5 rounded-full font-medium shrink-0',
+                    p.status === 'pronto' ? 'bg-green-50 text-green-700' :
+                    p.status === 'falhou' ? 'bg-red-50 text-red-600' :
+                    'bg-gray-100 text-gray-500'
+                  )}>
+                    {p.status === 'pronto' ? 'Pronto' : p.status === 'falhou' ? 'Falhou' : p.status}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Públicos Salvos no Meta */}
       {!loading && savedAudiences.length > 0 && (
         <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Públicos Salvos ({savedAudiences.length})</h3>
+          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Públicos Salvos no Meta ({savedAudiences.length})</h3>
           {savedAudiences.map(a => (
             <div key={a.id} className="bg-white rounded-2xl border border-gray-100 p-4">
               <div className="flex items-start justify-between">
@@ -1506,7 +1674,7 @@ function PublicosTab() {
         </div>
       )}
 
-      {/* Públicos Personalizados */}
+      {/* Públicos Personalizados no Meta */}
       {!loading && customAudiences.length > 0 && (
         <div className="space-y-3">
           <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Públicos Personalizados ({customAudiences.length})</h3>
@@ -1532,16 +1700,16 @@ function PublicosTab() {
         </div>
       )}
 
-      {!loading && metaConnected && savedAudiences.length === 0 && customAudiences.length === 0 && (
+      {!loading && metaConnected && savedAudiences.length === 0 && customAudiences.length === 0 && iaPublicos.length === 0 && (
         <div className="text-center py-8">
           <Users size={36} className="text-gray-200 mx-auto mb-3" />
-          <p className="text-gray-500 text-sm">Nenhum público encontrado na conta Meta</p>
-          <p className="text-gray-400 text-xs mt-1">Crie públicos no Meta Ads Manager e eles aparecerão aqui automaticamente.</p>
+          <p className="text-gray-500 text-sm">Nenhum público ainda</p>
+          <p className="text-gray-400 text-xs mt-1">Clique em &quot;Criar com IA&quot; para gerar públicos segmentados automaticamente.</p>
         </div>
       )}
 
-      {/* Públicos padrão CJ como referência */}
-      {!loading && (
+      {/* Sugestões estáticas CJ como referência (só se não houver públicos IA) */}
+      {!loading && iaPublicos.length === 0 && (
         <div className="space-y-3">
           <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Sugestões para CJ Rasteirinhas</h3>
           {PUBLICOS_CJ.map((p) => (
