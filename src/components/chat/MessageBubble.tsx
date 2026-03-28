@@ -3,7 +3,7 @@
 import { useState, useCallback, memo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { formatTime } from '@/lib/utils';
-import { Check, CheckCheck, Mic, Eye, AlertCircle, Clock, Copy, RotateCcw, Trash2, Pencil, MapPin, Smile, X } from 'lucide-react';
+import { Check, CheckCheck, Mic, Eye, AlertCircle, Clock, Copy, RotateCcw, Trash2, Pencil, MapPin, Smile } from 'lucide-react';
 import { api } from '@/lib/api';
 import { parseMessageContent } from '@/lib/message-parser';
 import { AudioMessage } from './AudioMessage';
@@ -42,10 +42,6 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
   // Menu de contexto
   const [showMenu, setShowMenu] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  // Edição inline
-  const [editMode, setEditMode] = useState(false);
-  const [editText, setEditText] = useState(message.content || '');
-  const [isSavingEdit, setIsSavingEdit] = useState(false);
   // Deleção
   const [isDeleting, setIsDeleting] = useState(false);
   // Reactions locais (otimístico)
@@ -109,24 +105,6 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
       setIsDeleting(false);
     }
   }, [message.id, isDeleting]);
-
-  const handleSaveEdit = useCallback(async () => {
-    if (!editText.trim() || isSavingEdit) return;
-    setIsSavingEdit(true);
-    try {
-      const res = await api.patch(`/api/messages/${message.id}/edit`, { content: editText.trim() });
-      if (res.error) {
-        // Versão da Evolution API não suporta edição — apenas fecha o editor
-        console.warn('[MessageBubble] Edição não suportada:', res.error);
-      }
-      setEditMode(false);
-    } catch (err) {
-      console.warn('[MessageBubble] Erro ao editar:', err);
-      setEditMode(false);
-    } finally {
-      setIsSavingEdit(false);
-    }
-  }, [message.id, editText, isSavingEdit]);
 
   const handleReact = useCallback(async (emoji: string) => {
     setShowEmojiPicker(false);
@@ -238,14 +216,6 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
                 'absolute bottom-8 z-50 bg-white rounded-xl shadow-lg border border-gray-100 py-1 min-w-36',
                 isFromMe ? 'right-0' : 'left-0'
               )}>
-                {isFromMe && message.type === 'text' && (
-                  <button
-                    onClick={() => { setEditMode(true); setEditText(message.content || ''); setShowMenu(false); }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 text-gray-700"
-                  >
-                    <Pencil size={13} /> Editar
-                  </button>
-                )}
                 {isFromMe && (
                   <button
                     onClick={handleDelete}
@@ -439,31 +409,6 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
               return url ? <LinkPreview url={url} isFromMe={isFromMe} /> : null;
             })()}
           </>
-        )}
-
-        {/* Modo de edição inline */}
-        {editMode && (
-          <div className="mt-1">
-            <textarea
-              value={editText}
-              onChange={e => setEditText(e.target.value)}
-              autoFocus
-              rows={2}
-              className="w-full text-sm rounded-lg border border-gray-300 px-2 py-1 resize-none bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-400"
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSaveEdit(); }
-                if (e.key === 'Escape') setEditMode(false);
-              }}
-            />
-            <div className="flex gap-1 mt-1 justify-end">
-              <button onClick={() => setEditMode(false)} className="text-[11px] px-2 py-0.5 rounded bg-gray-200 text-gray-600 hover:bg-gray-300">
-                <X size={10} className="inline mr-0.5" />Cancelar
-              </button>
-              <button onClick={handleSaveEdit} disabled={isSavingEdit} className="text-[11px] px-2 py-0.5 rounded bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50">
-                {isSavingEdit ? 'Salvando...' : 'Salvar'}
-              </button>
-            </div>
-          </div>
         )}
 
         {/* Reactions — exibe emojis abaixo da mensagem */}
