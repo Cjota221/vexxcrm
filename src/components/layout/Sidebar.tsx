@@ -19,6 +19,7 @@ import {
   Tag,
   Sparkles,
   TrendingUp,
+  Share2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/store/ui';
@@ -38,6 +39,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Campanhas', href: '/campanhas', icon: <Megaphone size={20} /> },
   { label: 'Etiquetas', href: '/etiquetas', icon: <Tag size={20} /> },
   { label: 'Tráfego Pago', href: '/trafego', icon: <TrendingUp size={20} /> },
+  { label: 'Social Mídia', href: '/social', icon: <Share2 size={20} /> },
   { label: 'Inteligência', href: '/intelligence', icon: <Brain size={20} /> },
   { label: 'Anne IA', href: '/configuracoes/anne', icon: <Bot size={20} /> },
   { label: 'Time de IAs', href: '/time-ia', icon: <Sparkles size={20} /> },
