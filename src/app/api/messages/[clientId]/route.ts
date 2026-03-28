@@ -72,137 +72,84 @@ export async function GET(
     // CRÍTICO: ORDER DESC + LIMIT para pegar as N mais RECENTES.
     // Se order fosse ASC, com +100 mensagens a nova mensagem (mais recente)
     // ficaria fora do limit e nunca apareceria no chat.
-    // Tentar SELECT com colunas de migration 041 (deleted, edited).
-    // Se a migration não foi executada ainda, as colunas não existem e a query retorna erro.
-    // Nesse caso fazemos fallback para SELECT sem essas colunas — não crash em prod.
-    let messagesDesc: Record<string, unknown>[] | null = null;
-    let has041Columns = true;
+    let query = supabase
+      .from('messages')
+      .select(`
+        id,
+        tenant_id,
+        conversation_id,
+        client_id,
+        type,
+        content,
+        media_url,
+        media_mime_type,
+        media_filename,
+        media_size,
+        direction,
+        sender_name,
+        sender_phone,
+        status,
+        external_id,
+        reply_to_id,
+        metadata,
+        is_from_bot,
+        created_at,
+        deleted,
+        deleted_at,
+        edited,
+        edited_at
+      `)
+      .eq('tenant_id', tenantId)
+      .eq('conversation_id', conversation.id)
+      .order('created_at', { ascending: false })
+      .limit(limit);
 
-    {
-      let query = supabase
-        .from('messages')
-        .select(`
-          id,
-          tenant_id,
-          conversation_id,
-          client_id,
-          type,
-          content,
-          media_url,
-          media_mime_type,
-          media_filename,
-          media_size,
-          direction,
-          sender_name,
-          sender_phone,
-          status,
-          external_id,
-          reply_to_id,
-          metadata,
-          is_from_bot,
-          created_at,
-          deleted,
-          deleted_at,
-          edited,
-          edited_at
-        `)
-        .eq('tenant_id', tenantId)
-        .eq('conversation_id', conversation.id)
-        .order('created_at', { ascending: false })
-        .limit(limit);
-
-      if (before) query = query.lt('created_at', before);
-
-      const { data, error } = await query;
-
-      if (error) {
-        // Provavelmente coluna inexistente — fallback sem as colunas novas
-        has041Columns = false;
-        console.warn('[Messages GET] Colunas migration 041 ausentes, usando fallback:', error.message);
-
-        let fallbackQuery = supabase
-          .from('messages')
-          .select(`
-            id, tenant_id, conversation_id, client_id, type, content,
-            media_url, media_mime_type, media_filename, media_size,
-            direction, sender_name, sender_phone, status, external_id,
-            reply_to_id, metadata, is_from_bot, created_at
-          `)
-          .eq('tenant_id', tenantId)
-          .eq('conversation_id', conversation.id)
-          .order('created_at', { ascending: false })
-          .limit(limit);
-
-        if (before) fallbackQuery = fallbackQuery.lt('created_at', before);
-
-        const { data: fallbackData, error: fallbackError } = await fallbackQuery;
-        if (fallbackError) {
-          console.error('❌ Messages API error (fallback):', fallbackError);
-          return NextResponse.json({ error: fallbackError.message }, { status: 500 });
-        }
-        messagesDesc = fallbackData as Record<string, unknown>[] | null;
-      } else {
-        messagesDesc = data as Record<string, unknown>[] | null;
-      }
+    // Cursor-based pagination (paginação para trás no histórico)
+    if (before) {
+      query = query.lt('created_at', before);
     }
+
+    const { data: messagesDesc, error } = await query;
 
     // Inverter para exibição cronológica (mais antiga primeiro)
     const messages = messagesDesc ? [...messagesDesc].reverse() : [];
 
-    console.log(`[Messages GET] conv=${conversation.id} → ${messages?.length ?? 0} mensagens retornadas | mais recente: ${messages?.[messages.length - 1]?.id ?? 'nenhum'}`);
-
-    // 3b. Buscar reactions para estas mensagens (batch — sem N+1)
-    // Tabela message_reactions só existe após migration 041 — silencioso se ausente
-    const messageIds = (messages || []).map(m => String(m.id));
-    const reactionsMap = new Map<string, Array<{ emoji: string; phone: string }>>();
-
-    if (messageIds.length > 0 && has041Columns) {
-      const { data: reactionRows, error: reactionErr } = await supabase
-        .from('message_reactions')
-        .select('message_id, reactor_phone, emoji')
-        .eq('tenant_id', tenantId)
-        .in('message_id', messageIds);
-
-      if (!reactionErr) {
-        for (const r of reactionRows || []) {
-          const row = r as { message_id: string; reactor_phone: string; emoji: string };
-          if (!reactionsMap.has(row.message_id)) reactionsMap.set(row.message_id, []);
-          reactionsMap.get(row.message_id)!.push({ emoji: row.emoji, phone: row.reactor_phone });
-        }
-      }
+    if (error) {
+      console.error('❌ Messages API error:', error);
+      return NextResponse.json(
+        { error: error.message },
+        { status: 500 }
+      );
     }
+
+    console.log(`[Messages GET] conv=${conversation.id} → ${messages?.length ?? 0} mensagens retornadas | mais recente: ${messages?.[messages.length - 1]?.id ?? 'nenhum'}`);
 
     // 3. Traduzir para o formato Message do TypeScript
     // O front-end espera: from_me, message_id, remote_jid, timestamp
     // O banco salva: direction, external_id, sender_phone, created_at
-    const translatedMessages: Message[] = (messages || []).map((rawMsg) => {
-      const msg = rawMsg as Record<string, unknown>;
-      const msgId = String(msg.id);
-      return {
-        id: msgId,
-        tenant_id: String(msg.tenant_id || ''),
-        client_id: String(msg.client_id || clientId),
-        remote_jid: msg.sender_phone ? `${msg.sender_phone}@s.whatsapp.net` : '',
-        message_id: String(msg.external_id || msg.id),
-        from_me: msg.direction === 'outbound',
-        content: String(msg.content || ''),
-        type: msg.type as Message['type'],
-        media_url: (msg.media_url as string) || undefined,
-        media_type: (msg.media_mime_type as string) || undefined,
-        media_size: (msg.media_size as number) || undefined,
-        timestamp: msg.created_at as string,
-        status: msg.status as Message['status'],
-        metadata: (msg.metadata as Record<string, unknown>) || {},
-        created_at: msg.created_at as string,
-        // Campos de edição/deleção (migration 041)
-        deleted: msg.deleted as boolean | undefined,
-        deleted_at: msg.deleted_at as string | undefined,
-        edited: msg.edited as boolean | undefined,
-        edited_at: msg.edited_at as string | undefined,
-        // Reactions
-        reactions: reactionsMap.get(msgId),
-      };
-    });
+    const translatedMessages: Message[] = (messages || []).map((msg) => ({
+      id: msg.id,
+      tenant_id: msg.tenant_id,
+      client_id: msg.client_id || clientId,
+      remote_jid: msg.sender_phone
+        ? `${msg.sender_phone}@s.whatsapp.net`
+        : '',
+      message_id: msg.external_id || msg.id,
+      from_me: msg.direction === 'outbound',
+      content: msg.content || '',
+      type: msg.type as Message['type'],
+      media_url: msg.media_url || undefined,
+      media_type: msg.media_mime_type || undefined,
+      media_size: msg.media_size || undefined,
+      timestamp: msg.created_at,
+      status: msg.status as Message['status'],
+      metadata: msg.metadata || {},
+      created_at: msg.created_at,
+      deleted: (msg as any).deleted || false,
+      deleted_at: (msg as any).deleted_at || null,
+      edited: (msg as any).edited || false,
+      edited_at: (msg as any).edited_at || null,
+    }));
 
     // 4. Retornar IMEDIATAMENTE — marcar como lido em background (fire-and-forget)
     // CRÍTICO: não usar await aqui.

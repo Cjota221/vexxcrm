@@ -654,49 +654,11 @@ async function handleGroupMessage(
     '';
 
   let type = 'text';
-  let mediaUrl: string | undefined;
-  let mimetype: string | undefined;
-
-  const mc = messageContent as Record<string, Record<string, string> | undefined>;
-  if (mc.imageMessage) {
-    type = 'image';
-    mediaUrl = mc.imageMessage.url || mc.imageMessage.directPath;
-    mimetype = mc.imageMessage.mimetype;
-  } else if (mc.videoMessage) {
-    type = 'video';
-    mediaUrl = mc.videoMessage.url || mc.videoMessage.directPath;
-    mimetype = mc.videoMessage.mimetype;
-  } else if (mc.audioMessage) {
-    type = 'audio';
-    mediaUrl = mc.audioMessage.url || mc.audioMessage.directPath;
-    mimetype = mc.audioMessage.mimetype;
-  } else if (mc.documentMessage) {
-    type = 'document';
-    mediaUrl = mc.documentMessage.url || mc.documentMessage.directPath;
-    mimetype = mc.documentMessage.mimetype;
-  } else if (mc.stickerMessage) {
-    type = 'sticker';
-    mediaUrl = mc.stickerMessage.url || mc.stickerMessage.directPath;
-    mimetype = mc.stickerMessage.mimetype;
-  }
-
-  // Download de mídia para Storage permanente (igual ao handleNewMessage)
-  if (mediaUrl && ['image', 'video', 'audio', 'document', 'sticker'].includes(type)) {
-    try {
-      const evoConfig = getTenantEvolutionConfig(tenantId);
-      const messageId = data.key?.id || '';
-      const permanentUrl = await downloadMediaToStorage(
-        evoConfig,
-        { id: messageId, remoteJid: groupJid, fromMe },
-        messageContent as Record<string, unknown>,
-        tenantId,
-        mimetype
-      );
-      if (permanentUrl) mediaUrl = permanentUrl;
-    } catch {
-      // fallback: manter URL original
-    }
-  }
+  if (messageContent.imageMessage) type = 'image';
+  else if (messageContent.videoMessage) type = 'video';
+  else if (messageContent.audioMessage) type = 'audio';
+  else if (messageContent.documentMessage) type = 'document';
+  else if (messageContent.stickerMessage) type = 'sticker';
 
   const content = text || `📎 ${type}`;
   const now = new Date().toISOString();
@@ -750,8 +712,6 @@ async function handleGroupMessage(
     sender_name: fromMe ? 'Você' : senderName,
     content,
     type,
-    media_url: mediaUrl || undefined,
-    media_mime_type: mimetype || undefined,
     status: fromMe ? 'sent' : 'delivered',
     created_at: msgTs,
   };
@@ -975,18 +935,11 @@ async function handleMessageStatus(
 ) {
   const { data } = payload;
 
-  // DEBUG: logar payload completo de messages.update para diagnóstico
-  console.log(`[Webhook] messages.update RAW:`, JSON.stringify(data).substring(0, 500));
-
   // A Evolution API às vezes envia messages.update sem data.key (ex: receipt updates)
-  // Formato antigo: { key: { id } } — formato novo (v2+): { keyId, remoteJid, status } (flat)
-  const messageId = data?.key?.id || (data as { keyId?: string })?.keyId;
-  // Evolution envia status em múltiplos formatos:
-  // data.status, data.update?.status, ou data.update (número direto)
-  const rawStatus = data?.status
-    || (data as { update?: { status?: unknown } })?.update?.status
-    || (data as { update?: unknown })?.update;
-  const status = rawStatus;
+  // Guardar defensivamente para não crashar
+  const messageId = data?.key?.id;
+  // Evolution envia status em data.status OU data.update?.status
+  const status = data?.status || (data as { update?: { status?: unknown } })?.update?.status;
 
   // Verificar se é edição de mensagem (editedMessage)
   const editedMessage = (data as { update?: { editedMessage?: { message?: { conversation?: string; extendedTextMessage?: { text?: string } } } } }).update?.editedMessage;
@@ -1215,10 +1168,9 @@ async function reconfigureWebhook(
           'MESSAGES_DELETE',
           'MESSAGES_REACTION',
           'CONNECTION_UPDATE',
-          'SEND_MESSAGE',
-          'PRESENCE_UPDATE',
-          'CONTACTS_UPSERT',
           'CONTACTS_UPDATE',
+          'CONTACTS_UPSERT',
+          'PRESENCE_UPDATE',
           'LABELS_EDIT',
           'LABELS_ASSOCIATION',
           'CALL',
@@ -1622,15 +1574,11 @@ async function handleReaction(
 ) {
   try {
     const { data } = payload;
-    const key = (data as { key?: { id?: string; fromMe?: boolean; remoteJid?: string } }).key;
-    const reaction = (data as { reaction?: { key?: { remoteJid?: string; fromMe?: boolean }; text?: string } }).reaction;
+    const key = (data as { key?: { id?: string; fromMe?: boolean } }).key;
+    const reaction = (data as { reaction?: { text?: string } }).reaction;
 
     if (!key?.id) return;
     const emoji = reaction?.text || '';
-
-    // Quem reagiu: usar remoteJid da reaction.key (o reactor), ou key.remoteJid como fallback
-    const reactorRaw = reaction?.key?.remoteJid || key.remoteJid || '';
-    const reactorPhone = PhoneNormalizer.canonical(reactorRaw.replace('@s.whatsapp.net', '').replace('@g.us', ''));
 
     if (emoji) {
       await supabase
@@ -1638,21 +1586,19 @@ async function handleReaction(
         .upsert({
           tenant_id: tenantId,
           message_id: key.id,
-          reactor_phone: reactorPhone,
           emoji,
-          from_me: reaction?.key?.fromMe ?? key.fromMe ?? false,
+          from_me: key.fromMe || false,
           updated_at: new Date().toISOString(),
-        }, { onConflict: 'tenant_id,message_id,reactor_phone' });
+        }, { onConflict: 'tenant_id,message_id' });
     } else {
-      // Reaction removido por este reactor
+      // Reaction removido
       await supabase
         .from('message_reactions')
         .delete()
         .eq('message_id', key.id)
-        .eq('tenant_id', tenantId)
-        .eq('reactor_phone', reactorPhone);
+        .eq('tenant_id', tenantId);
     }
-    console.log(`[Webhook] messages.reaction — ${emoji || 'removido'} de ${reactorPhone} em ${key.id}`);
+    console.log(`[Webhook] messages.reaction — ${emoji || 'removido'} em ${key.id}`);
   } catch (err) {
     console.warn('[Webhook] Erro messages.reaction:', err);
   }
@@ -1742,36 +1688,27 @@ async function handleContactUpdate(
       if (!phone || phone.length < 8) continue;
 
       const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-      const displayName = c.name || c.notify;
-      if (displayName && !isInstanceName(displayName)) {
-        // Atualiza o nome principal (exibido na UI) apenas se não houver nome_manual
-        // e o nome não for da instância (blacklist)
-        updates.name = displayName;
-        updates.nome_whatsapp = displayName;
-      } else if (displayName) {
-        updates.nome_whatsapp = displayName; // guarda sempre mesmo que não promova para name
-      }
+      if (c.name || c.notify) updates.nome_whatsapp = c.name || c.notify;
       if (c.imgUrl) updates.foto_perfil = c.imgUrl;
 
       const phoneNormalized = PhoneNormalizer.canonical(phone);
 
-      // Só atualizar `name` se o cliente não tiver um nome_manual definido
-      const { data: existing } = await supabase
-        .from('clients')
-        .select('nome_manual')
-        .eq('phone_normalized', phoneNormalized)
-        .eq('tenant_id', tenantId)
-        .single();
-
-      if (existing?.nome_manual) {
-        delete updates.name; // respeitar edição manual
-      }
-
+      // Atualiza nome_whatsapp / foto_perfil sempre
       await supabase
         .from('clients')
         .update(updates)
         .eq('phone_normalized', phoneNormalized)
         .eq('tenant_id', tenantId);
+
+      // Atualiza `name` apenas se ainda estiver vazio (não foi preenchido por agente)
+      if (c.name || c.notify) {
+        await supabase
+          .from('clients')
+          .update({ name: c.name || c.notify })
+          .eq('phone_normalized', phoneNormalized)
+          .eq('tenant_id', tenantId)
+          .is('name', null);
+      }
 
       console.log(`[Webhook] contacts.update — ${phone}: ${c.name || c.notify || 'foto'}`);
     }
@@ -1804,14 +1741,6 @@ async function handleCall(
       call_id: c.id,
       tipo: c.isVideo ? 'video' : 'voz',
       status: 'perdida',
-    });
-
-    // Emitir alerta SSE para a central
-    eventBus.emitToTenant('incoming_call', tenantId, {
-      phone,
-      call_id: c.id,
-      tipo: c.isVideo ? 'video' : 'voz',
-      timestamp: new Date().toISOString(),
     });
 
     console.log(`[Webhook] call — Chamada ${c.isVideo ? 'vídeo' : 'voz'} de ${phone}`);
@@ -1849,15 +1778,6 @@ async function handleGroupUpsert(
         updated_at: new Date().toISOString(),
       }, { onConflict: 'tenant_id,group_jid' });
 
-      // Atualizar nome do grupo na conversations table
-      if (g.subject) {
-        await supabase
-          .from('conversations')
-          .update({ contact_name: g.subject })
-          .eq('tenant_id', tenantId)
-          .eq('remote_jid', g.id);
-      }
-
       console.log(`[Webhook] groups.upsert — ${g.subject || g.id}`);
     }
   } catch (err) {
@@ -1876,30 +1796,11 @@ async function handleGroupParticipants(
   try {
     const { data } = payload;
     const d = data as { id?: string; participants?: string[]; action?: string };
-    if (!d.id || !d.participants?.length) return;
+    if (!d.id) return;
 
-    const delta = d.participants.length;
-    const action = d.action || '';
-
-    // Ajustar contador de participantes baseado na ação
-    if (action === 'add' || action === 'promote') {
-      await supabase.rpc('increment_group_participants', {
-        p_tenant_id: tenantId,
-        p_group_jid: d.id,
-        p_delta: delta,
-      }).throwOnError();
-    } else if (action === 'remove' || action === 'demote') {
-      await supabase.rpc('increment_group_participants', {
-        p_tenant_id: tenantId,
-        p_group_jid: d.id,
-        p_delta: -delta,
-      }).throwOnError();
-    }
-
-    console.log(`[Webhook] group-participants.update — ${action}: ${delta} em ${d.id}`);
+    // Fetch fresh participant count would require API call, just log for now
+    console.log(`[Webhook] group-participants.update — ${d.action}: ${d.participants?.length || 0} em ${d.id}`);
   } catch (err) {
-    // RPC pode não existir ainda — fallback silencioso
-    const d = (payload.data as { id?: string; participants?: string[]; action?: string });
-    console.log(`[Webhook] group-participants.update — ${d?.action}: ${d?.participants?.length || 0} em ${d?.id} (rpc indisponível)`);
+    console.warn('[Webhook] Erro group-participants.update:', err);
   }
 }

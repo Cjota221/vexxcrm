@@ -176,36 +176,28 @@ export function useRealtimeMessages() {
       debouncedInvalidateChats();
     };
 
-    // Handler para UPDATEs em mensagens: status, deleted, edited
-    // Sem isso, ✓✓ azul, "Mensagem apagada" e "(editada)" nunca atualizam sozinhos
+    // Handler para UPDATE em messages: atualiza status (sent→delivered→read) e deleted/edited
     const handleMessageUpdate = (payload: { new: Record<string, unknown> }) => {
       const raw = payload.new;
       const clientId = raw.client_id as string | undefined;
-      const msgId = raw.id as string | undefined;
-      if (!clientId || !msgId) return;
+      if (!clientId) return;
 
       queryClient.setQueryData<import('@/types').Message[]>(
         ['messages', clientId],
-        (old) => {
-          if (!old) {
-            // Cache ainda não existe — forçar refetch
-            queryClient.invalidateQueries({ queryKey: ['messages', clientId] });
-            return old;
-          }
-          return old.map(m =>
-            m.id === msgId
+        (old = []) =>
+          old.map((m) =>
+            m.id === raw.id
               ? {
                   ...m,
                   status: (raw.status as import('@/types').Message['status']) ?? m.status,
-                  content: (raw.content as string) ?? m.content,
                   deleted: (raw.deleted as boolean) ?? (m as any).deleted,
                   deleted_at: (raw.deleted_at as string) ?? (m as any).deleted_at,
                   edited: (raw.edited as boolean) ?? (m as any).edited,
                   edited_at: (raw.edited_at as string) ?? (m as any).edited_at,
+                  content: raw.edited ? ((raw.content as string) ?? m.content) : m.content,
                 }
               : m
-          );
-        }
+          )
       );
     };
 
@@ -238,7 +230,7 @@ export function useRealtimeMessages() {
     const channel = supabase
       .channel(channelName)
       .on('postgres_changes', msgConfig, handleNewMessage)
-      // UPDATE em messages: status (✓✓ azul), deleted, edited atualizam em tempo real
+      // ── UPDATE em messages: status (delivered/read) e deleted/edited em tempo real
       .on('postgres_changes', msgUpdateConfig, handleMessageUpdate)
       // ── UPDATE e INSERT em conversations: lista de chats reordena em tempo real
       .on('postgres_changes', convConfig, () => { debouncedInvalidateChats(); })
