@@ -938,7 +938,8 @@ async function handleMessageStatus(
   // A Evolution API às vezes envia messages.update sem data.key (ex: receipt updates)
   // Guardar defensivamente para não crashar
   const messageId = data?.key?.id;
-  const status = data?.status;
+  // Evolution envia status em data.status OU data.update?.status
+  const status = data?.status || (data as { update?: { status?: unknown } })?.update?.status;
 
   // Verificar se é edição de mensagem (editedMessage)
   const editedMessage = (data as { update?: { editedMessage?: { message?: { conversation?: string; extendedTextMessage?: { text?: string } } } } }).update?.editedMessage;
@@ -961,15 +962,25 @@ async function handleMessageStatus(
   }
 
   // Mapear status da Evolution para o nosso
+  // Evolution envia tanto strings (DELIVERY_ACK) quanto números (1-4)
   const statusMap: Record<string, string> = {
+    // Formato string
     DELIVERY_ACK: 'delivered',
     READ: 'read',
     PLAYED: 'read',
     SERVER_ACK: 'sent',
     ERROR: 'failed',
+    // Formato numérico
+    '1': 'pending',
+    '2': 'sent',
+    '3': 'delivered',
+    '4': 'read',
+    '5': 'read',
   };
 
-  const mappedStatus = statusMap[status] || status;
+  const statusStr = String(status);
+  const mappedStatus = statusMap[statusStr] || statusMap[status] || 'sent';
+  console.log(`[Webhook] messages.update — ${messageId}: ${status} → ${mappedStatus}`);
 
   const { error } = await supabase
     .from('messages')

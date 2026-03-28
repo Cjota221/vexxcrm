@@ -1,16 +1,14 @@
 'use client';
 
 /**
- * usePresence — Monitora presença (online / digitando / gravando) via Supabase Realtime.
+ * usePresence — Monitora presença (online / digitando / gravando) via polling.
  *
  * Uso:
  *   const { status, label } = usePresence(phone);
  *   // status: 'online' | 'typing' | 'recording' | 'offline' | null
  *
- * Funciona via:
- * 1. Leitura inicial da tabela contact_presence
- * 2. Subscription Realtime para mudanças na tabela
- * 3. Auto-expira status de typing/recording após 15s
+ * Funciona via polling da tabela contact_presence a cada 3 segundos.
+ * Não depende de Supabase Realtime (que precisa de config manual).
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
@@ -18,7 +16,6 @@ import { supabase } from '@/lib/supabase';
 
 type PresenceStatus = 'online' | 'typing' | 'recording' | 'offline' | null;
 
-// Mapa de status da Evolution API para status do app
 const STATUS_MAP: Record<string, PresenceStatus> = {
   available: 'online',
   unavailable: 'offline',
@@ -30,36 +27,42 @@ const STATUS_MAP: Record<string, PresenceStatus> = {
   typing: 'typing',
 };
 
-/**
- * Hook para observar presença de um número de telefone.
- * @param phone — telefone (com ou sem formatação)
- */
 export function usePresence(phone: string | null | undefined) {
   const [status, setStatus] = useState<PresenceStatus>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const normalizedPhone = phone ? phone.replace(/\D/g, '') : null;
 
-  // Limpar timer de expiração
-  const clearExpiry = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-  }, []);
+  const fetchPresence = useCallback(async () => {
+    if (!normalizedPhone) return;
 
-  // Definir status com auto-expiração para typing/recording
-  const setPresenceStatus = useCallback((newStatus: PresenceStatus) => {
-    clearExpiry();
-    setStatus(newStatus);
+    try {
+      const { data } = await supabase
+        .from('contact_presence')
+        .select('status, updated_at')
+        .eq('phone', normalizedPhone)
+        .maybeSingle();
 
-    // Typing e recording expiram após 15 segundos
-    if (newStatus === 'typing' || newStatus === 'recording') {
-      timerRef.current = setTimeout(() => {
+      if (data) {
+        const age = Date.now() - new Date(data.updated_at).getTime();
+        if (age < 30_000) {
+          const mapped = STATUS_MAP[data.status] ?? null;
+          // Typing/recording expira em 15s
+          if ((mapped === 'typing' || mapped === 'recording') && age > 15_000) {
+            setStatus(null);
+          } else {
+            setStatus(mapped);
+          }
+        } else {
+          setStatus(null);
+        }
+      } else {
         setStatus(null);
-      }, 15_000);
+      }
+    } catch {
+      // silencioso
     }
-  }, [clearExpiry]);
+  }, [normalizedPhone]);
 
   useEffect(() => {
     if (!normalizedPhone) {
@@ -67,49 +70,19 @@ export function usePresence(phone: string | null | undefined) {
       return;
     }
 
-    // 1. Leitura inicial da tabela contact_presence
-    supabase
-      .from('contact_presence')
-      .select('status, updated_at')
-      .eq('phone', normalizedPhone)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data) {
-          const age = Date.now() - new Date(data.updated_at).getTime();
-          // Só considerar se atualizado nos últimos 30 segundos
-          if (age < 30_000) {
-            const mapped = STATUS_MAP[data.status] ?? null;
-            setPresenceStatus(mapped);
-          }
-        }
-      });
+    // Busca imediata
+    fetchPresence();
 
-    // 2. Subscription Realtime para mudanças
-    const channel = supabase
-      .channel(`presence-${normalizedPhone}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'contact_presence',
-          filter: `phone=eq.${normalizedPhone}`,
-        },
-        (payload) => {
-          const row = (payload.new || {}) as { status?: string; updated_at?: string };
-          if (row.status) {
-            const mapped = STATUS_MAP[row.status] ?? null;
-            setPresenceStatus(mapped);
-          }
-        }
-      )
-      .subscribe();
+    // Polling a cada 3 segundos
+    intervalRef.current = setInterval(fetchPresence, 3_000);
 
     return () => {
-      clearExpiry();
-      void supabase.removeChannel(channel);
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
     };
-  }, [normalizedPhone, setPresenceStatus, clearExpiry]);
+  }, [normalizedPhone, fetchPresence]);
 
   const label = status === 'typing'
     ? 'digitando...'
