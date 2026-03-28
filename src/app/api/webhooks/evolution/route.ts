@@ -1165,8 +1165,18 @@ async function reconfigureWebhook(
         events: [
           'MESSAGES_UPSERT',
           'MESSAGES_UPDATE',
+          'MESSAGES_DELETE',
+          'MESSAGES_REACTION',
           'CONNECTION_UPDATE',
+          'SEND_MESSAGE',
+          'PRESENCE_UPDATE',
+          'CONTACTS_UPSERT',
           'CONTACTS_UPDATE',
+          'LABELS_EDIT',
+          'LABELS_ASSOCIATION',
+          'CALL',
+          'GROUPS_UPSERT',
+          'GROUP_PARTICIPANTS_UPDATE',
         ],
       },
     }),
@@ -1528,7 +1538,8 @@ async function handleLabelAssociation(
     const label = (data as { label?: { id?: string; name?: string } }).label;
 
     if (!contact?.remoteJid || !label?.id) return;
-    const phone = contact.remoteJid.replace('@s.whatsapp.net', '');
+    const rawPhone = contact.remoteJid.replace('@s.whatsapp.net', '');
+    const phone = PhoneNormalizer.canonical(rawPhone);
 
     if (actionType === 'add') {
       await supabase
@@ -1721,6 +1732,14 @@ async function handleCall(
       status: 'perdida',
     });
 
+    // Emitir alerta SSE para a central
+    eventBus.emitToTenant('incoming_call', tenantId, {
+      phone,
+      call_id: c.id,
+      tipo: c.isVideo ? 'video' : 'voz',
+      timestamp: new Date().toISOString(),
+    });
+
     console.log(`[Webhook] call — Chamada ${c.isVideo ? 'vídeo' : 'voz'} de ${phone}`);
   } catch (err) {
     console.warn('[Webhook] Erro call:', err);
@@ -1755,6 +1774,15 @@ async function handleGroupUpsert(
         participantes: g.participants?.length || 0,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'tenant_id,group_jid' });
+
+      // Atualizar nome do grupo na conversations table
+      if (g.subject) {
+        await supabase
+          .from('conversations')
+          .update({ contact_name: g.subject })
+          .eq('tenant_id', tenantId)
+          .eq('remote_jid', g.id);
+      }
 
       console.log(`[Webhook] groups.upsert — ${g.subject || g.id}`);
     }

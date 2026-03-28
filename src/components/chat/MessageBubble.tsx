@@ -3,7 +3,7 @@
 import { useState, useCallback, memo } from 'react';
 import { cn } from '@/lib/utils';
 import { formatTime } from '@/lib/utils';
-import { Check, CheckCheck, Mic, Eye, AlertCircle, Clock, Copy, RotateCcw } from 'lucide-react';
+import { Check, CheckCheck, Mic, Eye, AlertCircle, Clock, Copy, RotateCcw, Ban, Pencil } from 'lucide-react';
 import { api } from '@/lib/api';
 import { parseMessageContent } from '@/lib/message-parser';
 import { AudioMessage } from './AudioMessage';
@@ -88,6 +88,28 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
         return <Clock size={12} className="text-[#111b21]/30" />;
     }
   };
+
+  // Mensagem deletada — renderização especial
+  const isDeleted = (message as unknown as { deleted?: boolean }).deleted;
+  const isEdited = (message as unknown as { edited?: boolean }).edited;
+
+  if (isDeleted) {
+    return (
+      <div className={cn('flex mb-1', isFromMe ? 'justify-end' : 'justify-start')}>
+        <div className={cn(
+          'max-w-[65%] px-3 py-2 rounded-bubble relative border border-dashed',
+          isFromMe
+            ? 'bg-wa-bubble-out/50 border-[#111b21]/10 rounded-tr-sm'
+            : 'bg-wa-bubble-in/50 border-[#111b21]/10 rounded-tl-sm'
+        )}>
+          <div className="flex items-center gap-1.5 text-[#111b21]/40 italic text-[13px]">
+            <Ban size={14} />
+            <span>Mensagem apagada</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -237,6 +259,11 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
           )}>
             {formatTime(message.timestamp ?? message.created_at)}
           </span>
+          {isEdited && (
+            <span className="flex items-center gap-0.5 text-[10px] text-[#111b21]/40 italic">
+              <Pencil size={9} /> editada
+            </span>
+          )}
           {statusIcon()}
         </div>
 
