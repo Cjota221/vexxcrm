@@ -18,6 +18,7 @@ import {
   RefreshCw, TrendingUp, TrendingDown, AlertTriangle, CheckCircle,
   Clock, ChevronRight, ChevronLeft, Copy, Pause, Play, Users,
   Image as ImageIcon, FileText, BarChart3, Zap, Target, X,
+  Edit2, DollarSign, Loader2, ChevronDown, AlertOctagon, CloudDownload,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -71,6 +72,17 @@ interface MetricsData {
   summary?: Summary;
   campaigns?: Campaign[];
   error?: string;
+}
+
+interface Criativo {
+  id: string;
+  tenant_id?: string;
+  nome?: string;
+  tipo: string;
+  thumbnail_url?: string;
+  url?: string;
+  formato?: string;
+  sincronizado_em?: string;
 }
 
 type Period = '1d' | '7d' | '15d' | '30d';
@@ -168,108 +180,389 @@ function HealthBadge({ health }: { health: Campaign['health'] }) {
 
 /* ─── Painel lateral de campanha ───────────────────────────────────────────── */
 
+const CTA_OPTIONS = [
+  'Saiba mais', 'Comprar agora', 'Cadastrar', 'Entrar em contato',
+  'Enviar mensagem', 'Falar agora', 'Ver oferta', 'Quero ser franqueada',
+];
+
 function CampaignDetailPanel({
   campaign,
   onClose,
-  onQueueAction,
+  onActionComplete,
 }: {
   campaign: Campaign;
   onClose: () => void;
-  onQueueAction: (campaignId: string, action: string) => void;
+  onActionComplete: (message: string) => void;
 }) {
+  const [editMode, setEditMode] = useState<null | 'texto' | 'orcamento'>(null);
+  const [confirm, setConfirm] = useState<null | { action: string; label: string; cls?: string }>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [panelError, setPanelError] = useState<string | null>(null);
+
+  // Text editor state
+  const [titulo, setTitulo] = useState('');
+  const [texto, setTexto] = useState('');
+  const [cta, setCta] = useState(CTA_OPTIONS[0]);
+
+  // Budget editor state
+  const orcamentoAtual = campaign.orcamento_diario ? campaign.orcamento_diario / 100 : 0;
+  const [novoOrcamento, setNovoOrcamento] = useState(String(orcamentoAtual));
+  const maxOrcamento = orcamentoAtual * 1.3;
+  const novoOrcamentoNum = parseFloat(novoOrcamento) || 0;
+  const overLimit = novoOrcamentoNum > maxOrcamento && orcamentoAtual > 0;
+
+  async function callEditor(body: Record<string, unknown>) {
+    setActionLoading(true);
+    setPanelError(null);
+    try {
+      const res = await authFetch('/api/trafego/editor', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      const json = await res.json() as { ok?: boolean; error?: string; aplicado?: number; erro?: string };
+      if (!res.ok || !json.ok) {
+        setPanelError(json.error || json.erro || 'Erro desconhecido');
+        return false;
+      }
+      return json;
+    } catch (e) {
+      setPanelError(String(e));
+      return false;
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleConfirmedAction() {
+    if (!confirm) return;
+    let result;
+    if (confirm.action === 'pausar') {
+      result = await callEditor({ action: 'alterar_status', campaign_id: campaign.id, status: 'PAUSED' });
+      if (result) { onActionComplete('Campanha pausada com sucesso.'); onClose(); }
+    } else if (confirm.action === 'ativar') {
+      result = await callEditor({ action: 'alterar_status', campaign_id: campaign.id, status: 'ACTIVE' });
+      if (result) { onActionComplete('Campanha ativada com sucesso.'); onClose(); }
+    } else if (confirm.action === 'duplicar') {
+      result = await callEditor({ action: 'duplicar', campaign_id: campaign.id });
+      if (result) { onActionComplete('Campanha duplicada — aparecerá em "Pausada" no Meta Ads.'); onClose(); }
+    }
+    if (result) setConfirm(null);
+  }
+
+  async function handleSalvarTexto() {
+    const result = await callEditor({
+      action: 'editar_texto',
+      campaign_id: campaign.id,
+      titulo: titulo.trim(),
+      texto_principal: texto.trim(),
+      cta,
+    });
+    if (result) {
+      onActionComplete('Texto do anúncio atualizado com sucesso.');
+      setEditMode(null);
+    }
+  }
+
+  async function handleSalvarOrcamento() {
+    const result = await callEditor({
+      action: 'mudar_orcamento',
+      campaign_id: campaign.id,
+      novo_orcamento_diario: Math.round(novoOrcamentoNum * 100),
+    });
+    if (result) {
+      const json = result as { aplicado?: number };
+      const aplicado = json.aplicado ? (json.aplicado / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '';
+      onActionComplete(`Orçamento atualizado para ${aplicado}/dia.`);
+      setEditMode(null);
+    }
+  }
+
   return (
-    <div className="fixed inset-y-0 right-0 w-full max-w-md bg-white shadow-2xl z-50 flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-        <div>
-          <h2 className="font-bold text-gray-900 text-lg leading-tight">{campaign.nome}</h2>
-          <HealthBadge health={campaign.health} />
+    <>
+      <div className="fixed inset-y-0 right-0 w-full max-w-md bg-white shadow-2xl z-50 flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="font-bold text-gray-900 text-lg leading-tight">{campaign.nome}</h2>
+            <div className="flex items-center gap-2 mt-1">
+              <HealthBadge health={campaign.health} />
+              {campaign.orcamento_diario && (
+                <span className="text-xs text-gray-400">{brl(campaign.orcamento_diario / 100)}/dia</span>
+              )}
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
+            <X size={20} />
+          </button>
         </div>
-        <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
-          <X size={20} />
-        </button>
-      </div>
 
-      <div className="flex-1 overflow-y-auto p-5 space-y-5">
-        {/* Alertas */}
-        {campaign.alerts.length > 0 && (
-          <div className="space-y-2">
-            {campaign.alerts.map((alert, i) => (
-              <div
-                key={i}
-                className={cn(
-                  'p-3 rounded-xl text-sm',
-                  alert.tipo === 'danger' ? 'bg-red-50 text-red-800' : 'bg-amber-50 text-amber-800'
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {/* Error banner */}
+          {panelError && (
+            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-800 flex items-start gap-2">
+              <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+              <span>{panelError}</span>
+            </div>
+          )}
+
+          {/* Alertas */}
+          {campaign.alerts.length > 0 && (
+            <div className="space-y-2">
+              {campaign.alerts.map((alert, i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    'p-3 rounded-xl text-sm',
+                    alert.tipo === 'danger' ? 'bg-red-50 text-red-800' : 'bg-amber-50 text-amber-800'
+                  )}
+                >
+                  {alert.tipo === 'danger' ? '🔴' : '🟡'} {alert.mensagem}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Métricas */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Números do período</h3>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: 'Gastei', value: brl(campaign.spend) },
+                { label: 'Retorno', value: brl(campaign.revenue), sub: `${campaign.roas.toFixed(1)}x ROAS` },
+                { label: 'Leads', value: n0(campaign.leads), sub: campaign.leads > 0 ? `${brl2(campaign.cpl)}/lead` : '—' },
+                { label: 'Cliques', value: n0(campaign.clicks), sub: `${brl2(campaign.cpc)}/clique` },
+                { label: 'Alcance', value: n0(campaign.reach) },
+                { label: 'Impressões', value: n0(campaign.impressions) },
+                { label: 'Taxa de clique', value: pct(campaign.ctr) },
+                { label: 'Frequência', value: campaign.frequency.toFixed(1) + 'x', sub: campaign.frequency > 4 ? '⚠️ saturando' : 'normal' },
+              ].map(({ label, value, sub }) => (
+                <div key={label} className="bg-gray-50 rounded-xl p-3">
+                  <div className="text-xs text-gray-500">{label}</div>
+                  <div className="font-bold text-gray-900">{value}</div>
+                  {sub && <div className="text-xs text-gray-400">{sub}</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Período */}
+          {campaign.date_start && (
+            <div className="text-xs text-gray-400 text-center">
+              {formatDate(campaign.date_start)} — {campaign.date_stop ? formatDate(campaign.date_stop) : 'hoje'}
+            </div>
+          )}
+
+          {/* ─── Editor de Texto ────────────────────────────────────────── */}
+          {editMode === 'texto' ? (
+            <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-blue-900 text-sm">Editar texto do anúncio</h3>
+                <button onClick={() => setEditMode(null)} className="text-blue-400 hover:text-blue-600">
+                  <X size={16} />
+                </button>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-blue-800 mb-1">
+                  Título <span className="font-normal text-blue-500">({titulo.length}/40)</span>
+                </label>
+                <input
+                  type="text"
+                  maxLength={40}
+                  value={titulo}
+                  onChange={(e) => setTitulo(e.target.value)}
+                  placeholder="Ex: Direto da fábrica pra você revender"
+                  className="w-full border border-blue-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-blue-800 mb-1">
+                  Texto principal <span className="font-normal text-blue-500">({texto.length}/125)</span>
+                </label>
+                <textarea
+                  maxLength={125}
+                  rows={3}
+                  value={texto}
+                  onChange={(e) => setTexto(e.target.value)}
+                  placeholder="Ex: Rasteirinhas de R$25 a R$49,90 — mínimo 5 pares..."
+                  className="w-full border border-blue-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-blue-800 mb-1">Botão de ação (CTA)</label>
+                <div className="relative">
+                  <select
+                    value={cta}
+                    onChange={(e) => setCta(e.target.value)}
+                    className="w-full border border-blue-200 rounded-xl px-3 py-2 text-sm appearance-none bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 pr-8"
+                  >
+                    {CTA_OPTIONS.map((op) => (
+                      <option key={op} value={op}>{op}</option>
+                    ))}
+                  </select>
+                  <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-blue-400 pointer-events-none" />
+                </div>
+              </div>
+              <div className="bg-amber-50 rounded-xl px-3 py-2 text-xs text-amber-700">
+                ⚠️ O Meta cria um novo criativo — o anúncio pode ficar pausado por alguns minutos durante a revisão.
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setEditMode(null)}
+                  className="flex-1 px-3 py-2 rounded-xl border border-blue-200 text-blue-700 text-sm font-medium hover:bg-blue-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSalvarTexto}
+                  disabled={actionLoading || !titulo.trim() || !texto.trim()}
+                  className="flex-1 px-3 py-2 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {actionLoading && <Loader2 size={13} className="animate-spin" />}
+                  Salvar texto
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {/* ─── Editor de Orçamento ────────────────────────────────────── */}
+          {editMode === 'orcamento' ? (
+            <div className="bg-green-50 border border-green-200 rounded-2xl p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-green-900 text-sm">Ajustar orçamento diário</h3>
+                <button onClick={() => setEditMode(null)} className="text-green-400 hover:text-green-600">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="flex justify-between text-sm text-green-800">
+                <span>Atual: <strong>{brl2(orcamentoAtual)}/dia</strong></span>
+                <span>Máx (+30%): <strong>{brl2(maxOrcamento)}/dia</strong></span>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-green-800 mb-1">Novo orçamento diário (R$)</label>
+                <input
+                  type="number"
+                  min={1}
+                  step={0.01}
+                  value={novoOrcamento}
+                  onChange={(e) => setNovoOrcamento(e.target.value)}
+                  className="w-full border border-green-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 bg-white"
+                />
+              </div>
+              {overLimit && (
+                <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-xs text-red-700">
+                  🔴 Limite de 30% por segurança ({brl2(maxOrcamento)}/dia máximo). Reduza o valor.
+                </div>
+              )}
+              {!overLimit && novoOrcamentoNum > orcamentoAtual && orcamentoAtual > 0 && (
+                <div className="bg-green-100 rounded-xl px-3 py-2 text-xs text-green-700">
+                  ✅ Aumento de {(((novoOrcamentoNum - orcamentoAtual) / orcamentoAtual) * 100).toFixed(0)}%
+                  (+{brl2(novoOrcamentoNum - orcamentoAtual)}/dia)
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setEditMode(null)}
+                  className="flex-1 px-3 py-2 rounded-xl border border-green-200 text-green-700 text-sm font-medium hover:bg-green-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSalvarOrcamento}
+                  disabled={actionLoading || novoOrcamentoNum <= 0 || overLimit}
+                  className="flex-1 px-3 py-2 rounded-xl bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {actionLoading && <Loader2 size={13} className="animate-spin" />}
+                  Salvar orçamento
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {/* ─── Ações ──────────────────────────────────────────────────── */}
+          {editMode === null && (
+            <div>
+              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Ações</h3>
+              <div className="space-y-2">
+                {campaign.status === 'ACTIVE' ? (
+                  <button
+                    onClick={() => setConfirm({ action: 'pausar', label: 'Pausar campanha', cls: 'bg-red-600 hover:bg-red-700' })}
+                    className="w-full flex items-center gap-2 px-4 py-3 rounded-xl border border-red-200 text-red-700 hover:bg-red-50 transition-colors font-medium text-sm"
+                  >
+                    <Pause size={16} />
+                    Pausar esta campanha
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setConfirm({ action: 'ativar', label: 'Ativar campanha' })}
+                    className="w-full flex items-center gap-2 px-4 py-3 rounded-xl border border-green-200 text-green-700 hover:bg-green-50 transition-colors font-medium text-sm"
+                  >
+                    <Play size={16} />
+                    Ativar esta campanha
+                  </button>
                 )}
-              >
-                {alert.tipo === 'danger' ? '🔴' : '🟡'} {alert.mensagem}
+                <button
+                  onClick={() => setConfirm({ action: 'duplicar', label: 'Duplicar campanha' })}
+                  className="w-full flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors font-medium text-sm"
+                >
+                  <Copy size={16} />
+                  Duplicar campanha (inicia pausada)
+                </button>
+                <button
+                  onClick={() => {
+                    setEditMode('texto');
+                    setTitulo('');
+                    setTexto('');
+                    setCta(CTA_OPTIONS[0]);
+                  }}
+                  className="w-full flex items-center gap-2 px-4 py-3 rounded-xl border border-blue-200 text-blue-700 hover:bg-blue-50 transition-colors font-medium text-sm"
+                >
+                  <Edit2 size={16} />
+                  Editar texto do anúncio
+                </button>
+                {campaign.orcamento_diario && campaign.orcamento_diario > 0 ? (
+                  <button
+                    onClick={() => {
+                      setEditMode('orcamento');
+                      setNovoOrcamento(String(orcamentoAtual));
+                    }}
+                    className="w-full flex items-center gap-2 px-4 py-3 rounded-xl border border-green-200 text-green-700 hover:bg-green-50 transition-colors font-medium text-sm"
+                  >
+                    <DollarSign size={16} />
+                    Ajustar orçamento diário
+                  </button>
+                ) : null}
+                <button
+                  onClick={() => { onActionComplete('Pedido enviado ao Cláudio — o texto aparecerá na aba "Textos" em breve.'); onClose(); }}
+                  className="w-full flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors font-medium text-sm"
+                >
+                  <FileText size={16} />
+                  Cláudio, escreva um texto novo para essa campanha
+                </button>
               </div>
-            ))}
-          </div>
-        )}
-
-        {/* Métricas */}
-        <div>
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Números do período</h3>
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { label: 'Gastei', value: brl(campaign.spend) },
-              { label: 'Retorno', value: brl(campaign.revenue), sub: `${campaign.roas.toFixed(1)}x ROAS` },
-              { label: 'Leads', value: n0(campaign.leads), sub: campaign.leads > 0 ? `${brl2(campaign.cpl)}/lead` : '—' },
-              { label: 'Cliques', value: n0(campaign.clicks), sub: `${brl2(campaign.cpc)}/clique` },
-              { label: 'Alcance', value: n0(campaign.reach) },
-              { label: 'Impressões', value: n0(campaign.impressions) },
-              { label: 'Taxa de clique', value: pct(campaign.ctr) },
-              { label: 'Frequência', value: campaign.frequency.toFixed(1) + 'x', sub: campaign.frequency > 4 ? '⚠️ saturando' : 'normal' },
-            ].map(({ label, value, sub }) => (
-              <div key={label} className="bg-gray-50 rounded-xl p-3">
-                <div className="text-xs text-gray-500">{label}</div>
-                <div className="font-bold text-gray-900">{value}</div>
-                {sub && <div className="text-xs text-gray-400">{sub}</div>}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Período */}
-        {campaign.date_start && (
-          <div className="text-xs text-gray-400 text-center">
-            {formatDate(campaign.date_start)} — {campaign.date_stop ? formatDate(campaign.date_stop) : 'hoje'}
-          </div>
-        )}
-
-        {/* Ações */}
-        <div>
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Ações</h3>
-          <div className="space-y-2">
-            {campaign.status === 'ACTIVE' ? (
-              <button
-                onClick={() => onQueueAction(campaign.id, 'pausar')}
-                className="w-full flex items-center gap-2 px-4 py-3 rounded-xl border border-red-200 text-red-700 hover:bg-red-50 transition-colors font-medium text-sm"
-              >
-                <Pause size={16} />
-                Pausar esta campanha
-              </button>
-            ) : (
-              <button
-                onClick={() => onQueueAction(campaign.id, 'ativar')}
-                className="w-full flex items-center gap-2 px-4 py-3 rounded-xl border border-green-200 text-green-700 hover:bg-green-50 transition-colors font-medium text-sm"
-              >
-                <Play size={16} />
-                Ativar esta campanha
-              </button>
-            )}
-            <button
-              onClick={() => onQueueAction(campaign.id, 'pedir_copy')}
-              className="w-full flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors font-medium text-sm"
-            >
-              <FileText size={16} />
-              Cláudio, escreva um texto novo para essa campanha
-            </button>
-          </div>
+            </div>
+          )}
         </div>
       </div>
-    </div>
+
+      {/* ConfirmModal */}
+      {confirm && (
+        <ConfirmModal
+          title={confirm.label}
+          message={
+            confirm.action === 'pausar'
+              ? `Tem certeza que deseja pausar "${campaign.nome}"? Seus anúncios irão parar de veicular imediatamente.`
+              : confirm.action === 'ativar'
+              ? `Ativar "${campaign.nome}"? Os anúncios começarão a veicular imediatamente e o orçamento será retomado.`
+              : `Duplicar "${campaign.nome}"? Uma cópia completa será criada no Meta Ads — iniciará pausada para você revisar.`
+          }
+          confirmLabel={confirm.label}
+          confirmClass={confirm.cls}
+          loading={actionLoading}
+          onConfirm={handleConfirmedAction}
+          onCancel={() => { setConfirm(null); setPanelError(null); }}
+        />
+      )}
+    </>
   );
 }
 
@@ -329,13 +622,100 @@ const COPIES_PADRAO = [
   },
 ];
 
+/* ─── Modal de Confirmação ─────────────────────────────────────────────────── */
+
+function ConfirmModal({
+  title,
+  message,
+  confirmLabel,
+  confirmClass,
+  loading,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  confirmClass?: string;
+  loading?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onCancel} />
+      <div className="relative bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
+        <div className="flex items-center gap-3 mb-3">
+          <AlertOctagon size={22} className="text-amber-500 shrink-0" />
+          <h3 className="font-bold text-gray-900 text-lg">{title}</h3>
+        </div>
+        <p className="text-sm text-gray-600 mb-5">{message}</p>
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            disabled={loading}
+            className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className={cn(
+              'flex-1 px-4 py-2.5 rounded-xl text-white text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-50',
+              confirmClass || 'bg-crm-primary hover:opacity-90'
+            )}
+          >
+            {loading && <Loader2 size={14} className="animate-spin" />}
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Aba de Criativos ─────────────────────────────────────────────────────── */
+
 function CriativosTab() {
+  const [criativos, setCriativos] = useState<Criativo[]>([]);
+  const [loadingCriativos, setLoadingCriativos] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+
+  const loadCriativos = async () => {
+    setLoadingCriativos(true);
+    try {
+      const res = await authFetch('/api/trafego/sync?tipo=criativos');
+      if (res.ok) {
+        const json = await res.json() as { criativos: Criativo[] };
+        setCriativos(json.criativos || []);
+      }
+    } catch { /* silencioso */ }
+    finally { setLoadingCriativos(false); }
+  };
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      await authFetch('/api/trafego/sync', { method: 'POST' });
+      await loadCriativos();
+    } catch { /* silencioso */ }
+    finally { setSyncing(false); }
+  };
+
+  useEffect(() => { loadCriativos(); }, []);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="font-bold text-gray-900">Meus Criativos</h2>
-        <button className="flex items-center gap-2 px-4 py-2 bg-crm-primary text-white rounded-xl text-sm font-medium hover:opacity-90 transition-opacity">
-          + Subir vídeo ou imagem
+        <button
+          onClick={handleSync}
+          disabled={syncing}
+          className="flex items-center gap-2 px-4 py-2 bg-crm-primary text-white rounded-xl text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-60"
+        >
+          {syncing ? <Loader2 size={14} className="animate-spin" /> : <CloudDownload size={14} />}
+          {syncing ? 'Sincronizando...' : 'Sincronizar com Meta'}
         </button>
       </div>
 
@@ -349,11 +729,44 @@ function CriativosTab() {
         </ul>
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-100 p-8 text-center">
-        <ImageIcon size={40} className="text-gray-200 mx-auto mb-3" />
-        <p className="text-gray-500 text-sm">Nenhum criativo cadastrado ainda</p>
-        <p className="text-gray-400 text-xs mt-1">Suba um vídeo ou imagem para que a Judite avalie</p>
-      </div>
+      {loadingCriativos ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="bg-gray-100 rounded-xl aspect-video animate-pulse" />
+          ))}
+        </div>
+      ) : criativos.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-100 p-8 text-center">
+          <ImageIcon size={40} className="text-gray-200 mx-auto mb-3" />
+          <p className="text-gray-500 text-sm">Nenhum criativo encontrado</p>
+          <p className="text-gray-400 text-xs mt-1">Clique em "Sincronizar com Meta" para importar criativos das suas campanhas</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          {criativos.map((c) => (
+            <div key={c.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+              {c.thumbnail_url ? (
+                <img src={c.thumbnail_url} alt={c.nome || 'Criativo'} className="w-full aspect-video object-cover" />
+              ) : (
+                <div className="w-full aspect-video bg-gray-100 flex items-center justify-center">
+                  {c.tipo === 'VIDEO' ? (
+                    <Play size={28} className="text-gray-300" />
+                  ) : (
+                    <ImageIcon size={28} className="text-gray-300" />
+                  )}
+                </div>
+              )}
+              <div className="p-3">
+                <div className="text-xs font-medium text-gray-700 truncate">{c.nome || `Criativo ${c.id.substring(0, 8)}`}</div>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-medium">{c.tipo || 'IMG'}</span>
+                  {c.formato && <span className="text-xs text-gray-400">{c.formato}</span>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -507,6 +920,8 @@ export default function TrafegoPage() {
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   const [copies, setCopies] = useState<Array<{ id: string; headline: string; texto_principal: string; cta: string; justificativa?: string }>>([]);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<string | null>(null);
 
   const loadMetrics = useCallback(async (p: Period) => {
     setLoading(true);
@@ -534,19 +949,45 @@ export default function TrafegoPage() {
     }
   }, []);
 
+  const loadLastSync = useCallback(async () => {
+    try {
+      const res = await authFetch('/api/trafego/sync');
+      if (res.ok) {
+        const json = await res.json() as { lastSync: string | null };
+        setLastSync(json.lastSync || null);
+      }
+    } catch { /* silencioso */ }
+  }, []);
+
   useEffect(() => {
     loadMetrics(period);
     loadCopies();
-  }, [loadMetrics, loadCopies, period]);
+    loadLastSync();
+  }, [loadMetrics, loadCopies, loadLastSync, period]);
 
-  async function handleQueueAction(campaignId: string, action: string) {
-    if (action === 'pausar') {
-      setActionFeedback('Solicitação de pausa enviada para aprovação — acesse o Time de IAs para confirmar.');
-    } else if (action === 'pedir_copy') {
-      setActionFeedback('Pedido enviado ao Cláudio — o texto aparecerá na aba "Textos" em breve.');
-    }
-    setTimeout(() => setActionFeedback(null), 4000);
+  async function handleSync() {
+    setSyncing(true);
+    try {
+      const res = await authFetch('/api/trafego/sync', { method: 'POST' });
+      if (res.ok) {
+        const json = await res.json() as { ok: boolean; campanhas?: number; ads?: number; criativos?: number };
+        const parts = [];
+        if (json.campanhas) parts.push(`${json.campanhas} campanhas`);
+        if (json.ads) parts.push(`${json.ads} anúncios`);
+        if (json.criativos) parts.push(`${json.criativos} criativos`);
+        setActionFeedback(`Sincronizado com Meta: ${parts.join(', ') || 'sem novidades'}.`);
+        setLastSync(new Date().toISOString());
+        setTimeout(() => setActionFeedback(null), 5000);
+      }
+    } catch { /* silencioso */ }
+    finally { setSyncing(false); }
+  }
+
+  function handleActionComplete(message: string) {
+    setActionFeedback(message);
+    setTimeout(() => setActionFeedback(null), 5000);
     setSelectedCampaign(null);
+    loadMetrics(period);
   }
 
   const sazon = getSazonalidade();
@@ -573,12 +1014,17 @@ export default function TrafegoPage() {
                   Conta vinculada: <span className="font-medium text-gray-700">{data.accountName}</span>
                 </p>
               )}
-              {data?.lastAnalysis && (
-                <div className="flex gap-4 mt-1 text-xs text-gray-400">
-                  <span>👨 José analisou: {formatDateTime(data.lastAnalysis)}</span>
-                  <span>🧠 Cláudio sugeriu: {formatDateTime(data.lastAnalysis)}</span>
-                </div>
-              )}
+              <div className="flex gap-4 mt-1 text-xs text-gray-400 flex-wrap">
+                {data?.lastAnalysis && (
+                  <>
+                    <span>👨 José analisou: {formatDateTime(data.lastAnalysis)}</span>
+                    <span>🧠 Cláudio sugeriu: {formatDateTime(data.lastAnalysis)}</span>
+                  </>
+                )}
+                {lastSync && (
+                  <span>🔄 Última sync: {formatDateTime(lastSync)}</span>
+                )}
+              </div>
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
@@ -593,10 +1039,19 @@ export default function TrafegoPage() {
                 ))}
               </div>
               <button
+                onClick={handleSync}
+                disabled={syncing}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors disabled:opacity-50 text-sm font-medium"
+                title="Sincronizar dados do Meta"
+              >
+                {syncing ? <Loader2 size={14} className="animate-spin" /> : <CloudDownload size={14} />}
+                {syncing ? 'Sincronizando...' : 'Sincronizar'}
+              </button>
+              <button
                 onClick={() => loadMetrics(period)}
                 disabled={loading}
                 className="p-2 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors disabled:opacity-50"
-                title="Atualizar"
+                title="Atualizar métricas"
               >
                 <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
               </button>
@@ -720,7 +1175,7 @@ export default function TrafegoPage() {
                     </button>
                     {(alert.acao === 'pausar' || alert.tipo === 'danger') && (
                       <button
-                        onClick={() => handleQueueAction(alert.campaign.id, 'pausar')}
+                        onClick={() => { setSelectedCampaign(alert.campaign); }}
                         className="text-xs px-3 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700 whitespace-nowrap"
                       >
                         Pausar
@@ -885,7 +1340,7 @@ export default function TrafegoPage() {
           <CampaignDetailPanel
             campaign={selectedCampaign}
             onClose={() => setSelectedCampaign(null)}
-            onQueueAction={handleQueueAction}
+            onActionComplete={handleActionComplete}
           />
         </>
       )}
