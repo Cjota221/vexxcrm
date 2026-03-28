@@ -117,10 +117,10 @@ interface AgentCardProps {
 }
 
 function AgentCard({ icon, nome, funcao, modelo, ativo, configurado, metrica, onConfigure }: AgentCardProps) {
-  const statusColor = !configurado ? 'border-yellow-300 bg-yellow-50' : ativo ? 'border-green-300 bg-green-50' : 'border-red-300 bg-red-50';
-  const dotCls = !configurado ? 'bg-amber-400' : ativo ? 'bg-green-500' : 'bg-red-500';
-  const label = !configurado ? 'Configurar' : ativo ? 'Ativo' : 'Inativo';
-  const labelCls = !configurado ? 'text-amber-700' : ativo ? 'text-green-700' : 'text-red-600';
+  const statusColor = !configurado ? 'border-yellow-300 bg-yellow-50' : ativo ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-gray-50';
+  const dotCls = !configurado ? 'bg-amber-400' : ativo ? 'bg-green-500' : 'bg-gray-400';
+  const label = !configurado ? 'Configurar' : ativo ? 'Ativo' : 'Aguardando';
+  const labelCls = !configurado ? 'text-amber-700' : ativo ? 'text-green-700' : 'text-gray-500';
 
   return (
     <div className={`rounded-xl border-2 p-4 flex flex-col gap-2 ${statusColor}`}>

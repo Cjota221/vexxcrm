@@ -72,6 +72,9 @@ interface MetricsData {
   summary?: Summary;
   campaigns?: Campaign[];
   error?: string;
+  fromCache?: boolean;
+  cacheWarning?: string;
+  lastSync?: string;
 }
 
 interface Criativo {
@@ -1069,6 +1072,19 @@ export default function TrafegoPage() {
           </div>
         )}
 
+        {/* ─── Aviso de cache ──────────────────────────────────────────────── */}
+        {!loading && data?.fromCache && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-800 flex items-center gap-2">
+            <Clock size={15} className="shrink-0" />
+            <span>{data.cacheWarning || 'Exibindo dados do último sync.'}</span>
+            {data.lastSync && (
+              <span className="text-blue-500 ml-auto text-xs whitespace-nowrap">
+                Sync: {formatDateTime(data.lastSync)}
+              </span>
+            )}
+          </div>
+        )}
+
         {/* ─── Meta não conectado ──────────────────────────────────────────── */}
         {!loading && data && !data.connected && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -1197,22 +1213,23 @@ export default function TrafegoPage() {
           <div className="flex border-b border-gray-100 overflow-x-auto">
             {(
               [
-                { key: 'campanhas', label: '📊 Campanhas' },
-                { key: 'criativos', label: '🎬 Criativos' },
-                { key: 'publicos',  label: '👥 Públicos' },
-                { key: 'textos',    label: '✍️ Textos' },
-              ] as { key: Tab; label: string }[]
-            ).map(({ key, label }) => (
+                { key: 'campanhas', label: 'Campanhas', icon: <BarChart3 size={14} /> },
+                { key: 'criativos', label: 'Criativos',  icon: <ImageIcon size={14} /> },
+                { key: 'publicos',  label: 'Públicos',   icon: <Users size={14} /> },
+                { key: 'textos',    label: 'Textos',     icon: <FileText size={14} /> },
+              ] as { key: Tab; label: string; icon: React.ReactNode }[]
+            ).map(({ key, label, icon }) => (
               <button
                 key={key}
                 onClick={() => setTab(key)}
                 className={cn(
-                  'px-5 py-4 text-sm font-semibold whitespace-nowrap border-b-2 transition-colors',
+                  'flex items-center gap-1.5 px-5 py-4 text-sm font-semibold whitespace-nowrap border-b-2 transition-colors',
                   tab === key
                     ? 'border-crm-primary text-crm-primary'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
                 )}
               >
+                {icon}
                 {label}
               </button>
             ))}

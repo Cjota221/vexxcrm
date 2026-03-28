@@ -143,11 +143,69 @@ export async function GET(req: NextRequest) {
     ]);
 
     if (!campaignsRes.ok) {
-      const err = await campaignsRes.json().catch(() => ({})) as { error?: { message?: string } };
-      return NextResponse.json(
-        { connected: false, error: err.error?.message || `Erro Meta API ${campaignsRes.status}` },
-        { status: 502 }
-      );
+      const errBody = await campaignsRes.json().catch(() => ({})) as { error?: { message?: string } };
+      const errMsg = errBody.error?.message || `Erro Meta API ${campaignsRes.status}`;
+
+      // ── Fallback: usar cache local quando Meta API está indisponível ────────
+      const { data: cached } = await supabase
+        .from('meta_campaigns_cache')
+        .select('*')
+        .eq('tenant_id', profile.tenant_id)
+        .order('sincronizado_em', { ascending: false });
+
+      if (cached && cached.length > 0) {
+        const campaigns = cached.map((c) => {
+          const m = (c.metricas || {}) as {
+            spend?: number; revenue?: number; impressions?: number; clicks?: number;
+            cpc?: number; cpm?: number; ctr?: number; reach?: number;
+            frequency?: number; roas?: number;
+          };
+          const spend       = m.spend || 0;
+          const revenue     = m.revenue || 0;
+          const leads       = 0;
+          const clicks      = m.clicks || 0;
+          const impressions = m.impressions || 0;
+          const reach       = m.reach || 0;
+          const cpc         = m.cpc || 0;
+          const cpm         = m.cpm || 0;
+          const ctr         = m.ctr || 0;
+          const frequency   = m.frequency || 0;
+          const roas        = m.roas || (spend > 0 ? revenue / spend : 0);
+          const cpl         = 0;
+          const alerts = computeAlerts({
+            campaign_name: c.nome, spend, cpm, ctr, cpl, roas,
+            leads, impressions, frequency, status: c.status,
+          });
+          return {
+            id: c.id, nome: c.nome, status: c.status, objetivo: c.objetivo,
+            spend, revenue, leads, clicks, impressions, reach, cpc, cpm, ctr, roas, cpl, frequency,
+            orcamento_diario: c.orcamento_diario ?? null,
+            date_start: c.data_inicio ?? undefined,
+            date_stop:  c.data_fim   ?? undefined,
+            alerts,
+            health: computeHealth({ roas, spend, leads, status: c.status, alerts }),
+          };
+        });
+
+        const totalSpend   = campaigns.reduce((s, c) => s + c.spend, 0);
+        const totalRevenue = campaigns.reduce((s, c) => s + c.revenue, 0);
+        const totalClicks  = campaigns.reduce((s, c) => s + c.clicks, 0);
+        const totalRoas    = totalSpend > 0 ? totalRevenue / totalSpend : 0;
+        const totalCpc     = totalClicks > 0 ? totalSpend / totalClicks : 0;
+
+        return NextResponse.json({
+          connected: true,
+          fromCache: true,
+          cacheWarning: `Exibindo dados do último sync — Meta API indisponível (${errMsg})`,
+          lastSync: cached[0]?.sincronizado_em,
+          period,
+          lastAnalysis: null,
+          summary: { totalSpend, totalRevenue, totalLeads: 0, totalClicks, totalRoas, totalCpl: 0, totalCpc },
+          campaigns,
+        });
+      }
+
+      return NextResponse.json({ connected: false, error: errMsg }, { status: 502 });
     }
 
     const accountData = accountRes.ok ? await accountRes.json() as { name?: string } : {};
