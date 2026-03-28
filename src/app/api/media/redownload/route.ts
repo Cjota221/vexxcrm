@@ -48,24 +48,24 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 3. Buscar a conversa para obter o remoteJid
+    // 3. Buscar a conversa para obter o remoteJid (via conversation_id da mensagem)
+    const { data: msgConv } = await supabase
+      .from('messages')
+      .select('conversation_id')
+      .eq('id', messageId)
+      .eq('tenant_id', tenantId)
+      .single();
+
     const { data: conversation } = await supabase
       .from('conversations')
-      .select('contact_phone')
+      .select('remote_jid')
       .eq('tenant_id', tenantId)
-      .eq('id', (await supabase
-        .from('messages')
-        .select('conversation_id')
-        .eq('id', messageId)
-        .eq('tenant_id', tenantId)
-        .single()
-      ).data?.conversation_id || '')
+      .eq('id', msgConv?.conversation_id || '')
       .single();
 
     // Construir key para a Evolution API
     const config = getTenantEvolutionConfig(tenantId);
-    const phone = conversation?.contact_phone || '';
-    const remoteJid = phone ? `${phone.replace(/\D/g, '')}@s.whatsapp.net` : '';
+    const remoteJid = conversation?.remote_jid || '';
 
     // 4. Tentar baixar via Evolution API
     // Reconstituir o objeto "message" mínimo para o getBase64

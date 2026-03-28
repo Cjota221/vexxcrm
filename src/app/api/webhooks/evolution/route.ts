@@ -979,8 +979,8 @@ async function handleMessageStatus(
   console.log(`[Webhook] messages.update RAW:`, JSON.stringify(data).substring(0, 500));
 
   // A Evolution API às vezes envia messages.update sem data.key (ex: receipt updates)
-  // Guardar defensivamente para não crashar
-  const messageId = data?.key?.id;
+  // Formato antigo: { key: { id } } — formato novo (v2+): { keyId, remoteJid, status } (flat)
+  const messageId = data?.key?.id || (data as { keyId?: string })?.keyId;
   // Evolution envia status em múltiplos formatos:
   // data.status, data.update?.status, ou data.update (número direto)
   const rawStatus = data?.status
