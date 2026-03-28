@@ -34,27 +34,34 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
   const copyCode = metadata?.copy_code as string | undefined;
   const [isRedownloading, setIsRedownloading] = useState(false);
   const [fixedUrl, setFixedUrl] = useState<string | null>(null);
+  const [mediaExpired, setMediaExpired] = useState(false);
   const [localTranscription, setLocalTranscription] = useState<string | null>(null);
 
   const currentMediaUrl = fixedUrl || message.media_url;
   const displayTranscription = localTranscription ?? transcription;
 
   const handleRedownload = useCallback(async () => {
-    if (isRedownloading) return;
+    if (isRedownloading || mediaExpired) return;
     setIsRedownloading(true);
     try {
       const response = await api.post<{ data: { media_url: string } }>('/api/media/redownload', {
         messageId: message.id,
       });
-      if (response.error) { console.warn('[MessageBubble] Re-download falhou:', response.error); return; }
+      if (response.error) {
+        console.warn('[MessageBubble] Re-download falhou:', response.error);
+        setMediaExpired(true); // Não tentar mais — mídia apagada do WhatsApp
+        return;
+      }
       const newUrl = (response.data as any)?.data?.media_url || (response.data as any)?.media_url;
       if (newUrl) setFixedUrl(newUrl);
+      else setMediaExpired(true);
     } catch (err) {
       console.warn('[MessageBubble] Erro no re-download:', err);
+      setMediaExpired(true);
     } finally {
       setIsRedownloading(false);
     }
-  }, [message.id, isRedownloading]);
+  }, [message.id, isRedownloading, mediaExpired]);
 
   const handleTranscribe = useCallback(async () => {
     try {
@@ -136,6 +143,7 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
               isFromMe={isFromMe}
               onRedownload={handleRedownload}
               isRedownloading={isRedownloading}
+              mediaExpired={mediaExpired}
             />
             {/* Descrição IA da imagem */}
             {aiDescription && (
@@ -196,6 +204,7 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
               isFromMe={isFromMe}
               onRedownload={handleRedownload}
               isRedownloading={isRedownloading}
+              mediaExpired={mediaExpired}
             />
           </div>
         )}

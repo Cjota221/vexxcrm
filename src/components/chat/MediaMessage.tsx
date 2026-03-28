@@ -25,11 +25,12 @@ interface MediaMessageProps {
   isFromMe?: boolean;
   onRedownload?: () => void;
   isRedownloading?: boolean;
+  mediaExpired?: boolean;
 }
 
 export function MediaMessage({
   url, type, caption, thumbnailUrl, isFromMe = false,
-  onRedownload, isRedownloading,
+  onRedownload, isRedownloading, mediaExpired,
 }: MediaMessageProps) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -81,6 +82,7 @@ export function MediaMessage({
               isFromMe={isFromMe}
               onRedownload={onRedownload}
               isRedownloading={isRedownloading}
+              mediaExpired={mediaExpired}
             />
           ) : (
             <img
@@ -220,10 +222,10 @@ export function DocumentMessage({ url, fileName, mimeType, isFromMe = false }: D
 // ─── Fallback para mídia indisponível ─────────────────────────────────────────
 
 function MediaErrorFallback({
-  type, isFromMe, onRedownload, isRedownloading,
+  type, isFromMe, onRedownload, isRedownloading, mediaExpired,
 }: {
   type: string; isFromMe: boolean;
-  onRedownload?: () => void; isRedownloading?: boolean;
+  onRedownload?: () => void; isRedownloading?: boolean; mediaExpired?: boolean;
 }) {
   const labels: Record<string, string> = {
     image: '🖼️ Imagem', video: '🎥 Vídeo', audio: '🎵 Áudio', document: '📎 Documento',
@@ -236,9 +238,9 @@ function MediaErrorFallback({
     )}>
       <ImageOff size={24} className={isFromMe ? 'text-white/40' : 'text-gray-300'} />
       <p className={cn('text-[11px] text-center', isFromMe ? 'text-white/50' : 'text-gray-400')}>
-        {labels[type] ?? 'Mídia'} indisponível
+        {mediaExpired ? 'Mídia expirada' : `${labels[type] ?? 'Mídia'} indisponível`}
       </p>
-      {onRedownload && (
+      {onRedownload && !mediaExpired && (
         <button
           onClick={e => { e.stopPropagation(); onRedownload(); }}
           disabled={isRedownloading}
