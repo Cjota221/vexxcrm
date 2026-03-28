@@ -184,13 +184,8 @@ export function ChatArea({
   // Presença do contato (online / digitando / gravando)
   const { label: presenceLabel, status: presenceStatus } = usePresence(resolvedPhone);
 
-  // Assinar presença ao abrir conversa — necessário para receber eventos de digitando/gravando
-  useEffect(() => {
-    if (!resolvedPhone || resolvedPhone.includes('@g.us')) return; // grupos não têm presence
-    const jid = resolvedPhone.includes('@') ? resolvedPhone : `${resolvedPhone}@s.whatsapp.net`;
-    api.post('/api/whatsapp/subscribe-presence', { remoteJid: jid }).catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resolvedPhone]);
+  // presenceSubscribe removido — endpoint 404 nesta versão da Evolution API (v2.3.7).
+  // PRESENCE_UPDATE chega automaticamente via webhook quando o contato digita.
 
   const handleSend = (content: string) => {
     if (!selectedChatId) return;
