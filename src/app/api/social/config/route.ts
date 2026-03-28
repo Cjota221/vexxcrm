@@ -1,5 +1,6 @@
 /**
- * POST /api/social/config → discover and save page_id + instagram_id from Meta token
+ * GET  /api/social/config  → list available pages (don't save)
+ * POST /api/social/config  → save a specific page_id (body: { page_id })
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase';
@@ -7,9 +8,56 @@ import { getTenantFromRequest } from '@/lib/auth-helpers';
 
 const META_BASE = 'https://graph.facebook.com/v23.0';
 
+/** GET — list all pages managed by this token (for page picker UI) */
+export async function GET(req: NextRequest) {
+  try {
+    const { profile } = await getTenantFromRequest(req);
+    const supabase = createServerSupabaseClient();
+
+    const { data: config } = await supabase
+      .from('ai_provider_config')
+      .select('meta_access_token, meta_page_id')
+      .eq('tenant_id', profile.tenant_id)
+      .single();
+
+    if (!config?.meta_access_token) {
+      return NextResponse.json({ error: 'Token Meta não configurado' }, { status: 400 });
+    }
+
+    const res = await fetch(
+      `${META_BASE}/me/accounts?fields=id,name,fan_count,picture{url},instagram_business_account{id,username}&access_token=${config.meta_access_token}`
+    );
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { error?: { message?: string } };
+      return NextResponse.json({ error: err.error?.message || 'Erro ao listar páginas' }, { status: 400 });
+    }
+
+    const data = await res.json() as {
+      data: Array<{
+        id: string;
+        name: string;
+        fan_count?: number;
+        picture?: { data?: { url?: string } };
+        instagram_business_account?: { id: string; username?: string };
+      }>;
+    };
+
+    return NextResponse.json({
+      pages: data.data || [],
+      currentPageId: config.meta_page_id || null,
+    });
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+}
+
+/** POST — save the selected page_id (body: { page_id }) */
 export async function POST(req: NextRequest) {
   try {
     const { profile } = await getTenantFromRequest(req);
+    const body = await req.json().catch(() => ({})) as { page_id?: string };
+
     const supabase = createServerSupabaseClient();
 
     const { data: config } = await supabase
@@ -24,33 +72,40 @@ export async function POST(req: NextRequest) {
 
     const token = config.meta_access_token;
 
-    // Get pages managed by this token
-    const res = await fetch(`${META_BASE}/me/accounts?fields=id,name,instagram_business_account&access_token=${token}`);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({})) as { error?: { message?: string } };
-      return NextResponse.json({ error: err.error?.message || 'Erro ao buscar páginas' }, { status: 400 });
+    // If page_id provided, use it directly; otherwise auto-detect first page
+    let pageId: string;
+    let pageName: string;
+    let igId: string | null = null;
+
+    if (body.page_id) {
+      // Verify the page is accessible
+      const res = await fetch(
+        `${META_BASE}/${body.page_id}?fields=id,name,instagram_business_account&access_token=${token}`
+      );
+      if (!res.ok) return NextResponse.json({ error: 'Página não encontrada ou sem acesso' }, { status: 400 });
+      const page = await res.json() as { id: string; name: string; instagram_business_account?: { id: string } };
+      pageId = page.id;
+      pageName = page.name;
+      igId = page.instagram_business_account?.id || null;
+    } else {
+      // Auto-detect first page
+      const res = await fetch(`${META_BASE}/me/accounts?fields=id,name,instagram_business_account&access_token=${token}`);
+      if (!res.ok) return NextResponse.json({ error: 'Erro ao buscar páginas' }, { status: 400 });
+      const data = await res.json() as { data: Array<{ id: string; name: string; instagram_business_account?: { id: string } }> };
+      const pages = data.data || [];
+      if (pages.length === 0) return NextResponse.json({ error: 'Nenhuma página encontrada' }, { status: 404 });
+      const page = pages[0];
+      pageId = page.id;
+      pageName = page.name;
+      igId = page.instagram_business_account?.id || null;
     }
-
-    const data = await res.json() as {
-      data: Array<{ id: string; name: string; instagram_business_account?: { id: string } }>;
-    };
-
-    const pages = data.data || [];
-    if (pages.length === 0) {
-      return NextResponse.json({ error: 'Nenhuma página encontrada para este token' }, { status: 404 });
-    }
-
-    // Use first page (or let user choose in future)
-    const page = pages[0];
-    const pageId = page.id;
-    const igId = page.instagram_business_account?.id || null;
 
     await supabase
       .from('ai_provider_config')
       .update({ meta_page_id: pageId, meta_instagram_id: igId, updated_at: new Date().toISOString() })
       .eq('tenant_id', profile.tenant_id);
 
-    return NextResponse.json({ ok: true, pages, pageId, igId, pageName: page.name });
+    return NextResponse.json({ ok: true, pageId, igId, pageName });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }

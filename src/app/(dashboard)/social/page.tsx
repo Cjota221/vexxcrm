@@ -91,6 +91,14 @@ interface PageSettings {
   picture?: { data?: { url?: string } };
 }
 
+interface PageOption {
+  id: string;
+  name: string;
+  fan_count?: number;
+  picture?: { data?: { url?: string } };
+  instagram_business_account?: { id: string; username?: string };
+}
+
 /* ─── Helpers ──────────────────────────────────────────────────────────────── */
 
 function formatDate(iso: string) {
@@ -905,24 +913,137 @@ function PageSettingsTab() {
 /* ─── Componente: Configurar Página ────────────────────────────────────────── */
 
 function ConfigurarPagina({ onConfigured }: { onConfigured: () => void }) {
+  const [step, setStep] = useState<'initial' | 'selecting' | 'done'>('initial');
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ pageName?: string; error?: string } | null>(null);
+  const [pages, setPages] = useState<PageOption[]>([]);
+  const [selectedPage, setSelectedPage] = useState<string | null>(null);
+  const [savedPageName, setSavedPageName] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  async function handleDiscover() {
+  async function handleListPages() {
     setLoading(true);
-    setResult(null);
+    setError(null);
     try {
-      const res = await authFetch('/api/social/config', { method: 'POST' });
-      const json = await res.json() as { ok?: boolean; pageName?: string; error?: string };
-      setResult(json);
-      if (json.ok) { setTimeout(onConfigured, 1500); }
+      const res = await authFetch('/api/social/config');
+      const json = await res.json() as { pages?: PageOption[]; currentPageId?: string; error?: string };
+      if (!res.ok || json.error) {
+        setError(json.error || 'Erro ao listar páginas');
+        return;
+      }
+      setPages(json.pages || []);
+      if (json.currentPageId) setSelectedPage(json.currentPageId);
+      setStep('selecting');
     } catch (e) {
-      setResult({ error: String(e) });
+      setError(String(e));
     } finally {
       setLoading(false);
     }
   }
 
+  async function handleSavePage() {
+    if (!selectedPage) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await authFetch('/api/social/config', {
+        method: 'POST',
+        body: JSON.stringify({ page_id: selectedPage }),
+      });
+      const json = await res.json() as { ok?: boolean; pageName?: string; error?: string };
+      if (!res.ok || !json.ok) {
+        setError(json.error || 'Erro ao salvar página');
+        return;
+      }
+      setSavedPageName(json.pageName || selectedPage);
+      setStep('done');
+      setTimeout(onConfigured, 1500);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (step === 'done') {
+    return (
+      <div className="bg-green-50 border border-green-200 rounded-2xl p-5 flex items-center gap-3">
+        <CheckCircle size={20} className="text-green-600 shrink-0" />
+        <div>
+          <div className="font-semibold text-green-900">Página conectada!</div>
+          <div className="text-sm text-green-700">{savedPageName}</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 'selecting') {
+    return (
+      <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <Settings2 size={18} className="text-blue-600" />
+          <span className="font-semibold text-blue-900">Escolha a página do Facebook</span>
+        </div>
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-800">
+            {error}
+          </div>
+        )}
+        <div className="space-y-2">
+          {pages.map(page => (
+            <button
+              key={page.id}
+              onClick={() => setSelectedPage(page.id)}
+              className={cn(
+                'w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all',
+                selectedPage === page.id
+                  ? 'border-blue-500 bg-white'
+                  : 'border-gray-200 bg-white hover:border-blue-300'
+              )}
+            >
+              {page.picture?.data?.url ? (
+                <img src={page.picture.data.url} alt={page.name} className="w-10 h-10 rounded-full object-cover shrink-0" />
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
+                  <Facebook size={18} className="text-blue-600" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold text-gray-900">{page.name}</div>
+                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                  {page.fan_count !== undefined && (
+                    <span className="text-xs text-gray-400">{(page.fan_count || 0).toLocaleString('pt-BR')} curtidas</span>
+                  )}
+                  {page.instagram_business_account?.username && (
+                    <span className="text-xs text-pink-500">@{page.instagram_business_account.username}</span>
+                  )}
+                </div>
+              </div>
+              <div className={cn(
+                'w-4 h-4 rounded-full border-2 shrink-0 transition-all',
+                selectedPage === page.id ? 'border-blue-500 bg-blue-500' : 'border-gray-300'
+              )} />
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => setStep('initial')}
+            className="px-4 py-2 rounded-xl border border-gray-200 text-gray-700 text-sm font-medium hover:bg-gray-50">
+            Voltar
+          </button>
+          <button
+            onClick={handleSavePage}
+            disabled={!selectedPage || loading}
+            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-60 flex items-center justify-center gap-2"
+          >
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+            Conectar esta página
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // step === 'initial'
   return (
     <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div className="flex items-start gap-3">
@@ -930,25 +1051,18 @@ function ConfigurarPagina({ onConfigured }: { onConfigured: () => void }) {
         <div>
           <div className="font-semibold text-blue-900">Conectar Página do Facebook</div>
           <div className="text-sm text-blue-700 mt-0.5">
-            Clique para detectar automaticamente a página vinculada ao seu token Meta.
+            Clique para ver todas as páginas vinculadas ao seu token Meta e escolher qual conectar.
           </div>
-          {result?.pageName && (
-            <div className="text-sm text-green-700 mt-1 font-medium flex items-center gap-1">
-              <CheckCircle size={13} /> Conectado: {result.pageName}
-            </div>
-          )}
-          {result?.error && (
-            <div className="text-sm text-red-700 mt-1">{result.error}</div>
-          )}
+          {error && <div className="text-sm text-red-700 mt-1">{error}</div>}
         </div>
       </div>
       <button
-        onClick={handleDiscover}
+        onClick={handleListPages}
         disabled={loading}
         className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-60 flex items-center gap-2 whitespace-nowrap"
       >
         {loading ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
-        Detectar página
+        Ver minhas páginas
       </button>
     </div>
   );

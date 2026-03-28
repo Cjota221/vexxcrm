@@ -223,6 +223,15 @@ function CampaignDetailPanel({
   const [pubIdadeMax, setPubIdadeMax] = useState('65');
   const [pubGenero, setPubGenero] = useState<'0' | '1' | '2'>('0');
 
+  // Campaign ads state
+  const [campaignAds, setCampaignAds] = useState<Array<{
+    id: string; name: string; status: string;
+    adset_name: string;
+    creative?: { id: string; name?: string; body?: string; title?: string; thumbnail_url?: string; call_to_action_type?: string };
+  }>>([]);
+  const [loadingAds, setLoadingAds] = useState(false);
+  const [adsLoaded, setAdsLoaded] = useState(false);
+
   // Swap creative state
   const [swapTitulo, setSwapTitulo] = useState('');
   const [swapTexto, setSwapTexto] = useState('');
@@ -294,6 +303,20 @@ function CampaignDetailPanel({
       onActionComplete(`Orçamento atualizado para ${aplicado}/dia.`);
       setEditMode(null);
     }
+  }
+
+  async function loadCampaignAds() {
+    if (adsLoaded) return;
+    setLoadingAds(true);
+    try {
+      const res = await authFetch(`/api/trafego/campaign-ads?campaign_id=${campaign.id}`);
+      if (res.ok) {
+        const json = await res.json() as { ads: typeof campaignAds };
+        setCampaignAds(json.ads || []);
+        setAdsLoaded(true);
+      }
+    } catch { /* silencioso */ }
+    finally { setLoadingAds(false); }
   }
 
   async function openPublico() {
@@ -415,6 +438,68 @@ function CampaignDetailPanel({
               ))}
             </div>
           )}
+
+          {/* Anúncios da campanha */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Anúncios</h3>
+              {!adsLoaded && (
+                <button
+                  onClick={loadCampaignAds}
+                  disabled={loadingAds}
+                  className="text-xs text-crm-primary hover:underline flex items-center gap-1"
+                >
+                  {loadingAds ? <Loader2 size={11} className="animate-spin" /> : null}
+                  {loadingAds ? 'Carregando...' : 'Ver anúncios'}
+                </button>
+              )}
+              {adsLoaded && (
+                <button
+                  onClick={() => { setAdsLoaded(false); setCampaignAds([]); }}
+                  className="text-xs text-gray-400 hover:underline"
+                >
+                  Ocultar
+                </button>
+              )}
+            </div>
+            {adsLoaded && campaignAds.length === 0 && (
+              <p className="text-xs text-gray-400">Nenhum anúncio encontrado nesta campanha.</p>
+            )}
+            {adsLoaded && campaignAds.length > 0 && (
+              <div className="space-y-2">
+                {campaignAds.map(ad => (
+                  <div key={ad.id} className="bg-gray-50 rounded-xl p-3">
+                    <div className="flex items-start gap-2">
+                      {ad.creative?.thumbnail_url ? (
+                        <img src={ad.creative.thumbnail_url} alt={ad.name} className="w-12 h-12 rounded-lg object-cover shrink-0" />
+                      ) : (
+                        <div className="w-12 h-12 rounded-lg bg-gray-200 flex items-center justify-center shrink-0">
+                          <ImageIcon size={16} className="text-gray-400" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-medium text-gray-800 truncate">{ad.creative?.title || ad.name}</div>
+                        {ad.creative?.body && (
+                          <div className="text-xs text-gray-500 mt-0.5 line-clamp-2">{ad.creative.body}</div>
+                        )}
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <span className={cn(
+                            'inline-flex items-center gap-1 text-xs font-medium',
+                            ad.status === 'ACTIVE' ? 'text-green-600' : 'text-gray-400'
+                          )}>
+                            <span className={cn('w-1.5 h-1.5 rounded-full', ad.status === 'ACTIVE' ? 'bg-green-500' : 'bg-gray-300')} />
+                            {ad.status === 'ACTIVE' ? 'Ativo' : ad.status === 'PAUSED' ? 'Pausado' : ad.status}
+                          </span>
+                          <span className="text-xs text-gray-300">·</span>
+                          <span className="text-xs text-gray-400">{ad.adset_name}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* Métricas */}
           <div>
@@ -1305,43 +1390,150 @@ function CriativosTab() {
   );
 }
 
+interface SavedAudience {
+  id: string;
+  name: string;
+  description?: string;
+  approximate_count_lower_bound?: number;
+  approximate_count_upper_bound?: number;
+  targeting_criteria?: unknown;
+  subtype?: string;
+  data_source?: { type?: string };
+}
+
+function formatAudienceSize(lower?: number, upper?: number): string {
+  if (!lower && !upper) return 'Tamanho desconhecido';
+  const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}K` : String(n);
+  if (lower && upper) return `~${fmt(lower)} – ${fmt(upper)} pessoas`;
+  return `~${fmt(lower || upper || 0)} pessoas`;
+}
+
 function PublicosTab() {
+  const [savedAudiences, setSavedAudiences] = useState<SavedAudience[]>([]);
+  const [customAudiences, setCustomAudiences] = useState<SavedAudience[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [metaConnected, setMetaConnected] = useState(false);
+
+  useEffect(() => {
+    authFetch('/api/trafego/saved-audiences')
+      .then(r => r.json())
+      .then((d: { connected?: boolean; savedAudiences?: SavedAudience[]; customAudiences?: SavedAudience[] }) => {
+        setMetaConnected(d.connected || false);
+        setSavedAudiences(d.savedAudiences || []);
+        setCustomAudiences(d.customAudiences || []);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="font-bold text-gray-900">Meus Públicos</h2>
-        <button className="flex items-center gap-2 px-4 py-2 bg-crm-primary text-white rounded-xl text-sm font-medium hover:opacity-90 transition-opacity">
-          + Criar público
+        <h2 className="font-bold text-gray-900">Públicos</h2>
+        <button
+          onClick={() => {
+            setLoading(true);
+            authFetch('/api/trafego/saved-audiences')
+              .then(r => r.json())
+              .then((d: { connected?: boolean; savedAudiences?: SavedAudience[]; customAudiences?: SavedAudience[] }) => {
+                setMetaConnected(d.connected || false);
+                setSavedAudiences(d.savedAudiences || []);
+                setCustomAudiences(d.customAudiences || []);
+              })
+              .catch(() => {})
+              .finally(() => setLoading(false));
+          }}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 text-gray-600 text-sm hover:bg-gray-50"
+        >
+          <RefreshCw size={13} /> Atualizar
         </button>
       </div>
 
-      <div className="space-y-3">
-        {PUBLICOS_CJ.map((p) => (
-          <div key={p.nome} className="bg-white rounded-2xl border border-gray-100 p-4">
-            <div className="flex items-start justify-between">
+      {loading && (
+        <div className="text-center py-8 text-gray-400 text-sm flex items-center justify-center gap-2">
+          <Loader2 size={15} className="animate-spin" /> Carregando públicos do Meta...
+        </div>
+      )}
+
+      {!loading && !metaConnected && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
+          Meta Ads não conectado — configure o token em <a href="/time-ia" className="underline font-medium">Time de IAs</a>.
+        </div>
+      )}
+
+      {/* Públicos Salvos */}
+      {!loading && savedAudiences.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Públicos Salvos ({savedAudiences.length})</h3>
+          {savedAudiences.map(a => (
+            <div key={a.id} className="bg-white rounded-2xl border border-gray-100 p-4">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="font-semibold text-gray-900">{a.name}</div>
+                  {a.description && <div className="text-sm text-gray-500 mt-0.5">{a.description}</div>}
+                  <div className="text-xs text-gray-400 mt-1">
+                    {formatAudienceSize(a.approximate_count_lower_bound, a.approximate_count_upper_bound)}
+                  </div>
+                </div>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium shrink-0">Salvo</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Públicos Personalizados */}
+      {!loading && customAudiences.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Públicos Personalizados ({customAudiences.length})</h3>
+          {customAudiences.map(a => (
+            <div key={a.id} className="bg-white rounded-2xl border border-gray-100 p-4">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="font-semibold text-gray-900">{a.name}</div>
+                  {a.description && <div className="text-sm text-gray-500 mt-0.5">{a.description}</div>}
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    <span className="text-xs text-gray-400">
+                      {formatAudienceSize(a.approximate_count_lower_bound, a.approximate_count_upper_bound)}
+                    </span>
+                    {a.subtype && (
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-mono">{a.subtype}</span>
+                    )}
+                  </div>
+                </div>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 font-medium shrink-0">Personalizado</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!loading && metaConnected && savedAudiences.length === 0 && customAudiences.length === 0 && (
+        <div className="text-center py-8">
+          <Users size={36} className="text-gray-200 mx-auto mb-3" />
+          <p className="text-gray-500 text-sm">Nenhum público encontrado na conta Meta</p>
+          <p className="text-gray-400 text-xs mt-1">Crie públicos no Meta Ads Manager e eles aparecerão aqui automaticamente.</p>
+        </div>
+      )}
+
+      {/* Públicos padrão CJ como referência */}
+      {!loading && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Sugestões para CJ Rasteirinhas</h3>
+          {PUBLICOS_CJ.map((p) => (
+            <div key={p.nome} className="bg-gray-50 rounded-2xl border border-gray-100 p-4">
               <div className="flex-1">
-                <div className="font-semibold text-gray-900">{p.nome}</div>
+                <div className="font-semibold text-gray-700">{p.nome}</div>
                 <div className="text-sm text-gray-500 mt-0.5">{p.descricao}</div>
                 <div className="text-xs text-gray-400 mt-1">Tamanho estimado: {p.tamanho}</div>
                 <div className="text-xs text-gray-400 mt-0.5">
                   <span className="font-medium">Interesses:</span> {p.interesses}
                 </div>
-                {p.campanhas !== '—' && (
-                  <div className="text-xs text-crm-primary mt-1">Usado em: {p.campanhas}</div>
-                )}
               </div>
             </div>
-            <div className="flex gap-2 mt-3">
-              <button className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">
-                Editar
-              </button>
-              <button className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">
-                Duplicar
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
