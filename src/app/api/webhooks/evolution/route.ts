@@ -136,6 +136,7 @@ export async function POST(request: NextRequest) {
 
     // 3. Processar por tipo de evento
     switch (event) {
+      // --- JÁ IMPLEMENTADOS ---
       case 'messages.upsert':
         await handleNewMessage(supabase, tenantId, payload);
         break;
@@ -150,10 +151,61 @@ export async function POST(request: NextRequest) {
 
       case 'presence.update':
         handlePresenceUpdate(tenantId, payload);
+        await handlePresencePersist(supabase, tenantId, payload);
+        break;
+
+      // --- ETIQUETAS ---
+      case 'labels.edit':
+        await handleLabelEdit(supabase, tenantId, payload);
+        break;
+
+      case 'labels.association':
+        await handleLabelAssociation(supabase, tenantId, payload);
+        break;
+
+      // --- MENSAGENS ---
+      case 'messages.reaction':
+        await handleReaction(supabase, tenantId, payload);
+        break;
+
+      case 'messages.delete':
+        await handleMessageDelete(supabase, tenantId, payload);
+        break;
+
+      case 'send.message':
+        // Confirmação de envio — já processado por messages.upsert com fromMe=true
+        break;
+
+      // --- CONTATOS ---
+      case 'contacts.upsert':
+      case 'contacts.update':
+        await handleContactUpdate(supabase, tenantId, payload);
+        break;
+
+      // --- CHAMADAS ---
+      case 'call':
+        await handleCall(supabase, tenantId, payload);
+        break;
+
+      // --- GRUPOS ---
+      case 'groups.upsert':
+        await handleGroupUpsert(supabase, tenantId, payload);
+        break;
+
+      case 'group-participants.update':
+        await handleGroupParticipants(supabase, tenantId, payload);
+        break;
+
+      // --- IGNORAR ---
+      case 'chats.upsert':
+      case 'chats.update':
+      case 'chats.delete':
+      case 'chats.set':
+      case 'history.set':
         break;
 
       default:
-        console.log(`[Webhook] Evento ignorado: ${event}`);
+        console.log(`[Webhook] Evento não tratado: ${event}`);
     }
 
     return NextResponse.json({ status: 'ok' });
@@ -888,6 +940,21 @@ async function handleMessageStatus(
   const messageId = data?.key?.id;
   const status = data?.status;
 
+  // Verificar se é edição de mensagem (editedMessage)
+  const editedMessage = (data as { update?: { editedMessage?: { message?: { conversation?: string; extendedTextMessage?: { text?: string } } } } }).update?.editedMessage;
+  if (editedMessage && messageId) {
+    const novoTexto = editedMessage.message?.conversation || editedMessage.message?.extendedTextMessage?.text;
+    if (novoTexto) {
+      await supabase
+        .from('messages')
+        .update({ content: novoTexto, edited: true, edited_at: new Date().toISOString() })
+        .eq('external_id', messageId)
+        .eq('tenant_id', tenantId);
+      console.log(`[Webhook] messages.update — Mensagem ${messageId} editada`);
+    }
+    return;
+  }
+
   if (!messageId || !status) {
     console.log(`[Webhook] messages.update sem key.id ou status — ignorando. data keys: ${Object.keys(data || {}).join(',')}`);
     return;
@@ -1376,5 +1443,331 @@ function handlePresenceUpdate(
     });
   } catch (err) {
     console.warn('[Webhook] Erro ao processar presence.update:', err);
+  }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// NOVOS HANDLERS — Evolution API eventos adicionais
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const WA_LABEL_COLORS: Record<string, string> = {
+  '0': '#FF6900', '1': '#FCB900', '2': '#7BDCB5', '3': '#00D084',
+  '4': '#8ED1FC', '5': '#0693E3', '6': '#ABB8C3', '7': '#EB144C',
+  '8': '#F78DA7', '9': '#9900EF', '10': '#FF6900', '11': '#FCB900',
+  '12': '#00D084', '13': '#0693E3', '14': '#EB144C', '15': '#9900EF',
+  '16': '#FF6900', '17': '#7BDCB5', '18': '#ABB8C3', '19': '#EB144C',
+};
+
+/**
+ * labels.edit — etiqueta criada/editada/deletada no WhatsApp
+ */
+async function handleLabelEdit(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+  payload: EvolutionWebhookPayload
+) {
+  try {
+    const { data } = payload;
+    const { id, name, color, predefinedId, deleted } = data as {
+      id: string; name: string; color?: number; predefinedId?: string; deleted?: boolean;
+    };
+
+    if (!id) return;
+
+    if (deleted) {
+      await supabase
+        .from('whatsapp_labels')
+        .update({ deleted_at: new Date().toISOString(), ativo: false })
+        .eq('whatsapp_label_id', id)
+        .eq('tenant_id', tenantId);
+      console.log(`[Webhook] labels.edit — Etiqueta "${name}" deletada`);
+    } else {
+      const corStr = color !== undefined ? String(color) : null;
+      await supabase
+        .from('whatsapp_labels')
+        .upsert({
+          tenant_id: tenantId,
+          whatsapp_label_id: id,
+          nome: name || '(sem nome)',
+          cor: corStr,
+          cor_hex: corStr ? (WA_LABEL_COLORS[corStr] || '#ABB8C3') : null,
+          predefined_id: predefinedId || null,
+          ativo: true,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'tenant_id,whatsapp_label_id' });
+      console.log(`[Webhook] labels.edit — Etiqueta "${name}" upsert OK`);
+    }
+  } catch (err) {
+    console.warn('[Webhook] Erro labels.edit:', err);
+  }
+}
+
+/**
+ * labels.association — etiqueta aplicada/removida de uma conversa
+ */
+async function handleLabelAssociation(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+  payload: EvolutionWebhookPayload
+) {
+  try {
+    const { data } = payload;
+    const { type: actionType } = data as { type?: string };
+    const contact = (data as { contact?: { remoteJid?: string } }).contact;
+    const label = (data as { label?: { id?: string; name?: string } }).label;
+
+    if (!contact?.remoteJid || !label?.id) return;
+    const phone = contact.remoteJid.replace('@s.whatsapp.net', '');
+
+    if (actionType === 'add') {
+      await supabase
+        .from('conversation_labels')
+        .upsert({
+          tenant_id: tenantId,
+          phone,
+          label_id: label.id,
+          label_name: label.name || null,
+        }, { onConflict: 'tenant_id,phone,label_id' });
+      console.log(`[Webhook] labels.association — Adicionada "${label.name}" ao ${phone}`);
+    } else if (actionType === 'remove') {
+      await supabase
+        .from('conversation_labels')
+        .delete()
+        .eq('tenant_id', tenantId)
+        .eq('phone', phone)
+        .eq('label_id', label.id);
+      console.log(`[Webhook] labels.association — Removida "${label.name}" do ${phone}`);
+    }
+  } catch (err) {
+    console.warn('[Webhook] Erro labels.association:', err);
+  }
+}
+
+/**
+ * messages.reaction — reaction de emoji em mensagem
+ */
+async function handleReaction(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+  payload: EvolutionWebhookPayload
+) {
+  try {
+    const { data } = payload;
+    const key = (data as { key?: { id?: string; fromMe?: boolean } }).key;
+    const reaction = (data as { reaction?: { text?: string } }).reaction;
+
+    if (!key?.id) return;
+    const emoji = reaction?.text || '';
+
+    if (emoji) {
+      await supabase
+        .from('message_reactions')
+        .upsert({
+          tenant_id: tenantId,
+          message_id: key.id,
+          emoji,
+          from_me: key.fromMe || false,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'tenant_id,message_id' });
+    } else {
+      // Reaction removido
+      await supabase
+        .from('message_reactions')
+        .delete()
+        .eq('message_id', key.id)
+        .eq('tenant_id', tenantId);
+    }
+    console.log(`[Webhook] messages.reaction — ${emoji || 'removido'} em ${key.id}`);
+  } catch (err) {
+    console.warn('[Webhook] Erro messages.reaction:', err);
+  }
+}
+
+/**
+ * messages.delete — mensagem apagada
+ */
+async function handleMessageDelete(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+  payload: EvolutionWebhookPayload
+) {
+  try {
+    const { data } = payload;
+    const messages = Array.isArray(data) ? data : [data];
+
+    for (const msg of messages) {
+      const messageId = (msg as { key?: { id?: string } }).key?.id || (msg as { id?: string }).id;
+      if (!messageId) continue;
+
+      await supabase
+        .from('messages')
+        .update({
+          deleted: true,
+          content: '',
+          deleted_at: new Date().toISOString(),
+          status: 'deleted',
+        })
+        .eq('external_id', messageId)
+        .eq('tenant_id', tenantId);
+
+      console.log(`[Webhook] messages.delete — ${messageId} marcada como deletada`);
+    }
+  } catch (err) {
+    console.warn('[Webhook] Erro messages.delete:', err);
+  }
+}
+
+/**
+ * presence.update — persistir no banco (complementa handlePresenceUpdate via SSE)
+ */
+async function handlePresencePersist(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+  payload: EvolutionWebhookPayload
+) {
+  try {
+    const { data } = payload;
+    const jid = (data as { id?: string }).id;
+    if (!jid) return;
+
+    const phone = jid.replace('@s.whatsapp.net', '');
+    const presences = (data as { presences?: Record<string, { lastKnownPresence: string }> }).presences || {};
+    const presenceKey = Object.keys(presences)[0];
+    const status = presenceKey ? presences[presenceKey]?.lastKnownPresence : null;
+    if (!status) return;
+
+    await supabase
+      .from('contact_presence')
+      .upsert({
+        tenant_id: tenantId,
+        phone,
+        status,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'tenant_id,phone' });
+  } catch {
+    // non-fatal
+  }
+}
+
+/**
+ * contacts.upsert / contacts.update — atualizar nome/foto do contato
+ */
+async function handleContactUpdate(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+  payload: EvolutionWebhookPayload
+) {
+  try {
+    const { data } = payload;
+    const contacts = Array.isArray(data) ? data : [data];
+
+    for (const contact of contacts) {
+      const c = contact as { id?: string; name?: string; notify?: string; imgUrl?: string };
+      const phone = c.id?.replace('@s.whatsapp.net', '');
+      if (!phone || phone.length < 8) continue;
+
+      const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (c.name || c.notify) updates.nome_whatsapp = c.name || c.notify;
+      if (c.imgUrl) updates.foto_perfil = c.imgUrl;
+
+      const phoneNormalized = PhoneNormalizer.canonical(phone);
+      await supabase
+        .from('clients')
+        .update(updates)
+        .eq('phone_normalized', phoneNormalized)
+        .eq('tenant_id', tenantId);
+
+      console.log(`[Webhook] contacts.update — ${phone}: ${c.name || c.notify || 'foto'}`);
+    }
+  } catch (err) {
+    console.warn('[Webhook] Erro contacts.update:', err);
+  }
+}
+
+/**
+ * call — chamada recebida
+ */
+async function handleCall(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+  payload: EvolutionWebhookPayload
+) {
+  try {
+    const { data } = payload;
+    const call = Array.isArray(data) ? data[0] : data;
+    const c = call as { from?: string; id?: string; status?: string; isVideo?: boolean };
+
+    if (c.status !== 'offer') return; // só registrar chamadas recebidas
+
+    const phone = c.from?.replace('@s.whatsapp.net', '');
+    if (!phone) return;
+
+    await supabase.from('calls_log').insert({
+      tenant_id: tenantId,
+      phone,
+      call_id: c.id,
+      tipo: c.isVideo ? 'video' : 'voz',
+      status: 'perdida',
+    });
+
+    console.log(`[Webhook] call — Chamada ${c.isVideo ? 'vídeo' : 'voz'} de ${phone}`);
+  } catch (err) {
+    console.warn('[Webhook] Erro call:', err);
+  }
+}
+
+/**
+ * groups.upsert — grupo criado ou atualizado
+ */
+async function handleGroupUpsert(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+  payload: EvolutionWebhookPayload
+) {
+  try {
+    const { data } = payload;
+    const groups = Array.isArray(data) ? data : [data];
+
+    for (const group of groups) {
+      const g = group as {
+        id?: string; subject?: string; desc?: string;
+        pictureUrl?: string; participants?: unknown[];
+      };
+      if (!g.id) continue;
+
+      await supabase.from('whatsapp_groups').upsert({
+        tenant_id: tenantId,
+        group_jid: g.id,
+        nome: g.subject || null,
+        descricao: g.desc || null,
+        foto: g.pictureUrl || null,
+        participantes: g.participants?.length || 0,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'tenant_id,group_jid' });
+
+      console.log(`[Webhook] groups.upsert — ${g.subject || g.id}`);
+    }
+  } catch (err) {
+    console.warn('[Webhook] Erro groups.upsert:', err);
+  }
+}
+
+/**
+ * group-participants.update — participante adicionado/removido
+ */
+async function handleGroupParticipants(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+  payload: EvolutionWebhookPayload
+) {
+  try {
+    const { data } = payload;
+    const d = data as { id?: string; participants?: string[]; action?: string };
+    if (!d.id) return;
+
+    // Fetch fresh participant count would require API call, just log for now
+    console.log(`[Webhook] group-participants.update — ${d.action}: ${d.participants?.length || 0} em ${d.id}`);
+  } catch (err) {
+    console.warn('[Webhook] Erro group-participants.update:', err);
   }
 }
