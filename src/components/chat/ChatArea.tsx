@@ -128,12 +128,14 @@ export function ChatArea({
     queryKey: ['client', selectedChatId],
     queryFn: async () => {
       if (!selectedChatId) return null;
+      // Grupos (@g.us) não têm entrada na tabela clients — skip
+      if (selectedChatId.includes('@g.us')) return null;
       const res = await api.get(`/api/clients/${selectedChatId}`);
       if (res.error) return null;
       const raw = res.data as any;
       return raw?.data || raw || null;
     },
-    enabled: !!selectedChatId,
+    enabled: !!selectedChatId && !selectedChatId.includes('@g.us'),
     staleTime: 60_000,
   });
 

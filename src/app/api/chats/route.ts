@@ -81,6 +81,26 @@ export async function GET(request: NextRequest) {
       // Ordenação secundária por updated_at para desempate
       .order('updated_at', { ascending: false });
 
+    // 4a. Busca server-side: pré-filtrar por client_id correspondente ao search
+    // Evita a limitação de buscar apenas nos primeiros N resultados da página.
+    if (search) {
+      const s = `%${search}%`;
+      const { data: matchingClients } = await supabase
+        .from('clients')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .or(`name.ilike.${s},phone.ilike.${s},phone_normalized.ilike.${s}`);
+
+      const clientIds = (matchingClients || []).map((c: { id: string }) => c.id);
+
+      if (clientIds.length > 0) {
+        query = query.or(`client_id.in.(${clientIds.join(',')}),contact_name.ilike.${s}`);
+      } else {
+        // Nenhum cliente correspondeu — buscar apenas por contact_name (grupos)
+        query = query.ilike('contact_name', s);
+      }
+    }
+
     // 4. Aplicar filtros
     switch (filter) {
       case 'unread':
@@ -103,36 +123,16 @@ export async function GET(request: NextRequest) {
         break;
     }
 
-    // 5. Search server-side: busca por nome/telefone no banco (não client-side)
-    // Anterior: filtrava apenas a 1ª página de 50 — perdia clientes fora das 50 conversas mais recentes
-    if (search) {
-      // Buscar client_ids que batem com o termo
-      const { data: matchingClients } = await supabase
-        .from('clients')
-        .select('id')
-        .eq('tenant_id', tenantId)
-        .or(`name.ilike.%${search}%,phone.ilike.%${search}%,phone_normalized.ilike.%${search}%`)
-        .limit(200);
-
-      const clientIds = (matchingClients || []).map((c: Record<string, unknown>) => c.id as string).filter(Boolean);
-
-      if (clientIds.length > 0) {
-        // Conversas cujo cliente bate OU cujo contact_name (grupos) bate
-        query = query.or(
-          `contact_name.ilike.%${search}%,client_id.in.(${clientIds.join(',')})`
-        );
-      } else {
-        // Sem clientes encontrados — só buscar por contact_name (grupos)
-        query = query.ilike('contact_name', `%${search}%`);
-      }
-      // Ao buscar, não aplicar cursor — queremos todos os resultados do search
-    } else if (cursor) {
-      // 6. Paginação cursor-based (somente quando não há busca)
+    // 5. Paginação cursor-based.
+    // O cursor é o last_message_at do último item da página anterior.
+    // Conversas com last_message_at = null usam updated_at como fallback.
+    if (cursor) {
+      // Busca itens mais antigos que o cursor (ou sem last_message_at)
       query = query.or(`last_message_at.lt.${cursor},last_message_at.is.null`);
     }
 
-    // 7. Limitar resultados + 1 para detectar hasMore
-    query = query.limit(search ? 100 : limit + 1);
+    // 6. Limitar resultados + 1 para detectar hasMore
+    query = query.limit(limit + 1);
 
     const { data: conversations, error, count } = await query;
 
@@ -141,11 +141,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    console.log(`[/api/chats] tenant=${tenantId} filter=${filter} search=${search || '-'} raw_count=${count} rows=${conversations?.length ?? 0}`);
+    // Log de diagnóstico — tenant_id e total de registros antes de filtrar por search
+    console.log(`[/api/chats] tenant=${tenantId} filter=${filter} raw_count=${count} rows=${conversations?.length ?? 0}`);
 
-    // 8. Detectar se há mais páginas (sem sentido em search, mas mantemos estrutura)
-    const hasMore = !search && (conversations?.length || 0) > limit;
+    // 7. Detectar se há mais páginas
+    const hasMore = (conversations?.length || 0) > limit;
     const items = hasMore ? conversations?.slice(0, limit) : conversations;
+
     const filteredItems = items || [];
 
     // 9. Transformar no formato esperado pelo ChatList (interface Chat)
@@ -207,59 +209,7 @@ export async function GET(request: NextRequest) {
         };
       });
 
-    // 10. Enriquecer chats com etiquetas (conversation_labels + whatsapp_labels)
-    // Busca batch por phones — sem N+1
-    const phones = chats
-      .map((c: Record<string, unknown>) => {
-        const client = c.client as { phone_normalized?: string } | null;
-        return client?.phone_normalized || '';
-      })
-      .filter(Boolean);
-
-    if (phones.length > 0) {
-      const [labelRowsRes, ] = await Promise.all([
-        supabase
-          .from('conversation_labels')
-          .select('phone, label_id, label_name')
-          .eq('tenant_id', tenantId)
-          .in('phone', phones),
-      ]);
-
-      const labelRows = labelRowsRes.data || [];
-
-      if (labelRows.length > 0) {
-        const labelIds = [...new Set(labelRows.map((l: Record<string, unknown>) => l.label_id as string))];
-        const { data: colorRows } = await supabase
-          .from('whatsapp_labels')
-          .select('whatsapp_label_id, cor_hex, name')
-          .eq('tenant_id', tenantId)
-          .in('whatsapp_label_id', labelIds);
-
-        const colorMap = new Map<string, string>(
-          (colorRows || []).map((l: Record<string, unknown>) => [l.whatsapp_label_id as string, (l.cor_hex as string) || '#ABB8C3'])
-        );
-
-        const labelsPerPhone = new Map<string, Array<{ id: string; name: string; cor_hex: string }>>();
-        for (const row of labelRows) {
-          const r = row as { phone: string; label_id: string; label_name?: string };
-          if (!labelsPerPhone.has(r.phone)) labelsPerPhone.set(r.phone, []);
-          labelsPerPhone.get(r.phone)!.push({
-            id: r.label_id,
-            name: r.label_name || r.label_id,
-            cor_hex: colorMap.get(r.label_id) || '#ABB8C3',
-          });
-        }
-
-        for (let i = 0; i < chats.length; i++) {
-          const phone = (chats[i].client as { phone_normalized?: string }).phone_normalized || '';
-          if (phone && labelsPerPhone.has(phone)) {
-            (chats[i] as Record<string, unknown>).labels = labelsPerPhone.get(phone);
-          }
-        }
-      }
-    }
-
-    // 11. Calcular nextCursor usando last_message_at (campo usado na query .lt())
+    // 10. Calcular nextCursor usando last_message_at (campo usado na query .lt())
     const lastItem = chats[chats.length - 1];
     const nextCursor = hasMore && lastItem?._cursor ? lastItem._cursor : null;
 

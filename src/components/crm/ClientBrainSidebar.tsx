@@ -1850,6 +1850,8 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
     queryKey: ['client', selectedChatId],
     queryFn: async () => {
       if (!selectedChatId) return null;
+      // Grupos (@g.us) não têm entrada na tabela clients
+      if (selectedChatId.includes('@g.us')) return null;
       console.log(`[Brain] 🔄 Fetching client ${selectedChatId}`);
       const res = await api.get(`/api/clients/${selectedChatId}`);
       if (res.error) throw new Error(res.error);
@@ -1859,7 +1861,7 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
       console.log(`[Brain] ✅ Client loaded with ${orderCount} orders`);
       return data;
     },
-    enabled: !!selectedChatId,
+    enabled: !!selectedChatId && !selectedChatId.includes('@g.us'),
     staleTime: 60_000,
   });
 

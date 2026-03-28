@@ -147,11 +147,6 @@ export interface ClientFilters {
 export type MessageType = 'text' | 'image' | 'video' | 'audio' | 'document' | 'sticker' | 'location' | 'contact';
 export type MessageStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'failed';
 
-export interface MessageReaction {
-  emoji: string;
-  phone: string;
-}
-
 export interface Message {
   id: string;
   tenant_id: string;
@@ -168,24 +163,15 @@ export interface Message {
   status: MessageStatus;
   metadata?: Record<string, unknown>;
   created_at: string;
-  /** Campos adicionados pela migration 041 */
   deleted?: boolean;
-  deleted_at?: string;
+  deleted_at?: string | null;
   edited?: boolean;
-  edited_at?: string;
-  /** Reações — populadas pela API de mensagens */
-  reactions?: MessageReaction[];
+  edited_at?: string | null;
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    CHAT (Conversa)
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
-
-export interface ChatLabel {
-  id: string;
-  name: string;
-  cor_hex?: string;
-}
 
 export interface Chat {
   id: string;
@@ -198,7 +184,6 @@ export interface Chat {
   is_group?: boolean;
   assigned_to?: string;
   updated_at: string;
-  labels?: ChatLabel[];
   /** Campo interno para paginação cursor-based (não exibido na UI) */
   _cursor?: string;
 }
@@ -423,22 +408,8 @@ export interface EvolutionWebhookPayload {
       stickerMessage?: { url?: string; directPath?: string };
     };
     messageTimestamp?: number;
-    status?: string | number;
-    update?: Record<string, unknown>;
-    // Labels events
-    id?: string;
-    name?: string;
-    color?: number;
-    deleted?: boolean;
-    // Presence events
-    presences?: Record<string, { lastKnownPresence: string }>;
-    // Call events
-    from?: string;
-    isVideo?: boolean;
-    // Contacts events
-    notify?: string;
-    imgUrl?: string;
-  } & Record<string, unknown>;
+    status?: string;
+  };
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -3,7 +3,7 @@
 import { useState, useCallback, memo } from 'react';
 import { cn } from '@/lib/utils';
 import { formatTime } from '@/lib/utils';
-import { Check, CheckCheck, Mic, Eye, AlertCircle, Clock, Copy, RotateCcw, Ban, Pencil } from 'lucide-react';
+import { Check, CheckCheck, Mic, Eye, AlertCircle, Clock, Copy, RotateCcw, Trash2, Pencil } from 'lucide-react';
 import { api } from '@/lib/api';
 import { parseMessageContent } from '@/lib/message-parser';
 import { AudioMessage } from './AudioMessage';
@@ -89,23 +89,23 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
     }
   };
 
-  // Mensagem deletada — renderização especial
-  const isDeleted = (message as unknown as { deleted?: boolean }).deleted;
-  const isEdited = (message as unknown as { edited?: boolean }).edited;
-
-  if (isDeleted) {
+  // Mensagem apagada — exibe placeholder igual ao WhatsApp
+  if (message.deleted) {
     return (
       <div className={cn('flex mb-1', isFromMe ? 'justify-end' : 'justify-start')}>
         <div className={cn(
-          'max-w-[65%] px-3 py-2 rounded-bubble relative border border-dashed',
+          'max-w-[65%] px-3 py-2 rounded-bubble relative flex items-center gap-2 opacity-70 italic',
           isFromMe
-            ? 'bg-wa-bubble-out/50 border-[#111b21]/10 rounded-tr-sm'
-            : 'bg-wa-bubble-in/50 border-[#111b21]/10 rounded-tl-sm'
+            ? 'bg-wa-bubble-out text-wa-text-bubble rounded-tr-sm'
+            : 'bg-wa-bubble-in text-wa-text-primary rounded-tl-sm'
         )}>
-          <div className="flex items-center gap-1.5 text-[#111b21]/40 italic text-[13px]">
-            <Ban size={14} />
-            <span>Mensagem apagada</span>
-          </div>
+          <Trash2 size={13} className="shrink-0" />
+          <span className="text-sm">
+            {isFromMe ? 'Você apagou esta mensagem' : 'Esta mensagem foi apagada'}
+          </span>
+          <span className="text-[11px] opacity-60 ml-1 whitespace-nowrap">
+            {formatTime(message.timestamp ?? message.created_at)}
+          </span>
         </div>
       </div>
     );
@@ -248,53 +248,26 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
           </div>
         )}
 
-        {/* Reactions — emoji com contador de pessoas */}
-        {message.reactions && message.reactions.length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-1.5">
-            {(() => {
-              // Agrupar reactions por emoji
-              const grouped = message.reactions.reduce<Record<string, string[]>>((acc, r) => {
-                if (!acc[r.emoji]) acc[r.emoji] = [];
-                acc[r.emoji].push(r.phone);
-                return acc;
-              }, {});
-              return Object.entries(grouped).map(([emoji, phones]) => (
-                <span
-                  key={emoji}
-                  title={`${phones.length} pessoa${phones.length > 1 ? 's' : ''}`}
-                  className={cn(
-                    'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[12px] border cursor-default select-none',
-                    isFromMe
-                      ? 'bg-black/5 border-black/10'
-                      : 'bg-white/80 border-gray-200'
-                  )}
-                >
-                  {emoji}
-                  {phones.length > 1 && (
-                    <span className="text-[10px] text-[#111b21]/50 font-medium">{phones.length}</span>
-                  )}
-                </span>
-              ));
-            })()}
-          </div>
-        )}
-
-        {/* Timestamp + status */}
+        {/* Timestamp + edited badge + status */}
         <div className={cn(
           'flex items-center gap-1 mt-1',
           isFromMe ? 'justify-end' : 'justify-end'
         )}>
+          {message.edited && (
+            <span className={cn(
+              'flex items-center gap-0.5 text-[10px] opacity-60',
+              isFromMe ? 'text-wa-text-time' : 'text-wa-text-secondary'
+            )}>
+              <Pencil size={9} />
+              <span>editada</span>
+            </span>
+          )}
           <span className={cn(
             'text-[11px]',
             isFromMe ? 'text-wa-text-time' : 'text-wa-text-secondary'
           )}>
             {formatTime(message.timestamp ?? message.created_at)}
           </span>
-          {isEdited && (
-            <span className="flex items-center gap-0.5 text-[10px] text-[#111b21]/40 italic">
-              <Pencil size={9} /> editada
-            </span>
-          )}
           {statusIcon()}
         </div>
 
@@ -319,8 +292,7 @@ export const MessageBubble = memo(MessageBubbleComponent, (prev, next) => (
   prev.message.status === next.message.status &&
   prev.message.content === next.message.content &&
   prev.message.media_url === next.message.media_url &&
-  (prev.message as any).deleted === (next.message as any).deleted &&
-  (prev.message as any).edited === (next.message as any).edited &&
-  (prev.message.metadata as any)?.transcription === (next.message.metadata as any)?.transcription &&
-  JSON.stringify(prev.message.reactions) === JSON.stringify(next.message.reactions)
+  prev.message.deleted === next.message.deleted &&
+  prev.message.edited === next.message.edited &&
+  (prev.message.metadata as any)?.transcription === (next.message.metadata as any)?.transcription
 ));
