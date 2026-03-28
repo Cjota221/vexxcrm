@@ -58,6 +58,7 @@ export async function GET(request: NextRequest) {
         is_muted,
         remote_jid,
         contact_name,
+        avatar_url,
         created_at,
         updated_at,
         client:clients!conversations_client_id_fkey (
@@ -178,7 +179,9 @@ export async function GET(request: NextRequest) {
             email: (client?.email as string) || '',
             status: (client?.status as string) || 'active',
             tags: (client?.tags as string[]) || [],
-            avatar_url: (client?.avatar_url as string) || null,
+            avatar_url: isGroup
+            ? (conv.avatar_url as string) || null
+            : (client?.avatar_url as string) || null,
             ltv: (client?.ltv as number) || 0,
             ticket_medio: (client?.avg_ticket as number) || 0,
             total_pedidos: (client?.total_orders as number) || 0,

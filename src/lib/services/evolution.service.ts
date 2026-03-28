@@ -967,3 +967,95 @@ export async function forwardMediaToN8n(payload: MediaForwardPayload): Promise<v
     console.warn('[n8n] Falha ao encaminhar mídia:', err);
   }
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// AÇÕES EM MENSAGENS — Delete, React, Edit
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Apaga uma mensagem enviada pelo nosso número no WhatsApp.
+ * O webhook messages.delete receberá o evento de volta e marcará deleted=true no banco.
+ */
+export async function deleteMessage(
+  config: EvolutionAPIConfig,
+  remoteJid: string,
+  messageId: string,
+  fromMe: boolean
+): Promise<void> {
+  const response = await fetchWithTimeout(
+    `${config.apiUrl}/chat/deleteMessage/${config.instanceName}`,
+    {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', 'apikey': config.apiKey },
+      body: JSON.stringify({ key: { remoteJid, id: messageId, fromMe } }),
+    },
+    12_000
+  );
+
+  if (!response.ok) {
+    const err = await safeJson(response, 'Apagar mensagem').catch(() => ({}));
+    throw new Error((err as any).message || `Erro ao apagar mensagem (HTTP ${response.status})`);
+  }
+}
+
+/**
+ * Envia uma reaction (emoji) para uma mensagem específica.
+ * Texto vazio remove a reaction existente.
+ */
+export async function sendReaction(
+  config: EvolutionAPIConfig,
+  remoteJid: string,
+  messageId: string,
+  fromMe: boolean,
+  emoji: string
+): Promise<void> {
+  const response = await fetchWithTimeout(
+    `${config.apiUrl}/message/sendReaction/${config.instanceName}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': config.apiKey },
+      body: JSON.stringify({
+        reactionMessage: {
+          key: { remoteJid, id: messageId, fromMe },
+          text: emoji,
+        },
+      }),
+    },
+    12_000
+  );
+
+  if (!response.ok) {
+    const err = await safeJson(response, 'Enviar reaction').catch(() => ({}));
+    throw new Error((err as any).message || `Erro ao reagir à mensagem (HTTP ${response.status})`);
+  }
+}
+
+/**
+ * Edita o texto de uma mensagem enviada pelo nosso número.
+ * Só funciona com mensagens de texto (type='text') enviadas por nós.
+ */
+export async function editMessage(
+  config: EvolutionAPIConfig,
+  remoteJid: string,
+  messageId: string,
+  newText: string
+): Promise<void> {
+  const response = await fetchWithTimeout(
+    `${config.apiUrl}/message/updateMessage/${config.instanceName}`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'apikey': config.apiKey },
+      body: JSON.stringify({
+        number: remoteJid,
+        key: { id: messageId, remoteJid, fromMe: true },
+        message: { conversation: newText },
+      }),
+    },
+    12_000
+  );
+
+  if (!response.ok) {
+    const err = await safeJson(response, 'Editar mensagem').catch(() => ({}));
+    throw new Error((err as any).message || `Erro ao editar mensagem (HTTP ${response.status})`);
+  }
+}

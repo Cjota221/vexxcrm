@@ -1847,6 +1847,17 @@ async function handleGroupUpsert(
         updated_at: new Date().toISOString(),
       }, { onConflict: 'tenant_id,group_jid' });
 
+      // Sincronizar nome e foto na tabela conversations para aparecer na lista de chats
+      const convUpdate: Record<string, string> = {};
+      if (g.subject) convUpdate.contact_name = g.subject;
+      if (g.pictureUrl) convUpdate.avatar_url = g.pictureUrl;
+      if (Object.keys(convUpdate).length > 0) {
+        await supabase.from('conversations')
+          .update(convUpdate)
+          .eq('tenant_id', tenantId)
+          .eq('remote_jid', g.id);
+      }
+
       console.log(`[Webhook] groups.upsert — ${g.subject || g.id}`);
     }
   } catch (err) {

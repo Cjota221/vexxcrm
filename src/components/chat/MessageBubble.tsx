@@ -1,15 +1,18 @@
 'use client';
 
-import { useState, useCallback, memo } from 'react';
+import { useState, useCallback, memo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { formatTime } from '@/lib/utils';
-import { Check, CheckCheck, Mic, Eye, AlertCircle, Clock, Copy, RotateCcw, Trash2, Pencil, MapPin } from 'lucide-react';
+import { Check, CheckCheck, Mic, Eye, AlertCircle, Clock, Copy, RotateCcw, Trash2, Pencil, MapPin, Smile, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { parseMessageContent } from '@/lib/message-parser';
 import { AudioMessage } from './AudioMessage';
 import { MediaMessage, DocumentMessage } from './MediaMessage';
 import { LinkPreview, extractFirstUrl } from './LinkPreview';
 import type { Message } from '@/types';
+
+// Emojis mais usados no WhatsApp
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '👏', '🔥'];
 
 interface MessageBubbleProps {
   message: Message;
@@ -36,9 +39,23 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
   const [fixedUrl, setFixedUrl] = useState<string | null>(null);
   const [mediaExpired, setMediaExpired] = useState(false);
   const [localTranscription, setLocalTranscription] = useState<string | null>(null);
+  // Menu de contexto
+  const [showMenu, setShowMenu] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  // Edição inline
+  const [editMode, setEditMode] = useState(false);
+  const [editText, setEditText] = useState(message.content || '');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  // Deleção
+  const [isDeleting, setIsDeleting] = useState(false);
+  // Reactions locais (otimístico)
+  const [localReactions, setLocalReactions] = useState<Array<{ emoji: string; from_me: boolean; reactor_phone: string }> | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const currentMediaUrl = fixedUrl || message.media_url;
   const displayTranscription = localTranscription ?? transcription;
+  // Reactions: local (otimístico) ou do servidor
+  const reactions = localReactions ?? (metadata?.reactions as Array<{ emoji: string; from_me: boolean; reactor_phone: string }> | undefined);
 
   const handleRedownload = useCallback(async () => {
     if (isRedownloading || mediaExpired) return;
@@ -77,6 +94,52 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
       // Não re-lança — AudioMessage permanece no estado "não transcrito" visualmente
     }
   }, [message.id, onTranscriptionUpdate]);
+
+  const handleDelete = useCallback(async () => {
+    if (isDeleting) return;
+    if (!confirm('Apagar esta mensagem para todos?')) return;
+    setIsDeleting(true);
+    setShowMenu(false);
+    try {
+      const res = await api.delete(`/api/messages/${message.id}/delete`);
+      if (res.error) throw new Error(res.error);
+    } catch (err) {
+      console.warn('[MessageBubble] Erro ao apagar:', err);
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [message.id, isDeleting]);
+
+  const handleSaveEdit = useCallback(async () => {
+    if (!editText.trim() || isSavingEdit) return;
+    setIsSavingEdit(true);
+    try {
+      const res = await api.patch(`/api/messages/${message.id}/edit`, { content: editText.trim() });
+      if (res.error) throw new Error(res.error);
+      setEditMode(false);
+    } catch (err) {
+      console.warn('[MessageBubble] Erro ao editar:', err);
+    } finally {
+      setIsSavingEdit(false);
+    }
+  }, [message.id, editText, isSavingEdit]);
+
+  const handleReact = useCallback(async (emoji: string) => {
+    setShowEmojiPicker(false);
+    setShowMenu(false);
+    // Otimístico: adicionar reaction local imediatamente
+    setLocalReactions(prev => {
+      const base = prev ?? (metadata?.reactions as typeof prev) ?? [];
+      const filtered = (base || []).filter(r => !r.from_me);
+      return emoji ? [...filtered, { emoji, from_me: true, reactor_phone: 'me' }] : filtered;
+    });
+    try {
+      await api.post(`/api/messages/${message.id}/react`, { emoji });
+    } catch (err) {
+      console.warn('[MessageBubble] Erro ao reagir:', err);
+      setLocalReactions(null); // rollback
+    }
+  }, [message.id, metadata]);
 
   const statusIcon = () => {
     if (!isFromMe) return null;
@@ -121,10 +184,85 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
   return (
     <div
       className={cn(
-        'flex mb-1',
+        'flex mb-1 group/msg',
         isFromMe ? 'justify-end' : 'justify-start'
       )}
+      onMouseLeave={() => { setShowMenu(false); setShowEmojiPicker(false); }}
     >
+      {/* Barra de ações — aparece ao hover */}
+      {!message.deleted && (
+        <div className={cn(
+          'flex items-center gap-0.5 self-center opacity-0 group-hover/msg:opacity-100 transition-opacity',
+          isFromMe ? 'order-first mr-1' : 'order-last ml-1'
+        )}>
+          {/* Reagir */}
+          <div className="relative">
+            <button
+              onClick={() => { setShowEmojiPicker(p => !p); setShowMenu(false); }}
+              className="p-1 rounded-full hover:bg-black/10 text-gray-500 hover:text-gray-700"
+              title="Reagir"
+            >
+              <Smile size={15} />
+            </button>
+            {showEmojiPicker && (
+              <div className={cn(
+                'absolute bottom-8 z-50 bg-white rounded-xl shadow-lg border border-gray-100 p-1.5 flex gap-0.5',
+                isFromMe ? 'right-0' : 'left-0'
+              )}>
+                {QUICK_REACTIONS.map(e => (
+                  <button
+                    key={e}
+                    onClick={() => handleReact(e)}
+                    className="text-lg hover:scale-125 transition-transform px-0.5"
+                    title={e}
+                  >{e}</button>
+                ))}
+              </div>
+            )}
+          </div>
+          {/* Mais opções */}
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => { setShowMenu(p => !p); setShowEmojiPicker(false); }}
+              className="p-1 rounded-full hover:bg-black/10 text-gray-500 hover:text-gray-700 text-[11px] font-bold leading-none"
+              title="Mais opções"
+            >
+              ···
+            </button>
+            {showMenu && (
+              <div className={cn(
+                'absolute bottom-8 z-50 bg-white rounded-xl shadow-lg border border-gray-100 py-1 min-w-36',
+                isFromMe ? 'right-0' : 'left-0'
+              )}>
+                {isFromMe && message.type === 'text' && (
+                  <button
+                    onClick={() => { setEditMode(true); setEditText(message.content || ''); setShowMenu(false); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 text-gray-700"
+                  >
+                    <Pencil size={13} /> Editar
+                  </button>
+                )}
+                {isFromMe && (
+                  <button
+                    onClick={handleDelete}
+                    disabled={isDeleting}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-red-50 text-red-600 disabled:opacity-50"
+                  >
+                    <Trash2 size={13} /> {isDeleting ? 'Apagando...' : 'Apagar'}
+                  </button>
+                )}
+                <button
+                  onClick={() => { navigator.clipboard.writeText(message.content || ''); setShowMenu(false); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 text-gray-700"
+                >
+                  <Copy size={13} /> Copiar texto
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div
         className={cn(
           'max-w-[65%] px-3 py-2 rounded-bubble relative',
@@ -299,6 +437,57 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
           </>
         )}
 
+        {/* Modo de edição inline */}
+        {editMode && (
+          <div className="mt-1">
+            <textarea
+              value={editText}
+              onChange={e => setEditText(e.target.value)}
+              autoFocus
+              rows={2}
+              className="w-full text-sm rounded-lg border border-gray-300 px-2 py-1 resize-none bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSaveEdit(); }
+                if (e.key === 'Escape') setEditMode(false);
+              }}
+            />
+            <div className="flex gap-1 mt-1 justify-end">
+              <button onClick={() => setEditMode(false)} className="text-[11px] px-2 py-0.5 rounded bg-gray-200 text-gray-600 hover:bg-gray-300">
+                <X size={10} className="inline mr-0.5" />Cancelar
+              </button>
+              <button onClick={handleSaveEdit} disabled={isSavingEdit} className="text-[11px] px-2 py-0.5 rounded bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50">
+                {isSavingEdit ? 'Salvando...' : 'Salvar'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Reactions — exibe emojis abaixo da mensagem */}
+        {reactions && reactions.length > 0 && (
+          <div className="flex flex-wrap gap-0.5 mt-1">
+            {Object.entries(
+              reactions.reduce((acc, r) => {
+                acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+                return acc;
+              }, {} as Record<string, number>)
+            ).map(([emoji, count]) => (
+              <button
+                key={emoji}
+                onClick={() => handleReact(emoji)}
+                className={cn(
+                  'flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs border transition-colors',
+                  reactions.some(r => r.from_me && r.emoji === emoji)
+                    ? 'bg-blue-50 border-blue-300'
+                    : 'bg-white/70 border-gray-200 hover:bg-gray-100'
+                )}
+              >
+                <span>{emoji}</span>
+                {count > 1 && <span className="text-[10px] text-gray-600">{count}</span>}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Botão copy_code — renderizado para mensagens com metadata.copy_code */}
         {copyCode && (
           <div className={cn(
@@ -367,5 +556,6 @@ export const MessageBubble = memo(MessageBubbleComponent, (prev, next) => (
   prev.message.media_url === next.message.media_url &&
   prev.message.deleted === next.message.deleted &&
   prev.message.edited === next.message.edited &&
-  (prev.message.metadata as any)?.transcription === (next.message.metadata as any)?.transcription
+  (prev.message.metadata as any)?.transcription === (next.message.metadata as any)?.transcription &&
+  JSON.stringify((prev.message.metadata as any)?.reactions) === JSON.stringify((next.message.metadata as any)?.reactions)
 ));

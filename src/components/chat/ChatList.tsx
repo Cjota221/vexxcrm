@@ -204,7 +204,7 @@ const ChatListItem = memo(function ChatListItem({ chat, isSelected, onSelect }: 
       {/* Avatar */}
       <div className="relative shrink-0">
         <AvatarImage
-          src={chat.is_group ? null : chat.client.avatar_url}
+          src={chat.client.avatar_url}
           name={chat.client.name}
           size={44}
           rounded="full"

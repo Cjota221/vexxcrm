@@ -49,15 +49,21 @@ export async function GET(
     const before = searchParams.get('before');
 
     // 1. Buscar a conversa deste cliente (suporta múltiplas conversas — pega a mais recente)
-    // NOTA: NÃO filtrar por channel — o campo pode ter sido atualizado para valores diferentes
-    // de 'whatsapp' em algum webhook, e perderia a conversa completamente.
-    const { data: conversations, error: convError } = await supabase
+    // Grupos usam remote_jid (@g.us) como chave; conversas individuais usam client_id (UUID).
+    const isGroup = clientId.includes('@g.us');
+
+    let conversationQuery = supabase
       .from('conversations')
       .select('id, last_message_at')
       .eq('tenant_id', tenantId)
-      .eq('client_id', clientId)
       .order('last_message_at', { ascending: false, nullsFirst: false })
       .limit(1);
+
+    conversationQuery = isGroup
+      ? conversationQuery.eq('remote_jid', clientId)
+      : conversationQuery.eq('client_id', clientId);
+
+    const { data: conversations, error: convError } = await conversationQuery;
 
     const conversation = conversations?.[0] || null;
 
@@ -124,32 +130,59 @@ export async function GET(
 
     console.log(`[Messages GET] conv=${conversation.id} → ${messages?.length ?? 0} mensagens retornadas | mais recente: ${messages?.[messages.length - 1]?.id ?? 'nenhum'}`);
 
-    // 3. Traduzir para o formato Message do TypeScript
+    // 3. Buscar reactions para este lote de mensagens (via external_id)
+    const externalIds = (messages || [])
+      .map((m) => (m as any).external_id)
+      .filter(Boolean) as string[];
+
+    const reactionsMap: Record<string, Array<{ emoji: string; from_me: boolean; reactor_phone: string }>> = {};
+    if (externalIds.length > 0) {
+      const { data: reactions } = await supabase
+        .from('message_reactions')
+        .select('message_id, emoji, from_me, reactor_phone')
+        .eq('tenant_id', tenantId)
+        .in('message_id', externalIds);
+
+      (reactions || []).forEach((r) => {
+        if (!reactionsMap[r.message_id]) reactionsMap[r.message_id] = [];
+        reactionsMap[r.message_id].push({ emoji: r.emoji, from_me: r.from_me, reactor_phone: r.reactor_phone });
+      });
+    }
+
+    // 4. Traduzir para o formato Message do TypeScript
     // O front-end espera: from_me, message_id, remote_jid, timestamp
     // O banco salva: direction, external_id, sender_phone, created_at
-    const translatedMessages: Message[] = (messages || []).map((msg) => ({
-      id: msg.id,
-      tenant_id: msg.tenant_id,
-      client_id: msg.client_id || clientId,
-      remote_jid: msg.sender_phone
-        ? `${msg.sender_phone}@s.whatsapp.net`
-        : '',
-      message_id: msg.external_id || msg.id,
-      from_me: msg.direction === 'outbound',
-      content: msg.content || '',
-      type: msg.type as Message['type'],
-      media_url: msg.media_url || undefined,
-      media_type: msg.media_mime_type || undefined,
-      media_size: msg.media_size || undefined,
-      timestamp: msg.created_at,
-      status: msg.status as Message['status'],
-      metadata: msg.metadata || {},
-      created_at: msg.created_at,
-      deleted: (msg as any).deleted || false,
-      deleted_at: (msg as any).deleted_at || null,
-      edited: (msg as any).edited || false,
-      edited_at: (msg as any).edited_at || null,
-    }));
+    const translatedMessages: Message[] = (messages || []).map((msg) => {
+      const externalId = (msg as any).external_id;
+      const baseMetadata = (msg.metadata as Record<string, unknown>) || {};
+      const msgReactions = externalId ? (reactionsMap[externalId] || []) : [];
+
+      return {
+        id: msg.id,
+        tenant_id: msg.tenant_id,
+        client_id: msg.client_id || clientId,
+        remote_jid: msg.sender_phone
+          ? `${msg.sender_phone}@s.whatsapp.net`
+          : '',
+        message_id: externalId || msg.id,
+        from_me: msg.direction === 'outbound',
+        content: msg.content || '',
+        type: msg.type as Message['type'],
+        media_url: msg.media_url || undefined,
+        media_type: msg.media_mime_type || undefined,
+        media_size: msg.media_size || undefined,
+        timestamp: msg.created_at,
+        status: msg.status as Message['status'],
+        metadata: msgReactions.length > 0
+          ? { ...baseMetadata, reactions: msgReactions }
+          : baseMetadata,
+        created_at: msg.created_at,
+        deleted: (msg as any).deleted || false,
+        deleted_at: (msg as any).deleted_at || null,
+        edited: (msg as any).edited || false,
+        edited_at: (msg as any).edited_at || null,
+      };
+    });
 
     // 4. Retornar IMEDIATAMENTE — marcar como lido em background (fire-and-forget)
     // CRÍTICO: não usar await aqui.
