@@ -184,6 +184,7 @@ export interface Chat {
   is_group?: boolean;
   assigned_to?: string;
   updated_at: string;
+  labels?: string[];
   /** Campo interno para paginação cursor-based (não exibido na UI) */
   _cursor?: string;
 }
