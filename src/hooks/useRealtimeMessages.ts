@@ -199,18 +199,23 @@ export function useRealtimeMessages() {
 
       if (!clientId) return;
 
-      const applyUpdate = (m: import('@/types').Message) =>
-        m.id === msgId
-          ? {
-              ...m,
-              status: (raw.status as import('@/types').Message['status']) ?? m.status,
-              deleted: (raw.deleted as boolean) ?? (m as any).deleted,
-              deleted_at: (raw.deleted_at as string) ?? (m as any).deleted_at,
-              edited: (raw.edited as boolean) ?? (m as any).edited,
-              edited_at: (raw.edited_at as string) ?? (m as any).edited_at,
-              content: raw.edited ? ((raw.content as string) ?? m.content) : m.content,
-            }
-          : m;
+      const applyUpdate = (m: import('@/types').Message) => {
+        if (m.id !== msgId) return m;
+        const newMeta = raw.metadata as Record<string, unknown> | undefined;
+        return {
+          ...m,
+          status: (raw.status as import('@/types').Message['status']) ?? m.status,
+          deleted: (raw.deleted as boolean) ?? (m as any).deleted,
+          deleted_at: (raw.deleted_at as string) ?? (m as any).deleted_at,
+          edited: (raw.edited as boolean) ?? (m as any).edited,
+          edited_at: (raw.edited_at as string) ?? (m as any).edited_at,
+          content: raw.edited ? ((raw.content as string) ?? m.content) : m.content,
+          // Reactions chegam via metadata.reactions quando handleReaction atualiza o banco
+          metadata: newMeta
+            ? { ...(m.metadata as Record<string, unknown> || {}), ...newMeta }
+            : m.metadata,
+        };
+      };
 
       queryClient.setQueryData<import('@/types').Message[]>(
         ['messages', clientId],

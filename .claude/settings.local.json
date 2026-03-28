@@ -7,7 +7,8 @@
       "Bash(mkdir -p \"src/app/api/messages/[clientId]/edit\")",
       "Bash(cp \"src/app/api/messages/[messageId]/delete/route.ts\" \"src/app/api/messages/[clientId]/delete/route.ts\")",
       "Bash(cp \"src/app/api/messages/[messageId]/react/route.ts\" \"src/app/api/messages/[clientId]/react/route.ts\")",
-      "Bash(cp \"src/app/api/messages/[messageId]/edit/route.ts\" \"src/app/api/messages/[clientId]/edit/route.ts\")"
+      "Bash(cp \"src/app/api/messages/[messageId]/edit/route.ts\" \"src/app/api/messages/[clientId]/edit/route.ts\")",
+      "Bash(find src:*)"
     ]
   }
 }

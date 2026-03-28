@@ -1621,13 +1621,17 @@ async function handleReaction(
   try {
     const { data } = payload;
     const key = (data as { key?: { id?: string; fromMe?: boolean; remoteJid?: string } }).key;
-    const reaction = (data as { reaction?: { text?: string; key?: { remoteJid?: string; participant?: string } } }).reaction;
+    const reaction = (data as { reaction?: { text?: string; key?: { remoteJid?: string; participant?: string; fromMe?: boolean } } }).reaction;
 
     if (!key?.id) return;
     const emoji = reaction?.text || '';
 
-    // Identificar quem reagiu: pode vir em reaction.key.remoteJid (individual) ou
-    // reaction.key.participant (grupos). Fallback: remoteJid da mensagem original.
+    // from_me da reaction: reaction.key.fromMe indica se NÓS enviamos a reaction.
+    // (key.fromMe é da mensagem original, não da reaction — não usar aqui)
+    const reactionFromMe = (reaction as any)?.key?.fromMe === true;
+
+    // Identificar quem reagiu: pode vir em reaction.key.participant (grupos) ou
+    // reaction.key.remoteJid (individual). Fallback: remoteJid da mensagem original.
     const reactorRaw =
       (reaction as any)?.key?.participant ||
       (reaction as any)?.key?.remoteJid ||
@@ -1645,11 +1649,10 @@ async function handleReaction(
           message_id: key.id,
           reactor_phone: reactorPhone,
           emoji,
-          from_me: key.fromMe || false,
+          from_me: reactionFromMe,
           updated_at: new Date().toISOString(),
         }, { onConflict: 'tenant_id,message_id,reactor_phone' });
     } else {
-      // Reaction removido por este reactor
       await supabase
         .from('message_reactions')
         .delete()
@@ -1657,6 +1660,33 @@ async function handleReaction(
         .eq('tenant_id', tenantId)
         .eq('reactor_phone', reactorPhone);
     }
+
+    // Atualizar messages.metadata.reactions para disparar Realtime no frontend.
+    // O canal global já ouve UPDATE em messages → handleMessageUpdate atualiza o cache
+    // sem precisar de Realtime separado em message_reactions.
+    const [{ data: allReactions }, { data: msg }] = await Promise.all([
+      supabase
+        .from('message_reactions')
+        .select('emoji, from_me, reactor_phone')
+        .eq('tenant_id', tenantId)
+        .eq('message_id', key.id),
+      supabase
+        .from('messages')
+        .select('id, metadata')
+        .eq('tenant_id', tenantId)
+        .eq('external_id', key.id)
+        .single(),
+    ]);
+
+    if (msg) {
+      const currentMeta = (msg.metadata as Record<string, unknown>) || {};
+      await supabase
+        .from('messages')
+        .update({ metadata: { ...currentMeta, reactions: allReactions || [] } })
+        .eq('id', msg.id)
+        .eq('tenant_id', tenantId);
+    }
+
     console.log(`[Webhook] messages.reaction — ${emoji || 'removido'} de ${reactorPhone} em ${key.id}`);
   } catch (err) {
     console.warn('[Webhook] Erro messages.reaction:', err);

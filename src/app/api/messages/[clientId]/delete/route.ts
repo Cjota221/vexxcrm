@@ -18,6 +18,9 @@ export async function DELETE(
   try {
     const { tenantId } = await getTenantFromRequest(request);
     const { clientId: messageId } = await params;
+    // forEveryone: true = apagar para todos | false = apagar só pra mim (soft-delete local)
+    const body = await request.json().catch(() => ({})) as { forEveryone?: boolean };
+    const forEveryone = body.forEveryone !== false; // padrão: true
 
     if (!messageId) {
       return NextResponse.json({ error: 'messageId é obrigatório' }, { status: 400 });
@@ -61,9 +64,11 @@ export async function DELETE(
       return NextResponse.json({ error: 'Não foi possível identificar o destinatário' }, { status: 422 });
     }
 
-    // 3. Chamar Evolution API
-    const config = getTenantEvolutionConfig(tenantId);
-    await deleteMessage(config, remoteJid, msg.external_id, true);
+    // 3. Chamar Evolution API apenas quando for "apagar para todos"
+    if (forEveryone) {
+      const config = getTenantEvolutionConfig(tenantId);
+      await deleteMessage(config, remoteJid, msg.external_id, true);
+    }
 
     // 4. Soft-delete otimístico no banco (webhook confirmará via messages.delete)
     await supabase

@@ -167,9 +167,12 @@ class ApiClient {
     });
   }
 
-  /** DELETE request */
-  async delete<T>(endpoint: string): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, { method: 'DELETE' });
+  /** DELETE request (with optional body) */
+  async delete<T>(endpoint: string, body?: unknown): Promise<ApiResponse<T>> {
+    return this.request<T>(endpoint, {
+      method: 'DELETE',
+      body: body ? JSON.stringify(body) : undefined,
+    });
   }
 }
 

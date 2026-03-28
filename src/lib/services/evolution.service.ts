@@ -982,25 +982,35 @@ export async function deleteMessage(
   messageId: string,
   fromMe: boolean
 ): Promise<void> {
-  const response = await fetchWithTimeout(
-    `${config.apiUrl}/chat/deleteMessage/${config.instanceName}`,
-    {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json', 'apikey': config.apiKey },
-      body: JSON.stringify({ key: { remoteJid, id: messageId, fromMe } }),
-    },
-    12_000
-  );
+  // Evolution API v2: DELETE /message/delete/{instance}
+  // Fallback: POST /chat/deleteMessage/{instance} (versões anteriores)
+  const endpoints = [
+    { url: `${config.apiUrl}/message/delete/${config.instanceName}`, method: 'DELETE' as const },
+    { url: `${config.apiUrl}/chat/deleteMessage/${config.instanceName}`, method: 'DELETE' as const },
+  ];
 
-  if (response.status === 404) {
-    // Mensagem não existe mais no WhatsApp — tratar como já apagada
-    return;
-  }
+  for (const { url, method } of endpoints) {
+    const response = await fetchWithTimeout(
+      url,
+      {
+        method,
+        headers: { 'Content-Type': 'application/json', 'apikey': config.apiKey },
+        body: JSON.stringify({ id: messageId, remoteJid, fromMe }),
+      },
+      12_000
+    );
 
-  if (!response.ok) {
+    if (response.ok) return;
+
+    if (response.status === 404) {
+      // Endpoint não existe nesta versão — tentar próximo
+      continue;
+    }
+
     const err = await safeJson(response, 'Apagar mensagem').catch(() => ({}));
     throw new Error((err as any).message || `Erro ao apagar mensagem (HTTP ${response.status})`);
   }
+  // Ambos os endpoints retornaram 404 — mensagem não existe mais no WhatsApp, OK
 }
 
 /**

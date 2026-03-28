@@ -91,13 +91,12 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
     }
   }, [message.id, onTranscriptionUpdate]);
 
-  const handleDelete = useCallback(async () => {
+  const handleDelete = useCallback(async (forEveryone: boolean) => {
     if (isDeleting) return;
-    if (!confirm('Apagar esta mensagem para todos?')) return;
     setIsDeleting(true);
     setShowMenu(false);
     try {
-      const res = await api.delete(`/api/messages/${message.id}/delete`);
+      const res = await api.delete(`/api/messages/${message.id}/delete`, { forEveryone });
       if (res.error) throw new Error(res.error);
     } catch (err) {
       console.warn('[MessageBubble] Erro ao apagar:', err);
@@ -217,13 +216,22 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
                 isFromMe ? 'right-0' : 'left-0'
               )}>
                 {isFromMe && (
-                  <button
-                    onClick={handleDelete}
-                    disabled={isDeleting}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-red-50 text-red-600 disabled:opacity-50"
-                  >
-                    <Trash2 size={13} /> {isDeleting ? 'Apagando...' : 'Apagar'}
-                  </button>
+                  <>
+                    <button
+                      onClick={() => handleDelete(true)}
+                      disabled={isDeleting}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-red-50 text-red-600 disabled:opacity-50"
+                    >
+                      <Trash2 size={13} /> {isDeleting ? 'Apagando...' : 'Apagar para todos'}
+                    </button>
+                    <button
+                      onClick={() => handleDelete(false)}
+                      disabled={isDeleting}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 text-gray-500 disabled:opacity-50"
+                    >
+                      <Trash2 size={13} /> Apagar para mim
+                    </button>
+                  </>
                 )}
                 <button
                   onClick={() => { navigator.clipboard.writeText(message.content || ''); setShowMenu(false); }}
