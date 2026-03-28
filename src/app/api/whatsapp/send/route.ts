@@ -53,12 +53,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Detectar grupo: clientId termina em @g.us (enviado pelo ChatList para grupos)
+    const isGroup = clientIdFromBody?.endsWith('@g.us') || to?.endsWith('@g.us');
+    // JID para envio: grupos usam o JID completo; individuais normalizam o telefone
+    const groupJid = isGroup
+      ? (clientIdFromBody?.endsWith('@g.us') ? clientIdFromBody : `${to}@g.us`)
+      : null;
+
     // Normalizar telefone para ENVIO: usar normalize() que garante DDI + 9º dígito
     // NUNCA usar canonical() aqui — canonical remove o 9º dígito (para matching no banco)
     // e a Evolution API não encontra o destinatário sem ele.
-    const phoneNormalized = PhoneNormalizer.normalize(to);
+    const phoneNormalized = isGroup ? groupJid! : PhoneNormalizer.normalize(to);
     // Canonical separado apenas para busca/criação do cliente no banco
-    const phoneCanonical = PhoneNormalizer.canonical(to);
+    const phoneCanonical = isGroup ? '' : PhoneNormalizer.canonical(to);
 
     let messageId: string;
 
@@ -128,88 +135,94 @@ export async function POST(request: NextRequest) {
     // Salvar mensagem no banco de dados
     const supabase = createServerSupabaseClient();
 
-    // Buscar cliente
-    // Se o front-end passou clientId (selectedChatId = UUID real), usar direto.
-    // Garante que a mensagem fica na mesma conversa que está aberta no chat.
-    let clientId: string;
-
-    if (clientIdFromBody) {
-      const { data: validClient } = await supabase
-        .from('clients').select('id')
-        .eq('tenant_id', tenantId).eq('id', clientIdFromBody).single();
-      if (validClient) {
-        clientId = validClient.id;
-        console.log(`[Send] clientId do body: ${clientId}`);
-      }
-    }
-
-    if (!clientId!) {
-      // Fallback: buscar por phone_normalized
-      const { data: byPhone } = await supabase
-        .from('clients').select('id')
-        .eq('tenant_id', tenantId)
-        .eq('phone_normalized', PhoneNormalizer.canonical(to))
-        .single();
-
-      if (byPhone) {
-        clientId = byPhone.id;
-        console.log(`[Send] clientId por phone: ${clientId}`);
-      } else {
-        // Criar cliente novo
-        const phoneDisplay = PhoneNormalizer.normalize(to);
-        const { data: newClient, error: clientErr } = await supabase
-          .from('clients')
-          .upsert(
-            { tenant_id: tenantId, phone: phoneDisplay, phone_normalized: PhoneNormalizer.canonical(to), name: phoneDisplay },
-            { onConflict: 'tenant_id,phone_normalized', ignoreDuplicates: false }
-          )
-          .select('id').single();
-        if (clientErr || !newClient) {
-          console.error('[Send] Erro ao criar cliente:', clientErr);
-          return NextResponse.json({ error: 'Erro ao criar contato' }, { status: 500 });
-        }
-        clientId = newClient.id;
-        console.log(`[Send] clientId novo: ${clientId}`);
-      }
-    }
-
-    // Buscar ou criar conversa
-    // IMPORTANTE: usar order + limit 1 igual ao GET /api/messages/[clientId]
-    // para garantir que salvamos na MESMA conversa que o front-end está exibindo.
-    // .single() falha quando há múltiplas conversas (retorna erro 406).
-    // NOTA: NÃO filtrar por channel — mesmo fix do messages/route.ts e load-history/route.ts.
-    // Se a conversa tem channel diferente de 'whatsapp', o send criava uma conversa NOVA,
-    // e as mensagens ficavam em conversas separadas (histórico na antiga, novas na nova).
+    let clientId: string | null = null;
     let conversationId: string;
-    const { data: existingConvs } = await supabase
-      .from('conversations')
-      .select('id')
-      .eq('tenant_id', tenantId)
-      .eq('client_id', clientId)
-      .order('last_message_at', { ascending: false, nullsFirst: false })
-      .limit(1);
 
-    const existingConv = existingConvs?.[0] ?? null;
-
-    if (existingConv) {
-      conversationId = existingConv.id;
-    } else {
-      const { data: newConv } = await supabase
+    if (isGroup) {
+      // ── GRUPO: sem cliente, buscar conversa por remote_jid ──────────────────
+      console.log(`[Send] Grupo detectado — JID: ${groupJid}`);
+      const { data: existingConvs } = await supabase
         .from('conversations')
-        .insert({
-          tenant_id: tenantId,
-          client_id: clientId,
-          channel: 'whatsapp',
-          status: 'open',
-        })
         .select('id')
-        .single();
+        .eq('tenant_id', tenantId)
+        .eq('remote_jid', groupJid!)
+        .order('last_message_at', { ascending: false, nullsFirst: false })
+        .limit(1);
 
-      if (!newConv) {
-        throw new Error('Erro ao criar conversa');
+      const existingConv = existingConvs?.[0] ?? null;
+      if (existingConv) {
+        conversationId = existingConv.id;
+      } else {
+        const { data: newConv, error: convErr } = await supabase
+          .from('conversations')
+          .insert({ tenant_id: tenantId, client_id: null, remote_jid: groupJid, channel: 'whatsapp', status: 'open', is_group: true })
+          .select('id').single();
+        if (convErr || !newConv) throw new Error('Erro ao criar conversa de grupo');
+        conversationId = newConv.id;
+      }
+    } else {
+      // ── INDIVIDUAL: buscar/criar cliente por UUID ou phone ─────────────────
+      // Se o front-end passou clientId (UUID real), usar direto.
+      if (clientIdFromBody && !clientIdFromBody.includes('@')) {
+        const { data: validClient } = await supabase
+          .from('clients').select('id')
+          .eq('tenant_id', tenantId).eq('id', clientIdFromBody).single();
+        if (validClient) {
+          clientId = validClient.id;
+          console.log(`[Send] clientId do body: ${clientId}`);
+        }
       }
 
-      conversationId = newConv.id;
+      if (!clientId) {
+        // Fallback: buscar por phone_normalized
+        const { data: byPhone } = await supabase
+          .from('clients').select('id')
+          .eq('tenant_id', tenantId)
+          .eq('phone_normalized', phoneCanonical)
+          .single();
+
+        if (byPhone) {
+          clientId = byPhone.id;
+          console.log(`[Send] clientId por phone: ${clientId}`);
+        } else {
+          // Criar cliente novo
+          const phoneDisplay = PhoneNormalizer.normalize(to);
+          const { data: newClient, error: clientErr } = await supabase
+            .from('clients')
+            .upsert(
+              { tenant_id: tenantId, phone: phoneDisplay, phone_normalized: phoneCanonical, name: phoneDisplay },
+              { onConflict: 'tenant_id,phone_normalized', ignoreDuplicates: false }
+            )
+            .select('id').single();
+          if (clientErr || !newClient) {
+            console.error('[Send] Erro ao criar cliente:', clientErr);
+            return NextResponse.json({ error: 'Erro ao criar contato' }, { status: 500 });
+          }
+          clientId = newClient.id;
+          console.log(`[Send] clientId novo: ${clientId}`);
+        }
+      }
+
+      // Buscar ou criar conversa individual
+      const { data: existingConvs } = await supabase
+        .from('conversations')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('client_id', clientId)
+        .order('last_message_at', { ascending: false, nullsFirst: false })
+        .limit(1);
+
+      const existingConv = existingConvs?.[0] ?? null;
+      if (existingConv) {
+        conversationId = existingConv.id;
+      } else {
+        const { data: newConv } = await supabase
+          .from('conversations')
+          .insert({ tenant_id: tenantId, client_id: clientId, channel: 'whatsapp', status: 'open' })
+          .select('id').single();
+        if (!newConv) throw new Error('Erro ao criar conversa');
+        conversationId = newConv.id;
+      }
     }
 
     // Salvar mensagem enviada.
