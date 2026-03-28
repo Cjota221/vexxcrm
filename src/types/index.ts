@@ -173,6 +173,12 @@ export interface Message {
    CHAT (Conversa)
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
+export interface ChatLabel {
+  id: string;
+  name: string;
+  cor_hex?: string;
+}
+
 export interface Chat {
   id: string;
   client: Client;
@@ -184,7 +190,7 @@ export interface Chat {
   is_group?: boolean;
   assigned_to?: string;
   updated_at: string;
-  labels?: string[];
+  labels?: ChatLabel[];
   /** Campo interno para paginação cursor-based (não exibido na UI) */
   _cursor?: string;
 }
