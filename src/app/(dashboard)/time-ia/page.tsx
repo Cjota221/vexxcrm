@@ -6,16 +6,16 @@ import {
   Copy, ChevronDown, ChevronUp, RefreshCw, Save,
   Zap, Eye,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { useAuthStore } from '@/store/auth';
 
-/** Fetch autenticado — injeta Authorization: Bearer <token> do Supabase */
-async function authFetch(url: string, options?: RequestInit): Promise<Response> {
-  const { data: { session } } = await supabase.auth.getSession();
+/** Fetch autenticado — lê o token do store Zustand (persiste no localStorage) */
+function authFetch(url: string, options?: RequestInit): Promise<Response> {
+  const token = useAuthStore.getState().accessToken;
   return fetch(url, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options?.headers ?? {}),
     },
   });

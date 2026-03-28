@@ -1,15 +1,15 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/lib/supabase';
+import { useAuthStore } from '@/store/auth';
 
-async function authFetch(url: string, options?: RequestInit): Promise<Response> {
-  const { data: { session } } = await supabase.auth.getSession();
+function authFetch(url: string, options?: RequestInit): Promise<Response> {
+  const token = useAuthStore.getState().accessToken;
   return fetch(url, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options?.headers ?? {}),
     },
   });
