@@ -103,16 +103,36 @@ export async function GET(request: NextRequest) {
         break;
     }
 
-    // 5. Paginação cursor-based.
-    // O cursor é o last_message_at do último item da página anterior.
-    // Conversas com last_message_at = null usam updated_at como fallback.
-    if (cursor) {
-      // Busca itens mais antigos que o cursor (ou sem last_message_at)
+    // 5. Search server-side: busca por nome/telefone no banco (não client-side)
+    // Anterior: filtrava apenas a 1ª página de 50 — perdia clientes fora das 50 conversas mais recentes
+    if (search) {
+      // Buscar client_ids que batem com o termo
+      const { data: matchingClients } = await supabase
+        .from('clients')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .or(`name.ilike.%${search}%,phone.ilike.%${search}%,phone_normalized.ilike.%${search}%`)
+        .limit(200);
+
+      const clientIds = (matchingClients || []).map((c: Record<string, unknown>) => c.id as string).filter(Boolean);
+
+      if (clientIds.length > 0) {
+        // Conversas cujo cliente bate OU cujo contact_name (grupos) bate
+        query = query.or(
+          `contact_name.ilike.%${search}%,client_id.in.(${clientIds.join(',')})`
+        );
+      } else {
+        // Sem clientes encontrados — só buscar por contact_name (grupos)
+        query = query.ilike('contact_name', `%${search}%`);
+      }
+      // Ao buscar, não aplicar cursor — queremos todos os resultados do search
+    } else if (cursor) {
+      // 6. Paginação cursor-based (somente quando não há busca)
       query = query.or(`last_message_at.lt.${cursor},last_message_at.is.null`);
     }
 
-    // 6. Limitar resultados + 1 para detectar hasMore
-    query = query.limit(limit + 1);
+    // 7. Limitar resultados + 1 para detectar hasMore
+    query = query.limit(search ? 100 : limit + 1);
 
     const { data: conversations, error, count } = await query;
 
@@ -121,25 +141,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Log de diagnóstico — tenant_id e total de registros antes de filtrar por search
-    console.log(`[/api/chats] tenant=${tenantId} filter=${filter} raw_count=${count} rows=${conversations?.length ?? 0}`);
+    console.log(`[/api/chats] tenant=${tenantId} filter=${filter} search=${search || '-'} raw_count=${count} rows=${conversations?.length ?? 0}`);
 
-    // 7. Detectar se há mais páginas
-    const hasMore = (conversations?.length || 0) > limit;
+    // 8. Detectar se há mais páginas (sem sentido em search, mas mantemos estrutura)
+    const hasMore = !search && (conversations?.length || 0) > limit;
     const items = hasMore ? conversations?.slice(0, limit) : conversations;
-
-    // 8. Filtrar por busca se especificado (client-side search for now)
-    let filteredItems = items || [];
-    if (search) {
-      const searchLower = search.toLowerCase();
-      filteredItems = filteredItems.filter((conv: Record<string, unknown>) => {
-        const client = conv.client as Record<string, unknown> | null;
-        if (!client) return false;
-        const name = ((client.name as string) || '').toLowerCase();
-        const phone = ((client.phone as string) || '').toLowerCase();
-        return name.includes(searchLower) || phone.includes(searchLower);
-      });
-    }
+    const filteredItems = items || [];
 
     // 9. Transformar no formato esperado pelo ChatList (interface Chat)
     const chats = filteredItems

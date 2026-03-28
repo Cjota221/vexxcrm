@@ -654,11 +654,49 @@ async function handleGroupMessage(
     '';
 
   let type = 'text';
-  if (messageContent.imageMessage) type = 'image';
-  else if (messageContent.videoMessage) type = 'video';
-  else if (messageContent.audioMessage) type = 'audio';
-  else if (messageContent.documentMessage) type = 'document';
-  else if (messageContent.stickerMessage) type = 'sticker';
+  let mediaUrl: string | undefined;
+  let mimetype: string | undefined;
+
+  const mc = messageContent as Record<string, Record<string, string> | undefined>;
+  if (mc.imageMessage) {
+    type = 'image';
+    mediaUrl = mc.imageMessage.url || mc.imageMessage.directPath;
+    mimetype = mc.imageMessage.mimetype;
+  } else if (mc.videoMessage) {
+    type = 'video';
+    mediaUrl = mc.videoMessage.url || mc.videoMessage.directPath;
+    mimetype = mc.videoMessage.mimetype;
+  } else if (mc.audioMessage) {
+    type = 'audio';
+    mediaUrl = mc.audioMessage.url || mc.audioMessage.directPath;
+    mimetype = mc.audioMessage.mimetype;
+  } else if (mc.documentMessage) {
+    type = 'document';
+    mediaUrl = mc.documentMessage.url || mc.documentMessage.directPath;
+    mimetype = mc.documentMessage.mimetype;
+  } else if (mc.stickerMessage) {
+    type = 'sticker';
+    mediaUrl = mc.stickerMessage.url || mc.stickerMessage.directPath;
+    mimetype = mc.stickerMessage.mimetype;
+  }
+
+  // Download de mídia para Storage permanente (igual ao handleNewMessage)
+  if (mediaUrl && ['image', 'video', 'audio', 'document', 'sticker'].includes(type)) {
+    try {
+      const evoConfig = getTenantEvolutionConfig(tenantId);
+      const messageId = data.key?.id || '';
+      const permanentUrl = await downloadMediaToStorage(
+        evoConfig,
+        { id: messageId, remoteJid: groupJid, fromMe },
+        messageContent as Record<string, unknown>,
+        tenantId,
+        mimetype
+      );
+      if (permanentUrl) mediaUrl = permanentUrl;
+    } catch {
+      // fallback: manter URL original
+    }
+  }
 
   const content = text || `📎 ${type}`;
   const now = new Date().toISOString();
@@ -712,6 +750,8 @@ async function handleGroupMessage(
     sender_name: fromMe ? 'Você' : senderName,
     content,
     type,
+    media_url: mediaUrl || undefined,
+    media_mime_type: mimetype || undefined,
     status: fromMe ? 'sent' : 'delivered',
     created_at: msgTs,
   };
@@ -1582,11 +1622,15 @@ async function handleReaction(
 ) {
   try {
     const { data } = payload;
-    const key = (data as { key?: { id?: string; fromMe?: boolean } }).key;
-    const reaction = (data as { reaction?: { text?: string } }).reaction;
+    const key = (data as { key?: { id?: string; fromMe?: boolean; remoteJid?: string } }).key;
+    const reaction = (data as { reaction?: { key?: { remoteJid?: string; fromMe?: boolean }; text?: string } }).reaction;
 
     if (!key?.id) return;
     const emoji = reaction?.text || '';
+
+    // Quem reagiu: usar remoteJid da reaction.key (o reactor), ou key.remoteJid como fallback
+    const reactorRaw = reaction?.key?.remoteJid || key.remoteJid || '';
+    const reactorPhone = PhoneNormalizer.canonical(reactorRaw.replace('@s.whatsapp.net', '').replace('@g.us', ''));
 
     if (emoji) {
       await supabase
@@ -1594,19 +1638,21 @@ async function handleReaction(
         .upsert({
           tenant_id: tenantId,
           message_id: key.id,
+          reactor_phone: reactorPhone,
           emoji,
-          from_me: key.fromMe || false,
+          from_me: reaction?.key?.fromMe ?? key.fromMe ?? false,
           updated_at: new Date().toISOString(),
-        }, { onConflict: 'tenant_id,message_id' });
+        }, { onConflict: 'tenant_id,message_id,reactor_phone' });
     } else {
-      // Reaction removido
+      // Reaction removido por este reactor
       await supabase
         .from('message_reactions')
         .delete()
         .eq('message_id', key.id)
-        .eq('tenant_id', tenantId);
+        .eq('tenant_id', tenantId)
+        .eq('reactor_phone', reactorPhone);
     }
-    console.log(`[Webhook] messages.reaction — ${emoji || 'removido'} em ${key.id}`);
+    console.log(`[Webhook] messages.reaction — ${emoji || 'removido'} de ${reactorPhone} em ${key.id}`);
   } catch (err) {
     console.warn('[Webhook] Erro messages.reaction:', err);
   }
@@ -1830,11 +1876,30 @@ async function handleGroupParticipants(
   try {
     const { data } = payload;
     const d = data as { id?: string; participants?: string[]; action?: string };
-    if (!d.id) return;
+    if (!d.id || !d.participants?.length) return;
 
-    // Fetch fresh participant count would require API call, just log for now
-    console.log(`[Webhook] group-participants.update — ${d.action}: ${d.participants?.length || 0} em ${d.id}`);
+    const delta = d.participants.length;
+    const action = d.action || '';
+
+    // Ajustar contador de participantes baseado na ação
+    if (action === 'add' || action === 'promote') {
+      await supabase.rpc('increment_group_participants', {
+        p_tenant_id: tenantId,
+        p_group_jid: d.id,
+        p_delta: delta,
+      }).throwOnError();
+    } else if (action === 'remove' || action === 'demote') {
+      await supabase.rpc('increment_group_participants', {
+        p_tenant_id: tenantId,
+        p_group_jid: d.id,
+        p_delta: -delta,
+      }).throwOnError();
+    }
+
+    console.log(`[Webhook] group-participants.update — ${action}: ${delta} em ${d.id}`);
   } catch (err) {
-    console.warn('[Webhook] Erro group-participants.update:', err);
+    // RPC pode não existir ainda — fallback silencioso
+    const d = (payload.data as { id?: string; participants?: string[]; action?: string });
+    console.log(`[Webhook] group-participants.update — ${d?.action}: ${d?.participants?.length || 0} em ${d?.id} (rpc indisponível)`);
   }
 }
