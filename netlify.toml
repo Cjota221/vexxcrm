@@ -48,6 +48,12 @@
   schedule = "*/5 * * * *"
   function = "api/cron/pending-messages-timeout"
 
+# Time de IAs: análise diária às 08:00 para todos os tenants com Meta configurado.
+# Agentes: José (GPT-4o-mini) + Cláudio (Claude Haiku) + Pedro (Perplexity).
+[scheduled-functions."ai-team-daily-cron"]
+  schedule = "0 8 * * *"
+  function = "api/cron/ai-team"
+
 # Redirects and rewrites — NÃO interceptar rotas de API
 # O plugin @netlify/plugin-nextjs gerencia todas as rotas do Next.js automaticamente
 

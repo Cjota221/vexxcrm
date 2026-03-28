@@ -1,3 +1,9 @@
+// ANTES: Throttle via Map em memória (quebrava em serverless), sugestões só via SSE.
+// DEPOIS: Throttle persistido em anne_logs_v2 (funciona em Netlify/Vercel),
+//         provedor de IA configurável por tenant (Groq / OpenAI / Anthropic / Google),
+//         sugestões salvas em anne_suggestions para Realtime frontend.
+//         AGENTE: ANNE — atendimento WhatsApp (usa groq.service.ts quando provider='groq').
+
 /**
  * anne-auto-reply.ts — Orquestrador de resposta automática da Anne via WhatsApp
  *
