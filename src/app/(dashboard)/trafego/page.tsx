@@ -19,6 +19,7 @@ import {
   Clock, ChevronRight, ChevronLeft, Copy, Pause, Play, Users,
   Image as ImageIcon, FileText, BarChart3, Zap, Target, X,
   Edit2, DollarSign, Loader2, ChevronDown, AlertOctagon, CloudDownload,
+  Plus, Globe, Wand2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -198,7 +199,7 @@ function CampaignDetailPanel({
   onClose: () => void;
   onActionComplete: (message: string) => void;
 }) {
-  const [editMode, setEditMode] = useState<null | 'texto' | 'orcamento'>(null);
+  const [editMode, setEditMode] = useState<null | 'texto' | 'orcamento' | 'publico' | 'criativo'>(null);
   const [confirm, setConfirm] = useState<null | { action: string; label: string; cls?: string }>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [panelError, setPanelError] = useState<string | null>(null);
@@ -214,6 +215,20 @@ function CampaignDetailPanel({
   const maxOrcamento = orcamentoAtual * 1.3;
   const novoOrcamentoNum = parseFloat(novoOrcamento) || 0;
   const overLimit = novoOrcamentoNum > maxOrcamento && orcamentoAtual > 0;
+
+  // Audience editor state
+  const [adsets, setAdsets] = useState<Array<{ id: string; name: string; targeting?: Record<string, unknown> }>>([]);
+  const [loadingAdsets, setLoadingAdsets] = useState(false);
+  const [pubIdadeMin, setPubIdadeMin] = useState('18');
+  const [pubIdadeMax, setPubIdadeMax] = useState('65');
+  const [pubGenero, setPubGenero] = useState<'0' | '1' | '2'>('0');
+
+  // Swap creative state
+  const [swapTitulo, setSwapTitulo] = useState('');
+  const [swapTexto, setSwapTexto] = useState('');
+  const [swapCta, setSwapCta] = useState('LEARN_MORE');
+  const [swapUrl, setSwapUrl] = useState('');
+  const [swapImg, setSwapImg] = useState('');
 
   async function callEditor(body: Record<string, unknown>) {
     setActionLoading(true);
@@ -278,6 +293,80 @@ function CampaignDetailPanel({
       const aplicado = json.aplicado ? (json.aplicado / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '';
       onActionComplete(`Orçamento atualizado para ${aplicado}/dia.`);
       setEditMode(null);
+    }
+  }
+
+  async function openPublico() {
+    setEditMode('publico');
+    setLoadingAdsets(true);
+    try {
+      const res = await authFetch(`/api/trafego/audience?campaign_id=${campaign.id}`);
+      if (res.ok) {
+        const json = await res.json() as { adsets: Array<{ id: string; name: string; targeting?: Record<string, unknown> }> };
+        setAdsets(json.adsets || []);
+        const first = json.adsets?.[0];
+        if (first?.targeting) {
+          const t = first.targeting as { age_min?: number; age_max?: number; genders?: number[] };
+          if (t.age_min) setPubIdadeMin(String(t.age_min));
+          if (t.age_max) setPubIdadeMax(String(t.age_max));
+          if (t.genders?.[0]) setPubGenero(String(t.genders[0]) as '1' | '2');
+        }
+      }
+    } catch { /* silencioso */ }
+    finally { setLoadingAdsets(false); }
+  }
+
+  async function handleSalvarPublico() {
+    if (adsets.length === 0) return;
+    setActionLoading(true);
+    setPanelError(null);
+    try {
+      const res = await authFetch('/api/trafego/audience', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          adset_id: adsets[0].id,
+          targeting: {
+            paises: ['BR'],
+            idade_min: parseInt(pubIdadeMin) || 18,
+            idade_max: parseInt(pubIdadeMax) || 65,
+            genero: parseInt(pubGenero),
+          },
+        }),
+      });
+      const json = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) { setPanelError(json.error || 'Erro ao salvar público'); return; }
+      onActionComplete('Público atualizado com sucesso.');
+      setEditMode(null);
+    } catch (e) {
+      setPanelError(String(e));
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleTrocarCriativo() {
+    setActionLoading(true);
+    setPanelError(null);
+    try {
+      const res = await authFetch('/api/trafego/swap-creative', {
+        method: 'POST',
+        body: JSON.stringify({
+          ad_id: campaign.id, // uses campaign id; backend will find the ad
+          titulo: swapTitulo.trim(),
+          texto: swapTexto.trim(),
+          cta: swapCta,
+          url_destino: swapUrl.trim(),
+          image_url: swapImg.trim() || undefined,
+        }),
+      });
+      const json = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) { setPanelError(json.error || 'Erro ao trocar criativo'); return; }
+      onActionComplete('Criativo trocado com sucesso — o anúncio ficará em revisão por alguns minutos.');
+      setEditMode(null);
+    } catch (e) {
+      setPanelError(String(e));
+    } finally {
+      setActionLoading(false);
     }
   }
 
@@ -483,6 +572,122 @@ function CampaignDetailPanel({
             </div>
           ) : null}
 
+          {/* ─── Editor de Público ──────────────────────────────────────── */}
+          {editMode === 'publico' ? (
+            <div className="bg-purple-50 border border-purple-200 rounded-2xl p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-purple-900 text-sm">Mudar público</h3>
+                <button onClick={() => setEditMode(null)} className="text-purple-400 hover:text-purple-600"><X size={16} /></button>
+              </div>
+              {loadingAdsets ? (
+                <div className="flex items-center justify-center py-4 text-purple-600 gap-2 text-sm">
+                  <Loader2 size={14} className="animate-spin" /> Carregando conjuntos...
+                </div>
+              ) : adsets.length === 0 ? (
+                <div className="text-sm text-purple-700">Nenhum conjunto encontrado para esta campanha.</div>
+              ) : (
+                <>
+                  <div className="text-xs text-purple-600 bg-purple-100 rounded-lg px-3 py-2">
+                    Conjunto: <strong>{adsets[0].name}</strong>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-purple-800 mb-1">Idade mínima</label>
+                      <input type="number" min={18} max={64} value={pubIdadeMin} onChange={e => setPubIdadeMin(e.target.value)}
+                        className="w-full border border-purple-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-300" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-purple-800 mb-1">Idade máxima</label>
+                      <input type="number" min={19} max={65} value={pubIdadeMax} onChange={e => setPubIdadeMax(e.target.value)}
+                        className="w-full border border-purple-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-300" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-purple-800 mb-2">Gênero</label>
+                    <div className="flex gap-2">
+                      {[{ v: '0', l: 'Todos' }, { v: '2', l: 'Mulheres' }, { v: '1', l: 'Homens' }].map(({ v, l }) => (
+                        <button key={v} onClick={() => setPubGenero(v as '0' | '1' | '2')}
+                          className={cn('flex-1 py-1.5 rounded-xl border text-xs font-medium transition-all',
+                            pubGenero === v ? 'bg-purple-600 text-white border-purple-600' : 'border-purple-200 text-purple-700 bg-white hover:bg-purple-50'
+                          )}>{l}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => setEditMode(null)}
+                      className="flex-1 px-3 py-2 rounded-xl border border-purple-200 text-purple-700 text-sm font-medium hover:bg-purple-100">
+                      Cancelar
+                    </button>
+                    <button onClick={handleSalvarPublico} disabled={actionLoading}
+                      className="flex-1 px-3 py-2 rounded-xl bg-purple-600 text-white text-sm font-medium hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2">
+                      {actionLoading && <Loader2 size={13} className="animate-spin" />}
+                      Salvar público
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : null}
+
+          {/* ─── Trocar Criativo ─────────────────────────────────────────── */}
+          {editMode === 'criativo' ? (
+            <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-orange-900 text-sm">Trocar criativo do anúncio</h3>
+                <button onClick={() => setEditMode(null)} className="text-orange-400 hover:text-orange-600"><X size={16} /></button>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-orange-800 mb-1">Título <span className="font-normal text-orange-500">({swapTitulo.length}/40)</span></label>
+                <input type="text" maxLength={40} value={swapTitulo} onChange={e => setSwapTitulo(e.target.value)}
+                  placeholder="Título do anúncio"
+                  className="w-full border border-orange-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-orange-800 mb-1">Texto <span className="font-normal text-orange-500">({swapTexto.length}/125)</span></label>
+                <textarea maxLength={125} rows={3} value={swapTexto} onChange={e => setSwapTexto(e.target.value)}
+                  placeholder="Texto principal do anúncio"
+                  className="w-full border border-orange-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300 resize-none" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-orange-800 mb-1">CTA</label>
+                <div className="relative">
+                  <select value={swapCta} onChange={e => setSwapCta(e.target.value)}
+                    className="w-full border border-orange-200 rounded-xl px-3 py-2 text-sm appearance-none bg-white focus:outline-none focus:ring-2 focus:ring-orange-300 pr-8">
+                    {[
+                      { value: 'LEARN_MORE', label: 'Saiba mais' },
+                      { value: 'SHOP_NOW', label: 'Comprar agora' },
+                      { value: 'SIGN_UP', label: 'Cadastrar' },
+                      { value: 'CONTACT_US', label: 'Contato' },
+                      { value: 'SEND_MESSAGE', label: 'Enviar mensagem' },
+                    ].map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-orange-400 pointer-events-none" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-orange-800 mb-1">URL de destino *</label>
+                <input type="url" value={swapUrl} onChange={e => setSwapUrl(e.target.value)}
+                  placeholder="https://..."
+                  className="w-full border border-orange-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-orange-800 mb-1">URL da imagem (opcional)</label>
+                <input type="url" value={swapImg} onChange={e => setSwapImg(e.target.value)}
+                  placeholder="https://..."
+                  className="w-full border border-orange-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300" />
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setEditMode(null)}
+                  className="flex-1 px-3 py-2 rounded-xl border border-orange-200 text-orange-700 text-sm font-medium hover:bg-orange-100">Cancelar</button>
+                <button onClick={handleTrocarCriativo} disabled={actionLoading || !swapTitulo.trim() || !swapTexto.trim() || !swapUrl.trim()}
+                  className="flex-1 px-3 py-2 rounded-xl bg-orange-600 text-white text-sm font-medium hover:bg-orange-700 disabled:opacity-50 flex items-center justify-center gap-2">
+                  {actionLoading && <Loader2 size={13} className="animate-spin" />}
+                  Trocar criativo
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           {/* ─── Ações ──────────────────────────────────────────────────── */}
           {editMode === null && (
             <div>
@@ -537,6 +742,24 @@ function CampaignDetailPanel({
                   </button>
                 ) : null}
                 <button
+                  onClick={() => openPublico()}
+                  className="w-full flex items-center gap-2 px-4 py-3 rounded-xl border border-purple-200 text-purple-700 hover:bg-purple-50 transition-colors font-medium text-sm"
+                >
+                  <Users size={16} />
+                  Mudar público-alvo
+                </button>
+                <button
+                  onClick={() => {
+                    setEditMode('criativo');
+                    setSwapTitulo(''); setSwapTexto(''); setSwapCta('LEARN_MORE');
+                    setSwapUrl(''); setSwapImg('');
+                  }}
+                  className="w-full flex items-center gap-2 px-4 py-3 rounded-xl border border-orange-200 text-orange-700 hover:bg-orange-50 transition-colors font-medium text-sm"
+                >
+                  <ImageIcon size={16} />
+                  Trocar criativo
+                </button>
+                <button
                   onClick={() => { onActionComplete('Pedido enviado ao Cláudio — o texto aparecerá na aba "Textos" em breve.'); onClose(); }}
                   className="w-full flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors font-medium text-sm"
                 >
@@ -568,6 +791,312 @@ function CampaignDetailPanel({
         />
       )}
     </>
+  );
+}
+
+/* ─── Modal Nova Campanha ──────────────────────────────────────────────────── */
+
+const OBJETIVOS = [
+  { value: 'OUTCOME_LEADS',       label: 'Leads — capturar cadastros' },
+  { value: 'OUTCOME_TRAFFIC',     label: 'Tráfego — cliques no site' },
+  { value: 'OUTCOME_SALES',       label: 'Vendas — conversões' },
+  { value: 'OUTCOME_AWARENESS',   label: 'Reconhecimento de marca' },
+  { value: 'OUTCOME_ENGAGEMENT',  label: 'Engajamento — curtidas e comentários' },
+];
+
+const CTA_META_OPTIONS = [
+  { value: 'LEARN_MORE',        label: 'Saiba mais' },
+  { value: 'SHOP_NOW',          label: 'Comprar agora' },
+  { value: 'SIGN_UP',           label: 'Cadastrar' },
+  { value: 'CONTACT_US',        label: 'Entrar em contato' },
+  { value: 'SEND_MESSAGE',      label: 'Enviar mensagem' },
+  { value: 'CALL_NOW',          label: 'Ligar agora' },
+  { value: 'GET_OFFER',         label: 'Ver oferta' },
+  { value: 'GET_QUOTE',         label: 'Pedir orçamento' },
+];
+
+function NovaCampanhaModal({ onClose, onCreated }: { onClose: () => void; onCreated: (msg: string) => void }) {
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Step 1 — Basic
+  const [nome, setNome] = useState('');
+  const [objetivo, setObjetivo] = useState('OUTCOME_LEADS');
+  const [orcamento, setOrcamento] = useState('50');
+  const [dataInicio, setDataInicio] = useState('');
+  const [dataFim, setDataFim] = useState('');
+
+  // Step 2 — Audience
+  const [idadeMin, setIdadeMin] = useState('18');
+  const [idadeMax, setIdadeMax] = useState('65');
+  const [genero, setGenero] = useState<'0' | '1' | '2'>('0');
+
+  // Step 3 — Creative
+  const [titulo, setTitulo] = useState('');
+  const [texto, setTexto] = useState('');
+  const [cta, setCta] = useState('LEARN_MORE');
+  const [urlDestino, setUrlDestino] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
+
+  async function handleCreate() {
+    setLoading(true);
+    setErr(null);
+    try {
+      const res = await authFetch('/api/trafego/campaign-create', {
+        method: 'POST',
+        body: JSON.stringify({
+          nome,
+          objetivo,
+          orcamento_diario: parseFloat(orcamento) || 50,
+          data_inicio: dataInicio || new Date().toISOString(),
+          data_fim: dataFim || undefined,
+          publico: {
+            paises: ['BR'],
+            idade_min: parseInt(idadeMin) || 18,
+            idade_max: parseInt(idadeMax) || 65,
+            genero: parseInt(genero),
+          },
+          criativo: {
+            titulo: titulo.trim(),
+            texto: texto.trim(),
+            cta,
+            url_destino: urlDestino.trim(),
+            image_url: imageUrl.trim() || undefined,
+          },
+        }),
+      });
+      const json = await res.json() as { ok?: boolean; message?: string; error?: string };
+      if (!res.ok || !json.ok) {
+        setErr(json.error || 'Erro ao criar campanha');
+        return;
+      }
+      onCreated(json.message || 'Campanha criada com sucesso!');
+      onClose();
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const canGoStep2 = nome.trim().length > 2 && parseFloat(orcamento) >= 5;
+  const canGoStep3 = true; // audience always valid
+  const canCreate = titulo.trim().length > 0 && texto.trim().length > 0 && urlDestino.trim().length > 0;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white">
+          <div className="flex items-center gap-2">
+            <Wand2 size={18} className="text-crm-primary" />
+            <h2 className="font-bold text-gray-900">Nova Campanha no Meta</h2>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"><X size={18} /></button>
+        </div>
+
+        {/* Steps indicator */}
+        <div className="flex px-6 pt-4 gap-2">
+          {(['Básico', 'Público', 'Criativo'] as const).map((label, i) => (
+            <div key={label} className="flex-1 text-center">
+              <div className={cn(
+                'h-1.5 rounded-full mb-1 transition-colors',
+                step > i + 1 ? 'bg-crm-primary' : step === i + 1 ? 'bg-crm-primary' : 'bg-gray-200'
+              )} />
+              <span className={cn('text-xs font-medium', step === i + 1 ? 'text-crm-primary' : 'text-gray-400')}>{label}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="p-6 space-y-4">
+          {err && (
+            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-800 flex items-start gap-2">
+              <AlertTriangle size={15} className="shrink-0 mt-0.5" /> {err}
+            </div>
+          )}
+
+          {/* STEP 1 */}
+          {step === 1 && (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nome da campanha *</label>
+                <input
+                  type="text"
+                  value={nome}
+                  onChange={e => setNome(e.target.value)}
+                  placeholder="Ex: Rasteirinhas Atacado — Verão 2025"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-crm-primary/30"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Objetivo *</label>
+                <div className="relative">
+                  <select
+                    value={objetivo}
+                    onChange={e => setObjetivo(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-crm-primary/30 pr-8"
+                  >
+                    {OBJETIVOS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Orçamento diário (R$) *</label>
+                <input
+                  type="number"
+                  min={5}
+                  step={1}
+                  value={orcamento}
+                  onChange={e => setOrcamento(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-crm-primary/30"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Data início *</label>
+                  <input
+                    type="date"
+                    value={dataInicio}
+                    onChange={e => setDataInicio(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-crm-primary/30"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Data fim (opcional)</label>
+                  <input
+                    type="date"
+                    value={dataFim}
+                    onChange={e => setDataFim(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-crm-primary/30"
+                  />
+                </div>
+              </div>
+              <div className="bg-blue-50 rounded-xl px-3 py-2.5 text-xs text-blue-800">
+                A campanha será criada <strong>pausada</strong> para revisão antes de ativar.
+              </div>
+            </div>
+          )}
+
+          {/* STEP 2 */}
+          {step === 2 && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-sm text-gray-600 bg-gray-50 rounded-xl px-3 py-2.5">
+                <Globe size={15} className="text-gray-400" /> Brasil (BR) — país padrão
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Idade mínima</label>
+                  <input type="number" min={18} max={64} value={idadeMin} onChange={e => setIdadeMin(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-crm-primary/30" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Idade máxima</label>
+                  <input type="number" min={19} max={65} value={idadeMax} onChange={e => setIdadeMax(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-crm-primary/30" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Gênero</label>
+                <div className="flex gap-2">
+                  {[{ v: '0', l: 'Todos' }, { v: '2', l: 'Mulheres' }, { v: '1', l: 'Homens' }].map(({ v, l }) => (
+                    <button key={v} onClick={() => setGenero(v as '0' | '1' | '2')}
+                      className={cn('flex-1 py-2 rounded-xl border text-sm font-medium transition-all',
+                        genero === v ? 'bg-crm-primary text-white border-crm-primary' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                      )}>
+                      {l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="bg-amber-50 rounded-xl px-3 py-2.5 text-xs text-amber-800">
+                Segmentação por interesses pode ser adicionada depois no Meta Ads Manager para refinamento avançado.
+              </div>
+            </div>
+          )}
+
+          {/* STEP 3 */}
+          {step === 3 && (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Título do anúncio * <span className="font-normal text-gray-400">({titulo.length}/40)</span>
+                </label>
+                <input
+                  type="text" maxLength={40} value={titulo} onChange={e => setTitulo(e.target.value)}
+                  placeholder="Ex: Direto da fábrica pra você revender"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-crm-primary/30"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Texto principal * <span className="font-normal text-gray-400">({texto.length}/125)</span>
+                </label>
+                <textarea
+                  maxLength={125} rows={3} value={texto} onChange={e => setTexto(e.target.value)}
+                  placeholder="Ex: Rasteirinhas de R$25 a R$49,90 — mínimo 5 pares. Sortido à sua escolha."
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-crm-primary/30 resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Botão de ação (CTA) *</label>
+                <div className="relative">
+                  <select value={cta} onChange={e => setCta(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-crm-primary/30 pr-8">
+                    {CTA_META_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">URL de destino *</label>
+                <input type="url" value={urlDestino} onChange={e => setUrlDestino(e.target.value)}
+                  placeholder="https://cjrasteirinhas.com.br/atacado"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-crm-primary/30" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">URL da imagem (opcional)</label>
+                <input type="url" value={imageUrl} onChange={e => setImageUrl(e.target.value)}
+                  placeholder="https://..."
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-crm-primary/30" />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex gap-2 px-6 pb-6 sticky bottom-0 bg-white pt-2 border-t border-gray-100">
+          {step > 1 && (
+            <button onClick={() => setStep(s => (s - 1) as 1 | 2 | 3)}
+              className="px-4 py-2.5 rounded-xl border border-gray-200 text-gray-700 text-sm font-medium hover:bg-gray-50">
+              Voltar
+            </button>
+          )}
+          <div className="flex-1" />
+          {step < 3 ? (
+            <button
+              onClick={() => setStep(s => (s + 1) as 2 | 3)}
+              disabled={step === 1 ? !canGoStep2 : !canGoStep3}
+              className="px-5 py-2.5 rounded-xl bg-crm-primary text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 flex items-center gap-1.5"
+            >
+              Próximo <ChevronRight size={15} />
+            </button>
+          ) : (
+            <button
+              onClick={handleCreate}
+              disabled={loading || !canCreate}
+              className="px-5 py-2.5 rounded-xl bg-crm-primary text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
+            >
+              {loading && <Loader2 size={14} className="animate-spin" />}
+              <Wand2 size={14} />
+              Criar campanha
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -927,6 +1456,7 @@ export default function TrafegoPage() {
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<string | null>(null);
+  const [novaCampanhaOpen, setNovaCampanhaOpen] = useState(false);
 
   const loadMetrics = useCallback(async (p: Period) => {
     setLoading(true);
@@ -1241,8 +1771,11 @@ export default function TrafegoPage() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h2 className="font-bold text-gray-900">Suas Campanhas</h2>
-                  <button className="text-sm px-4 py-2 bg-crm-primary text-white rounded-xl font-medium hover:opacity-90">
-                    + Nova Campanha
+                  <button
+                    onClick={() => setNovaCampanhaOpen(true)}
+                    className="flex items-center gap-1.5 text-sm px-4 py-2 bg-crm-primary text-white rounded-xl font-medium hover:opacity-90"
+                  >
+                    <Plus size={14} /> Nova Campanha
                   </button>
                 </div>
 
@@ -1349,6 +1882,14 @@ export default function TrafegoPage() {
         </div>
 
       </div>
+
+      {/* ─── Modal Nova Campanha ─────────────────────────────────────────── */}
+      {novaCampanhaOpen && (
+        <NovaCampanhaModal
+          onClose={() => setNovaCampanhaOpen(false)}
+          onCreated={(msg) => { handleActionComplete(msg); setNovaCampanhaOpen(false); }}
+        />
+      )}
 
       {/* ─── Painel lateral de campanha ──────────────────────────────────── */}
       {selectedCampaign && (
