@@ -179,25 +179,42 @@ export function useRealtimeMessages() {
     // Handler para UPDATE em messages: atualiza status (sent→delivered→read) e deleted/edited
     const handleMessageUpdate = (payload: { new: Record<string, unknown> }) => {
       const raw = payload.new;
-      const clientId = raw.client_id as string | undefined;
+      const msgId = raw.id as string | undefined;
+      if (!msgId) return;
+
+      // client_id pode estar ausente no payload se REPLICA IDENTITY não for FULL.
+      // Nesse caso busca em todos os caches de mensagens qual contém essa mensagem.
+      let clientId = raw.client_id as string | undefined;
+
+      if (!clientId) {
+        // Varrer todos os caches ['messages', *] para encontrar a mensagem por ID
+        const allQueries = queryClient.getQueriesData<import('@/types').Message[]>({ queryKey: ['messages'] });
+        for (const [queryKey, messages] of allQueries) {
+          if (messages?.some(m => m.id === msgId)) {
+            clientId = queryKey[1] as string;
+            break;
+          }
+        }
+      }
+
       if (!clientId) return;
+
+      const applyUpdate = (m: import('@/types').Message) =>
+        m.id === msgId
+          ? {
+              ...m,
+              status: (raw.status as import('@/types').Message['status']) ?? m.status,
+              deleted: (raw.deleted as boolean) ?? (m as any).deleted,
+              deleted_at: (raw.deleted_at as string) ?? (m as any).deleted_at,
+              edited: (raw.edited as boolean) ?? (m as any).edited,
+              edited_at: (raw.edited_at as string) ?? (m as any).edited_at,
+              content: raw.edited ? ((raw.content as string) ?? m.content) : m.content,
+            }
+          : m;
 
       queryClient.setQueryData<import('@/types').Message[]>(
         ['messages', clientId],
-        (old = []) =>
-          old.map((m) =>
-            m.id === raw.id
-              ? {
-                  ...m,
-                  status: (raw.status as import('@/types').Message['status']) ?? m.status,
-                  deleted: (raw.deleted as boolean) ?? (m as any).deleted,
-                  deleted_at: (raw.deleted_at as string) ?? (m as any).deleted_at,
-                  edited: (raw.edited as boolean) ?? (m as any).edited,
-                  edited_at: (raw.edited_at as string) ?? (m as any).edited_at,
-                  content: raw.edited ? ((raw.content as string) ?? m.content) : m.content,
-                }
-              : m
-          )
+        (old = []) => old.map(applyUpdate)
       );
     };
 

@@ -184,6 +184,14 @@ export function ChatArea({
   // Presença do contato (online / digitando / gravando)
   const { label: presenceLabel, status: presenceStatus } = usePresence(resolvedPhone);
 
+  // Assinar presença ao abrir conversa — necessário para receber eventos de digitando/gravando
+  useEffect(() => {
+    if (!resolvedPhone || resolvedPhone.includes('@g.us')) return; // grupos não têm presence
+    const jid = resolvedPhone.includes('@') ? resolvedPhone : `${resolvedPhone}@s.whatsapp.net`;
+    api.post('/api/whatsapp/subscribe-presence', { remoteJid: jid }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolvedPhone]);
+
   const handleSend = (content: string) => {
     if (!selectedChatId) return;
 

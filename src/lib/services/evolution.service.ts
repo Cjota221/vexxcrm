@@ -992,6 +992,11 @@ export async function deleteMessage(
     12_000
   );
 
+  if (response.status === 404) {
+    // Mensagem não existe mais no WhatsApp — tratar como já apagada
+    return;
+  }
+
   if (!response.ok) {
     const err = await safeJson(response, 'Apagar mensagem').catch(() => ({}));
     throw new Error((err as any).message || `Erro ao apagar mensagem (HTTP ${response.status})`);
@@ -1065,5 +1070,29 @@ export async function editMessage(
   if (!response.ok) {
     const err = await safeJson(response, 'Editar mensagem').catch(() => ({}));
     throw new Error((err as any).message || `Erro ao editar mensagem (HTTP ${response.status})`);
+  }
+}
+
+/**
+ * Assina presença de um contato para receber eventos presence.update (digitando/gravando).
+ * Deve ser chamado ao abrir uma conversa — sem isso o WhatsApp não envia presence.update.
+ * Falha silenciosa: nem todas as versões da Evolution suportam.
+ */
+export async function subscribeToPresence(
+  config: EvolutionAPIConfig,
+  remoteJid: string
+): Promise<void> {
+  try {
+    await fetchWithTimeout(
+      `${config.apiUrl}/chat/presenceSubscribe/${config.instanceName}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': config.apiKey },
+        body: JSON.stringify({ number: remoteJid }),
+      },
+      5_000
+    );
+  } catch {
+    // Non-fatal — presença não disponível nesta versão
   }
 }
