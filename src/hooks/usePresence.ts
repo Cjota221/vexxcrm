@@ -14,6 +14,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/auth';
+import { PhoneNormalizer } from '@/lib/phone-normalizer';
 
 type PresenceStatus = 'online' | 'typing' | 'recording' | 'offline' | null;
 
@@ -33,7 +34,9 @@ export function usePresence(phone: string | null | undefined) {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const tenantId = useAuthStore((s) => s.user?.tenant_id ?? null);
 
-  const normalizedPhone = phone ? phone.replace(/\D/g, '') : null;
+  // PhoneNormalizer.canonical() garante o mesmo formato que o webhook usa ao salvar
+  // (55DDNNNNNNNNN). Sem isso, a query não encontra o registro no banco.
+  const normalizedPhone = phone ? PhoneNormalizer.canonical(phone) : null;
 
   const applyPresence = useCallback((rawStatus: string, updatedAt: string) => {
     const age = Date.now() - new Date(updatedAt).getTime();
@@ -90,30 +93,34 @@ export function usePresence(phone: string | null | undefined) {
     };
   }, [normalizedPhone, fetchPresence]);
 
-  // Realtime: atualização instantânea via WebSocket quando presença muda
+  // Realtime: atualização instantânea via WebSocket quando presença muda.
+  // Usa um único canal por tenant (não por telefone) para evitar explosão de canais.
+  // O filter no postgres_changes ainda garante que só receba eventos do contato atual.
   useEffect(() => {
     if (!normalizedPhone || !tenantId) return;
 
     const channel = supabase
-      .channel(`presence-${tenantId}-${normalizedPhone}`)
+      .channel(`presence-tenant-${tenantId}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'contact_presence',
-          filter: `phone=eq.${normalizedPhone}`,
+          filter: `tenant_id=eq.${tenantId}`,
         },
         (payload) => {
-          const raw = (payload.new ?? payload.old) as { status?: string; updated_at?: string } | null;
-          if (!raw?.status || !raw?.updated_at) return;
+          const raw = (payload.new ?? payload.old) as { phone?: string; status?: string; updated_at?: string } | null;
+          // Filtrar pelo telefone do contato atual (o canal recebe todos do tenant)
+          if (!raw?.phone || raw.phone !== normalizedPhone) return;
+          if (!raw.status || !raw.updated_at) return;
           applyPresence(raw.status, raw.updated_at);
         }
       )
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [normalizedPhone, tenantId, applyPresence]);
+  }, [tenantId, normalizedPhone, applyPresence]);
 
   const label = status === 'typing'
     ? 'digitando...'

@@ -210,10 +210,14 @@ export function useRealtimeMessages() {
           edited: (raw.edited as boolean) ?? (m as any).edited,
           edited_at: (raw.edited_at as string) ?? (m as any).edited_at,
           content: raw.edited ? ((raw.content as string) ?? m.content) : m.content,
-          // Reactions chegam via metadata.reactions quando handleReaction atualiza o banco
-          metadata: newMeta
-            ? { ...(m.metadata as Record<string, unknown> || {}), ...newMeta }
-            : m.metadata,
+          // Reactions chegam via metadata.reactions quando handleReaction chama sync_message_reactions.
+          // Só atualiza metadata se veio no payload (REPLICA IDENTITY FULL) E se reactions mudou.
+          // Nunca sobrescreve com undefined para não perder reactions existentes no cache.
+          metadata: newMeta?.reactions !== undefined
+            ? { ...(m.metadata as Record<string, unknown> || {}), reactions: newMeta.reactions }
+            : newMeta
+              ? { ...(m.metadata as Record<string, unknown> || {}), ...newMeta }
+              : m.metadata,
         };
       };
 

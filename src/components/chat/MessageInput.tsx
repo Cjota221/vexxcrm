@@ -336,11 +336,14 @@ function MessageInputComponent({ onSend, onSendMedia, isLoading, disabled, recip
     }
   }, []);
 
-  // Cleanup on unmount
+  // Cleanup on unmount — limpar stream de microfone e timer sem enviar o áudio
   useEffect(() => {
     return () => {
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        // Remover handler onstop antes de parar — evita envio indesejado ao desmontar
+        mediaRecorderRef.current.onstop = null;
+        mediaRecorderRef.current.ondataavailable = null;
         mediaRecorderRef.current.stream?.getTracks().forEach(track => track.stop());
         mediaRecorderRef.current.stop();
       }

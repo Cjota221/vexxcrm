@@ -1661,31 +1661,13 @@ async function handleReaction(
         .eq('reactor_phone', reactorPhone);
     }
 
-    // Atualizar messages.metadata.reactions para disparar Realtime no frontend.
-    // O canal global já ouve UPDATE em messages → handleMessageUpdate atualiza o cache
-    // sem precisar de Realtime separado em message_reactions.
-    const [{ data: allReactions }, { data: msg }] = await Promise.all([
-      supabase
-        .from('message_reactions')
-        .select('emoji, from_me, reactor_phone')
-        .eq('tenant_id', tenantId)
-        .eq('message_id', key.id),
-      supabase
-        .from('messages')
-        .select('id, metadata')
-        .eq('tenant_id', tenantId)
-        .eq('external_id', key.id)
-        .single(),
-    ]);
-
-    if (msg) {
-      const currentMeta = (msg.metadata as Record<string, unknown>) || {};
-      await supabase
-        .from('messages')
-        .update({ metadata: { ...currentMeta, reactions: allReactions || [] } })
-        .eq('id', msg.id)
-        .eq('tenant_id', tenantId);
-    }
+    // Atualizar messages.metadata.reactions de forma ATÔMICA via RPC.
+    // Isso dispara UPDATE no Realtime → handleMessageUpdate atualiza o cache do frontend.
+    // A RPC usa jsonb_set para não sobrescrever outros campos do metadata.
+    await supabase.rpc('sync_message_reactions', {
+      p_tenant_id: tenantId,
+      p_external_id: key.id,
+    });
 
     console.log(`[Webhook] messages.reaction — ${emoji || 'removido'} de ${reactorPhone} em ${key.id}`);
   } catch (err) {
