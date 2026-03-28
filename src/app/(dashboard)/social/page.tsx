@@ -1124,10 +1124,13 @@ export default function SocialPage() {
   const [tab, setTab] = useState<Tab>('feed');
   const [connected, setConnected] = useState(false);
   const [pageId, setPageId] = useState<string | null>(null);
+  const [pageName, setPageName] = useState<string | null>(null);
+  const [pagePhoto, setPagePhoto] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [localPosts, setLocalPosts] = useState<LocalPost[]>([]);
   const [pagePosts, setPagePosts] = useState<MetaPost[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [showPageSelector, setShowPageSelector] = useState(false);
 
   const loadData = useCallback(async () => {
     setRefreshing(true);
@@ -1135,11 +1138,13 @@ export default function SocialPage() {
       const res = await authFetch('/api/social/posts');
       if (res.ok) {
         const json = await res.json() as {
-          connected: boolean; pageId?: string;
+          connected: boolean; pageId?: string; pageName?: string; pagePhoto?: string;
           posts: LocalPost[]; pagePosts: MetaPost[];
         };
         setConnected(json.connected);
         setPageId(json.pageId || null);
+        setPageName(json.pageName || null);
+        setPagePhoto(json.pagePhoto || null);
         setLocalPosts(json.posts || []);
         setPagePosts(json.pagePosts || []);
       }
@@ -1167,20 +1172,31 @@ export default function SocialPage() {
         {/* Header */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                <Share2 size={22} className="text-crm-primary" />
-                Social Mídia
-              </h1>
-              {connected && pageId && (
-                <p className="text-sm text-gray-500 mt-0.5">
-                  Página conectada · <span className="font-medium text-gray-700">{pageId}</span>
-                </p>
+            <div className="flex items-center gap-3">
+              {connected && pagePhoto && (
+                <img src={pagePhoto} alt="" className="w-10 h-10 rounded-xl object-cover" />
               )}
-              <div className="flex gap-4 mt-1 text-xs text-gray-400 flex-wrap">
-                {agendados.length > 0 && <span className="flex items-center gap-1"><Clock size={11} /> {agendados.length} agendado{agendados.length > 1 ? 's' : ''}</span>}
-                {rascunhos.length > 0 && <span className="flex items-center gap-1"><FileText size={11} /> {rascunhos.length} rascunho{rascunhos.length > 1 ? 's' : ''}</span>}
-                {publicados.length > 0 && <span className="flex items-center gap-1"><CheckCircle size={11} /> {publicados.length} publicado{publicados.length > 1 ? 's' : ''}</span>}
+              <div>
+                <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                  <Share2 size={22} className="text-crm-primary" />
+                  Social Mídia
+                </h1>
+                {connected && (
+                  <p className="text-sm text-gray-500 mt-0.5">
+                    {pageName || pageId}
+                    <button
+                      onClick={() => setShowPageSelector(true)}
+                      className="ml-2 text-xs text-crm-primary hover:underline"
+                    >
+                      Trocar página
+                    </button>
+                  </p>
+                )}
+                <div className="flex gap-4 mt-1 text-xs text-gray-400 flex-wrap">
+                  {agendados.length > 0 && <span className="flex items-center gap-1"><Clock size={11} /> {agendados.length} agendado{agendados.length > 1 ? 's' : ''}</span>}
+                  {rascunhos.length > 0 && <span className="flex items-center gap-1"><FileText size={11} /> {rascunhos.length} rascunho{rascunhos.length > 1 ? 's' : ''}</span>}
+                  {publicados.length > 0 && <span className="flex items-center gap-1"><CheckCircle size={11} /> {publicados.length} publicado{publicados.length > 1 ? 's' : ''}</span>}
+                </div>
               </div>
             </div>
             <button
@@ -1194,9 +1210,9 @@ export default function SocialPage() {
           </div>
         </div>
 
-        {/* Configurar página se não conectado */}
-        {!loading && !connected && (
-          <ConfigurarPagina onConfigured={loadData} />
+        {/* Configurar página se não conectado ou trocando */}
+        {!loading && (!connected || showPageSelector) && (
+          <ConfigurarPagina onConfigured={() => { setShowPageSelector(false); loadData(); }} />
         )}
 
         {/* Tabs */}

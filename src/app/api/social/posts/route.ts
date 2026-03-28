@@ -39,22 +39,39 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ connected: false, posts: localPosts || [], pagePosts: [] });
     }
 
-    // Fetch recent posts from Meta Page
+    // Get page token + page name in parallel with posts
+    const pageToken = await getPageToken(config.meta_access_token, config.meta_page_id);
+
+    // Fetch page name + recent posts in parallel
+    const [pageInfoRes, postsRes] = await Promise.all([
+      fetch(`${META_BASE}/${config.meta_page_id}?fields=name,picture{url}&access_token=${pageToken}`)
+        .catch(() => null),
+      fetch(
+        `${META_BASE}/${config.meta_page_id}/posts?fields=${encodeURIComponent(
+          'id,message,story,full_picture,created_time,permalink_url,likes.summary(true),comments.summary(true)'
+        )}&limit=20&access_token=${pageToken}`
+      ).catch(() => null),
+    ]);
+
+    let pageName: string | undefined;
+    let pagePhoto: string | undefined;
+    if (pageInfoRes?.ok) {
+      const info = await pageInfoRes.json() as { name?: string; picture?: { data?: { url?: string } } };
+      pageName = info.name;
+      pagePhoto = info.picture?.data?.url;
+    }
+
     let pagePosts: unknown[] = [];
-    try {
-      const fields = 'id,message,story,full_picture,created_time,permalink_url,likes.summary(true),comments.summary(true)';
-      const res = await fetch(
-        `${META_BASE}/${config.meta_page_id}/posts?fields=${encodeURIComponent(fields)}&limit=20&access_token=${config.meta_access_token}`
-      );
-      if (res.ok) {
-        const data = await res.json() as { data: unknown[] };
-        pagePosts = data.data || [];
-      }
-    } catch { /* silencioso */ }
+    if (postsRes?.ok) {
+      const data = await postsRes.json() as { data: unknown[] };
+      pagePosts = data.data || [];
+    }
 
     return NextResponse.json({
       connected: true,
       pageId: config.meta_page_id,
+      pageName,
+      pagePhoto,
       instagramId: config.meta_instagram_id,
       posts: localPosts || [],
       pagePosts,
