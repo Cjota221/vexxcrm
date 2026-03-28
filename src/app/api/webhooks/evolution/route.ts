@@ -1467,10 +1467,10 @@ async function handleLabelEdit(
   payload: EvolutionWebhookPayload
 ) {
   try {
-    const { data } = payload;
-    const { id, name, color, predefinedId, deleted } = data as {
+    const labelData = payload.data as unknown as {
       id: string; name: string; color?: number; predefinedId?: string; deleted?: boolean;
     };
+    const { id, name, color, predefinedId, deleted } = labelData;
 
     if (!id) return;
 
