@@ -58,7 +58,6 @@ export async function GET(request: NextRequest) {
         is_muted,
         remote_jid,
         contact_name,
-        avatar_url,
         created_at,
         updated_at,
         client:clients!conversations_client_id_fkey (
@@ -151,6 +150,23 @@ export async function GET(request: NextRequest) {
 
     const filteredItems = items || [];
 
+    // 8b. Buscar fotos dos grupos via whatsapp_groups (query separada — conversations não tem avatar_url)
+    const groupJids = filteredItems
+      .map((c: Record<string, unknown>) => c.remote_jid as string)
+      .filter((jid: string | undefined): jid is string => !!jid?.includes('@g.us'));
+
+    const groupAvatarMap: Record<string, string> = {};
+    if (groupJids.length > 0) {
+      const { data: wGroups } = await supabase
+        .from('whatsapp_groups')
+        .select('group_jid, foto')
+        .eq('tenant_id', tenantId)
+        .in('group_jid', groupJids);
+      (wGroups || []).forEach((g: { group_jid: string; foto: string | null }) => {
+        if (g.foto) groupAvatarMap[g.group_jid] = g.foto;
+      });
+    }
+
     // 9. Transformar no formato esperado pelo ChatList (interface Chat)
     const chats = filteredItems
       .filter((conv: Record<string, unknown>) => conv.client || conv.remote_jid) // Incluir grupos (sem client)
@@ -180,7 +196,7 @@ export async function GET(request: NextRequest) {
             status: (client?.status as string) || 'active',
             tags: (client?.tags as string[]) || [],
             avatar_url: isGroup
-            ? (conv.avatar_url as string) || null
+            ? groupAvatarMap[conv.remote_jid as string] || null
             : (client?.avatar_url as string) || null,
             ltv: (client?.ltv as number) || 0,
             ticket_medio: (client?.avg_ticket as number) || 0,

@@ -1847,13 +1847,10 @@ async function handleGroupUpsert(
         updated_at: new Date().toISOString(),
       }, { onConflict: 'tenant_id,group_jid' });
 
-      // Sincronizar nome e foto na tabela conversations para aparecer na lista de chats
-      const convUpdate: Record<string, string> = {};
-      if (g.subject) convUpdate.contact_name = g.subject;
-      if (g.pictureUrl) convUpdate.avatar_url = g.pictureUrl;
-      if (Object.keys(convUpdate).length > 0) {
+      // Sincronizar nome real do grupo na conversa (contact_name apenas — sem avatar_url que não existe)
+      if (g.subject) {
         await supabase.from('conversations')
-          .update(convUpdate)
+          .update({ contact_name: g.subject })
           .eq('tenant_id', tenantId)
           .eq('remote_jid', g.id);
       }
