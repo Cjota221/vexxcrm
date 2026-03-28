@@ -37,9 +37,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'EVOLUTION_API_URL ou EVOLUTION_GLOBAL_KEY não configurados' }, { status: 500 });
     }
 
-    const res = await fetch(`${evolutionUrl}/chat/findLabels/${tenant.evolution_instance}`, {
+    // Tentar endpoints conhecidos da Evolution API (v1 e v2)
+    let res = await fetch(`${evolutionUrl}/label/findLabels/${tenant.evolution_instance}`, {
       headers: { 'apikey': evolutionKey },
     });
+
+    // Fallback: endpoint alternativo v1
+    if (!res.ok) {
+      res = await fetch(`${evolutionUrl}/chat/findLabels/${tenant.evolution_instance}`, {
+        headers: { 'apikey': evolutionKey },
+      });
+    }
 
     if (!res.ok) {
       const err = await res.text().catch(() => '');
