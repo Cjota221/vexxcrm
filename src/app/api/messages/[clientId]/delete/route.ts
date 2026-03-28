@@ -1,24 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { createServerSupabaseClient } from '@/lib/supabase';
-import { getTenantEvolutionConfig, sendReaction } from '@/lib/services/evolution.service';
+import { getTenantEvolutionConfig, deleteMessage } from '@/lib/services/evolution.service';
 
 /**
- * POST /api/messages/:messageId/react
- * Body: { emoji: string }
+ * DELETE /api/messages/:messageId/delete
  *
- * Envia uma reaction a uma mensagem via WhatsApp.
- * Emoji vazio ("") remove a reaction existente.
- * O webhook messages.reaction receberá o evento de volta e persistirá no banco.
+ * Apaga uma mensagem do WhatsApp (apenas mensagens enviadas por nós — from_me=true).
+ * 1. Chama Evolution API para apagar no WhatsApp
+ * 2. Marca como deleted=true no banco otimisticamente
+ * O webhook messages.delete receberá o evento de volta como confirmação.
  */
-export async function POST(
+export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ messageId: string }> }
+  { params }: { params: Promise<{ clientId: string }> }
 ) {
   try {
     const { tenantId } = await getTenantFromRequest(request);
-    const { messageId } = await params;
-    const { emoji } = await request.json() as { emoji?: string };
+    const { clientId: messageId } = await params;
 
     if (!messageId) {
       return NextResponse.json({ error: 'messageId é obrigatório' }, { status: 400 });
@@ -26,7 +25,7 @@ export async function POST(
 
     const supabase = createServerSupabaseClient();
 
-    // 1. Buscar mensagem para obter external_id e fromMe
+    // 1. Buscar a mensagem no banco para obter external_id e remote_jid
     const { data: msg } = await supabase
       .from('messages')
       .select('id, external_id, direction, conversation_id')
@@ -38,8 +37,12 @@ export async function POST(
       return NextResponse.json({ error: 'Mensagem não encontrada' }, { status: 404 });
     }
 
+    if (msg.direction !== 'outbound') {
+      return NextResponse.json({ error: 'Só é possível apagar mensagens enviadas por você' }, { status: 403 });
+    }
+
     if (!msg.external_id) {
-      return NextResponse.json({ error: 'Mensagem sem ID externo' }, { status: 422 });
+      return NextResponse.json({ error: 'Mensagem sem ID externo — não pode ser apagada via WhatsApp' }, { status: 422 });
     }
 
     // 2. Buscar remote_jid da conversa
@@ -60,19 +63,24 @@ export async function POST(
 
     // 3. Chamar Evolution API
     const config = getTenantEvolutionConfig(tenantId);
-    await sendReaction(
-      config,
-      remoteJid,
-      msg.external_id,
-      msg.direction === 'outbound',
-      emoji || ''
-    );
+    await deleteMessage(config, remoteJid, msg.external_id, true);
+
+    // 4. Soft-delete otimístico no banco (webhook confirmará via messages.delete)
+    await supabase
+      .from('messages')
+      .update({
+        deleted: true,
+        content: '',
+        deleted_at: new Date().toISOString(),
+      })
+      .eq('id', messageId)
+      .eq('tenant_id', tenantId);
 
     return NextResponse.json({ ok: true });
   } catch (error: any) {
-    console.error('[REACT message]', error);
+    console.error('[DELETE message]', error);
     return NextResponse.json(
-      { error: error?.message || 'Erro ao reagir à mensagem' },
+      { error: error?.message || 'Erro ao apagar mensagem' },
       { status: 500 }
     );
   }

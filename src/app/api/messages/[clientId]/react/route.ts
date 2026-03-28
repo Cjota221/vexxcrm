@@ -1,40 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { createServerSupabaseClient } from '@/lib/supabase';
-import { getTenantEvolutionConfig, editMessage } from '@/lib/services/evolution.service';
+import { getTenantEvolutionConfig, sendReaction } from '@/lib/services/evolution.service';
 
 /**
- * PATCH /api/messages/:messageId/edit
- * Body: { content: string }
+ * POST /api/messages/:messageId/react
+ * Body: { emoji: string }
  *
- * Edita o texto de uma mensagem enviada por nós.
- * 1. Chama Evolution API para editar no WhatsApp
- * 2. Atualiza no banco otimisticamente
- * O webhook messages.update (editedMessage) confirmará a edição.
+ * Envia uma reaction a uma mensagem via WhatsApp.
+ * Emoji vazio ("") remove a reaction existente.
+ * O webhook messages.reaction receberá o evento de volta e persistirá no banco.
  */
-export async function PATCH(
+export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ messageId: string }> }
+  { params }: { params: Promise<{ clientId: string }> }
 ) {
   try {
     const { tenantId } = await getTenantFromRequest(request);
-    const { messageId } = await params;
-    const { content } = await request.json() as { content?: string };
+    const { clientId: messageId } = await params;
+    const { emoji } = await request.json() as { emoji?: string };
 
     if (!messageId) {
       return NextResponse.json({ error: 'messageId é obrigatório' }, { status: 400 });
     }
 
-    if (!content?.trim()) {
-      return NextResponse.json({ error: 'Conteúdo não pode ser vazio' }, { status: 400 });
-    }
-
     const supabase = createServerSupabaseClient();
 
-    // 1. Buscar mensagem
+    // 1. Buscar mensagem para obter external_id e fromMe
     const { data: msg } = await supabase
       .from('messages')
-      .select('id, external_id, direction, type, conversation_id')
+      .select('id, external_id, direction, conversation_id')
       .eq('id', messageId)
       .eq('tenant_id', tenantId)
       .single();
@@ -43,19 +38,11 @@ export async function PATCH(
       return NextResponse.json({ error: 'Mensagem não encontrada' }, { status: 404 });
     }
 
-    if (msg.direction !== 'outbound') {
-      return NextResponse.json({ error: 'Só é possível editar mensagens enviadas por você' }, { status: 403 });
-    }
-
-    if (msg.type !== 'text') {
-      return NextResponse.json({ error: 'Só é possível editar mensagens de texto' }, { status: 422 });
-    }
-
     if (!msg.external_id) {
       return NextResponse.json({ error: 'Mensagem sem ID externo' }, { status: 422 });
     }
 
-    // 2. Buscar remote_jid
+    // 2. Buscar remote_jid da conversa
     const { data: conv } = await supabase
       .from('conversations')
       .select('remote_jid, client:clients!conversations_client_id_fkey(phone_normalized)')
@@ -73,24 +60,19 @@ export async function PATCH(
 
     // 3. Chamar Evolution API
     const config = getTenantEvolutionConfig(tenantId);
-    await editMessage(config, remoteJid, msg.external_id, content.trim());
-
-    // 4. Atualizar banco otimisticamente
-    await supabase
-      .from('messages')
-      .update({
-        content: content.trim(),
-        edited: true,
-        edited_at: new Date().toISOString(),
-      })
-      .eq('id', messageId)
-      .eq('tenant_id', tenantId);
+    await sendReaction(
+      config,
+      remoteJid,
+      msg.external_id,
+      msg.direction === 'outbound',
+      emoji || ''
+    );
 
     return NextResponse.json({ ok: true });
   } catch (error: any) {
-    console.error('[EDIT message]', error);
+    console.error('[REACT message]', error);
     return NextResponse.json(
-      { error: error?.message || 'Erro ao editar mensagem' },
+      { error: error?.message || 'Erro ao reagir à mensagem' },
       { status: 500 }
     );
   }

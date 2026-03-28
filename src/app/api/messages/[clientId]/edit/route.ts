@@ -1,34 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { createServerSupabaseClient } from '@/lib/supabase';
-import { getTenantEvolutionConfig, deleteMessage } from '@/lib/services/evolution.service';
+import { getTenantEvolutionConfig, editMessage } from '@/lib/services/evolution.service';
 
 /**
- * DELETE /api/messages/:messageId/delete
+ * PATCH /api/messages/:messageId/edit
+ * Body: { content: string }
  *
- * Apaga uma mensagem do WhatsApp (apenas mensagens enviadas por nós — from_me=true).
- * 1. Chama Evolution API para apagar no WhatsApp
- * 2. Marca como deleted=true no banco otimisticamente
- * O webhook messages.delete receberá o evento de volta como confirmação.
+ * Edita o texto de uma mensagem enviada por nós.
+ * 1. Chama Evolution API para editar no WhatsApp
+ * 2. Atualiza no banco otimisticamente
+ * O webhook messages.update (editedMessage) confirmará a edição.
  */
-export async function DELETE(
+export async function PATCH(
   request: NextRequest,
-  { params }: { params: Promise<{ messageId: string }> }
+  { params }: { params: Promise<{ clientId: string }> }
 ) {
   try {
     const { tenantId } = await getTenantFromRequest(request);
-    const { messageId } = await params;
+    const { clientId: messageId } = await params;
+    const { content } = await request.json() as { content?: string };
 
     if (!messageId) {
       return NextResponse.json({ error: 'messageId é obrigatório' }, { status: 400 });
     }
 
+    if (!content?.trim()) {
+      return NextResponse.json({ error: 'Conteúdo não pode ser vazio' }, { status: 400 });
+    }
+
     const supabase = createServerSupabaseClient();
 
-    // 1. Buscar a mensagem no banco para obter external_id e remote_jid
+    // 1. Buscar mensagem
     const { data: msg } = await supabase
       .from('messages')
-      .select('id, external_id, direction, conversation_id')
+      .select('id, external_id, direction, type, conversation_id')
       .eq('id', messageId)
       .eq('tenant_id', tenantId)
       .single();
@@ -38,14 +44,18 @@ export async function DELETE(
     }
 
     if (msg.direction !== 'outbound') {
-      return NextResponse.json({ error: 'Só é possível apagar mensagens enviadas por você' }, { status: 403 });
+      return NextResponse.json({ error: 'Só é possível editar mensagens enviadas por você' }, { status: 403 });
+    }
+
+    if (msg.type !== 'text') {
+      return NextResponse.json({ error: 'Só é possível editar mensagens de texto' }, { status: 422 });
     }
 
     if (!msg.external_id) {
-      return NextResponse.json({ error: 'Mensagem sem ID externo — não pode ser apagada via WhatsApp' }, { status: 422 });
+      return NextResponse.json({ error: 'Mensagem sem ID externo' }, { status: 422 });
     }
 
-    // 2. Buscar remote_jid da conversa
+    // 2. Buscar remote_jid
     const { data: conv } = await supabase
       .from('conversations')
       .select('remote_jid, client:clients!conversations_client_id_fkey(phone_normalized)')
@@ -63,24 +73,24 @@ export async function DELETE(
 
     // 3. Chamar Evolution API
     const config = getTenantEvolutionConfig(tenantId);
-    await deleteMessage(config, remoteJid, msg.external_id, true);
+    await editMessage(config, remoteJid, msg.external_id, content.trim());
 
-    // 4. Soft-delete otimístico no banco (webhook confirmará via messages.delete)
+    // 4. Atualizar banco otimisticamente
     await supabase
       .from('messages')
       .update({
-        deleted: true,
-        content: '',
-        deleted_at: new Date().toISOString(),
+        content: content.trim(),
+        edited: true,
+        edited_at: new Date().toISOString(),
       })
       .eq('id', messageId)
       .eq('tenant_id', tenantId);
 
     return NextResponse.json({ ok: true });
   } catch (error: any) {
-    console.error('[DELETE message]', error);
+    console.error('[EDIT message]', error);
     return NextResponse.json(
-      { error: error?.message || 'Erro ao apagar mensagem' },
+      { error: error?.message || 'Erro ao editar mensagem' },
       { status: 500 }
     );
   }
