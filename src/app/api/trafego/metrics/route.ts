@@ -128,7 +128,7 @@ export async function GET(req: NextRequest) {
 
     const campaignFields = [
       `insights.date_preset(${datePreset}){${insightFields},date_start,date_stop}`,
-      'name', 'status', 'objective', 'daily_budget',
+      'name', 'status', 'effective_status', 'objective', 'daily_budget',
     ].join(',');
 
     // Buscar nome da conta + campanhas em paralelo
@@ -211,7 +211,7 @@ export async function GET(req: NextRequest) {
     const accountData = accountRes.ok ? await accountRes.json() as { name?: string } : {};
     const data = await campaignsRes.json() as {
       data: Array<{
-        id: string; name: string; status: string; objective: string;
+        id: string; name: string; status: string; effective_status: string; objective: string;
         daily_budget?: string;
         insights?: { data: Array<{
           spend: string; impressions: string; clicks: string; reach: string;
@@ -247,6 +247,7 @@ export async function GET(req: NextRequest) {
         id: campaign.id,
         nome: campaign.name,
         status: campaign.status,
+        effective_status: campaign.effective_status,
         objetivo: campaign.objective,
         spend,
         revenue,

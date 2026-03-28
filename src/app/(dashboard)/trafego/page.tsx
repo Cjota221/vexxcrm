@@ -35,6 +35,7 @@ interface Campaign {
   id: string;
   nome: string;
   status: string;
+  effective_status?: string;
   objetivo: string;
   spend: number;
   revenue: number;
@@ -179,6 +180,29 @@ function HealthBadge({ health }: { health: Campaign['health'] }) {
     <span className={cn('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap', cls)}>
       <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', dotCls)} />
       {label}
+    </span>
+  );
+}
+
+function EffectiveStatusBadge({ status }: { status?: string }) {
+  if (!status) return null;
+  const map: Record<string, { label: string; cls: string }> = {
+    ACTIVE:              { label: 'Rodando',       cls: 'bg-green-100 text-green-700' },
+    PAUSED:              { label: 'Pausada',        cls: 'bg-gray-100 text-gray-600' },
+    DELETED:             { label: 'Deletada',       cls: 'bg-red-100 text-red-700' },
+    ARCHIVED:            { label: 'Arquivada',      cls: 'bg-gray-100 text-gray-500' },
+    WITH_ISSUES:         { label: 'Com problema',   cls: 'bg-red-100 text-red-700' },
+    IN_PROCESS:          { label: 'Processando',    cls: 'bg-blue-100 text-blue-700' },
+    PENDING_REVIEW:      { label: 'Em revisão',     cls: 'bg-amber-100 text-amber-700' },
+    DISAPPROVED:         { label: 'Reprovada',      cls: 'bg-red-100 text-red-700' },
+    LEARNING:            { label: 'Aprendendo',     cls: 'bg-violet-100 text-violet-700' },
+    LEARNING_LIMITED:    { label: 'Aprendiz. limitada', cls: 'bg-violet-100 text-violet-600' },
+    CAMPAIGN_PAUSED:     { label: 'Campanha pausada', cls: 'bg-gray-100 text-gray-600' },
+  };
+  const entry = map[status] ?? { label: status, cls: 'bg-gray-100 text-gray-600' };
+  return (
+    <span className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap', entry.cls)}>
+      {entry.label}
     </span>
   );
 }
@@ -1649,6 +1673,7 @@ export default function TrafegoPage() {
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [novaCampanhaOpen, setNovaCampanhaOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'ACTIVE' | 'PAUSED' | 'WITH_ISSUES' | 'PENDING_REVIEW'>('all');
 
   const loadMetrics = useCallback(async (p: Period) => {
     setLoading(true);
@@ -1971,6 +1996,37 @@ export default function TrafegoPage() {
                   </button>
                 </div>
 
+                {/* Filtros de status */}
+                {!loading && (data?.campaigns || []).length > 0 && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {([
+                      { value: 'all',           label: 'Todas' },
+                      { value: 'ACTIVE',        label: 'Rodando' },
+                      { value: 'PAUSED',        label: 'Pausadas' },
+                      { value: 'WITH_ISSUES',   label: 'Com problema' },
+                      { value: 'PENDING_REVIEW',label: 'Em revisão' },
+                    ] as const).map(f => (
+                      <button
+                        key={f.value}
+                        onClick={() => setStatusFilter(f.value)}
+                        className={cn(
+                          'px-3 py-1 rounded-lg text-xs font-medium transition-all border',
+                          statusFilter === f.value
+                            ? 'bg-crm-primary text-white border-crm-primary'
+                            : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                        )}
+                      >
+                        {f.label}
+                        {f.value !== 'all' && (
+                          <span className="ml-1 opacity-70">
+                            ({(data?.campaigns || []).filter(c => c.effective_status === f.value).length})
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 {loading && (
                   <div className="text-center py-12 text-gray-400 text-sm">Carregando campanhas...</div>
                 )}
@@ -1985,58 +2041,72 @@ export default function TrafegoPage() {
                   </div>
                 )}
 
-                {!loading && (data?.campaigns || []).length > 0 && (
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b border-gray-100">
-                          <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide pb-3">Campanha</th>
-                          <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide pb-3">Situação</th>
-                          <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wide pb-3">Gastei</th>
-                          <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wide pb-3">Retorno</th>
-                          <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wide pb-3">Leads</th>
-                          <th className="text-right pb-3" />
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-50">
-                        {(data?.campaigns || []).map((c) => (
-                          <tr key={c.id} className="hover:bg-gray-50 transition-colors">
-                            <td className="py-3 pr-4">
-                              <div className="font-medium text-gray-900 text-sm">{c.nome}</div>
-                              {c.alerts.length > 0 && (
-                                <div className="text-xs text-red-600 mt-0.5">
-                                  {c.alerts[0].mensagem.substring(0, 50)}…
-                                </div>
-                              )}
-                            </td>
-                            <td className="py-3 pr-4">
-                              <HealthBadge health={c.health} />
-                            </td>
-                            <td className="py-3 pr-4 text-right text-sm font-medium text-gray-900">
-                              {brl(c.spend)}
-                            </td>
-                            <td className="py-3 pr-4 text-right">
-                              <div className="text-sm font-medium text-gray-900">
-                                {c.roas > 0 ? `${c.roas.toFixed(1)}x` : '—'}
-                              </div>
-                            </td>
-                            <td className="py-3 pr-4 text-right text-sm text-gray-600">
-                              {c.leads > 0 ? c.leads : '—'}
-                            </td>
-                            <td className="py-3">
-                              <button
-                                onClick={() => setSelectedCampaign(c)}
-                                className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 flex items-center gap-1 whitespace-nowrap"
-                              >
-                                Gerir <ChevronRight size={12} />
-                              </button>
-                            </td>
+                {!loading && (data?.campaigns || []).length > 0 && (() => {
+                  const filtered = (data?.campaigns || []).filter(c =>
+                    statusFilter === 'all' || c.effective_status === statusFilter
+                  );
+                  if (filtered.length === 0) return (
+                    <div className="text-center py-8 text-gray-400 text-sm">
+                      Nenhuma campanha com este status no período
+                    </div>
+                  );
+                  return (
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-gray-100">
+                            <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide pb-3">Campanha</th>
+                            <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide pb-3">Status Meta</th>
+                            <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide pb-3">Saúde</th>
+                            <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wide pb-3">Gastei</th>
+                            <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wide pb-3">Retorno</th>
+                            <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wide pb-3">Leads</th>
+                            <th className="text-right pb-3" />
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                          {filtered.map((c) => (
+                            <tr key={c.id} className="hover:bg-gray-50 transition-colors">
+                              <td className="py-3 pr-4">
+                                <div className="font-medium text-gray-900 text-sm">{c.nome}</div>
+                                {c.alerts.length > 0 && (
+                                  <div className="text-xs text-red-600 mt-0.5">
+                                    {c.alerts[0].mensagem.substring(0, 50)}…
+                                  </div>
+                                )}
+                              </td>
+                              <td className="py-3 pr-4">
+                                <EffectiveStatusBadge status={c.effective_status} />
+                              </td>
+                              <td className="py-3 pr-4">
+                                <HealthBadge health={c.health} />
+                              </td>
+                              <td className="py-3 pr-4 text-right text-sm font-medium text-gray-900">
+                                {brl(c.spend)}
+                              </td>
+                              <td className="py-3 pr-4 text-right">
+                                <div className="text-sm font-medium text-gray-900">
+                                  {c.roas > 0 ? `${c.roas.toFixed(1)}x` : '—'}
+                                </div>
+                              </td>
+                              <td className="py-3 pr-4 text-right text-sm text-gray-600">
+                                {c.leads > 0 ? c.leads : '—'}
+                              </td>
+                              <td className="py-3">
+                                <button
+                                  onClick={() => setSelectedCampaign(c)}
+                                  className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 flex items-center gap-1 whitespace-nowrap"
+                                >
+                                  Gerir <ChevronRight size={12} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
               </div>
             )}
 

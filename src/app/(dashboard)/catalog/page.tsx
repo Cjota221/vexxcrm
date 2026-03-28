@@ -221,6 +221,8 @@ export default function CatalogPage() {
   const [loading, setLoading] = useState(true);
   const [newProdutoOpen, setNewProdutoOpen] = useState(false);
   const [filterCatalog, setFilterCatalog] = useState<string>('all');
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [business, setBusiness] = useState<{
     businesses?: Array<{ id: string; name: string }>;
     adAccount?: { name?: string; currency?: string; amount_spent?: string; account_status?: number };
@@ -246,6 +248,21 @@ export default function CatalogPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  async function handleSync() {
+    setSyncing(true);
+    setSyncMsg(null);
+    try {
+      const res = await authFetch('/api/catalog/sync', { method: 'POST' });
+      const json = await res.json() as { ok?: boolean; message?: string; error?: string };
+      setSyncMsg(json.message || json.error || 'Sincronização concluída');
+      if (json.ok) await load();
+    } catch (e) {
+      setSyncMsg(String(e));
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   const filtered = filterCatalog === 'all'
     ? products
@@ -274,10 +291,18 @@ export default function CatalogPage() {
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button onClick={load} disabled={loading}
                 className="p-2 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:opacity-50">
                 <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+              </button>
+              <button
+                onClick={handleSync}
+                disabled={syncing}
+                className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:opacity-90 disabled:opacity-60"
+              >
+                {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                {syncing ? 'Importando...' : 'Importar do Meta'}
               </button>
               <button
                 onClick={() => setNewProdutoOpen(true)}
@@ -288,6 +313,20 @@ export default function CatalogPage() {
             </div>
           </div>
         </div>
+
+        {/* Sync feedback */}
+        {syncMsg && (
+          <div className={cn(
+            'rounded-xl px-4 py-3 text-sm flex items-start gap-2',
+            syncMsg.includes('Erro') || syncMsg.includes('erro') || syncMsg.includes('error')
+              ? 'bg-red-50 border border-red-200 text-red-800'
+              : 'bg-green-50 border border-green-200 text-green-800'
+          )}>
+            {syncMsg.includes('Erro') || syncMsg.includes('erro') ? <AlertTriangle size={15} className="shrink-0 mt-0.5" /> : <CheckCircle size={15} className="shrink-0 mt-0.5" />}
+            <span>{syncMsg}</span>
+            <button onClick={() => setSyncMsg(null)} className="ml-auto shrink-0 opacity-60 hover:opacity-100"><X size={14} /></button>
+          </div>
+        )}
 
         {/* Business Manager Card */}
         {business?.adAccount && (
