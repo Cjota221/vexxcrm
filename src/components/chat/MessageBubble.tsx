@@ -115,10 +115,14 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
     setIsSavingEdit(true);
     try {
       const res = await api.patch(`/api/messages/${message.id}/edit`, { content: editText.trim() });
-      if (res.error) throw new Error(res.error);
+      if (res.error) {
+        // Versão da Evolution API não suporta edição — apenas fecha o editor
+        console.warn('[MessageBubble] Edição não suportada:', res.error);
+      }
       setEditMode(false);
     } catch (err) {
       console.warn('[MessageBubble] Erro ao editar:', err);
+      setEditMode(false);
     } finally {
       setIsSavingEdit(false);
     }

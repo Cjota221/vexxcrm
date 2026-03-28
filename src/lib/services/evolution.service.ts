@@ -1001,6 +1001,9 @@ export async function deleteMessage(
 /**
  * Envia uma reaction (emoji) para uma mensagem específica.
  * Texto vazio remove a reaction existente.
+ *
+ * Evolution API v2 usa: { key: { remoteJid, id, fromMe }, reaction: emoji }
+ * (diferente de v1 que usava reactionMessage.text)
  */
 export async function sendReaction(
   config: EvolutionAPIConfig,
@@ -1015,10 +1018,8 @@ export async function sendReaction(
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': config.apiKey },
       body: JSON.stringify({
-        reactionMessage: {
-          key: { remoteJid, id: messageId, fromMe },
-          text: emoji,
-        },
+        key: { remoteJid, id: messageId, fromMe },
+        reaction: emoji,
       }),
     },
     12_000
@@ -1033,6 +1034,9 @@ export async function sendReaction(
 /**
  * Edita o texto de uma mensagem enviada pelo nosso número.
  * Só funciona com mensagens de texto (type='text') enviadas por nós.
+ *
+ * Evolution API v2: PATCH /message/updateMessage/{instance}
+ * Algumas versões não suportam — nesse caso lança erro claro.
  */
 export async function editMessage(
   config: EvolutionAPIConfig,
@@ -1043,7 +1047,7 @@ export async function editMessage(
   const response = await fetchWithTimeout(
     `${config.apiUrl}/message/updateMessage/${config.instanceName}`,
     {
-      method: 'PUT',
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json', 'apikey': config.apiKey },
       body: JSON.stringify({
         number: remoteJid,
@@ -1053,6 +1057,10 @@ export async function editMessage(
     },
     12_000
   );
+
+  if (response.status === 404) {
+    throw new Error('Edição de mensagem não suportada nesta versão da Evolution API');
+  }
 
   if (!response.ok) {
     const err = await safeJson(response, 'Editar mensagem').catch(() => ({}));

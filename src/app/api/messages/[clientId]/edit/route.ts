@@ -89,9 +89,10 @@ export async function PATCH(
     return NextResponse.json({ ok: true });
   } catch (error: any) {
     console.error('[EDIT message]', error);
+    const isNotSupported = error?.message?.includes('não suportada');
     return NextResponse.json(
       { error: error?.message || 'Erro ao editar mensagem' },
-      { status: 500 }
+      { status: isNotSupported ? 422 : 500 }
     );
   }
 }
