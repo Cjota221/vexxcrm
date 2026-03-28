@@ -165,14 +165,15 @@ function MetricCard({
 
 function HealthBadge({ health }: { health: Campaign['health'] }) {
   const map = {
-    great:  { label: '🟢 Ótima',    cls: 'bg-green-100 text-green-700' },
-    ok:     { label: '🟡 Atenção',  cls: 'bg-amber-100 text-amber-700' },
-    bad:    { label: '🔴 Pausar',   cls: 'bg-red-100 text-red-700' },
-    paused: { label: '⏸️ Pausada',  cls: 'bg-gray-100 text-gray-600' },
+    great:  { label: 'Ótima',   dotCls: 'bg-green-500', cls: 'bg-green-100 text-green-700' },
+    ok:     { label: 'Atenção', dotCls: 'bg-amber-400', cls: 'bg-amber-100 text-amber-700' },
+    bad:    { label: 'Pausar',  dotCls: 'bg-red-500',   cls: 'bg-red-100 text-red-700' },
+    paused: { label: 'Pausada', dotCls: 'bg-gray-400',  cls: 'bg-gray-100 text-gray-600' },
   };
-  const { label, cls } = map[health];
+  const { label, dotCls, cls } = map[health];
   return (
-    <span className={cn('px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap', cls)}>
+    <span className={cn('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap', cls)}>
+      <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', dotCls)} />
       {label}
     </span>
   );
@@ -316,7 +317,8 @@ function CampaignDetailPanel({
                     alert.tipo === 'danger' ? 'bg-red-50 text-red-800' : 'bg-amber-50 text-amber-800'
                   )}
                 >
-                  {alert.tipo === 'danger' ? '🔴' : '🟡'} {alert.mensagem}
+                  <span className={cn('inline-block w-2 h-2 rounded-full mr-1.5 shrink-0', alert.tipo === 'danger' ? 'bg-red-500' : 'bg-amber-400')} />
+                {alert.mensagem}
                 </div>
               ))}
             </div>
@@ -1111,25 +1113,25 @@ export default function TrafegoPage() {
           return (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <MetricCard
-                icon={<span className="text-xl">💰</span>}
+                icon={<DollarSign size={20} className="text-crm-primary" />}
                 label={`Gastei (${periodLabel})`}
                 value={brl(s.totalSpend)}
               />
               <MetricCard
-                icon={<span className="text-xl">💵</span>}
+                icon={<TrendingUp size={20} className="text-green-500" />}
                 label="Retorno gerado"
                 value={brl(s.totalRevenue)}
                 badge={roasBadge.label}
                 badgeColor={roasBadge.color}
               />
               <MetricCard
-                icon={<span className="text-xl">👆</span>}
+                icon={<Target size={20} className="text-blue-500" />}
                 label="Cliques"
                 value={n0(s.totalClicks)}
                 sub={s.totalCpc > 0 ? `${brl2(s.totalCpc)}/clique` : undefined}
               />
               <MetricCard
-                icon={<span className="text-xl">👥</span>}
+                icon={<Users size={20} className="text-purple-500" />}
                 label="Leads"
                 value={n0(s.totalLeads)}
                 sub={s.totalCpl > 0 ? `${brl2(s.totalCpl)}/lead` : undefined}
@@ -1159,8 +1161,9 @@ export default function TrafegoPage() {
                   )}
                 >
                   <div>
-                    <div className={cn('font-semibold text-sm', alert.tipo === 'danger' ? 'text-red-900' : 'text-amber-900')}>
-                      {alert.tipo === 'danger' ? '🔴' : '🟡'} {alert.campaign.nome}
+                    <div className={cn('font-semibold text-sm flex items-center gap-2', alert.tipo === 'danger' ? 'text-red-900' : 'text-amber-900')}>
+                      <span className={cn('w-2 h-2 rounded-full shrink-0', alert.tipo === 'danger' ? 'bg-red-500' : 'bg-amber-400')} />
+                      {alert.campaign.nome}
                     </div>
                     <div className={cn('text-sm mt-0.5', alert.tipo === 'danger' ? 'text-red-700' : 'text-amber-700')}>
                       {alert.mensagem}

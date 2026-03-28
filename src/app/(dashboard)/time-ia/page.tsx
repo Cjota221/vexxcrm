@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Bot, CheckCircle, XCircle, AlertTriangle, Sparkles,
   Copy, ChevronDown, ChevronUp, RefreshCw, Save,
-  Zap, Eye,
+  Zap, Eye, BarChart2, Brain, Search, Palette, MessageCircle,
+  Key, Store, Activity, PenSquare, Settings2, CheckSquare,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
 
@@ -91,21 +92,21 @@ function urgenciaBadge(urgencia: string) {
   return <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">Esta semana</span>;
 }
 
-function agentIcon(agent: string) {
-  const icons: Record<string, string> = {
-    jose: '📊',
-    claudio: '🧠',
-    pedro: '🔍',
-    judite: '🎨',
-    sentinela: '👁️',
+function agentIcon(agent: string): React.ReactNode {
+  const icons: Record<string, React.ReactNode> = {
+    jose:      <BarChart2 size={14} className="text-blue-500" />,
+    claudio:   <Brain size={14} className="text-purple-500" />,
+    pedro:     <Search size={14} className="text-orange-500" />,
+    judite:    <Palette size={14} className="text-pink-500" />,
+    sentinela: <Eye size={14} className="text-indigo-500" />,
   };
-  return icons[agent] || '🤖';
+  return icons[agent] || <Bot size={14} className="text-gray-500" />;
 }
 
 /* ─── Card de status de agente ───────────────────────────────────────────────── */
 
 interface AgentCardProps {
-  emoji: string;
+  icon: React.ReactNode;
   nome: string;
   funcao: string;
   modelo: string;
@@ -115,22 +116,28 @@ interface AgentCardProps {
   onConfigure?: () => void;
 }
 
-function AgentCard({ emoji, nome, funcao, modelo, ativo, configurado, metrica, onConfigure }: AgentCardProps) {
+function AgentCard({ icon, nome, funcao, modelo, ativo, configurado, metrica, onConfigure }: AgentCardProps) {
   const statusColor = !configurado ? 'border-yellow-300 bg-yellow-50' : ativo ? 'border-green-300 bg-green-50' : 'border-red-300 bg-red-50';
-  const dot = !configurado ? '🟡' : ativo ? '🟢' : '🔴';
+  const dotCls = !configurado ? 'bg-amber-400' : ativo ? 'bg-green-500' : 'bg-red-500';
   const label = !configurado ? 'Configurar' : ativo ? 'Ativo' : 'Inativo';
+  const labelCls = !configurado ? 'text-amber-700' : ativo ? 'text-green-700' : 'text-red-600';
 
   return (
     <div className={`rounded-xl border-2 p-4 flex flex-col gap-2 ${statusColor}`}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-2xl">{emoji}</span>
+          <div className="w-9 h-9 rounded-xl bg-white shadow-sm flex items-center justify-center shrink-0">
+            {icon}
+          </div>
           <div>
             <p className="font-semibold text-gray-900 text-sm">{nome}</p>
             <p className="text-xs text-gray-500">{modelo}</p>
           </div>
         </div>
-        <span className="text-xs font-medium">{dot} {label}</span>
+        <span className={`flex items-center gap-1 text-xs font-medium ${labelCls}`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${dotCls}`} />
+          {label}
+        </span>
       </div>
       <p className="text-xs text-gray-600">{funcao}</p>
       {metrica && <p className="text-xs font-medium text-gray-700">{metrica}</p>}
@@ -175,7 +182,7 @@ function ActionCard({ action, onApprove, onReject }: ActionCardProps) {
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
-            <span className="text-base">{agentIcon(action.agent)}</span>
+            <span className="flex items-center">{agentIcon(action.agent)}</span>
             <span className="font-medium text-gray-900 text-sm">
               {actionLabel(action.action_type, action.alvo_nome)}
             </span>
@@ -186,7 +193,7 @@ function ActionCard({ action, onApprove, onReject }: ActionCardProps) {
           {expanded && (
             <div className="mt-2 p-3 bg-gray-50 rounded-lg text-xs text-gray-600 space-y-1">
               <p><strong>Impacto esperado:</strong> {action.impacto_esperado}</p>
-              <p><strong>Sugerido por:</strong> {agentIcon(action.agent)} {action.agent}</p>
+              <p className="flex items-center gap-1"><strong>Sugerido por:</strong> {agentIcon(action.agent)} {action.agent}</p>
             </div>
           )}
         </div>
@@ -437,7 +444,7 @@ export default function TimeIAPage() {
       {/* Cards dos agentes */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
         <AgentCard
-          emoji="👩"
+          icon={<MessageCircle size={20} className="text-emerald-500" />}
           nome="Anne"
           funcao="Atendimento WhatsApp"
           modelo={agentStatus?.anne.model || 'llama-3.3-70b-versatile'}
@@ -446,7 +453,7 @@ export default function TimeIAPage() {
           metrica="Sempre ativa"
         />
         <AgentCard
-          emoji="📊"
+          icon={<BarChart2 size={20} className="text-blue-500" />}
           nome="José"
           funcao="Análise de métricas"
           modelo="gpt-4o-mini"
@@ -459,7 +466,7 @@ export default function TimeIAPage() {
               : undefined}
         />
         <AgentCard
-          emoji="🧠"
+          icon={<Brain size={20} className="text-purple-500" />}
           nome="Cláudio"
           funcao="Estratégia + Copies"
           modelo="claude-haiku-4-5"
@@ -468,7 +475,7 @@ export default function TimeIAPage() {
           metrica={copies.length > 0 ? `${copies.length} copies prontos` : undefined}
         />
         <AgentCard
-          emoji="🔍"
+          icon={<Search size={20} className="text-orange-500" />}
           nome="Pedro"
           funcao="Tendências de mercado"
           modelo="Perplexity Sonar"
@@ -476,7 +483,7 @@ export default function TimeIAPage() {
           configurado={agentStatus?.pedro.hasApiKey ?? false}
         />
         <AgentCard
-          emoji="🎨"
+          icon={<Palette size={20} className="text-pink-500" />}
           nome="Judite"
           funcao="Avaliação de criativos"
           modelo="Gemini 2.0 Flash"
@@ -489,19 +496,20 @@ export default function TimeIAPage() {
       <div className="border-b border-gray-200">
         <div className="flex gap-0">
           {([
-            { key: 'aprovacao', label: `✅ Fila de Aprovação`, count: actions.length },
-            { key: 'copies', label: `✍️ Copies do Cláudio`, count: copies.length },
-            { key: 'config', label: `⚙️ Configurações`, count: 0 },
+            { key: 'aprovacao', label: 'Fila de Aprovação', icon: <CheckSquare size={14} />, count: actions.length },
+            { key: 'copies',    label: 'Copies do Cláudio', icon: <PenSquare size={14} />,  count: copies.length },
+            { key: 'config',    label: 'Configurações',     icon: <Settings2 size={14} />,  count: 0 },
           ] as const).map(tab => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+              className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === tab.key
                   ? 'border-indigo-600 text-indigo-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
+              {tab.icon}
               {tab.label}
               {tab.count > 0 && (
                 <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-xs">
@@ -566,7 +574,7 @@ export default function TimeIAPage() {
 
           {/* API Keys */}
           <div className="border border-gray-200 rounded-xl p-5 space-y-4">
-            <h3 className="font-semibold text-gray-900">🔑 API Keys dos Agentes</h3>
+            <h3 className="font-semibold text-gray-900 flex items-center gap-2"><Key size={16} className="text-gray-500" /> API Keys dos Agentes</h3>
             <p className="text-xs text-gray-500">
               Cole a chave de cada IA abaixo. As keys ficam salvas com segurança no banco de dados.
               Campos em branco mantêm a key atual.
@@ -574,7 +582,7 @@ export default function TimeIAPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <label className="block">
-                <span className="text-sm font-medium text-gray-700">👩 Anne — Groq API Key <span className="text-xs text-green-600">(gratuita)</span></span>
+                <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5"><MessageCircle size={13} className="text-emerald-500" /> Anne — Groq API Key <span className="text-xs text-green-600">(gratuita)</span></span>
                 <p className="text-xs text-gray-400 mb-1">console.groq.com → API Keys</p>
                 <input
                   type="password"
@@ -586,7 +594,7 @@ export default function TimeIAPage() {
               </label>
 
               <label className="block">
-                <span className="text-sm font-medium text-gray-700">📊 José — OpenAI API Key</span>
+                <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5"><BarChart2 size={13} className="text-blue-500" /> José — OpenAI API Key</span>
                 <p className="text-xs text-gray-400 mb-1">platform.openai.com → API Keys</p>
                 <input
                   type="password"
@@ -598,7 +606,7 @@ export default function TimeIAPage() {
               </label>
 
               <label className="block">
-                <span className="text-sm font-medium text-gray-700">🧠 Cláudio — Anthropic API Key</span>
+                <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5"><Brain size={13} className="text-purple-500" /> Cláudio — Anthropic API Key</span>
                 <p className="text-xs text-gray-400 mb-1">console.anthropic.com → API Keys</p>
                 <input
                   type="password"
@@ -610,7 +618,7 @@ export default function TimeIAPage() {
               </label>
 
               <label className="block">
-                <span className="text-sm font-medium text-gray-700">🔍 Pedro — Perplexity API Key</span>
+                <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5"><Search size={13} className="text-orange-500" /> Pedro — Perplexity API Key</span>
                 <p className="text-xs text-gray-400 mb-1">perplexity.ai → Settings → API</p>
                 <input
                   type="password"
@@ -622,7 +630,7 @@ export default function TimeIAPage() {
               </label>
 
               <label className="block">
-                <span className="text-sm font-medium text-gray-700">🎨 Judite — Gemini API Key <span className="text-xs text-green-600">(gratuita)</span></span>
+                <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5"><Palette size={13} className="text-pink-500" /> Judite — Gemini API Key <span className="text-xs text-green-600">(gratuita)</span></span>
                 <p className="text-xs text-gray-400 mb-1">aistudio.google.com → Get API Key</p>
                 <input
                   type="password"
@@ -638,11 +646,11 @@ export default function TimeIAPage() {
           {/* Meta Ads */}
           <div className="border border-gray-200 rounded-xl p-5 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-gray-900">📊 Conta de Anúncios (Meta Ads)</h3>
+              <h3 className="font-semibold text-gray-900 flex items-center gap-2"><BarChart2 size={16} className="text-blue-500" /> Conta de Anúncios (Meta Ads)</h3>
               <span className="text-xs">
                 {agentStatus?.jose.metaConnected
-                  ? <span className="text-green-600">🟢 {agentStatus.jose.accountName || 'Conectado'}</span>
-                  : <span className="text-red-500">🔴 Não conectado{agentStatus?.jose.metaError ? ` — ${agentStatus.jose.metaError}` : ''}</span>}
+                  ? <span className="flex items-center gap-1.5 text-green-600"><span className="w-2 h-2 rounded-full bg-green-500" />{agentStatus.jose.accountName || 'Conectado'}</span>
+                  : <span className="flex items-center gap-1.5 text-red-500"><span className="w-2 h-2 rounded-full bg-red-500" />Não conectado{agentStatus?.jose.metaError ? ` — ${agentStatus.jose.metaError}` : ''}</span>}
               </span>
             </div>
 
@@ -675,7 +683,7 @@ export default function TimeIAPage() {
 
           {/* Contexto da marca */}
           <div className="border border-gray-200 rounded-xl p-5 space-y-4">
-            <h3 className="font-semibold text-gray-900">🏪 Contexto da Marca</h3>
+            <h3 className="font-semibold text-gray-900 flex items-center gap-2"><Store size={16} className="text-gray-500" /> Contexto da Marca</h3>
             <p className="text-xs text-gray-500">O Cláudio usa essas informações para gerar estratégias e copies relevantes.</p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -727,12 +735,12 @@ export default function TimeIAPage() {
 
           {/* Ativar agentes */}
           <div className="border border-gray-200 rounded-xl p-5 space-y-3">
-            <h3 className="font-semibold text-gray-900">⚡ Ativar Agentes</h3>
+            <h3 className="font-semibold text-gray-900 flex items-center gap-2"><Activity size={16} className="text-indigo-500" /> Ativar Agentes</h3>
             <div className="space-y-3">
               {([
-                { key: 'analysis_enabled', label: '📊 José + 🧠 Cláudio — Análise diária de Meta Ads', desc: 'Roda todo dia às 08h automaticamente' },
-                { key: 'research_enabled', label: '🔍 Pedro — Pesquisa de tendências', desc: 'Executa junto com a análise diária' },
-                { key: 'visual_enabled', label: '🎨 Judite — Avaliação de criativos', desc: 'Avalia imagens de anúncios na análise' },
+                { key: 'analysis_enabled', label: 'José + Cláudio — Análise diária de Meta Ads', desc: 'Roda todo dia às 08h automaticamente' },
+                { key: 'research_enabled', label: 'Pedro — Pesquisa de tendências', desc: 'Executa junto com a análise diária' },
+                { key: 'visual_enabled', label: 'Judite — Avaliação de criativos', desc: 'Avalia imagens de anúncios na análise' },
               ] as const).map(item => (
                 <label key={item.key} className="flex items-start gap-3 cursor-pointer group">
                   <div className="relative flex-shrink-0 mt-0.5">
