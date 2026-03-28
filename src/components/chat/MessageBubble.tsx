@@ -3,7 +3,7 @@
 import { useState, useCallback, memo } from 'react';
 import { cn } from '@/lib/utils';
 import { formatTime } from '@/lib/utils';
-import { Check, CheckCheck, Mic, Eye, AlertCircle, Clock, Copy, RotateCcw, Trash2, Pencil } from 'lucide-react';
+import { Check, CheckCheck, Mic, Eye, AlertCircle, Clock, Copy, RotateCcw, Trash2, Pencil, MapPin } from 'lucide-react';
 import { api } from '@/lib/api';
 import { parseMessageContent } from '@/lib/message-parser';
 import { AudioMessage } from './AudioMessage';
@@ -221,8 +221,72 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
           </div>
         )}
 
+        {/* Media content — Sticker (WebP animado ou estático) */}
+        {message.type === 'sticker' && currentMediaUrl && (
+          <div className="mb-1">
+            <MediaMessage
+              url={currentMediaUrl}
+              type="image"
+              isFromMe={isFromMe}
+              onRedownload={handleRedownload}
+              isRedownloading={isRedownloading}
+              mediaExpired={mediaExpired}
+            />
+          </div>
+        )}
+
+        {/* Media content — Localização */}
+        {message.type === 'location' && (
+          <div className="mb-1">
+            {(() => {
+              const lat = (message.metadata as any)?.latitude as number | undefined;
+              const lng = (message.metadata as any)?.longitude as number | undefined;
+              const locName = (message.metadata as any)?.location_name as string | undefined;
+              const locAddr = (message.metadata as any)?.location_address as string | undefined;
+              const mapsUrl = lat && lng
+                ? `https://www.google.com/maps?q=${lat},${lng}`
+                : null;
+              return (
+                <a
+                  href={mapsUrl ?? '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn(
+                    'flex items-start gap-2.5 rounded-xl px-3 py-2.5 max-w-65 transition-colors',
+                    isFromMe
+                      ? 'bg-black/5 hover:bg-black/10'
+                      : 'bg-white border border-gray-100 shadow-sm hover:bg-gray-50',
+                  )}
+                >
+                  <MapPin size={20} className={cn('mt-0.5 shrink-0', isFromMe ? 'text-green-600' : 'text-green-500')} />
+                  <div className="min-w-0">
+                    {locName && (
+                      <p className={cn('text-[13px] font-medium truncate', isFromMe ? 'text-[#111b21]' : 'text-[#111B21]')}>
+                        {locName}
+                      </p>
+                    )}
+                    {locAddr && (
+                      <p className={cn('text-[11px] truncate', isFromMe ? 'text-[#667781]' : 'text-gray-400')}>
+                        {locAddr}
+                      </p>
+                    )}
+                    {!locName && !locAddr && lat && lng && (
+                      <p className={cn('text-[13px] font-medium', isFromMe ? 'text-[#111b21]' : 'text-[#111B21]')}>
+                        {lat.toFixed(4)}, {lng.toFixed(4)}
+                      </p>
+                    )}
+                    <p className={cn('text-[11px] mt-0.5', isFromMe ? 'text-[#667781]' : 'text-gray-400')}>
+                      Toque para abrir no mapa
+                    </p>
+                  </div>
+                </a>
+              );
+            })()}
+          </div>
+        )}
+
         {/* Text content */}
-        {message.content && message.type !== 'image' && message.type !== 'video' && (
+        {message.content && message.type !== 'image' && message.type !== 'video' && message.type !== 'sticker' && message.type !== 'location' && (
           <>
             <p className="text-sm wrap-break-word leading-relaxed">
               {parseMessageContent(message.content)}

@@ -223,6 +223,7 @@ async function handleNewMessage(
   tenantId: string,
   payload: EvolutionWebhookPayload
 ) {
+  try {
   const { data } = payload;
   const remoteJid = data.key.remoteJid;
   const fromMe = data.key.fromMe;
@@ -252,11 +253,14 @@ async function handleNewMessage(
   const phoneDisplay = PhoneNormalizer.normalize(phone);
 
   const messageContent = data.message || {};
+  const locationMsg = messageContent.locationMessage;
+
   const text =
     messageContent.conversation ||
     messageContent.extendedTextMessage?.text ||
     messageContent.imageMessage?.caption ||
     messageContent.videoMessage?.caption ||
+    (locationMsg ? `📍 ${locationMsg.name || locationMsg.address || `${locationMsg.degreesLatitude},${locationMsg.degreesLongitude}`}` : '') ||
     '';
 
   let type: string = 'text';
@@ -265,6 +269,7 @@ async function handleNewMessage(
   else if (messageContent.audioMessage) type = 'audio';
   else if (messageContent.documentMessage) type = 'document';
   else if (messageContent.stickerMessage) type = 'sticker';
+  else if (locationMsg) type = 'location';
 
   // DEBUG: Log tipos de mídia recebidas
   if (type !== 'text') {
@@ -368,6 +373,9 @@ async function handleNewMessage(
   // Extrair URL de mídia (se disponível)
   let mediaUrl: string | undefined;
   let mimetype: string | undefined;
+  // Metadata extra para tipos especiais (localização, reply)
+  let extraMetadata: Record<string, unknown> | undefined;
+
   if (messageContent.imageMessage) {
     mediaUrl = messageContent.imageMessage.url || messageContent.imageMessage.directPath;
     mimetype = messageContent.imageMessage.mimetype;
@@ -380,7 +388,28 @@ async function handleNewMessage(
   } else if (messageContent.documentMessage) {
     mediaUrl = messageContent.documentMessage.url || messageContent.documentMessage.directPath;
     mimetype = messageContent.documentMessage.mimetype;
+  } else if (messageContent.stickerMessage) {
+    // Stickers têm URL igual às imagens
+    const sm = messageContent.stickerMessage as { url?: string; directPath?: string; mimetype?: string };
+    mediaUrl = sm.url || sm.directPath;
+    mimetype = sm.mimetype || 'image/webp';
+  } else if (locationMsg) {
+    // Localização: salvar coordenadas em metadata para exibição no mapa
+    extraMetadata = {
+      latitude: locationMsg.degreesLatitude,
+      longitude: locationMsg.degreesLongitude,
+      location_name: locationMsg.name || null,
+      location_address: locationMsg.address || null,
+    };
   }
+
+  // Reply/citação — salvar ID da mensagem citada para exibição em thread
+  const quotedMsgId = (messageContent.extendedTextMessage as any)?.contextInfo?.stanzaId ||
+    (messageContent.imageMessage as any)?.contextInfo?.stanzaId ||
+    (messageContent.videoMessage as any)?.contextInfo?.stanzaId ||
+    (messageContent.audioMessage as any)?.contextInfo?.stanzaId ||
+    (messageContent.documentMessage as any)?.contextInfo?.stanzaId ||
+    null;
 
   // ━━━ DOWNLOAD DE MÍDIA PARA STORAGE PERMANENTE ━━━
   // URLs do WhatsApp (mmg.whatsapp.net) expiram e retornam 403.
@@ -458,6 +487,18 @@ async function handleNewMessage(
     return;
   }
 
+  // Resolver reply_to_id pelo external_id da mensagem citada
+  let replyToId: string | null = null;
+  if (quotedMsgId) {
+    const { data: quoted } = await supabase
+      .from('messages')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('external_id', quotedMsgId)
+      .maybeSingle();
+    replyToId = quoted?.id || null;
+  }
+
   // Salvar mensagem (alinhado com schema SQL)
   const { data: savedMessage, error: msgError } = await supabase
     .from('messages')
@@ -473,6 +514,8 @@ async function handleNewMessage(
       type,
       media_url: mediaUrl || null,
       media_mime_type: mimetype || null,
+      reply_to_id: replyToId,
+      ...(extraMetadata ? { metadata: extraMetadata } : {}),
       status: fromMe ? 'sent' : 'delivered',
       created_at: data.messageTimestamp
         ? new Date(data.messageTimestamp * 1000).toISOString()
@@ -556,6 +599,9 @@ async function handleNewMessage(
       audioUrl: mediaUrl,
       clientPhone: phoneNormalized,
     }).catch(err => console.warn('[Webhook] Erro na transcrição de áudio:', err));
+  }
+  } catch (err) {
+    console.error('[Webhook] Erro crítico em handleNewMessage:', err);
   }
 }
 
@@ -1574,11 +1620,22 @@ async function handleReaction(
 ) {
   try {
     const { data } = payload;
-    const key = (data as { key?: { id?: string; fromMe?: boolean } }).key;
-    const reaction = (data as { reaction?: { text?: string } }).reaction;
+    const key = (data as { key?: { id?: string; fromMe?: boolean; remoteJid?: string } }).key;
+    const reaction = (data as { reaction?: { text?: string; key?: { remoteJid?: string; participant?: string } } }).reaction;
 
     if (!key?.id) return;
     const emoji = reaction?.text || '';
+
+    // Identificar quem reagiu: pode vir em reaction.key.remoteJid (individual) ou
+    // reaction.key.participant (grupos). Fallback: remoteJid da mensagem original.
+    const reactorRaw =
+      (reaction as any)?.key?.participant ||
+      (reaction as any)?.key?.remoteJid ||
+      key.remoteJid ||
+      '';
+    const reactorPhone = PhoneNormalizer.canonical(
+      reactorRaw.replace(/@s\.whatsapp\.net$/, '').replace(/@lid$/, '')
+    );
 
     if (emoji) {
       await supabase
@@ -1586,19 +1643,21 @@ async function handleReaction(
         .upsert({
           tenant_id: tenantId,
           message_id: key.id,
+          reactor_phone: reactorPhone,
           emoji,
           from_me: key.fromMe || false,
           updated_at: new Date().toISOString(),
-        }, { onConflict: 'tenant_id,message_id' });
+        }, { onConflict: 'tenant_id,message_id,reactor_phone' });
     } else {
-      // Reaction removido
+      // Reaction removido por este reactor
       await supabase
         .from('message_reactions')
         .delete()
         .eq('message_id', key.id)
-        .eq('tenant_id', tenantId);
+        .eq('tenant_id', tenantId)
+        .eq('reactor_phone', reactorPhone);
     }
-    console.log(`[Webhook] messages.reaction — ${emoji || 'removido'} em ${key.id}`);
+    console.log(`[Webhook] messages.reaction — ${emoji || 'removido'} de ${reactorPhone} em ${key.id}`);
   } catch (err) {
     console.warn('[Webhook] Erro messages.reaction:', err);
   }
@@ -1743,7 +1802,17 @@ async function handleCall(
       status: 'perdida',
     });
 
-    console.log(`[Webhook] call — Chamada ${c.isVideo ? 'vídeo' : 'voz'} de ${phone}`);
+    // Notificar operadoras em tempo real via SSE
+    const tipoLabel = c.isVideo ? 'vídeo' : 'voz';
+    eventBus.emitToTenant('anne_notification', tenantId, {
+      type: 'missed_call',
+      title: `📞 Chamada ${tipoLabel} perdida`,
+      message: `${phone} tentou ligar (chamada de ${tipoLabel})`,
+      phone,
+      timestamp: new Date().toISOString(),
+    });
+
+    console.log(`[Webhook] call — Chamada ${tipoLabel} de ${phone}`);
   } catch (err) {
     console.warn('[Webhook] Erro call:', err);
   }
@@ -1798,8 +1867,21 @@ async function handleGroupParticipants(
     const d = data as { id?: string; participants?: string[]; action?: string };
     if (!d.id) return;
 
-    // Fetch fresh participant count would require API call, just log for now
-    console.log(`[Webhook] group-participants.update — ${d.action}: ${d.participants?.length || 0} em ${d.id}`);
+    const action = d.action || '';
+    const count = d.participants?.length || 0;
+
+    // Calcular delta: add/promote = +N; remove/demote = -N
+    const delta = ['add', 'promote'].includes(action) ? count : -count;
+
+    if (delta !== 0) {
+      await supabase.rpc('increment_group_participants', {
+        p_tenant_id: tenantId,
+        p_group_jid: d.id,
+        p_delta: delta,
+      });
+    }
+
+    console.log(`[Webhook] group-participants.update — ${action}: ${count} participante(s) em ${d.id} (delta ${delta > 0 ? '+' : ''}${delta})`);
   } catch (err) {
     console.warn('[Webhook] Erro group-participants.update:', err);
   }

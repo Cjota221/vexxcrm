@@ -413,6 +413,7 @@ export interface EvolutionWebhookPayload {
       audioMessage?: { url?: string; directPath?: string; mimetype?: string; ptt?: boolean };
       documentMessage?: { url?: string; directPath?: string; fileName?: string; mimetype?: string };
       stickerMessage?: { url?: string; directPath?: string };
+      locationMessage?: { degreesLatitude?: number; degreesLongitude?: number; name?: string; address?: string };
     };
     messageTimestamp?: number;
     status?: string;

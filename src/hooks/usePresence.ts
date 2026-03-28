@@ -13,6 +13,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { useAuthStore } from '@/store/auth';
 
 type PresenceStatus = 'online' | 'typing' | 'recording' | 'offline' | null;
 
@@ -30,8 +31,24 @@ const STATUS_MAP: Record<string, PresenceStatus> = {
 export function usePresence(phone: string | null | undefined) {
   const [status, setStatus] = useState<PresenceStatus>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const tenantId = useAuthStore((s) => s.user?.tenant_id ?? null);
 
   const normalizedPhone = phone ? phone.replace(/\D/g, '') : null;
+
+  const applyPresence = useCallback((rawStatus: string, updatedAt: string) => {
+    const age = Date.now() - new Date(updatedAt).getTime();
+    if (age < 30_000) {
+      const mapped = STATUS_MAP[rawStatus] ?? null;
+      // Typing/recording expira em 15s
+      if ((mapped === 'typing' || mapped === 'recording') && age > 15_000) {
+        setStatus(null);
+      } else {
+        setStatus(mapped);
+      }
+    } else {
+      setStatus(null);
+    }
+  }, []);
 
   const fetchPresence = useCallback(async () => {
     if (!normalizedPhone) return;
@@ -44,25 +61,14 @@ export function usePresence(phone: string | null | undefined) {
         .maybeSingle();
 
       if (data) {
-        const age = Date.now() - new Date(data.updated_at).getTime();
-        if (age < 30_000) {
-          const mapped = STATUS_MAP[data.status] ?? null;
-          // Typing/recording expira em 15s
-          if ((mapped === 'typing' || mapped === 'recording') && age > 15_000) {
-            setStatus(null);
-          } else {
-            setStatus(mapped);
-          }
-        } else {
-          setStatus(null);
-        }
+        applyPresence(data.status, data.updated_at);
       } else {
         setStatus(null);
       }
     } catch {
       // silencioso
     }
-  }, [normalizedPhone]);
+  }, [normalizedPhone, applyPresence]);
 
   useEffect(() => {
     if (!normalizedPhone) {
@@ -73,8 +79,8 @@ export function usePresence(phone: string | null | undefined) {
     // Busca imediata
     fetchPresence();
 
-    // Polling a cada 3 segundos
-    intervalRef.current = setInterval(fetchPresence, 3_000);
+    // Polling a cada 5 segundos como fallback se Realtime não estiver disponível
+    intervalRef.current = setInterval(fetchPresence, 5_000);
 
     return () => {
       if (intervalRef.current) {
@@ -83,6 +89,31 @@ export function usePresence(phone: string | null | undefined) {
       }
     };
   }, [normalizedPhone, fetchPresence]);
+
+  // Realtime: atualização instantânea via WebSocket quando presença muda
+  useEffect(() => {
+    if (!normalizedPhone || !tenantId) return;
+
+    const channel = supabase
+      .channel(`presence-${tenantId}-${normalizedPhone}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'contact_presence',
+          filter: `phone=eq.${normalizedPhone}`,
+        },
+        (payload) => {
+          const raw = (payload.new ?? payload.old) as { status?: string; updated_at?: string } | null;
+          if (!raw?.status || !raw?.updated_at) return;
+          applyPresence(raw.status, raw.updated_at);
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [normalizedPhone, tenantId, applyPresence]);
 
   const label = status === 'typing'
     ? 'digitando...'
