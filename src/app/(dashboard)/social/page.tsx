@@ -692,63 +692,113 @@ function MetricasTab() {
 /* ─── Componente: Instagram Direct placeholder ─────────────────────────────── */
 
 function InstagramDirectTab() {
+  const [granted, setGranted] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    authFetch('/api/social/permissions')
+      .then(r => r.json())
+      .then((d: { granted?: string[] }) => setGranted(d.granted || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const REQUIRED = [
+    {
+      perm: 'instagram_basic',
+      label: 'Necessária para conectar conta Instagram',
+      items: ['Ver perfil e informações básicas', 'Identificar quem mandou mensagem', 'Vincular conta ao app'],
+    },
+    {
+      perm: 'instagram_manage_messages',
+      label: 'Receber e enviar mensagens no Direct',
+      items: ['Receber DMs do Instagram em tempo real', 'Responder Direct via API (Anne)', 'Webhook de mensagens Instagram'],
+    },
+  ];
+
+  const missing = REQUIRED.filter(p => !granted.includes(p.perm));
+  const allOk = !loading && missing.length === 0;
+
   return (
     <div className="space-y-4">
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
-        <div className="flex items-start gap-3">
-          <AlertTriangle size={20} className="text-amber-600 shrink-0 mt-0.5" />
+      {loading ? (
+        <div className="flex items-center justify-center py-8 text-gray-400 text-sm gap-2">
+          <Loader2 size={16} className="animate-spin" /> Verificando permissões...
+        </div>
+      ) : allOk ? (
+        <div className="bg-green-50 border border-green-200 rounded-xl p-5 flex items-start gap-3">
+          <CheckCircle size={20} className="text-green-600 shrink-0 mt-0.5" />
           <div>
-            <div className="font-semibold text-amber-900">2 permissões faltando para Instagram Direct</div>
-            <div className="text-sm text-amber-700 mt-1">
-              Para receber e responder DMs do Instagram via Anne, adicione estas permissões ao seu app Meta:
-            </div>
-            <div className="flex gap-2 mt-2 flex-wrap">
-              <span className="px-2.5 py-1 rounded-full bg-amber-200 text-amber-900 text-xs font-mono font-semibold">instagram_basic</span>
-              <span className="px-2.5 py-1 rounded-full bg-amber-200 text-amber-900 text-xs font-mono font-semibold">instagram_manage_messages</span>
+            <div className="font-semibold text-green-900">Instagram Direct configurado</div>
+            <div className="text-sm text-green-700 mt-1">
+              As permissões <span className="font-mono text-xs bg-green-200 px-1 rounded">instagram_basic</span> e{' '}
+              <span className="font-mono text-xs bg-green-200 px-1 rounded">instagram_manage_messages</span> estão ativas.
+              A Anne pode receber e responder DMs do Instagram.
             </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={20} className="text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-semibold text-amber-900">
+                {missing.length} permiss{missing.length === 1 ? 'ão faltando' : 'ões faltando'} para Instagram Direct
+              </div>
+              <div className="text-sm text-amber-700 mt-1">
+                Para receber e responder DMs do Instagram via Anne, adicione estas permissões ao seu app Meta:
+              </div>
+              <div className="flex gap-2 mt-2 flex-wrap">
+                {missing.map(p => (
+                  <span key={p.perm} className="px-2.5 py-1 rounded-full bg-amber-200 text-amber-900 text-xs font-mono font-semibold">
+                    {p.perm}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {[
-          {
-            perm: 'instagram_basic',
-            label: 'Necessária para conectar conta Instagram',
-            items: ['Ver perfil e informações básicas', 'Identificar quem mandou mensagem', 'Vincular conta ao app'],
-          },
-          {
-            perm: 'instagram_manage_messages',
-            label: 'Receber e enviar mensagens no Direct',
-            items: ['Receber DMs do Instagram em tempo real', 'Responder Direct via API (Anne)', 'Webhook de mensagens Instagram'],
-          },
-        ].map(({ perm, label, items }) => (
-          <div key={perm} className="bg-white rounded-xl border border-orange-200 p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 text-xs font-mono font-semibold">{perm}</span>
-              <span className="text-xs text-orange-600 font-medium">faltando</span>
+        {REQUIRED.map(({ perm, label, items }) => {
+          const ok = granted.includes(perm);
+          return (
+            <div key={perm} className={cn('bg-white rounded-xl border p-4', ok ? 'border-green-200' : 'border-orange-200')}>
+              <div className="flex items-center gap-2 mb-2">
+                <span className={cn('px-2 py-0.5 rounded-full text-xs font-mono font-semibold',
+                  ok ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
+                )}>{perm}</span>
+                {!loading && (
+                  <span className={cn('text-xs font-medium', ok ? 'text-green-600' : 'text-orange-600')}>
+                    {ok ? 'configurada' : 'faltando'}
+                  </span>
+                )}
+              </div>
+              <p className="text-sm text-gray-700 font-medium mb-2">{label}</p>
+              <ul className="space-y-1">
+                {items.map(item => (
+                  <li key={item} className="text-xs text-gray-500 flex items-start gap-1.5">
+                    <span className={cn('mt-0.5', ok ? 'text-green-400' : 'text-orange-400')}>•</span> {item}
+                  </li>
+                ))}
+              </ul>
             </div>
-            <p className="text-sm text-gray-700 font-medium mb-2">{label}</p>
-            <ul className="space-y-1">
-              {items.map(item => (
-                <li key={item} className="text-xs text-gray-500 flex items-start gap-1.5">
-                  <span className="text-orange-400 mt-0.5">•</span> {item}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm text-gray-600">
-        <strong>Como adicionar:</strong> Acesse{' '}
-        <span className="font-mono text-xs bg-gray-200 px-1 rounded">developers.facebook.com</span>
-        {' '}→ Seu App → Permissões e Recursos → busque{' '}
-        <span className="font-mono text-xs bg-gray-200 px-1 rounded">instagram_manage_messages</span>
-        {' '}e{' '}
-        <span className="font-mono text-xs bg-gray-200 px-1 rounded">instagram_basic</span>
-        {' '}→ Solicitar acesso.
-      </div>
+      {!allOk && !loading && (
+        <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm text-gray-600">
+          <strong>Como adicionar:</strong> Acesse{' '}
+          <span className="font-mono text-xs bg-gray-200 px-1 rounded">developers.facebook.com</span>
+          {' '}→ Seu App → Permissões e Recursos → busque{' '}
+          <span className="font-mono text-xs bg-gray-200 px-1 rounded">instagram_manage_messages</span>
+          {' '}e{' '}
+          <span className="font-mono text-xs bg-gray-200 px-1 rounded">instagram_basic</span>
+          {' '}→ Solicitar acesso.
+        </div>
+      )}
     </div>
   );
 }
