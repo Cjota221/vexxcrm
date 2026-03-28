@@ -5,7 +5,7 @@
 -- ─── 1. Configuração de provedores por tenant ────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS ai_provider_config (
-  tenant_id TEXT PRIMARY KEY,
+  tenant_id UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
 
   -- ANNE — Atendimento WhatsApp
   auto_reply_provider    TEXT NOT NULL DEFAULT 'groq',   -- groq | openai | anthropic | google
@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS ai_provider_config (
 
 CREATE TABLE IF NOT EXISTS ai_action_queue (
   id               UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  tenant_id        TEXT NOT NULL,
+  tenant_id        UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   agent            TEXT NOT NULL,       -- 'jose' | 'claudio' | 'pedro' | 'judite' | 'sentinela'
   action_type      TEXT NOT NULL,       -- 'pausar_anuncio' | 'escalar_orcamento' | 'criar_copy' | etc
   alvo_id          TEXT,                -- ID do anúncio/campanha no Meta
@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS ai_action_queue (
 
 CREATE TABLE IF NOT EXISTS ai_generated_copies (
   id                  UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  tenant_id           TEXT NOT NULL,
+  tenant_id           UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   headline            TEXT NOT NULL,        -- máx 40 chars
   texto_principal     TEXT NOT NULL,        -- máx 125 chars
   cta                 TEXT NOT NULL,        -- ex: "Comprar agora"
@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS ai_generated_copies (
 
 CREATE TABLE IF NOT EXISTS ai_analysis_runs (
   id                 UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  tenant_id          TEXT NOT NULL,
+  tenant_id          UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   date_range         TEXT NOT NULL DEFAULT 'last_7d',
   metrics_snapshot   JSONB,                  -- dados brutos do Meta
   analyst_output     JSONB,                  -- análise do José (GPT-4o-mini)
@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS ai_analysis_runs (
 
 CREATE TABLE IF NOT EXISTS sentinela_meta_alerts (
   id                    UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  tenant_id             TEXT NOT NULL,
+  tenant_id             UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   tipo                  TEXT NOT NULL,  -- 'gasto_alto' | 'roas_baixo' | 'ctr_baixo' | 'budget_proximo' | 'erro_api'
   severidade            TEXT NOT NULL DEFAULT 'media'
                         CHECK (severidade IN ('critica','alta','media','baixa')),
@@ -140,7 +140,7 @@ CREATE TABLE IF NOT EXISTS sentinela_meta_alerts (
 
 CREATE TABLE IF NOT EXISTS ai_visual_evaluations (
   id                UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  tenant_id         TEXT NOT NULL,
+  tenant_id         UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   ad_id             TEXT,               -- ad_id no Meta (se aplicável)
   ad_name           TEXT,
   image_url         TEXT NOT NULL,

@@ -415,7 +415,7 @@ export async function getAgentStatus(tenantId: string): Promise<{
   const lastRun = lastRunResult.data;
 
   // Testar conexão Meta (só se configurado)
-  let metaStatus = { ok: false, accountName: undefined as string | undefined };
+  let metaStatus: { ok: boolean; accountName?: string; error?: string } = { ok: false };
   if (config?.meta_access_token && config?.meta_ad_account_id) {
     metaStatus = await testMetaConnection({
       accessToken: config.meta_access_token,
