@@ -1,6 +1,19 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '@/lib/supabase';
+
+async function authFetch(url: string, options?: RequestInit): Promise<Response> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      ...(options?.headers ?? {}),
+    },
+  });
+}
 import {
   RefreshCw, TrendingUp, TrendingDown, AlertTriangle, CheckCircle,
   Clock, ChevronRight, ChevronLeft, Copy, Pause, Play, Users,
@@ -499,7 +512,7 @@ export default function TrafegoPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/trafego/metrics?period=${p}`);
+      const res = await authFetch(`/api/trafego/metrics?period=${p}`);
       if (!res.ok) throw new Error(`Erro ${res.status}`);
       const json = await res.json() as MetricsData;
       setData(json);
@@ -512,7 +525,7 @@ export default function TrafegoPage() {
 
   const loadCopies = useCallback(async () => {
     try {
-      const res = await fetch('/api/ai-team/copies?status=draft');
+      const res = await authFetch('/api/ai-team/copies?status=draft');
       if (!res.ok) return;
       const json = await res.json() as { data: typeof copies };
       setCopies(json.data || []);

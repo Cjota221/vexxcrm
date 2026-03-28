@@ -6,6 +6,20 @@ import {
   Copy, ChevronDown, ChevronUp, RefreshCw, Save,
   Zap, Eye,
 } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+
+/** Fetch autenticado — injeta Authorization: Bearer <token> do Supabase */
+async function authFetch(url: string, options?: RequestInit): Promise<Response> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      ...(options?.headers ?? {}),
+    },
+  });
+}
 
 /* ─── Tipos ────────────────────────────────────────────────────────────────── */
 
@@ -291,10 +305,10 @@ export default function TimeIAPage() {
   const loadData = useCallback(async () => {
     try {
       const [statusRes, actionsRes, copiesRes, configRes] = await Promise.all([
-        fetch('/api/ai-team/status'),
-        fetch('/api/ai-team/actions?status=pending_approval'),
-        fetch('/api/ai-team/copies?status=draft'),
-        fetch('/api/ai-team/config'),
+        authFetch('/api/ai-team/status'),
+        authFetch('/api/ai-team/actions?status=pending_approval'),
+        authFetch('/api/ai-team/copies?status=draft'),
+        authFetch('/api/ai-team/config'),
       ]);
 
       if (statusRes.ok) setAgentStatus(await statusRes.json());
@@ -322,27 +336,24 @@ export default function TimeIAPage() {
   useEffect(() => { loadData(); }, [loadData]);
 
   async function handleApprove(id: string) {
-    await fetch(`/api/ai-team/actions/${id}`, {
+    await authFetch(`/api/ai-team/actions/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'approved' }),
     });
     setActions(prev => prev.filter(a => a.id !== id));
   }
 
   async function handleReject(id: string) {
-    await fetch(`/api/ai-team/actions/${id}`, {
+    await authFetch(`/api/ai-team/actions/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'rejected' }),
     });
     setActions(prev => prev.filter(a => a.id !== id));
   }
 
   async function handleDiscardCopy(id: string) {
-    await fetch('/api/ai-team/copies', {
+    await authFetch('/api/ai-team/copies', {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, status: 'discarded' }),
     });
     setCopies(prev => prev.filter(c => c.id !== id));
@@ -351,9 +362,8 @@ export default function TimeIAPage() {
   async function handleSaveConfig() {
     setSavingConfig(true);
     try {
-      await fetch('/api/ai-team/config', {
+      await authFetch('/api/ai-team/config', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config),
       });
       setConfigSaved(true);
@@ -367,10 +377,7 @@ export default function TimeIAPage() {
   async function handleRunAnalysis() {
     setRunningAnalysis(true);
     try {
-      await fetch('/api/cron/ai-team', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
+      await authFetch('/api/cron/ai-team', { method: 'POST' });
       await new Promise(r => setTimeout(r, 2000)); // aguardar processamento
       await loadData();
     } finally {

@@ -26,7 +26,8 @@ export async function middleware(request: NextRequest) {
                            pathname.startsWith('/api/sse') ||
                            pathname.startsWith('/api/debug') ||
                            pathname.startsWith('/api/og') ||
-                           pathname.startsWith('/api/import');
+                           pathname.startsWith('/api/import') ||
+                           pathname.startsWith('/api/meta');  // webhooks Meta (leads, Instagram)
 
   // ─── PROTEÇÃO APENAS DE ROTAS DE API (não rotas de página) ───
   if (pathname.startsWith('/api') && !isPublicApiRoute) {
