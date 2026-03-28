@@ -77,7 +77,15 @@ export async function PUT(request: NextRequest) {
       }
     }
     for (const f of otherFields) {
-      if (f in body) fields[f] = body[f];
+      if (f in body) {
+        // Normalizar meta_ad_account_id: Meta exige prefixo "act_"
+        if (f === 'meta_ad_account_id' && body[f] && typeof body[f] === 'string') {
+          const raw = (body[f] as string).trim();
+          fields[f] = raw.startsWith('act_') ? raw : `act_${raw}`;
+        } else {
+          fields[f] = body[f];
+        }
+      }
     }
 
     const { error } = await supabase
