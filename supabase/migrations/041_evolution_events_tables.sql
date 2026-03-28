@@ -165,15 +165,15 @@ BEGIN
   END IF;
 END $$;
 
--- ─── 9. Coluna foto_perfil e nome_whatsapp em contacts ────────────────────
+-- ─── 9. Coluna foto_perfil e nome_whatsapp em clients ─────────────────────
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'contacts' AND column_name = 'nome_whatsapp') THEN
-    ALTER TABLE contacts ADD COLUMN nome_whatsapp TEXT;
+    WHERE table_name = 'clients' AND column_name = 'nome_whatsapp') THEN
+    ALTER TABLE clients ADD COLUMN nome_whatsapp TEXT;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'contacts' AND column_name = 'foto_perfil') THEN
-    ALTER TABLE contacts ADD COLUMN foto_perfil TEXT;
+    WHERE table_name = 'clients' AND column_name = 'foto_perfil') THEN
+    ALTER TABLE clients ADD COLUMN foto_perfil TEXT;
   END IF;
 END $$;
