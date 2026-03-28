@@ -44,7 +44,6 @@ interface Product {
   marca?: string;
   sku?: string;
   meta_item_id?: string;
-  meta_item_id?: string;
   sincronizado_em?: string;
   created_at: string;
 }
