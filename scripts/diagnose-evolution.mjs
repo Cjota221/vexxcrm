@@ -181,18 +181,22 @@ async function checkInstanceWebhook(instanceName) {
 
     enabled ? ok('Webhook habilitado') : fail('Webhook DESABILITADO', 'Execute /api/whatsapp/connect para reconfigurar');
 
+    // MESSAGES_REACTION não é enum válido na v2.3.7 — reactions chegam via MESSAGES_UPSERT
     const requiredEvents = [
-      'MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'MESSAGES_REACTION',
-      'MESSAGES_DELETE', 'PRESENCE_UPDATE', 'CONNECTION_UPDATE',
+      { name: 'MESSAGES_UPSERT',    desc: 'mensagens + reactions (v2.3.7)' },
+      { name: 'MESSAGES_UPDATE',    desc: 'status de entrega/leitura' },
+      { name: 'MESSAGES_DELETE',    desc: 'mensagens apagadas' },
+      { name: 'PRESENCE_UPDATE',    desc: 'digitando / gravando' },
+      { name: 'CONNECTION_UPDATE',  desc: 'status da conexão' },
     ];
 
     const eventsArr = Array.isArray(events) ? events : Object.keys(events).filter(k => events[k]);
 
-    for (const ev of requiredEvents) {
+    for (const { name: ev, desc } of requiredEvents) {
       const present = eventsArr.some(e => e.toUpperCase().replace('.', '_') === ev);
       present
-        ? ok(`  Evento ${ev}`)
-        : fail(`  Evento ${ev} ausente`, 'Reactions/presence/delete não funcionarão sem este evento');
+        ? ok(`  Evento ${ev}`, desc)
+        : fail(`  Evento ${ev} ausente`, desc);
     }
 
     info(`\n  Todos os eventos configurados: ${eventsArr.join(', ')}`);
