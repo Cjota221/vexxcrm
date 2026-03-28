@@ -37,6 +37,7 @@ import {
   Activity,
   MoreVertical,
   UserCheck,
+  Users,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
@@ -360,10 +361,14 @@ const ChatListItem = memo(function ChatListItem({
             {getInitials(chat.client.name)}
           </div>
         )}
-        {/* Dot de status online */}
-        {hasUnread && (
+        {/* Dot de status: grupo = roxo, unread = verde */}
+        {chat.is_group ? (
+          <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-violet-500 rounded-full border-2 border-white flex items-center justify-center">
+            <Users size={8} className="text-white" />
+          </span>
+        ) : hasUnread ? (
           <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white" />
-        )}
+        ) : null}
       </div>
 
       {/* Conteúdo */}
@@ -374,6 +379,7 @@ const ChatListItem = memo(function ChatListItem({
             'text-sm truncate leading-tight',
             hasUnread ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'
           )}>
+            {chat.is_group && <Users size={12} className="inline mr-1 text-violet-500" />}
             {chat.client.name}
           </p>
           <span className={cn(

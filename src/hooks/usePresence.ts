@@ -1,117 +1,115 @@
 'use client';
 
 /**
- * usePresence — Monitora presença (online / digitando / gravando) de contatos via SSE.
+ * usePresence — Monitora presença (online / digitando / gravando) via Supabase Realtime.
  *
  * Uso:
  *   const { status, label } = usePresence(phone);
  *   // status: 'online' | 'typing' | 'recording' | 'offline' | null
+ *
+ * Funciona via:
+ * 1. Leitura inicial da tabela contact_presence
+ * 2. Subscription Realtime para mudanças na tabela
+ * 3. Auto-expira status de typing/recording após 15s
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { supabase } from '@/lib/supabase';
 
 type PresenceStatus = 'online' | 'typing' | 'recording' | 'offline' | null;
 
-interface PresenceData {
-  phone: string;
-  jid: string;
-  status: PresenceStatus;
-  expires_at: number;
-}
-
-// Store global em memória para presença (sem re-renders desnecessários em outros componentes)
-const presenceStore = new Map<string, PresenceData>();
-const listeners = new Map<string, Set<() => void>>();
-
-function notifyListeners(phone: string) {
-  listeners.get(phone)?.forEach(cb => cb());
-}
-
-function getPresence(phone: string): PresenceStatus {
-  const data = presenceStore.get(phone);
-  if (!data) return null;
-  if (Date.now() > data.expires_at) {
-    presenceStore.delete(phone);
-    return null;
-  }
-  return data.status;
-}
-
-// Singleton SSE para presença — uma única conexão por aba
-let sseInstance: EventSource | null = null;
-let sseRefCount = 0;
-
-function getSseToken(): string | null {
-  // Tenta pegar o token do localStorage (padrão Supabase)
-  try {
-    const raw = localStorage.getItem('sb-auth-token') ||
-      Object.entries(localStorage)
-        .find(([k]) => k.startsWith('sb-') && k.endsWith('-auth-token'))?.[1];
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return parsed?.access_token || null;
-  } catch {
-    return null;
-  }
-}
-
-function startSSE() {
-  // ⚠️ SSE DESATIVADO — endpoint /api/sse retorna 204.
-  // Presença em tempo real não está disponível nesta versão.
-  return;
-}
-
-function stopSSE() {
-  sseInstance?.close();
-  sseInstance = null;
-}
+// Mapa de status da Evolution API para status do app
+const STATUS_MAP: Record<string, PresenceStatus> = {
+  available: 'online',
+  unavailable: 'offline',
+  composing: 'typing',
+  recording: 'recording',
+  paused: null,
+  online: 'online',
+  offline: 'offline',
+  typing: 'typing',
+};
 
 /**
  * Hook para observar presença de um número de telefone.
- * @param phone — telefone normalizado (apenas dígitos, com ou sem código do país)
+ * @param phone — telefone (com ou sem formatação)
  */
 export function usePresence(phone: string | null | undefined) {
   const [status, setStatus] = useState<PresenceStatus>(null);
-  const phoneRef = useRef<string | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Normalizar telefone para usar como chave
   const normalizedPhone = phone ? phone.replace(/\D/g, '') : null;
 
+  // Limpar timer de expiração
+  const clearExpiry = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  // Definir status com auto-expiração para typing/recording
+  const setPresenceStatus = useCallback((newStatus: PresenceStatus) => {
+    clearExpiry();
+    setStatus(newStatus);
+
+    // Typing e recording expiram após 15 segundos
+    if (newStatus === 'typing' || newStatus === 'recording') {
+      timerRef.current = setTimeout(() => {
+        setStatus(null);
+      }, 15_000);
+    }
+  }, [clearExpiry]);
+
   useEffect(() => {
-    if (!normalizedPhone) return;
-
-    phoneRef.current = normalizedPhone;
-    sseRefCount++;
-    startSSE();
-
-    // Registrar listener
-    if (!listeners.has(normalizedPhone)) {
-      listeners.set(normalizedPhone, new Set());
+    if (!normalizedPhone) {
+      setStatus(null);
+      return;
     }
 
-    const update = () => {
-      if (phoneRef.current === normalizedPhone) {
-        setStatus(getPresence(normalizedPhone));
-      }
-    };
+    // 1. Leitura inicial da tabela contact_presence
+    supabase
+      .from('contact_presence')
+      .select('status, updated_at')
+      .eq('phone', normalizedPhone)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          const age = Date.now() - new Date(data.updated_at).getTime();
+          // Só considerar se atualizado nos últimos 30 segundos
+          if (age < 30_000) {
+            const mapped = STATUS_MAP[data.status] ?? null;
+            setPresenceStatus(mapped);
+          }
+        }
+      });
 
-    listeners.get(normalizedPhone)!.add(update);
-
-    // Estado inicial
-    setStatus(getPresence(normalizedPhone));
+    // 2. Subscription Realtime para mudanças
+    const channel = supabase
+      .channel(`presence-${normalizedPhone}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'contact_presence',
+          filter: `phone=eq.${normalizedPhone}`,
+        },
+        (payload) => {
+          const row = (payload.new || {}) as { status?: string; updated_at?: string };
+          if (row.status) {
+            const mapped = STATUS_MAP[row.status] ?? null;
+            setPresenceStatus(mapped);
+          }
+        }
+      )
+      .subscribe();
 
     return () => {
-      listeners.get(normalizedPhone)?.delete(update);
-      if (listeners.get(normalizedPhone)?.size === 0) {
-        listeners.delete(normalizedPhone);
-      }
-      sseRefCount--;
-      if (sseRefCount <= 0) {
-        sseRefCount = 0;
-        stopSSE();
-      }
+      clearExpiry();
+      void supabase.removeChannel(channel);
     };
-  }, [normalizedPhone]);
+  }, [normalizedPhone, setPresenceStatus, clearExpiry]);
 
   const label = status === 'typing'
     ? 'digitando...'
