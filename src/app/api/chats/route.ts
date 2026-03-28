@@ -200,7 +200,59 @@ export async function GET(request: NextRequest) {
         };
       });
 
-    // 10. Calcular nextCursor usando last_message_at (campo usado na query .lt())
+    // 10. Enriquecer chats com etiquetas (conversation_labels + whatsapp_labels)
+    // Busca batch por phones — sem N+1
+    const phones = chats
+      .map((c: Record<string, unknown>) => {
+        const client = c.client as { phone_normalized?: string } | null;
+        return client?.phone_normalized || '';
+      })
+      .filter(Boolean);
+
+    if (phones.length > 0) {
+      const [labelRowsRes, ] = await Promise.all([
+        supabase
+          .from('conversation_labels')
+          .select('phone, label_id, label_name')
+          .eq('tenant_id', tenantId)
+          .in('phone', phones),
+      ]);
+
+      const labelRows = labelRowsRes.data || [];
+
+      if (labelRows.length > 0) {
+        const labelIds = [...new Set(labelRows.map((l: Record<string, unknown>) => l.label_id as string))];
+        const { data: colorRows } = await supabase
+          .from('whatsapp_labels')
+          .select('whatsapp_label_id, cor_hex, name')
+          .eq('tenant_id', tenantId)
+          .in('whatsapp_label_id', labelIds);
+
+        const colorMap = new Map<string, string>(
+          (colorRows || []).map((l: Record<string, unknown>) => [l.whatsapp_label_id as string, (l.cor_hex as string) || '#ABB8C3'])
+        );
+
+        const labelsPerPhone = new Map<string, Array<{ id: string; name: string; cor_hex: string }>>();
+        for (const row of labelRows) {
+          const r = row as { phone: string; label_id: string; label_name?: string };
+          if (!labelsPerPhone.has(r.phone)) labelsPerPhone.set(r.phone, []);
+          labelsPerPhone.get(r.phone)!.push({
+            id: r.label_id,
+            name: r.label_name || r.label_id,
+            cor_hex: colorMap.get(r.label_id) || '#ABB8C3',
+          });
+        }
+
+        for (let i = 0; i < chats.length; i++) {
+          const phone = (chats[i].client as { phone_normalized?: string }).phone_normalized || '';
+          if (phone && labelsPerPhone.has(phone)) {
+            (chats[i] as Record<string, unknown>).labels = labelsPerPhone.get(phone);
+          }
+        }
+      }
+    }
+
+    // 11. Calcular nextCursor usando last_message_at (campo usado na query .lt())
     const lastItem = chats[chats.length - 1];
     const nextCursor = hasMore && lastItem?._cursor ? lastItem._cursor : null;
 

@@ -37,10 +37,11 @@ CREATE TRIGGER trg_meta_audiences_updated_at
   FOR EACH ROW EXECUTE FUNCTION update_meta_audiences_updated_at();
 
 -- RLS: cada tenant só vê seus próprios públicos
+-- NOTA: meta_audiences.tenant_id é TEXT; profiles.tenant_id é UUID → cast ::text necessário
 ALTER TABLE meta_audiences ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "meta_audiences_tenant_isolation" ON meta_audiences;
 CREATE POLICY "meta_audiences_tenant_isolation" ON meta_audiences
   USING (tenant_id = (
-    SELECT p.tenant_id FROM profiles p WHERE p.id = auth.uid() LIMIT 1
+    SELECT p.tenant_id::text FROM profiles p WHERE p.id = auth.uid() LIMIT 1
   ));

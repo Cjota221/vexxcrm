@@ -176,6 +176,39 @@ export function useRealtimeMessages() {
       debouncedInvalidateChats();
     };
 
+    // Handler para UPDATEs em mensagens: status, deleted, edited
+    // Sem isso, ✓✓ azul, "Mensagem apagada" e "(editada)" nunca atualizam sozinhos
+    const handleMessageUpdate = (payload: { new: Record<string, unknown> }) => {
+      const raw = payload.new;
+      const clientId = raw.client_id as string | undefined;
+      const msgId = raw.id as string | undefined;
+      if (!clientId || !msgId) return;
+
+      queryClient.setQueryData<import('@/types').Message[]>(
+        ['messages', clientId],
+        (old) => {
+          if (!old) {
+            // Cache ainda não existe — forçar refetch
+            queryClient.invalidateQueries({ queryKey: ['messages', clientId] });
+            return old;
+          }
+          return old.map(m =>
+            m.id === msgId
+              ? {
+                  ...m,
+                  status: (raw.status as import('@/types').Message['status']) ?? m.status,
+                  content: (raw.content as string) ?? m.content,
+                  deleted: (raw.deleted as boolean) ?? (m as any).deleted,
+                  deleted_at: (raw.deleted_at as string) ?? (m as any).deleted_at,
+                  edited: (raw.edited as boolean) ?? (m as any).edited,
+                  edited_at: (raw.edited_at as string) ?? (m as any).edited_at,
+                }
+              : m
+          );
+        }
+      );
+    };
+
     // Usar filtro explícito por tenant_id quando possível.
     // Se migration 025 ainda não foi executada, o Supabase retorna CHANNEL_ERROR
     // com filtro → reconectar sem filtro (RLS cuida do isolamento).
@@ -187,6 +220,10 @@ export function useRealtimeMessages() {
     const msgConfig = usingFilter
       ? { event: 'INSERT' as const, schema: 'public', table: 'messages', filter: `tenant_id=eq.${tenantId}` }
       : { event: 'INSERT' as const, schema: 'public', table: 'messages' };
+
+    const msgUpdateConfig = usingFilter
+      ? { event: 'UPDATE' as const, schema: 'public', table: 'messages', filter: `tenant_id=eq.${tenantId}` }
+      : { event: 'UPDATE' as const, schema: 'public', table: 'messages' };
 
     const convConfig = usingFilter
       ? { event: 'UPDATE' as const, schema: 'public', table: 'conversations', filter: `tenant_id=eq.${tenantId}` }
@@ -201,6 +238,8 @@ export function useRealtimeMessages() {
     const channel = supabase
       .channel(channelName)
       .on('postgres_changes', msgConfig, handleNewMessage)
+      // UPDATE em messages: status (✓✓ azul), deleted, edited atualizam em tempo real
+      .on('postgres_changes', msgUpdateConfig, handleMessageUpdate)
       // ── UPDATE e INSERT em conversations: lista de chats reordena em tempo real
       .on('postgres_changes', convConfig, () => { debouncedInvalidateChats(); })
       .on('postgres_changes', convInsertConfig, () => { debouncedInvalidateChats(); })

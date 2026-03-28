@@ -1696,10 +1696,31 @@ async function handleContactUpdate(
       if (!phone || phone.length < 8) continue;
 
       const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-      if (c.name || c.notify) updates.nome_whatsapp = c.name || c.notify;
+      const displayName = c.name || c.notify;
+      if (displayName && !isInstanceName(displayName)) {
+        // Atualiza o nome principal (exibido na UI) apenas se não houver nome_manual
+        // e o nome não for da instância (blacklist)
+        updates.name = displayName;
+        updates.nome_whatsapp = displayName;
+      } else if (displayName) {
+        updates.nome_whatsapp = displayName; // guarda sempre mesmo que não promova para name
+      }
       if (c.imgUrl) updates.foto_perfil = c.imgUrl;
 
       const phoneNormalized = PhoneNormalizer.canonical(phone);
+
+      // Só atualizar `name` se o cliente não tiver um nome_manual definido
+      const { data: existing } = await supabase
+        .from('clients')
+        .select('nome_manual')
+        .eq('phone_normalized', phoneNormalized)
+        .eq('tenant_id', tenantId)
+        .single();
+
+      if (existing?.nome_manual) {
+        delete updates.name; // respeitar edição manual
+      }
+
       await supabase
         .from('clients')
         .update(updates)

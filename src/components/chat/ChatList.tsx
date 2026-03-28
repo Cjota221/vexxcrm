@@ -243,6 +243,24 @@ const ChatListItem = memo(function ChatListItem({ chat, isSelected, onSelect }: 
             </span>
           )}
         </div>
+        {/* Badges de etiqueta */}
+        {chat.labels && chat.labels.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1">
+            {chat.labels.slice(0, 3).map(label => (
+              <span
+                key={label.id}
+                className="inline-block text-[10px] px-1.5 py-0 rounded-full text-white font-medium leading-4 max-w-20 truncate"
+                style={{ backgroundColor: label.cor_hex || '#ABB8C3' }}
+                title={label.name}
+              >
+                {label.name}
+              </span>
+            ))}
+            {chat.labels.length > 3 && (
+              <span className="text-[10px] text-txt-muted">+{chat.labels.length - 3}</span>
+            )}
+          </div>
+        )}
       </div>
     </button>
   );

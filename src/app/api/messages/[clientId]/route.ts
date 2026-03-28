@@ -93,7 +93,11 @@ export async function GET(
         reply_to_id,
         metadata,
         is_from_bot,
-        created_at
+        created_at,
+        deleted,
+        deleted_at,
+        edited,
+        edited_at
       `)
       .eq('tenant_id', tenantId)
       .eq('conversation_id', conversation.id)
@@ -141,7 +145,32 @@ export async function GET(
       status: msg.status as Message['status'],
       metadata: msg.metadata || {},
       created_at: msg.created_at,
+      // Campos de edição/deleção (adicionados em migration 041)
+      deleted: (msg as Record<string, unknown>).deleted as boolean | undefined,
+      deleted_at: (msg as Record<string, unknown>).deleted_at as string | undefined,
+      edited: (msg as Record<string, unknown>).edited as boolean | undefined,
+      edited_at: (msg as Record<string, unknown>).edited_at as string | undefined,
+      // Reactions
+      reactions: reactionsMap.get(msg.id),
     }));
+
+    // 3b. Buscar reactions para estas mensagens (batch — sem N+1)
+    const messageIds = (messages || []).map(m => m.id);
+    const reactionsMap = new Map<string, Array<{ emoji: string; phone: string }>>();
+
+    if (messageIds.length > 0) {
+      const { data: reactionRows } = await supabase
+        .from('message_reactions')
+        .select('message_id, reactor_phone, emoji')
+        .eq('tenant_id', tenantId)
+        .in('message_id', messageIds);
+
+      for (const r of reactionRows || []) {
+        const row = r as { message_id: string; reactor_phone: string; emoji: string };
+        if (!reactionsMap.has(row.message_id)) reactionsMap.set(row.message_id, []);
+        reactionsMap.get(row.message_id)!.push({ emoji: row.emoji, phone: row.reactor_phone });
+      }
+    }
 
     // 4. Retornar IMEDIATAMENTE — marcar como lido em background (fire-and-forget)
     // CRÍTICO: não usar await aqui.

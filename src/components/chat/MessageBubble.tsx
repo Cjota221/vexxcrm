@@ -248,6 +248,37 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
           </div>
         )}
 
+        {/* Reactions — emoji com contador de pessoas */}
+        {message.reactions && message.reactions.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1.5">
+            {(() => {
+              // Agrupar reactions por emoji
+              const grouped = message.reactions.reduce<Record<string, string[]>>((acc, r) => {
+                if (!acc[r.emoji]) acc[r.emoji] = [];
+                acc[r.emoji].push(r.phone);
+                return acc;
+              }, {});
+              return Object.entries(grouped).map(([emoji, phones]) => (
+                <span
+                  key={emoji}
+                  title={`${phones.length} pessoa${phones.length > 1 ? 's' : ''}`}
+                  className={cn(
+                    'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[12px] border cursor-default select-none',
+                    isFromMe
+                      ? 'bg-black/5 border-black/10'
+                      : 'bg-white/80 border-gray-200'
+                  )}
+                >
+                  {emoji}
+                  {phones.length > 1 && (
+                    <span className="text-[10px] text-[#111b21]/50 font-medium">{phones.length}</span>
+                  )}
+                </span>
+              ));
+            })()}
+          </div>
+        )}
+
         {/* Timestamp + status */}
         <div className={cn(
           'flex items-center gap-1 mt-1',
@@ -288,5 +319,8 @@ export const MessageBubble = memo(MessageBubbleComponent, (prev, next) => (
   prev.message.status === next.message.status &&
   prev.message.content === next.message.content &&
   prev.message.media_url === next.message.media_url &&
-  (prev.message.metadata as any)?.transcription === (next.message.metadata as any)?.transcription
+  (prev.message as any).deleted === (next.message as any).deleted &&
+  (prev.message as any).edited === (next.message as any).edited &&
+  (prev.message.metadata as any)?.transcription === (next.message.metadata as any)?.transcription &&
+  JSON.stringify(prev.message.reactions) === JSON.stringify(next.message.reactions)
 ));
