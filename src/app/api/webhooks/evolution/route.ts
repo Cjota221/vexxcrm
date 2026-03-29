@@ -273,7 +273,7 @@ async function handleNewMessage(
   const phoneNormalized = PhoneNormalizer.canonical(phone);
   const phoneDisplay = PhoneNormalizer.normalize(phone);
 
-  const messageContent = data.message || {};
+  // messageContent já declarado acima (para detecção de reactionMessage)
   const locationMsg = messageContent.locationMessage;
 
   const text =
