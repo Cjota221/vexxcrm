@@ -1744,7 +1744,8 @@ async function handlePresencePersist(
     const jid = (data as { id?: string }).id;
     if (!jid) return;
 
-    const phone = jid.replace('@s.whatsapp.net', '');
+    const rawPhone = jid.replace('@s.whatsapp.net', '');
+    const phone = PhoneNormalizer.canonical(rawPhone);
     const presences = (data as { presences?: Record<string, { lastKnownPresence: string }> }).presences || {};
     const presenceKey = Object.keys(presences)[0];
     const status = presenceKey ? presences[presenceKey]?.lastKnownPresence : null;

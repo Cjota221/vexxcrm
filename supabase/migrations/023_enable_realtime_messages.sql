@@ -17,40 +17,34 @@
 -- Execute este script no Supabase Dashboard > SQL Editor
 -- ============================================================
 
--- 1. Habilitar REPLICA IDENTITY nas tabelas de tempo real
---    (seguro rodar mesmo se já estiver configurado)
-ALTER TABLE messages      REPLICA IDENTITY FULL;
-ALTER TABLE conversations REPLICA IDENTITY FULL;
-ALTER TABLE clients       REPLICA IDENTITY FULL;
-
--- 2. Adicionar tabelas à publicação do Supabase Realtime (idempotente)
---    Ignora silenciosamente se a tabela já for membro da publicação.
 DO $$
 BEGIN
-  -- messages
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_publication_tables
-    WHERE pubname = 'supabase_realtime' AND tablename = 'messages'
-  ) THEN
+  -- 1. REPLICA IDENTITY FULL (idempotente — não lança erro se já configurado)
+  ALTER TABLE messages      REPLICA IDENTITY FULL;
+  ALTER TABLE conversations REPLICA IDENTITY FULL;
+  ALTER TABLE clients       REPLICA IDENTITY FULL;
+
+  -- 2. Adicionar tabelas à publicação do Supabase Realtime
+  --    Captura duplicate_object (42710) para ser idempotente.
+
+  BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE messages;
-  END IF;
+  EXCEPTION WHEN duplicate_object THEN
+    NULL; -- já é membro, ok
+  END;
 
-  -- conversations
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_publication_tables
-    WHERE pubname = 'supabase_realtime' AND tablename = 'conversations'
-  ) THEN
+  BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE conversations;
-  END IF;
+  EXCEPTION WHEN duplicate_object THEN
+    NULL;
+  END;
 
-  -- clients
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_publication_tables
-    WHERE pubname = 'supabase_realtime' AND tablename = 'clients'
-  ) THEN
+  BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE clients;
-  END IF;
+  EXCEPTION WHEN duplicate_object THEN
+    NULL;
+  END;
 END $$;
 
--- 3. Verificar resultado (opcional — confirma quais tabelas estão ativas)
--- SELECT tablename FROM pg_publication_tables WHERE pubname = 'supabase_realtime' ORDER BY tablename;
+-- Verificar resultado
+SELECT tablename FROM pg_publication_tables WHERE pubname = 'supabase_realtime' ORDER BY tablename;
