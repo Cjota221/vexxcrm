@@ -229,8 +229,9 @@ async function handleNewMessage(
   // Evolution API v2.3.7: reactions chegam como messages.upsert com messageType=reactionMessage
   // Redirecionar para handleReaction em vez de salvar como mensagem normal
   const messageContent = data.message || {};
-  if (messageContent.reactionMessage) {
-    const rm = messageContent.reactionMessage as { key?: { id?: string; fromMe?: boolean; remoteJid?: string }; text?: string };
+  const msgAny = messageContent as Record<string, unknown>;
+  if ('reactionMessage' in msgAny && msgAny.reactionMessage) {
+    const rm = msgAny.reactionMessage as { key?: { id?: string; fromMe?: boolean; remoteJid?: string }; text?: string };
     // Reconstruir payload no formato esperado pelo handleReaction
     const reactionPayload = {
       ...payload,
