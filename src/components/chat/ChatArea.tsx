@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
-import { MessageCircle, Loader2, ArrowLeft, BookOpen, ArrowLeftRight, MoreVertical, History } from 'lucide-react';
+import { MessageCircle, Loader2, ArrowLeft, BookOpen, ArrowLeftRight, MoreVertical, History, Phone, User, Tag, StickyNote } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMessages, useSendMessage } from '@/hooks/useWhatsApp';
 import { useChatsStore } from '@/store/chats';
@@ -14,6 +14,7 @@ import { useAnneSuggestion } from '@/hooks/useAnneSuggestion';
 import { api } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
+import { useUIStore } from '@/store/ui';
 import type { Chat } from '@/types';
 import type { MessageType } from '@/types';
 
@@ -37,6 +38,7 @@ export function ChatArea({
   const { data: messages = [], isLoading, isFetching } = useMessages(selectedChatId);
   const { mutate: sendMessage, isPending: isSending } = useSendMessage();
   const queryClient = useQueryClient();
+  const { addToast } = useUIStore();
   const [isSyncing] = useState(false);
 
   // ── Anne Suggestion Card ──────────────────────────────────────────────────
@@ -191,7 +193,7 @@ export function ChatArea({
     if (!selectedChatId) return;
 
     if (!resolvedPhone) {
-      alert('Número do cliente ainda não carregado. Aguarde um momento e tente novamente.');
+      addToast({ type: 'warning', title: 'Aguarde', message: 'Número do cliente ainda não carregado. Tente novamente em instantes.' });
       return;
     }
 
@@ -208,7 +210,7 @@ export function ChatArea({
     if (!selectedChatId) return;
 
     if (!resolvedPhone) {
-      alert('Número do cliente ainda não carregado. Aguarde um momento e tente novamente.');
+      addToast({ type: 'warning', title: 'Aguarde', message: 'Número do cliente ainda não carregado. Tente novamente em instantes.' });
       return;
     }
 
@@ -254,23 +256,30 @@ export function ChatArea({
       });
     } catch (err) {
       console.error('[ChatArea] Erro ao enviar mídia:', err);
-      alert('Erro ao enviar arquivo. Tente novamente.');
+      addToast({ type: 'error', title: 'Erro no envio', message: 'Não foi possível enviar o arquivo. Tente novamente.' });
     }
   }, [selectedChatId, resolvedPhone, sendMessage]);
 
   // Estado vazio — nenhum chat selecionado
   if (!selectedChatId) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-wa-bg-conversation gap-3">
-        <div className="w-16 h-16 rounded-full bg-wa-bg-panel flex items-center justify-center">
-          <MessageCircle size={28} className="text-wa-text-secondary" />
+      <div className="flex-1 flex flex-col items-center justify-center bg-wa-bg-conversation gap-4 p-8">
+        <div className="w-20 h-20 rounded-2xl bg-wa-bg-panel flex items-center justify-center shadow-sm">
+          <MessageCircle size={32} className="text-crm-primary/40" />
         </div>
-        <p className="text-sm text-wa-text-secondary text-center max-w-xs leading-relaxed">
-          Selecione uma conversa para começar a atender seus clientes.
-        </p>
-        <p className="text-xs text-wa-text-secondary/60 hidden md:block">
-          Use <kbd className="px-1.5 py-0.5 bg-wa-bg-panel rounded text-xs">Ctrl+K</kbd> para buscar
-        </p>
+        <div className="text-center space-y-1">
+          <p className="text-sm font-semibold text-wa-text-primary">Nenhuma conversa selecionada</p>
+          <p className="text-xs text-wa-text-secondary max-w-xs leading-relaxed">
+            Escolha uma conversa na lista ao lado para começar a atender.
+          </p>
+        </div>
+        <div className="hidden md:flex items-center gap-3 mt-2">
+          <kbd className="px-2 py-1 bg-wa-bg-panel border border-wa-border rounded-lg text-[11px] text-wa-text-secondary font-mono shadow-sm">Ctrl+K</kbd>
+          <span className="text-xs text-wa-text-secondary">buscar conversa</span>
+          <span className="text-wa-border">·</span>
+          <kbd className="px-2 py-1 bg-wa-bg-panel border border-wa-border rounded-lg text-[11px] text-wa-text-secondary font-mono shadow-sm">J / K</kbd>
+          <span className="text-xs text-wa-text-secondary">navegar</span>
+        </div>
       </div>
     );
   }
@@ -352,45 +361,75 @@ export function ChatArea({
             size={40}
             rounded="full"
           />
-          {/* Bolinha verde de online */}
           {presenceStatus === 'online' && (
             <span className="absolute bottom-0 right-0 w-3 h-3 bg-[#25d366] rounded-full border-2 border-wa-bg-panel" />
           )}
         </div>
+
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-wa-text-primary truncate">
+          <p className="text-sm font-semibold text-wa-text-primary truncate leading-tight">
             {clientData?.name || 'Cliente'}
           </p>
-          {/* Presença: digitando / gravando / online / telefone */}
           {presenceLabel ? (
             <p className={cn(
-              'text-xs truncate animate-pulse',
+              'text-xs truncate',
               presenceStatus === 'typing' || presenceStatus === 'recording'
-                ? 'text-[#25d366]'
+                ? 'text-[#25d366] animate-pulse font-medium'
                 : 'text-wa-text-secondary'
             )}>
               {presenceLabel}
             </p>
-          ) : (
-            <p className="text-xs text-wa-text-secondary truncate">
-              {clientData?.phone || ''}
+          ) : clientData?.phone ? (
+            <p className="text-xs text-wa-text-secondary truncate flex items-center gap-1">
+              <Phone size={10} className="shrink-0" />
+              {clientData.phone}
             </p>
+          ) : null}
+        </div>
+
+        {/* Indicadores de estado discretos */}
+        <div className="flex items-center gap-2 shrink-0">
+          {(isSyncing || (isFetching && !isLoading)) && (
+            <div className="flex items-center gap-1 text-[10px] text-wa-text-secondary">
+              <Loader2 size={11} className="animate-spin text-wa-accent-green" />
+              <span className="hidden lg:inline">sincronizando</span>
+            </div>
+          )}
+          {isLoadingHistory && (
+            <div className="flex items-center gap-1 text-[10px] text-wa-text-secondary">
+              <History size={11} className="animate-pulse" />
+              <span className="hidden lg:inline">histórico</span>
+            </div>
           )}
         </div>
-        {/* Indicador de sincronização discreto */}
-        {(isSyncing || (isFetching && !isLoading)) && (
-          <div className="flex items-center gap-1.5 text-xs text-wa-text-secondary shrink-0">
-            <Loader2 size={12} className="animate-spin text-wa-accent-green" />
-            <span className="hidden sm:inline text-[10px]">sincronizando</span>
-          </div>
-        )}
-        {/* Indicador de carregamento do histórico */}
-        {isLoadingHistory && (
-          <div className="flex items-center gap-1.5 text-xs text-wa-text-secondary shrink-0">
-            <History size={12} className="animate-pulse text-wa-text-secondary/70" />
-            <span className="hidden sm:inline text-[10px]">carregando histórico</span>
-          </div>
-        )}
+
+        {/* Ações rápidas */}
+        <div className="flex items-center gap-0.5 shrink-0">
+          {onOpenCatalog && (
+            <button
+              onClick={onOpenCatalog}
+              title="Catálogo de produtos"
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-wa-text-secondary hover:text-wa-text-primary hover:bg-wa-bg-conversation transition-colors"
+            >
+              <BookOpen size={16} />
+            </button>
+          )}
+          {onOpenTransfer && (
+            <button
+              onClick={onOpenTransfer}
+              title="Transferir conversa"
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-wa-text-secondary hover:text-wa-text-primary hover:bg-wa-bg-conversation transition-colors"
+            >
+              <ArrowLeftRight size={16} />
+            </button>
+          )}
+          <button
+            title="Ver perfil do cliente"
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-wa-text-secondary hover:text-wa-text-primary hover:bg-wa-bg-conversation transition-colors"
+          >
+            <User size={16} />
+          </button>
+        </div>
       </div>
 
       {/* Messages area — virtualizada */}

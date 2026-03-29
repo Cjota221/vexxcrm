@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { ConversationSidebar } from '@/components/contact-center/ConversationSidebar';
 import { ChatArea } from '@/components/chat/ChatArea';
 import { ClientBrainSidebar } from '@/components/crm/ClientBrainSidebar';
@@ -17,6 +17,7 @@ import { useWhatsAppConnection } from '@/hooks/useWhatsApp';
 import { useChatsStore } from '@/store/chats';
 import { useAuthStore } from '@/store/auth';
 import { useConnectionStore } from '@/store/connection';
+import { useQueryClient } from '@tanstack/react-query';
 import { getInitials } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import { useDebounce } from '@/hooks/useDebounce';
@@ -67,18 +68,26 @@ function NavBtn({
   );
 }
 
-/* ─── Dot de conexão WhatsApp ─────────────────────────────────── */
+/* ─── Dot de conexão WhatsApp — indicador sobreposto ao logo ─── */
 
 function ConnectionDot() {
   const { whatsappStatus } = useConnectionStore();
   const cfg = {
     connected:    { dot: 'bg-emerald-500',              title: 'WhatsApp conectado' },
     connecting:   { dot: 'bg-amber-400 animate-pulse',  title: 'Conectando...' },
-    disconnected: { dot: 'bg-red-500',                  title: 'Desconectado' },
-    unknown:      { dot: 'bg-gray-400 animate-pulse',   title: 'Verificando...' },
+    disconnected: { dot: 'bg-red-500 animate-pulse',    title: 'WhatsApp desconectado' },
+    unknown:      { dot: 'bg-gray-400 animate-pulse',   title: 'Verificando conexão...' },
   }[whatsappStatus];
 
-  return <span title={cfg.title} className={cn('w-2.5 h-2.5 rounded-full shrink-0', cfg.dot)} />;
+  return (
+    <span
+      title={cfg.title}
+      className={cn(
+        'absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white shrink-0',
+        cfg.dot
+      )}
+    />
+  );
 }
 
 /**
@@ -94,7 +103,7 @@ export default function CentralAtendimentoPage() {
   useRealtimeMessages();
   useWhatsAppConnection(); // mantém whatsappStatus atualizado (connected/disconnected)
 
-  const { selectedChatId, setSearchQuery } = useChatsStore();
+  const { selectedChatId, setSearchQuery, selectChat } = useChatsStore();
   const { user } = useAuthStore();
 
   const [kanbanOpen, setKanbanOpen] = useState(false);
@@ -142,44 +151,113 @@ export default function CentralAtendimentoPage() {
     setSearchQuery('');
   }, [setSearchQuery]);
 
+  // ── Navegação por teclado entre conversas ──────────────────────────
+  const queryClient = useQueryClient();
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable;
+
+      // Ctrl+K — abrir busca (qualquer contexto)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setSearchOpen(true);
+        return;
+      }
+
+      // Escape — fechar painéis / busca
+      if (e.key === 'Escape') {
+        if (searchOpen) { handleSearchClose(); return; }
+        if (kanbanOpen) { setKanbanOpen(false); return; }
+        if (catalogOpen) { setCatalogOpen(false); return; }
+        if (transferOpen) { setTransferOpen(false); return; }
+        if (campaignOpen) { setCampaignOpen(false); return; }
+        if (statusOpen) { setStatusOpen(false); return; }
+        return;
+      }
+
+      // J/K — navegar entre conversas (só fora de input)
+      if (!isInput && (e.key === 'j' || e.key === 'k')) {
+        // Ler IDs do cache do React Query (não dispara fetch)
+        const cached = queryClient.getQueryData<{ pages: { data: { client?: { id?: string } }[] }[] }>(
+          ['chats', 'all', undefined]
+        );
+        const ids = cached?.pages.flatMap(p => p.data ?? [])
+          .map(c => c.client?.id)
+          .filter(Boolean) as string[] | undefined;
+        if (!ids || ids.length === 0) return;
+        e.preventDefault();
+        const cur = ids.indexOf(selectedChatId ?? '');
+        const next = e.key === 'j'
+          ? Math.min(cur + 1, ids.length - 1)
+          : Math.max(cur - 1, 0);
+        const nextId = ids[next];
+        if (nextId && nextId !== selectedChatId) {
+          selectChat(nextId);
+          setMobileView('chat');
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [
+    searchOpen, handleSearchClose,
+    kanbanOpen, catalogOpen, transferOpen, campaignOpen, statusOpen,
+    selectedChatId, selectChat, queryClient,
+  ]);
+
   return (
     <div className="flex flex-col h-full bg-white overflow-hidden max-w-[100vw]">
 
       {/* ━━━ HEADER DESKTOP — oculto em mobile ━━━ */}
-      <header className="hidden md:flex h-14 shrink-0 bg-white border-b border-gray-100 items-center px-5 z-20" style={{ boxShadow: '0 1px 0 #e5e7eb' }}>
+      <header className="hidden md:flex h-14 shrink-0 bg-white border-b border-gray-100 items-center px-4 z-20 gap-3">
 
-        {/* ZONA ESQUERDA — marca (sem width fixo, não rouba espaço do centro) */}
-        <div className="flex items-center gap-2 shrink-0">
-          <ConnectionDot />
-          <div className="flex items-center gap-2">
+        {/* ZONA ESQUERDA */}
+        <div className="flex items-center gap-2.5 shrink-0 min-w-0">
+          <div className="relative">
             <div className="w-8 h-8 rounded-xl bg-crm-primary flex items-center justify-center shadow-sm shrink-0">
               <span className="text-[11px] font-black text-white tracking-tight">VX</span>
             </div>
-            {/* Título abreviado em md, completo em lg+ */}
-            <span className="text-sm font-bold text-gray-900 lg:hidden">Central</span>
-            <span className="text-sm font-bold text-gray-900 hidden lg:block">Central de Atendimento</span>
+            <ConnectionDot />
           </div>
+          <div className="hidden lg:block leading-tight">
+            <p className="text-xs font-bold text-gray-900 tracking-tight">Central de Atendimento</p>
+            <p className="text-[10px] text-gray-400">VEXX CRM</p>
+          </div>
+          <span className="text-xs font-bold text-gray-900 lg:hidden">Central</span>
         </div>
 
-        {/* ZONA CENTRAL — navegação principal (flex-1 + overflow para nunca sobrepor as laterais) */}
-        <nav className="flex items-center gap-0.5 flex-1 justify-center overflow-x-auto scrollbar-none min-w-0 px-2">
+        <div className="w-px h-6 bg-gray-100 shrink-0" />
+
+        {/* ZONA CENTRAL */}
+        <nav className="flex items-center gap-0.5 flex-1 justify-start overflow-x-auto scrollbar-none min-w-0">
           {searchOpen ? (
-            <div className="flex items-center gap-2 w-56 lg:w-80 px-3 py-2 bg-gray-50 border border-crm-primary/40 rounded-xl shadow-sm shrink-0">
-              <Search size={14} className="text-crm-primary shrink-0" />
+            <div className="flex items-center gap-2 w-56 lg:w-72 px-3 py-1.5 bg-gray-50 border border-crm-primary/40 rounded-xl shadow-sm shrink-0">
+              <Search size={13} className="text-crm-primary shrink-0" />
               <input
                 autoFocus
                 value={globalSearch}
                 onChange={e => handleSearchChange(e.target.value)}
                 onKeyDown={e => e.key === 'Escape' && handleSearchClose()}
-                placeholder="Nome, telefone, tag..."
+                placeholder="Nome, telefone ou tag..."
                 className="flex-1 text-sm bg-transparent outline-none text-gray-800 placeholder:text-gray-400 min-w-0"
               />
-              <button onClick={handleSearchClose} className="text-gray-400 hover:text-gray-600 shrink-0 p-0.5">
-                <X size={13} />
-              </button>
+              <div className="flex items-center gap-1 shrink-0">
+                <kbd className="hidden lg:block px-1 py-0.5 bg-gray-200 text-gray-500 text-[9px] rounded font-mono">Esc</kbd>
+                <button onClick={handleSearchClose} className="text-gray-400 hover:text-gray-600 p-0.5">
+                  <X size={13} />
+                </button>
+              </div>
             </div>
           ) : (
-            <NavBtn icon={<Search size={15} />} label="Buscar" onClick={() => setSearchOpen(true)} />
+            <NavBtn
+              icon={<Search size={15} />}
+              label="Buscar"
+              onClick={() => setSearchOpen(true)}
+            />
           )}
 
           <NavBtn icon={<Megaphone size={15} />} label="Campanhas" onClick={() => setCampaignOpen(true)} />
@@ -195,31 +273,37 @@ export default function CentralAtendimentoPage() {
           )}
         </nav>
 
-        {/* ZONA DIREITA — ações + perfil (sem width fixo, não rouba espaço do centro) */}
-        <div className="flex items-center gap-1 justify-end shrink-0">
-          <NavBtn icon={<Brain size={15} />} label="Cérebro" active={rightSidebarTab === 'brain'} onClick={() => setRightSidebarTab(v => v === 'brain' ? null : 'brain')} />
-          <NavBtn icon={<Zap size={15} />} label="Rápidas" active={rightSidebarTab === 'quick-messages'} onClick={() => setRightSidebarTab(v => v === 'quick-messages' ? null : 'quick-messages')} />
-          <NavBtn icon={<Shield size={15} />} label="Sentinela" active={rightSidebarTab === 'sentinela'} onClick={() => setRightSidebarTab(v => v === 'sentinela' ? null : 'sentinela')} />
-
-          <div className="w-px h-5 bg-gray-200 mx-1" />
-
-          <button className="relative p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
-            <Bell size={17} />
-            <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">3</span>
-          </button>
-
-          <div className="flex items-center gap-2.5 pl-2 border-l border-gray-100">
-            <div className="w-8 h-8 rounded-full bg-crm-primary flex items-center justify-center overflow-hidden shrink-0 ring-2 ring-crm-primary/10">
-              {user?.avatar_url
-                ? <img src={user.avatar_url} alt={user.name} className="w-full h-full object-cover" />
-                : <span className="text-white text-xs font-bold">{user ? getInitials(user.name) : 'U'}</span>
-              }
-            </div>
-            <div className="hidden lg:block leading-tight">
-              <p className="text-xs font-semibold text-gray-900 truncate max-w-28">{user?.name ?? '—'}</p>
-              <p className="text-[10px] text-gray-400 capitalize">{user?.role ?? ''}</p>
-            </div>
+        {/* ZONA DIREITA */}
+        <div className="flex items-center gap-1 shrink-0">
+          {/* Painéis direitos */}
+          <div className="flex items-center gap-0.5 mr-1">
+            <NavBtn icon={<Brain size={15} />} label="Cérebro" active={rightSidebarTab === 'brain'} onClick={() => setRightSidebarTab(v => v === 'brain' ? null : 'brain')} />
+            <NavBtn icon={<Zap size={15} />} label="Rápidas" active={rightSidebarTab === 'quick-messages'} onClick={() => setRightSidebarTab(v => v === 'quick-messages' ? null : 'quick-messages')} />
+            <NavBtn icon={<Shield size={15} />} label="Sentinela" active={rightSidebarTab === 'sentinela'} onClick={() => setRightSidebarTab(v => v === 'sentinela' ? null : 'sentinela')} />
           </div>
+
+          <div className="w-px h-5 bg-gray-100" />
+
+          {/* Perfil do usuário */}
+          <button
+            onClick={() => setStatusOpen(true)}
+            className="flex items-center gap-2 pl-2 hover:bg-gray-50 rounded-xl px-2 py-1.5 transition-colors group"
+            title="Meu status"
+          >
+            <div className="relative">
+              <div className="w-8 h-8 rounded-full bg-crm-primary flex items-center justify-center overflow-hidden shrink-0 ring-2 ring-crm-primary/15">
+                {user?.avatar_url
+                  ? <img src={user.avatar_url} alt={user.name} className="w-full h-full object-cover" />
+                  : <span className="text-white text-xs font-bold">{user ? getInitials(user.name) : 'U'}</span>
+                }
+              </div>
+              <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white" />
+            </div>
+            <div className="hidden lg:block leading-tight text-left">
+              <p className="text-xs font-semibold text-gray-900 truncate max-w-24">{user?.name ?? '—'}</p>
+              <p className="text-[10px] text-emerald-600 font-medium capitalize">online</p>
+            </div>
+          </button>
         </div>
       </header>
 
@@ -287,72 +371,31 @@ export default function CentralAtendimentoPage() {
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       {selectedChatId && mobileView === 'chat' && (
         <div className="md:hidden">
-          {/* Aba colada na borda direita */}
-          <div className="fixed right-0 top-1/2 -translate-y-1/2 z-40 flex flex-col gap-0 overflow-hidden rounded-l-2xl shadow-lg">
-            {/* Botão Cérebro */}
-            <button
-              onClick={() => setMobileSidePanel(p => p === 'brain' ? null : 'brain')}
-              className={cn(
-                'flex flex-col items-center justify-center gap-1 px-2.5 py-3 transition-colors',
-                mobileSidePanel === 'brain'
-                  ? 'bg-crm-primary text-white'
-                  : 'bg-white/95 text-crm-primary border-b border-gray-100',
-              )}
-              title="Cérebro do Cliente"
-            >
-              <Brain size={18} />
-              <span className="text-[9px] font-bold leading-none tracking-wide" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
-                Cérebro
-              </span>
-            </button>
-            {/* Botão Mensagens Rápidas */}
-            <button
-              onClick={() => setMobileSidePanel(p => p === 'quick-messages' ? null : 'quick-messages')}
-              className={cn(
-                'flex flex-col items-center justify-center gap-1 px-2.5 py-3 transition-colors border-b border-gray-100',
-                mobileSidePanel === 'quick-messages'
-                  ? 'bg-crm-primary text-white'
-                  : 'bg-white/95 text-crm-primary',
-              )}
-              title="Mensagens Rápidas"
-            >
-              <Zap size={18} />
-              <span className="text-[9px] font-bold leading-none tracking-wide" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
-                Rápidas
-              </span>
-            </button>
-            {/* Botão Anne */}
-            <button
-              onClick={() => setMobileSidePanel(p => p === 'anne' ? null : 'anne')}
-              className={cn(
-                'flex flex-col items-center justify-center gap-1 px-2.5 py-3 transition-colors border-b border-gray-100',
-                mobileSidePanel === 'anne'
-                  ? 'bg-crm-primary text-white'
-                  : 'bg-white/95 text-crm-primary',
-              )}
-              title="Anne — IA"
-            >
-              <Bot size={18} />
-              <span className="text-[9px] font-bold leading-none tracking-wide" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
-                Anne
-              </span>
-            </button>
-            {/* Botão Sentinela */}
-            <button
-              onClick={() => setMobileSidePanel(p => p === 'sentinela' ? null : 'sentinela')}
-              className={cn(
-                'flex flex-col items-center justify-center gap-1 px-2.5 py-3 transition-colors',
-                mobileSidePanel === 'sentinela'
-                  ? 'bg-crm-primary text-white'
-                  : 'bg-white/95 text-crm-primary',
-              )}
-              title="Sentinela"
-            >
-              <Shield size={18} />
-              <span className="text-[9px] font-bold leading-none tracking-wide" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
-                Sentinela
-              </span>
-            </button>
+          {/* Aba colada na borda direita — botões compactos com ícone apenas */}
+          <div className="fixed right-0 top-1/2 -translate-y-1/2 z-40 flex flex-col gap-1 p-1 bg-white/95 backdrop-blur-sm rounded-l-2xl shadow-lg border border-gray-100">
+            {(
+              [
+                { key: 'brain',         icon: <Brain size={18} />,  label: 'Cérebro'  },
+                { key: 'quick-messages', icon: <Zap size={18} />,    label: 'Rápidas'  },
+                { key: 'anne',          icon: <Bot size={18} />,    label: 'Anne'     },
+                { key: 'sentinela',     icon: <Shield size={18} />, label: 'Sentinela'},
+              ] as const
+            ).map(({ key, icon, label }) => (
+              <button
+                key={key}
+                onClick={() => setMobileSidePanel(p => p === key ? null : key)}
+                title={label}
+                aria-label={label}
+                className={cn(
+                  'w-10 h-10 flex items-center justify-center rounded-xl transition-all active:scale-95',
+                  mobileSidePanel === key
+                    ? 'bg-crm-primary text-white shadow-sm'
+                    : 'text-crm-primary hover:bg-crm-primary/10',
+                )}
+              >
+                {icon}
+              </button>
+            ))}
           </div>
 
           {/* Drawer lateral — desliza da direita */}
