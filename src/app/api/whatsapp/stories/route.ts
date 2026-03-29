@@ -36,25 +36,20 @@ export async function POST(request: NextRequest) {
         type: 'text',
         content: body.content,
         backgroundColor: body.background_color || '#1e3a5f',
-        font: body.font ?? 0,
+        font: body.font ?? 1,  // 0 é inválido na v2 — range válido: 1-5
         allContacts: true,
-        statusJidList: [],
       };
     } else {
       if (!body.media_url) {
         return NextResponse.json({ error: 'URL da mídia é obrigatória' }, { status: 400 });
       }
-      // Evolution API v2 DTO: `content` é sempre o campo da mídia.
-      // Para imagem/vídeo, `content` recebe a URL pública.
-      // `type` deve ser "image" | "video".
       payload = {
-        type: body.type,             // "image" | "video"
-        content: body.media_url,     // URL pública — campo é `content`, não `media_url`
+        type: body.type,
+        content: body.media_url,
         caption: body.caption ?? '',
         backgroundColor: '#000000',
-        font: 0,
+        font: 1,
         allContacts: true,
-        statusJidList: [],
       };
     }
 
