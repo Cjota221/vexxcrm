@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { META_BASE } from '@/lib/meta-config';
+import { dispararLeadCapi } from '@/lib/services/meta-capi.service';
 
 /* ─── GET — Verificação do webhook (Meta faz isso uma vez ao configurar) ───── */
 
@@ -112,6 +113,12 @@ interface InstagramMessaging {
 /* ─── Processar lead de formulário do Meta Ads ─────────────────────────────── */
 
 async function processarLeadMeta(leadData: LeadgenValue): Promise<void> {
+  // Validar leadgen_id antes de usar — payload inesperado pode trazer undefined
+  if (!leadData.leadgen_id || leadData.leadgen_id === 'undefined') {
+    console.error('[Meta Leads] leadgen_id inválido no payload:', leadData);
+    return;
+  }
+
   const pageToken = process.env.META_PAGE_TOKEN;
   if (!pageToken) {
     console.warn('[Meta Leads] META_PAGE_TOKEN não configurado');
@@ -129,9 +136,17 @@ async function processarLeadMeta(leadData: LeadgenValue): Promise<void> {
     return;
   }
 
-  const lead = await leadRes.json() as {
+  // Verificar erro em resposta 200 (Meta às vezes retorna 200 com error object)
+  const leadBody = await leadRes.json() as {
     field_data?: Array<{ name: string; values: string[] }>;
+    error?: { message: string; code: number };
   };
+  if (leadBody.error) {
+    console.error('[Meta Leads] Erro na resposta do lead:', leadBody.error.message);
+    return;
+  }
+
+  const lead = leadBody;
 
   // Extrair campos do formulário (normaliza nomes em PT/EN)
   const campos: Record<string, string> = {};
@@ -188,6 +203,24 @@ async function processarLeadMeta(leadData: LeadgenValue): Promise<void> {
   });
 
   console.log(`[Meta Leads] Lead processado: ${nome} (${phone})`);
+
+  // ─── Disparar evento Lead para a Conversions API (CAPI) ──────────────────
+  // Buscar pixel_id do tenant para otimização do algoritmo Meta
+  const { data: capiConfig } = await supabase
+    .from('ai_provider_config')
+    .select('meta_pixel_id, meta_access_token')
+    .eq('tenant_id', tenantId)
+    .single();
+
+  if (capiConfig?.meta_pixel_id && capiConfig?.meta_access_token) {
+    await dispararLeadCapi(capiConfig.meta_pixel_id, capiConfig.meta_access_token, {
+      email: email ?? undefined,
+      phone,
+      leadId: leadData.leadgen_id,
+      campaignId: leadData.campaign_id,
+      formId: leadData.form_id,
+    });
+  }
 }
 
 /* ─── Processar mensagem Instagram Direct ──────────────────────────────────── */
@@ -268,7 +301,19 @@ async function resolverTenant(
 function normalizarTelefone(tel: string): string {
   if (!tel) return '';
   const digits = tel.replace(/\D/g, '');
-  if (digits.startsWith('55') && digits.length >= 12) return digits;
+
+  // Já tem DDI 55
+  if (digits.startsWith('55')) {
+    // 55 + DDD(2) + 9 + número(8) = 13 → celular com DDI — válido
+    if (digits.length === 13 && digits[4] === '9') return digits;
+    // 55 + DDD(2) + número(8) = 12 → fixo com DDI — válido
+    if (digits.length === 12) return digits;
+    // 14+ dígitos → provavelmente já correto ou lixo, retornar como está
+    if (digits.length >= 12) return digits;
+  }
+
+  // Sem DDI: celular (DDD + 9 + 8 dígitos = 11) ou fixo (DDD + 8 dígitos = 10)
   if (digits.length === 11 || digits.length === 10) return `55${digits}`;
+
   return digits;
 }

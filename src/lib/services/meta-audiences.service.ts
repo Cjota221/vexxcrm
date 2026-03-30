@@ -131,11 +131,12 @@ export async function criarPublicoMeta(
   );
 
   const interestIds = interestResults
-    .map((found, idx) => found
-      ? { id: found.id, name: found.name }
-      : { name: publico.targeting.interests[idx].name }, // fallback: só nome
-    )
-    .filter(Boolean);
+    .map((found, idx) => {
+      if (found) return { id: found.id, name: found.name };
+      console.warn('[meta-audiences] Interesse sem ID ignorado:', publico.targeting.interests[idx].name);
+      return null;
+    })
+    .filter((x): x is { id: string; name: string } => x !== null);
 
   // Resolver flexible_spec interests também
   let resolvedFlexSpec = publico.targeting.flexible_spec;
@@ -144,10 +145,11 @@ export async function criarPublicoMeta(
       resolvedFlexSpec.map(async (spec) => ({
         interests: (await Promise.all(
           spec.interests.map(i => buscarInterestId(i.name, token))
-        )).map((found, idx) => found
-          ? { id: found.id, name: found.name }
-          : { name: spec.interests[idx].name }
-        ).filter(Boolean),
+        )).map((found, idx) => {
+            if (found) return { id: found.id, name: found.name };
+            console.warn('[meta-audiences] Interesse flexible_spec sem ID ignorado:', spec.interests[idx].name);
+            return null;
+          }).filter((x): x is { id: string; name: string } => x !== null),
       })),
     );
   }
@@ -225,17 +227,19 @@ export async function criarPublicoRemarketing(
     },
   };
 
-  // Meta API: Custom Audiences usam JSON (não form-encoded)
+  // Meta API: /customaudiences exige application/x-www-form-urlencoded
+  // com o campo rule como string JSON (não objeto aninhado)
+  const formParams = new URLSearchParams();
+  formParams.set('name', nome);
+  formParams.set('description', `Pessoas que interagiram com @cjrasteirinhas nos últimos ${dias} dias`);
+  formParams.set('subtype', 'ENGAGEMENT');
+  formParams.set('rule', JSON.stringify(rule));
+  formParams.set('access_token', token);
+
   const res = await fetch(`${META_BASE}/act_${accountId}/customaudiences`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      name: nome,
-      description: `Pessoas que interagiram com @cjrasteirinhas nos últimos ${dias} dias`,
-      subtype: 'ENGAGEMENT',
-      rule,
-      access_token: token,
-    }),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: formParams.toString(),
     signal: AbortSignal.timeout(15000),
   });
 

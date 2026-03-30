@@ -5,13 +5,35 @@
 
 import { META_BASE } from '@/lib/meta-config';
 
-async function metaPost(url: string, body: Record<string, unknown>): Promise<{ id?: string; success?: boolean; error?: { message: string } }> {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  return res.json();
+interface MetaPostResult {
+  id?: string;
+  success?: boolean;
+  error?: { message: string; code?: number; error_subcode?: number };
+}
+
+async function metaPost(url: string, body: Record<string, unknown>): Promise<MetaPostResult> {
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return await res.json() as MetaPostResult;
+  } catch (err) {
+    // Falha de rede (TypeError) — retorna como erro estruturado
+    return { error: { message: `Erro de rede: ${String(err)}`, code: 0 } };
+  }
+}
+
+/**
+ * Verifica se o resultado de metaPost indica token expirado ou sem permissão.
+ * code 190 = token inválido/expirado; code 200 = permissão insuficiente.
+ */
+export function classificarErroMeta(error: MetaPostResult['error']): 'token_expirado' | 'sem_permissao' | 'erro_generico' | null {
+  if (!error) return null;
+  if (error.code === 190) return 'token_expirado';
+  if (error.code === 200) return 'sem_permissao';
+  return 'erro_generico';
 }
 
 /**

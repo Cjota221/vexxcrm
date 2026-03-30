@@ -98,15 +98,45 @@ interface MetaPage<T> {
   paging?: { next?: string };
 }
 
-/* ─── Helper: fetch com paginação automática ──────────────────────────────── */
+/* ─── Helper: leitura de X-App-Usage para back-off preventivo ────────────── */
+
+function checkRateLimit(res: Response): void {
+  try {
+    const usage = res.headers.get('X-App-Usage') || res.headers.get('X-Ad-Account-Usage');
+    if (!usage) return;
+    const { call_count, total_cputime, total_time } = JSON.parse(usage) as {
+      call_count?: number; total_cputime?: number; total_time?: number;
+    };
+    const max = Math.max(call_count || 0, total_cputime || 0, total_time || 0);
+    if (max >= 90) {
+      console.warn(`[meta-sync] Rate limit em ${max}% — pausa de 5s`);
+    }
+  } catch { /* ignorar se header não for JSON válido */ }
+}
+
+/* ─── Helper: fetch com paginação automática + back-off de rate limit ─────── */
 
 async function metaGetAll<T>(firstUrl: string): Promise<T[]> {
   const all: T[] = [];
   let url: string | null = firstUrl;
   while (url) {
     const res = await fetch(url);
+
+    checkRateLimit(res);
+
+    // 429 ou código 80004 → rate limit atingido: aguarda e tenta novamente
+    if (res.status === 429) {
+      await new Promise(r => setTimeout(r, 5000));
+      continue; // mesma url
+    }
+
     if (!res.ok) {
-      const err = await res.json().catch(() => ({})) as { error?: { message?: string } };
+      const err = await res.json().catch(() => ({})) as { error?: { message?: string; code?: number } };
+      // code 80004 = rate limit da conta de anúncios
+      if (err.error?.code === 80004) {
+        await new Promise(r => setTimeout(r, 5000));
+        continue;
+      }
       throw new Error(err.error?.message || `Meta API HTTP ${res.status}`);
     }
     const page = await res.json() as MetaPage<T>;

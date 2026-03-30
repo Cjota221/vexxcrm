@@ -5,7 +5,8 @@
 //         REGRA DE OURO: nenhuma ação é executada sem aprovação em ai_action_queue.
 
 import { createServerSupabaseClient } from '@/lib/supabase';
-import { fetchCampaignMetrics, testMetaConnection, pauseAd, updateDailyBudget } from './meta-ads.service';
+import { fetchCampaignMetrics, testMetaConnection, pauseAd } from './meta-ads.service';
+import { mudarOrcamento } from './meta-editor.service';
 import { joseAnalyzeMetrics } from './jose-analyst.service';
 import { claudioGenerateStrategy, type BrandContext } from './claudio-strategist.service';
 import { pedroResearchTrends } from './pedro-researcher.service';
@@ -344,22 +345,28 @@ export async function executeApprovedAction(actionId: string): Promise<{
       }
 
       case 'escalar_orcamento': {
-        const params = action.parametros as { novo_budget_cents: number; budget_atual_cents: number };
-        const { ok, applied } = await updateDailyBudget(
-          action.alvo_id,
-          params.novo_budget_cents,
-          params.budget_atual_cents,
-        );
-        if (!ok) throw new Error('Meta API recusou atualização de orçamento');
-        console.log(`[Orchestrator] Orçamento aplicado: R$ ${applied / 100}`);
+        const params = action.parametros as { novo_budget_cents: number; budget_atual_cents: number; token: string };
+        const resultado = await mudarOrcamento({
+          campaignId: action.alvo_id,
+          novoOrcamentoCentavos: params.novo_budget_cents,
+          orcamentoAtualCentavos: params.budget_atual_cents,
+          token: params.token,
+        });
+        if (!resultado.ok) throw new Error(resultado.erro || 'Meta API recusou atualização de orçamento');
+        console.log(`[Orchestrator] Orçamento aplicado: R$ ${resultado.aplicado / 100}`);
         break;
       }
 
       case 'reduzir_orcamento': {
-        const params = action.parametros as { novo_budget_cents: number; budget_atual_cents: number };
-        // Reduções não têm limite de 30% (só aumentos)
-        const res = await updateDailyBudget(action.alvo_id, params.novo_budget_cents, Infinity);
-        if (!res.ok) throw new Error('Meta API recusou redução de orçamento');
+        const params = action.parametros as { novo_budget_cents: number; token: string };
+        // Reduções: passa budget_atual como novo*2 para não travar no limite de 30%
+        const resultado = await mudarOrcamento({
+          campaignId: action.alvo_id,
+          novoOrcamentoCentavos: params.novo_budget_cents,
+          orcamentoAtualCentavos: params.novo_budget_cents * 2,
+          token: params.token,
+        });
+        if (!resultado.ok) throw new Error(resultado.erro || 'Meta API recusou redução de orçamento');
         break;
       }
 

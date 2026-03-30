@@ -161,38 +161,6 @@ export async function pauseAd(adId: string, cfg?: MetaAdsConfig): Promise<boolea
   return res.ok;
 }
 
-/* ─── Atualizar orçamento diário (requer aprovação + limite de 30%) ─────────── */
-
-/**
- * ⚠️ ATENÇÃO: Chamar APENAS após aprovação em ai_action_queue.
- * Atualiza o orçamento diário de uma campanha.
- * Limite embutido: nunca aumenta mais de 30% em relação ao orçamento atual.
- *
- * @param campaignId        - ID da campanha no Meta
- * @param newBudgetCents    - Novo orçamento em centavos (ex: R$ 50 = 5000)
- * @param currentBudgetCents - Orçamento atual (para aplicar limite de 30%)
- */
-export async function updateDailyBudget(
-  campaignId: string,
-  newBudgetCents: number,
-  currentBudgetCents: number,
-  cfg?: MetaAdsConfig,
-): Promise<{ ok: boolean; applied: number }> {
-  const { accessToken } = cfg || getConfig();
-
-  // Regra de segurança hardcoded: máx 30% de aumento por vez
-  const maxAllowed = Math.floor(currentBudgetCents * 1.30);
-  const applied = Math.min(newBudgetCents, maxAllowed);
-
-  const res = await fetch(`${META_BASE}/${campaignId}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ daily_budget: applied, access_token: accessToken }),
-  });
-
-  return { ok: res.ok, applied };
-}
-
 /* ─── Criar rascunho de anúncio (status PAUSED — nunca ativo direto) ─────────── */
 
 /**
