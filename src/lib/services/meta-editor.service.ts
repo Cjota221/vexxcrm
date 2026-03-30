@@ -3,7 +3,7 @@
  * TODAS as ações destrutivas/financeiras requerem confirmação na UI.
  */
 
-const META_BASE = 'https://graph.facebook.com/v23.0';
+import { META_BASE } from '@/lib/meta-config';
 
 async function metaPost(url: string, body: Record<string, unknown>): Promise<{ id?: string; success?: boolean; error?: { message: string } }> {
   const res = await fetch(url, {

@@ -2,7 +2,7 @@
 // DEPOIS: serviço completo para buscar métricas de campanhas, pausar anúncios
 //         e atualizar orçamentos — sempre via fila de aprovação (nunca direto).
 
-const META_BASE = 'https://graph.facebook.com/v23.0';
+import { META_BASE } from '@/lib/meta-config';
 
 /* ─── Tipos ────────────────────────────────────────────────────────────────── */
 
@@ -70,43 +70,51 @@ export async function fetchCampaignMetrics(
     'name', 'status', 'objective',
   ].join(',');
 
-  const url = new URL(`${META_BASE}/${adAccountId}/campaigns`);
-  url.searchParams.set('fields', campaignFields);
-  url.searchParams.set('effective_status', JSON.stringify(['ACTIVE', 'PAUSED']));
-  url.searchParams.set('limit', '50');
-  url.searchParams.set('access_token', accessToken);
-
-  const res = await fetch(url.toString());
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as { error?: { message?: string } };
-    throw new Error(err.error?.message || `Meta API HTTP ${res.status}`);
-  }
-
-  const data = await res.json() as {
-    data: Array<{
-      id: string;
-      name: string;
-      status: string;
-      objective: string;
-      insights?: {
-        data: Array<{
-          spend: string;
-          impressions: string;
-          clicks: string;
-          reach: string;
-          cpc: string;
-          cpm: string;
-          ctr: string;
-          actions?: Array<{ action_type: string; value: string }>;
-          action_values?: Array<{ action_type: string; value: string }>;
-          date_start: string;
-          date_stop: string;
-        }>;
-      };
-    }>;
+  type CampaignRaw = {
+    id: string;
+    name: string;
+    status: string;
+    objective: string;
+    insights?: {
+      data: Array<{
+        spend: string;
+        impressions: string;
+        clicks: string;
+        reach: string;
+        cpc: string;
+        cpm: string;
+        ctr: string;
+        actions?: Array<{ action_type: string; value: string }>;
+        action_values?: Array<{ action_type: string; value: string }>;
+        date_start: string;
+        date_stop: string;
+      }>;
+    };
   };
 
-  return (data.data || []).map((campaign) => {
+  // Busca todas as páginas seguindo o cursor paging.next
+  const allCampaigns: CampaignRaw[] = [];
+  let nextUrl: string | null = (() => {
+    const u = new URL(`${META_BASE}/${adAccountId}/campaigns`);
+    u.searchParams.set('fields', campaignFields);
+    u.searchParams.set('effective_status', JSON.stringify(['ACTIVE', 'PAUSED']));
+    u.searchParams.set('limit', '100');
+    u.searchParams.set('access_token', accessToken);
+    return u.toString();
+  })();
+
+  while (nextUrl) {
+    const res = await fetch(nextUrl);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { error?: { message?: string } };
+      throw new Error(err.error?.message || `Meta API HTTP ${res.status}`);
+    }
+    const page = await res.json() as { data: CampaignRaw[]; paging?: { next?: string } };
+    allCampaigns.push(...(page.data || []));
+    nextUrl = page.paging?.next || null;
+  }
+
+  return allCampaigns.map((campaign) => {
     const insight = campaign.insights?.data?.[0];
     const purchaseAction = insight?.actions?.find(a => a.action_type === 'purchase');
     const purchaseValue = insight?.action_values?.find(a => a.action_type === 'purchase');
@@ -188,40 +196,73 @@ export async function updateDailyBudget(
 /* ─── Criar rascunho de anúncio (status PAUSED — nunca ativo direto) ─────────── */
 
 /**
- * Cria um rascunho de ad set baseado em copy gerado pelo Cláudio.
+ * Cria um rascunho de anúncio baseado em copy gerado pelo Cláudio.
  * O anúncio nasce PAUSADO — a operadora publica manualmente no Gerenciador.
+ *
+ * Fluxo obrigatório da Meta API:
+ *   1. POST /{account}/adcreatives → obtém creative_id
+ *   2. POST /{account}/ads com { creative: { creative_id } } → cria o anúncio
  */
 export async function createAdDraft(params: {
   campaignId: string;
+  adsetId: string;
+  pageId: string;          // Page ID da página do Facebook/Instagram
   headline: string;
   body: string;
   callToAction: string;
   imageUrl?: string;
   cfg?: MetaAdsConfig;
-}): Promise<{ ok: boolean; adId?: string }> {
+}): Promise<{ ok: boolean; adId?: string; error?: string }> {
   const { accessToken, adAccountId } = params.cfg || getConfig();
 
-  // Criar ad set pausado
-  const res = await fetch(`${META_BASE}/${adAccountId}/ads`, {
+  // Passo 1: criar o criativo
+  const creativeRes = await fetch(`${META_BASE}/${adAccountId}/adcreatives`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      campaign_id: params.campaignId,
       name: `[IA Cláudio] ${params.headline}`,
-      status: 'PAUSED',   // SEMPRE pausado — operadora publica manualmente
-      creative: {
-        title: params.headline,
-        body: params.body,
-        call_to_action_type: params.callToAction,
-        ...(params.imageUrl && { image_url: params.imageUrl }),
+      object_story_spec: {
+        page_id: params.pageId,
+        link_data: {
+          message: params.body,
+          name: params.headline,
+          call_to_action: { type: params.callToAction },
+          ...(params.imageUrl && { picture: params.imageUrl }),
+        },
       },
       access_token: accessToken,
     }),
   });
 
-  if (!res.ok) return { ok: false };
-  const data = await res.json() as { id?: string };
-  return { ok: true, adId: data.id };
+  if (!creativeRes.ok) {
+    const err = await creativeRes.json().catch(() => ({})) as { error?: { message?: string } };
+    return { ok: false, error: err.error?.message || `Creative HTTP ${creativeRes.status}` };
+  }
+
+  const creativeData = await creativeRes.json() as { id?: string };
+  if (!creativeData.id) return { ok: false, error: 'Meta não retornou creative_id' };
+
+  // Passo 2: criar o anúncio referenciando o criativo
+  const adRes = await fetch(`${META_BASE}/${adAccountId}/ads`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      campaign_id: params.campaignId,
+      adset_id: params.adsetId,
+      name: `[IA Cláudio] ${params.headline}`,
+      status: 'PAUSED',   // SEMPRE pausado — operadora publica manualmente
+      creative: { creative_id: creativeData.id },
+      access_token: accessToken,
+    }),
+  });
+
+  if (!adRes.ok) {
+    const err = await adRes.json().catch(() => ({})) as { error?: { message?: string } };
+    return { ok: false, error: err.error?.message || `Ad HTTP ${adRes.status}` };
+  }
+
+  const adData = await adRes.json() as { id?: string };
+  return { ok: true, adId: adData.id };
 }
 
 /* ─── Verificar conexão com a Meta API ─────────────────────────────────────── */

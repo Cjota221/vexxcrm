@@ -6,7 +6,7 @@ import {
   type CampanhaParaAnalise,
 } from '@/lib/services/jose-performance-analyst.service';
 
-const META_BASE = 'https://graph.facebook.com/v23.0';
+import { META_BASE } from '@/lib/meta-config';
 
 /**
  * GET /api/ai-team/analise-performance

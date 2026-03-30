@@ -5,7 +5,7 @@
 import { createServerSupabaseClient } from '@/lib/supabase';
 import type { PublicoConfigurado, CopyPublico } from './claudio-audience-creator.service';
 
-const META_BASE = 'https://graph.facebook.com/v23.0';
+import { META_BASE } from '@/lib/meta-config';
 
 /* ─── Tipos ──────────────────────────────────────────────────────────────────── */
 
@@ -30,16 +30,27 @@ interface InterestSearchResult {
   audience_size_upper_bound?: number;
 }
 
+/* ─── Cache de interesses (evita chamadas repetidas ao Meta) ─────────────────── */
+
+interface InterestCacheEntry { result: InterestSearchResult | null; expiresAt: number }
+const interestCache = new Map<string, InterestCacheEntry>();
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hora
+
 /* ─── Buscar ID de interesse no Meta ─────────────────────────────────────────── */
 
 /**
  * Busca o interest ID real no Meta por nome.
- * Retorna o primeiro resultado mais relevante ou null se não encontrado.
+ * Resultados ficam em cache por 1 hora para reduzir chamadas à API.
  */
 export async function buscarInterestId(
   interesse: string,
   token: string,
 ): Promise<InterestSearchResult | null> {
+  // Usa os primeiros 8 chars do token como chave para não misturar contas
+  const cacheKey = `${interesse.toLowerCase()}:${token.substring(0, 8)}`;
+  const cached = interestCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.result;
+
   try {
     const res = await fetch(
       `${META_BASE}/search?type=adinterest&q=${encodeURIComponent(interesse)}&locale=pt_BR&limit=3&access_token=${token}`,
@@ -47,7 +58,9 @@ export async function buscarInterestId(
     );
     if (!res.ok) return null;
     const data = await res.json() as { data?: InterestSearchResult[] };
-    return data.data?.[0] || null;
+    const result = data.data?.[0] || null;
+    interestCache.set(cacheKey, { result, expiresAt: Date.now() + CACHE_TTL_MS });
+    return result;
   } catch {
     return null;
   }
@@ -198,7 +211,7 @@ export async function criarPublicoRemarketing(
   const supabase = createServerSupabaseClient();
   const nome = `CJ — Remarketing Engajamento ${dias}d`;
 
-  const rule = JSON.stringify({
+  const rule = {
     inclusions: {
       operator: 'or',
       rules: [{
@@ -210,7 +223,7 @@ export async function criarPublicoRemarketing(
         },
       }],
     },
-  });
+  };
 
   // Meta API: Custom Audiences usam JSON (não form-encoded)
   const res = await fetch(`${META_BASE}/act_${accountId}/customaudiences`, {

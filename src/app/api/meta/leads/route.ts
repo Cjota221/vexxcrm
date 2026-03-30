@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createServerSupabaseClient } from '@/lib/supabase';
+import { META_BASE } from '@/lib/meta-config';
 
 /* ─── GET — Verificação do webhook (Meta faz isso uma vez ao configurar) ───── */
 
@@ -60,6 +61,8 @@ export async function POST(req: NextRequest) {
     }>;
   };
 
+  const processedMids = new Set<string>(); // evita processar a mesma DM duas vezes
+
   for (const entry of payload.entry || []) {
     // ─── Leads de formulário (Facebook/Instagram Ads) ─────────────────────
     for (const change of entry.changes || []) {
@@ -73,19 +76,13 @@ export async function POST(req: NextRequest) {
       if (change.field === 'messages' && payload.object === 'instagram') {
         const value = change.value as { messaging?: InstagramMessaging[] };
         for (const msg of value.messaging || []) {
+          const mid = msg.message?.mid;
+          if (mid && processedMids.has(mid)) continue;
+          if (mid) processedMids.add(mid);
           await processarMensagemInstagram(msg, entry.id).catch((err) =>
             console.error('[Meta Webhook] Erro ao processar Instagram DM:', err)
           );
         }
-      }
-    }
-
-    // Formato alternativo do Instagram (entry.messaging direto)
-    if (payload.object === 'instagram') {
-      for (const msg of entry.messaging || []) {
-        await processarMensagemInstagram(msg, entry.id).catch((err) =>
-          console.error('[Meta Webhook] Erro Instagram DM:', err)
-        );
       }
     }
   }
@@ -123,7 +120,7 @@ async function processarLeadMeta(leadData: LeadgenValue): Promise<void> {
 
   // Buscar dados completos do lead via Graph API
   const leadRes = await fetch(
-    `https://graph.facebook.com/v23.0/${leadData.leadgen_id}` +
+    `${META_BASE}/${leadData.leadgen_id}` +
     `?fields=field_data,created_time&access_token=${pageToken}`
   );
 
@@ -212,7 +209,7 @@ async function processarMensagemInstagram(
 
   // Buscar nome + foto do remetente
   const profileRes = await fetch(
-    `https://graph.facebook.com/v23.0/${senderId}` +
+    `${META_BASE}/${senderId}` +
     `?fields=name,profile_pic&access_token=${pageToken}`
   );
   const profile = profileRes.ok
@@ -240,7 +237,7 @@ async function processarMensagemInstagram(
 
   // TODO: Anne responde via Instagram Messaging API
   // Quando estiver pronto, integrar com anne.service.ts e enviar via:
-  // POST https://graph.facebook.com/v23.0/me/messages?access_token=${pageToken}
+  // POST `${META_BASE}/`me/messages?access_token=${pageToken}
   // { recipient: { id: senderId }, message: { text: reply } }
 
   console.log(`[Instagram DM] Mensagem de ${profile.name || senderId}: "${text.substring(0, 50)}"`);
@@ -259,17 +256,13 @@ async function resolverTenant(
     .eq('meta_page_id', pageId)
     .single();
 
-  if (data?.tenant_id) return data.tenant_id;
+  // Sem page_id mapeado → rejeitar para evitar vazamento de dados entre tenants
+  if (!data?.tenant_id) {
+    console.warn('[Meta Webhook] page_id não mapeado para nenhum tenant:', pageId);
+    return null;
+  }
 
-  // Fallback: pegar o primeiro tenant com Meta configurado
-  const { data: fallback } = await supabase
-    .from('ai_provider_config')
-    .select('tenant_id')
-    .not('meta_access_token', 'is', null)
-    .limit(1)
-    .single();
-
-  return fallback?.tenant_id || null;
+  return data.tenant_id;
 }
 
 function normalizarTelefone(tel: string): string {

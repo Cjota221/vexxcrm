@@ -6,7 +6,7 @@
 
 import { createServerSupabaseClient } from '@/lib/supabase';
 
-const META_BASE = 'https://graph.facebook.com/v23.0';
+import { META_BASE } from '@/lib/meta-config';
 
 export interface SyncResult {
   campanhas: number;
@@ -16,13 +16,104 @@ export interface SyncResult {
   errors: string[];
 }
 
-async function metaGet<T>(url: string): Promise<T> {
-  const res = await fetch(url);
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as { error?: { message?: string } };
-    throw new Error(err.error?.message || `Meta API HTTP ${res.status}`);
+/* ─── Tipos para dados brutos da Meta API ─────────────────────────────────── */
+
+interface MetaActionValue { action_type: string; value: string }
+
+interface MetaCampaignRaw {
+  id: string;
+  name: string;
+  status: string;
+  objective: string;
+  daily_budget?: string;
+  start_time?: string;
+  stop_time?: string;
+  insights?: {
+    data: Array<{
+      spend: string;
+      impressions: string;
+      clicks: string;
+      cpc: string;
+      cpm: string;
+      ctr: string;
+      reach: string;
+      frequency: string;
+      action_values?: MetaActionValue[];
+    }>;
+  };
+}
+
+interface MetaAdRaw {
+  id: string;
+  name: string;
+  status: string;
+  campaign_id: string;
+  adset_id: string;
+  creative?: {
+    id?: string;
+    name?: string;
+    title?: string;
+    body?: string;
+    call_to_action_type?: string;
+    image_url?: string;
+    video_id?: string;
+    thumbnail_url?: string;
+    object_story_spec?: {
+      link_data?: {
+        name?: string;
+        message?: string;
+        picture?: string;
+        call_to_action?: { type?: string };
+      };
+    };
+  };
+  insights?: {
+    data: Array<{
+      spend: string;
+      impressions: string;
+      clicks: string;
+      cpc: string;
+      reach: string;
+    }>;
+  };
+}
+
+interface MetaVideoRaw {
+  id: string;
+  title?: string;
+  description?: string;
+  length?: number;
+  thumbnails?: { data: Array<{ uri: string }> };
+}
+
+interface MetaImageRaw {
+  hash: string;
+  name?: string;
+  url?: string;
+  url_128?: string;
+}
+
+interface MetaPage<T> {
+  data: T[];
+  paging?: { next?: string };
+}
+
+/* ─── Helper: fetch com paginação automática ──────────────────────────────── */
+
+async function metaGetAll<T>(firstUrl: string): Promise<T[]> {
+  const all: T[] = [];
+  let url: string | null = firstUrl;
+  while (url) {
+    const res = await fetch(url);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { error?: { message?: string } };
+      throw new Error(err.error?.message || `Meta API HTTP ${res.status}`);
+    }
+    const page = await res.json() as MetaPage<T>;
+    all.push(...(page.data || []));
+    url = page.paging?.next || null;
   }
-  return res.json() as Promise<T>;
+  return all;
 }
 
 export async function sincronizarTudoDoMeta(
@@ -46,16 +137,18 @@ export async function sincronizarTudoDoMeta(
       'name,status,objective,daily_budget,lifetime_budget,start_time,stop_time,created_time',
     ].join(',');
 
-    const data = await metaGet<{ data: unknown[] }>(
+    const campanhas = await metaGetAll<MetaCampaignRaw>(
       `${META_BASE}/${actId}/campaigns?fields=${encodeURIComponent(campaignFields)}` +
       `&effective_status=${encodeURIComponent(JSON.stringify(['ACTIVE', 'PAUSED', 'ARCHIVED']))}` +
-      `&limit=50&access_token=${token}`
+      `&limit=100&access_token=${token}`
     );
 
-    const rows = (data.data || []).map((c: any) => {
+    const rows = campanhas.map((c) => {
       const insight = c.insights?.data?.[0];
       const spend = parseFloat(insight?.spend || '0');
-      const revenue = parseFloat(insight?.action_values?.find((a: any) => a.action_type === 'purchase')?.value || '0');
+      const revenue = parseFloat(
+        insight?.action_values?.find((a) => a.action_type === 'purchase')?.value || '0'
+      );
       return {
         id: c.id,
         tenant_id: tenantId,
@@ -98,13 +191,13 @@ export async function sincronizarTudoDoMeta(
       'insights{spend,impressions,clicks,cpc,reach}',
     ].join(',');
 
-    const data = await metaGet<{ data: unknown[] }>(
+    const ads = await metaGetAll<MetaAdRaw>(
       `${META_BASE}/${actId}/ads?fields=${encodeURIComponent(adFields)}` +
       `&effective_status=${encodeURIComponent(JSON.stringify(['ACTIVE', 'PAUSED', 'ARCHIVED']))}` +
       `&limit=100&access_token=${token}`
     );
 
-    const rows = (data.data || []).map((ad: any) => {
+    const rows = ads.map((ad) => {
       const insight = ad.insights?.data?.[0];
       const creative = ad.creative || {};
       const linkData = creative.object_story_spec?.link_data || {};
@@ -146,12 +239,12 @@ export async function sincronizarTudoDoMeta(
   // ─── 3. Vídeos ────────────────────────────────────────────────────────────
   let criativosCount = 0;
   try {
-    const data = await metaGet<{ data: unknown[] }>(
+    const videos = await metaGetAll<MetaVideoRaw>(
       `${META_BASE}/${actId}/advideos?fields=id,title,description,thumbnails,length,created_time` +
-      `&limit=50&access_token=${token}`
+      `&limit=100&access_token=${token}`
     );
 
-    const rows = (data.data || []).map((v: any) => ({
+    const rows = videos.map((v) => ({
       id: v.id,
       tenant_id: tenantId,
       tipo: 'video',
@@ -172,12 +265,12 @@ export async function sincronizarTudoDoMeta(
 
   // ─── 4. Imagens ───────────────────────────────────────────────────────────
   try {
-    const data = await metaGet<{ data: unknown[] }>(
+    const images = await metaGetAll<MetaImageRaw>(
       `${META_BASE}/${actId}/adimages?fields=hash,name,url,url_128,created_time` +
-      `&limit=50&access_token=${token}`
+      `&limit=100&access_token=${token}`
     );
 
-    const rows = (data.data || []).map((img: any) => ({
+    const rows = images.map((img) => ({
       id: img.hash,
       tenant_id: tenantId,
       tipo: 'imagem',

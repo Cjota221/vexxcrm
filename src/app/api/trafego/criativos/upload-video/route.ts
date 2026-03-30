@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
 
-const META_BASE = 'https://graph.facebook.com/v23.0';
+import { META_BASE } from '@/lib/meta-config';
 
 const FORMATOS_ACEITOS = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/avi'];
 const TAMANHO_MAX_BYTES = 4 * 1024 * 1024 * 1024; // 4 GB

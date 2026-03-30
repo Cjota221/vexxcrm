@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
 
-const META_BASE = 'https://graph.facebook.com/v23.0';
+import { META_BASE } from '@/lib/meta-config';
 
 async function getPageToken(userToken: string, pageId: string): Promise<string> {
   const res = await fetch(`${META_BASE}/${pageId}?fields=access_token&access_token=${userToken}`);
