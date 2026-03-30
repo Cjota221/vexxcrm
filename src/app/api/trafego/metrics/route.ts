@@ -98,6 +98,7 @@ export async function GET(req: NextRequest) {
   try {
     const { profile } = await getTenantFromRequest(req);
     const period = req.nextUrl.searchParams.get('period') || '7d';
+    const accountIdParam = req.nextUrl.searchParams.get('account_id');
 
     const supabase = createServerSupabaseClient();
 
@@ -112,7 +113,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ connected: false, campaigns: [], summary: null });
     }
 
-    const { meta_access_token: token, meta_ad_account_id: accountId } = config;
+    const token = config.meta_access_token;
+    // account_id do frontend tem prioridade sobre o da config (multi-conta)
+    const accountId = accountIdParam || config.meta_ad_account_id;
 
     // Mapear period para date_preset da Meta API
     const datePreset =

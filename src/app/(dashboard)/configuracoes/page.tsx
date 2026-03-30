@@ -27,7 +27,11 @@ import {
   Activity,
   Coins,
   Users,
+  BarChart2,
+  Plus,
 } from 'lucide-react';
+import { useMetaAccounts } from '@/hooks/useMetaAccounts';
+import { AddAccountModal } from '@/components/trafego/AddAccountModal';
 import { useTenantConfig } from '@/hooks/useTenantConfig';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
@@ -320,7 +324,90 @@ function IntegrationsTab({ config }: { config?: TenantConfig }) {
       <WhatsAppSettings config={config} />
       <FacilZapSettings config={config} />
       <AnneSettings config={config} />
+      <MetaAccountsSettings />
     </div>
+  );
+}
+
+function MetaAccountsSettings() {
+  const { accounts, loading, addAccount, removeAccount } = useMetaAccounts();
+  const [showModal, setShowModal] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
+
+  const handleAdd = async (nome: string, adAccountId: string, cor: string): Promise<void> => {
+    await addAccount(nome, adAccountId, cor);
+  };
+
+  const handleRemove = async (id: string) => {
+    if (!confirm('Remover esta conta Meta?')) return;
+    setRemoving(id);
+    try { await removeAccount(id); }
+    finally { setRemoving(null); }
+  };
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle><BarChart2 size={16} /> Contas Meta Ads</CardTitle>
+          <button
+            onClick={() => setShowModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white
+              bg-crm-primary hover:bg-crm-secondary rounded-lg transition-colors"
+          >
+            <Plus size={12} /> Nova conta
+          </button>
+        </CardHeader>
+        <div className="px-6 pb-6">
+          {loading ? (
+            <div className="space-y-2">
+              {[1, 2].map(i => (
+                <div key={i} className="h-12 bg-gray-100 rounded-xl animate-pulse" />
+              ))}
+            </div>
+          ) : accounts.length === 0 ? (
+            <div className="text-center py-8 text-sm text-gray-400">
+              Nenhuma conta Meta conectada.{' '}
+              <button onClick={() => setShowModal(true)} className="text-crm-primary hover:underline">
+                Adicionar conta
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {accounts.map(account => (
+                <div
+                  key={account.id}
+                  className="flex items-center justify-between px-4 py-3 bg-gray-50
+                    border border-gray-100 rounded-xl"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: account.cor }} />
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">{account.nome}</p>
+                      <p className="text-xs font-mono text-gray-400">{account.ad_account_id}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleRemove(account.id)}
+                    disabled={removing === account.id}
+                    className="text-gray-300 hover:text-red-500 transition-colors disabled:opacity-50"
+                    title="Remover"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Card>
+
+      <AddAccountModal
+        open={showModal}
+        onClose={() => setShowModal(false)}
+        onAdd={handleAdd}
+      />
+    </>
   );
 }
 

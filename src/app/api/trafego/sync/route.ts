@@ -15,6 +15,8 @@ export async function POST(req: NextRequest) {
     const { profile } = await getTenantFromRequest(req);
     const supabase = createServerSupabaseClient();
 
+    const body = await req.json().catch(() => ({})) as { account_id?: string };
+
     const { data: config } = await supabase
       .from('ai_provider_config')
       .select('meta_access_token, meta_ad_account_id')
@@ -25,9 +27,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Meta Ads não configurado' }, { status: 400 });
     }
 
+    // account_id do body tem prioridade (multi-conta)
+    const accountId = body.account_id || config.meta_ad_account_id;
+
     const result = await sincronizarTudoDoMeta(
       profile.tenant_id,
-      config.meta_ad_account_id,
+      accountId,
       config.meta_access_token,
     );
 

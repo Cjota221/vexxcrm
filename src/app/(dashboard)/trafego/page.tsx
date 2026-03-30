@@ -2,6 +2,9 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuthStore } from '@/store/auth';
+import { useMetaAccounts } from '@/hooks/useMetaAccounts';
+import { AccountTabs } from '@/components/trafego/AccountTabs';
+import { AddAccountModal } from '@/components/trafego/AddAccountModal';
 
 function authFetch(url: string, options?: RequestInit): Promise<Response> {
   const token = useAuthStore.getState().accessToken;
@@ -2519,12 +2522,17 @@ export default function TrafegoPage() {
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [novaCampanhaOpen, setNovaCampanhaOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'all' | 'ACTIVE' | 'PAUSED' | 'WITH_ISSUES' | 'PENDING_REVIEW'>('all');
+  const [showAddAccount, setShowAddAccount] = useState(false);
 
-  const loadMetrics = useCallback(async (p: Period) => {
+  const { accounts, activeAccount, setActiveAccount, addAccount, loading: accountsLoading } = useMetaAccounts();
+
+  const loadMetrics = useCallback(async (p: Period, accountId?: string) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await authFetch(`/api/trafego/metrics?period=${p}`);
+      const params = new URLSearchParams({ period: p });
+      if (accountId) params.set('account_id', accountId);
+      const res = await authFetch(`/api/trafego/metrics?${params.toString()}`);
       if (!res.ok) throw new Error(`Erro ${res.status}`);
       const json = await res.json() as MetricsData;
       setData(json);
@@ -2557,15 +2565,18 @@ export default function TrafegoPage() {
   }, []);
 
   useEffect(() => {
-    loadMetrics(period);
+    loadMetrics(period, activeAccount?.ad_account_id);
     loadCopies();
     loadLastSync();
-  }, [loadMetrics, loadCopies, loadLastSync, period]);
+  }, [loadMetrics, loadCopies, loadLastSync, period, activeAccount?.ad_account_id]);
 
   async function handleSync() {
     setSyncing(true);
     try {
-      const res = await authFetch('/api/trafego/sync', { method: 'POST' });
+      const body = activeAccount?.ad_account_id
+        ? JSON.stringify({ account_id: activeAccount.ad_account_id })
+        : undefined;
+      const res = await authFetch('/api/trafego/sync', { method: 'POST', body });
       if (res.ok) {
         const json = await res.json() as { ok: boolean; campanhas?: number; ads?: number; criativos?: number };
         const parts = [];
@@ -2599,7 +2610,26 @@ export default function TrafegoPage() {
       <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
 
         {/* ─── Cabeçalho ─────────────────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+
+        {/* Abas de contas */}
+        {(accounts.length > 0 || accountsLoading) && (
+          <AccountTabs
+            accounts={accounts}
+            activeAccount={activeAccount}
+            onSelect={(acc) => { setActiveAccount(acc); }}
+            onAddClick={() => setShowAddAccount(true)}
+            loading={accountsLoading}
+          />
+        )}
+
+        <AddAccountModal
+          open={showAddAccount}
+          onClose={() => setShowAddAccount(false)}
+          onAdd={async (nome, adAccountId, cor) => { await addAccount(nome, adAccountId, cor); }}
+        />
+
+        <div className="p-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
@@ -2654,7 +2684,8 @@ export default function TrafegoPage() {
               </button>
             </div>
           </div>
-        </div>
+        </div>{/* /p-5 */}
+        </div>{/* /header card */}
 
         {/* ─── Feedback de ação ────────────────────────────────────────────── */}
         {actionFeedback && (

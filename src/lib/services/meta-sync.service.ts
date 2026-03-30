@@ -178,7 +178,7 @@ export async function sincronizarTudoDoMeta(
         insight?.action_values?.find((a) => a.action_type === 'purchase')?.value || '0'
       );
       return {
-        id: c.id, tenant_id: tenantId, nome: c.name, status: c.status,
+        id: c.id, tenant_id: tenantId, ad_account_id: actId, nome: c.name, status: c.status,
         objetivo: c.objective,
         orcamento_diario: c.daily_budget ? parseInt(c.daily_budget) : null,
         data_inicio: c.start_time || null, data_fim: c.stop_time || null,
@@ -218,7 +218,7 @@ export async function sincronizarTudoDoMeta(
       const creative = ad.creative || {};
       const linkData = creative.object_story_spec?.link_data || {};
       return {
-        id: ad.id, tenant_id: tenantId,
+        id: ad.id, tenant_id: tenantId, ad_account_id: actId,
         campaign_id: ad.campaign_id, adset_id: ad.adset_id,
         nome: ad.name, status: ad.status,
         criativo: {
@@ -252,7 +252,7 @@ export async function sincronizarTudoDoMeta(
       `&limit=100&access_token=${token}`
     );
     const rows = videos.map((v) => ({
-      id: v.id, tenant_id: tenantId, tipo: 'video',
+      id: v.id, tenant_id: tenantId, ad_account_id: actId, tipo: 'video',
       nome: v.title || v.description || `Vídeo ${v.id}`,
       url_thumb: v.thumbnails?.data?.[0]?.uri || '',
       url_full: '', duracao: Math.round(v.length || 0), sincronizado_em: now,
@@ -268,7 +268,7 @@ export async function sincronizarTudoDoMeta(
       `&limit=100&access_token=${token}`
     );
     const rows = images.map((img) => ({
-      id: img.hash, tenant_id: tenantId, tipo: 'imagem',
+      id: img.hash, tenant_id: tenantId, ad_account_id: actId, tipo: 'imagem',
       nome: img.name || `Imagem ${img.hash?.substring(0, 8)}`,
       url_thumb: img.url_128 || img.url || '',
       url_full: img.url || '', sincronizado_em: now,
