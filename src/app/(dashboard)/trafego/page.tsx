@@ -130,7 +130,7 @@ function PeriodBtn({ label, active, onClick }: { label: string; active: boolean;
       onClick={onClick}
       className={cn(
         'px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
-        active ? 'bg-crm-primary text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+        active ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
       )}
     >
       {label}
@@ -139,34 +139,38 @@ function PeriodBtn({ label, active, onClick }: { label: string; active: boolean;
 }
 
 function MetricCard({
-  label, value, sub, badge, badgeColor, icon,
+  label, value, sub, badge, badgeColor,
 }: {
   label: string;
   value: string;
   sub?: string;
   badge?: string;
   badgeColor?: 'green' | 'yellow' | 'red' | 'gray';
-  icon: React.ReactNode;
+  icon?: React.ReactNode;
 }) {
   const badgeStyles = {
-    green:  'bg-green-100 text-green-700',
-    yellow: 'bg-amber-100 text-amber-700',
-    red:    'bg-red-100 text-red-700',
-    gray:   'bg-gray-100 text-gray-600',
+    green:  'bg-green-500/20 text-green-400 border border-green-500/30',
+    yellow: 'bg-amber-500/20 text-amber-400 border border-amber-500/30',
+    red:    'bg-red-500/20 text-red-400 border border-red-500/30',
+    gray:   'bg-white/10 text-gray-400 border border-white/10',
   };
+  const valueColor =
+    badgeColor === 'red' ? 'text-red-400' :
+    badgeColor === 'yellow' ? 'text-amber-300' :
+    badgeColor === 'green' ? 'text-emerald-400' :
+    'text-white';
   return (
-    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+    <div className="bg-[#161b27] rounded-2xl p-5 border border-white/5">
       <div className="flex items-start justify-between mb-3">
-        <div className="text-gray-400">{icon}</div>
+        <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{label}</div>
         {badge && (
-          <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-full', badgeStyles[badgeColor || 'gray'])}>
+          <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-md', badgeStyles[badgeColor || 'gray'])}>
             {badge}
           </span>
         )}
       </div>
-      <div className="text-2xl font-bold text-gray-900">{value}</div>
-      <div className="text-sm text-gray-500 mt-0.5">{label}</div>
-      {sub && <div className="text-xs text-gray-400 mt-1">{sub}</div>}
+      <div className={cn('text-3xl font-bold', valueColor)}>{value}</div>
+      {sub && <div className="text-xs text-gray-500 mt-1.5">{sub}</div>}
     </div>
   );
 }
@@ -2606,22 +2610,11 @@ export default function TrafegoPage() {
   const periodLabel = { '1d': 'Hoje', '7d': '7 dias', '15d': '15 dias', '30d': '30 dias' }[period];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+    <div className="min-h-screen bg-[#0d1117]">
+      <div className="max-w-6xl mx-auto px-4 py-6 space-y-4">
 
         {/* ─── Cabeçalho ─────────────────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-
-        {/* Abas de contas */}
-        {(accounts.length > 0 || accountsLoading) && (
-          <AccountTabs
-            accounts={accounts}
-            activeAccount={activeAccount}
-            onSelect={(acc) => { setActiveAccount(acc); }}
-            onAddClick={() => setShowAddAccount(true)}
-            loading={accountsLoading}
-          />
-        )}
+        <div className="bg-[#161b27] rounded-2xl border border-white/5 overflow-hidden">
 
         <AddAccountModal
           open={showAddAccount}
@@ -2629,33 +2622,50 @@ export default function TrafegoPage() {
           onAdd={async (nome, adAccountId, cor) => { await addAccount(nome, adAccountId, cor); }}
         />
 
-        <div className="p-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                <BarChart3 size={22} className="text-crm-primary" />
-                Tráfego Pago — CJ Rasteirinhas
-              </h1>
-              {data?.connected && data.accountName && (
-                <p className="text-sm text-gray-500 mt-0.5">
-                  Conta vinculada: <span className="font-medium text-gray-700">{data.accountName}</span>
+        <div className="px-5 py-4">
+          {/* Linha 1: título + conta + período + sync */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-4 min-w-0">
+              <div className="shrink-0">
+                <h1 className="text-base font-bold text-white">Tráfego Pago</h1>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {activeAccount?.nome || data?.accountName || 'CJ Rasteirinhas'}
                 </p>
-              )}
-              <div className="flex gap-4 mt-1 text-xs text-gray-400 flex-wrap">
-                {data?.lastAnalysis && (
-                  <>
-                    <span>👨 José analisou: {formatDateTime(data.lastAnalysis)}</span>
-                    <span>🧠 Cláudio sugeriu: {formatDateTime(data.lastAnalysis)}</span>
-                  </>
-                )}
-                {lastSync && (
-                  <span>🔄 Última sync: {formatDateTime(lastSync)}</span>
-                )}
               </div>
+
+              {/* Conta(s) inline */}
+              {(accounts.length > 0 || accountsLoading) && (
+                <div className="flex items-center gap-1 overflow-x-auto shrink-0">
+                  {accountsLoading ? (
+                    <div className="h-6 w-24 rounded-full bg-white/5 animate-pulse" />
+                  ) : accounts.map(acc => (
+                    <button
+                      key={acc.id}
+                      onClick={() => setActiveAccount(acc)}
+                      className={cn(
+                        'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition-all border',
+                        activeAccount?.id === acc.id
+                          ? 'bg-white/10 text-white border-white/20'
+                          : 'text-gray-500 border-transparent hover:text-gray-300 hover:border-white/10'
+                      )}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: acc.cor }} />
+                      {acc.nome}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setShowAddAccount(true)}
+                    className="text-gray-600 hover:text-gray-300 px-1.5 transition-colors"
+                    title="Nova conta"
+                  >
+                    <Plus size={12} />
+                  </button>
+                </div>
+              )}
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex bg-gray-100 rounded-xl p-1 gap-1">
+            <div className="flex items-center gap-2 flex-wrap shrink-0">
+              <div className="flex gap-1">
                 {(['1d', '7d', '15d', '30d'] as Period[]).map((p) => (
                   <PeriodBtn
                     key={p}
@@ -2668,28 +2678,40 @@ export default function TrafegoPage() {
               <button
                 onClick={handleSync}
                 disabled={syncing}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors disabled:opacity-50 text-sm font-medium"
-                title="Sincronizar dados do Meta"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-gray-300 hover:bg-white/5 transition-colors disabled:opacity-50 text-sm font-medium"
               >
-                {syncing ? <Loader2 size={14} className="animate-spin" /> : <CloudDownload size={14} />}
+                {syncing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
                 {syncing ? 'Sincronizando...' : 'Sincronizar'}
-              </button>
-              <button
-                onClick={() => loadMetrics(period)}
-                disabled={loading}
-                className="p-2 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors disabled:opacity-50"
-                title="Atualizar métricas"
-              >
-                <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
               </button>
             </div>
           </div>
-        </div>{/* /p-5 */}
+
+          {/* Linha 2: analistas IA + última sync */}
+          <div className="flex items-center gap-4 mt-3 text-xs text-gray-500 flex-wrap">
+            {data?.lastAnalysis ? (
+              <>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  José analisou às {new Date(data.lastAnalysis).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+                  Cláudio sugeriu às {new Date(data.lastAnalysis).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </>
+            ) : (
+              <span className="text-gray-600">Nenhuma análise ainda</span>
+            )}
+            {lastSync && (
+              <span className="ml-auto">última sync · {new Date(lastSync).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+            )}
+          </div>
+        </div>
         </div>{/* /header card */}
 
         {/* ─── Feedback de ação ────────────────────────────────────────────── */}
         {actionFeedback && (
-          <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-800 flex items-center gap-2">
+          <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-3 text-sm text-emerald-400 flex items-center gap-2">
             <CheckCircle size={16} />
             {actionFeedback}
           </div>
@@ -2697,7 +2719,7 @@ export default function TrafegoPage() {
 
         {/* ─── Aviso de cache ──────────────────────────────────────────────── */}
         {!loading && data?.fromCache && (
-          <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-800 flex items-center gap-2">
+          <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-3 text-sm text-blue-400 flex items-center gap-2">
             <Clock size={15} className="shrink-0" />
             <span>{data.cacheWarning || 'Exibindo dados do último sync.'}</span>
             {data.lastSync && (
@@ -2710,12 +2732,12 @@ export default function TrafegoPage() {
 
         {/* ─── Meta não conectado ──────────────────────────────────────────── */}
         {!loading && data && !data.connected && (
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-start gap-3">
-              <AlertTriangle size={20} className="text-amber-600 shrink-0 mt-0.5" />
+              <AlertTriangle size={20} className="text-amber-400 shrink-0 mt-0.5" />
               <div>
-                <div className="font-semibold text-amber-900">Conta Meta não conectada</div>
-                <div className="text-sm text-amber-700 mt-0.5">
+                <div className="font-semibold text-amber-300">Conta Meta não conectada</div>
+                <div className="text-sm text-amber-500 mt-0.5">
                   {data.error || 'Configure a conta do Meta para ver suas campanhas'}
                 </div>
               </div>
@@ -2733,10 +2755,10 @@ export default function TrafegoPage() {
         {loading && (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 animate-pulse">
-                <div className="h-4 w-12 bg-gray-200 rounded mb-4" />
-                <div className="h-8 w-20 bg-gray-200 rounded mb-2" />
-                <div className="h-3 w-16 bg-gray-100 rounded" />
+              <div key={i} className="bg-[#161b27] rounded-2xl p-5 border border-white/5 animate-pulse">
+                <div className="h-3 w-16 bg-white/10 rounded mb-4" />
+                <div className="h-8 w-20 bg-white/10 rounded mb-2" />
+                <div className="h-2.5 w-24 bg-white/5 rounded" />
               </div>
             ))}
           </div>
@@ -2752,28 +2774,26 @@ export default function TrafegoPage() {
           return (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <MetricCard
-                icon={<DollarSign size={20} className="text-crm-primary" />}
-                label={`Gastei (${periodLabel})`}
+                label="INVESTIDO"
                 value={brl(s.totalSpend)}
+                sub={`últimos ${periodLabel.toLowerCase()}`}
               />
               <MetricCard
-                icon={<TrendingUp size={20} className="text-green-500" />}
-                label="Retorno gerado"
+                label="RETORNO GERADO"
                 value={brl(s.totalRevenue)}
                 badge={roasBadge.label}
                 badgeColor={roasBadge.color}
+                sub={`ROAS ${s.totalRoas.toFixed(2)}× — ideal mín. 3×`}
               />
               <MetricCard
-                icon={<Target size={20} className="text-blue-500" />}
-                label="Cliques"
+                label="CLIQUES"
                 value={n0(s.totalClicks)}
-                sub={s.totalCpc > 0 ? `${brl2(s.totalCpc)}/clique` : undefined}
+                sub={s.totalCpc > 0 ? `${brl2(s.totalCpc)} / clique` : undefined}
               />
               <MetricCard
-                icon={<Users size={20} className="text-purple-500" />}
-                label="Leads"
+                label="LEADS GERADOS"
                 value={n0(s.totalLeads)}
-                sub={s.totalCpl > 0 ? `${brl2(s.totalCpl)}/lead` : undefined}
+                sub={s.totalCpl > 0 ? `${brl2(s.totalCpl)} / lead · ideal R$20` : undefined}
                 badge={s.totalLeads > 0 ? (s.totalCpl <= 20 ? 'Bom' : s.totalCpl <= 30 ? 'Atenção' : 'Caro') : undefined}
                 badgeColor={s.totalLeads > 0 ? (s.totalCpl <= 20 ? 'green' : s.totalCpl <= 30 ? 'yellow' : 'red') : 'gray'}
               />
@@ -2783,44 +2803,50 @@ export default function TrafegoPage() {
 
         {/* ─── Alertas inteligentes ────────────────────────────────────────── */}
         {!loading && allAlerts.length > 0 && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <AlertTriangle size={18} className="text-amber-500" />
-              <h2 className="font-bold text-gray-900">
-                José identificou {allAlerts.length} situaç{allAlerts.length === 1 ? 'ão' : 'ões'} para atenção:
+          <div className="bg-[#161b27] rounded-2xl border border-red-500/40 p-5">
+            <div className="flex items-center gap-2 mb-1">
+              <AlertTriangle size={16} className="text-red-400 shrink-0" />
+              <h2 className="font-bold text-white text-sm">
+                José identificou {allAlerts.length} situaç{allAlerts.length === 1 ? 'ão' : 'ões'} crítica{allAlerts.length !== 1 ? 's' : ''}
               </h2>
             </div>
+            <p className="text-xs text-gray-500 mb-4 ml-6">
+              {allAlerts[0].mensagem} — ação recomendada: {allAlerts[0].acao === 'pausar' ? 'pausar agora' : allAlerts[0].acao || 'revisar'}
+            </p>
             <div className="space-y-3">
               {allAlerts.slice(0, 5).map((alert, i) => (
                 <div
                   key={i}
                   className={cn(
-                    'rounded-xl p-4 flex flex-col sm:flex-row sm:items-start justify-between gap-3',
-                    alert.tipo === 'danger' ? 'bg-red-50' : 'bg-amber-50'
+                    'rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border',
+                    alert.tipo === 'danger'
+                      ? 'bg-red-500/10 border-red-500/20'
+                      : 'bg-amber-500/10 border-amber-500/20'
                   )}
                 >
-                  <div>
-                    <div className={cn('font-semibold text-sm flex items-center gap-2', alert.tipo === 'danger' ? 'text-red-900' : 'text-amber-900')}>
-                      <span className={cn('w-2 h-2 rounded-full shrink-0', alert.tipo === 'danger' ? 'bg-red-500' : 'bg-amber-400')} />
-                      {alert.campaign.nome}
+                  <div className="min-w-0">
+                    <div className={cn('font-semibold text-xs flex items-center gap-2 flex-wrap', alert.tipo === 'danger' ? 'text-red-300' : 'text-amber-300')}>
+                      {alert.campaign.nome.split('·').map((part, pi) => (
+                        <span key={pi}>{part.trim()}{pi < alert.campaign.nome.split('·').length - 1 ? ' ·' : ''}</span>
+                      ))}
                     </div>
-                    <div className={cn('text-sm mt-0.5', alert.tipo === 'danger' ? 'text-red-700' : 'text-amber-700')}>
+                    <div className="text-xs text-gray-500 mt-0.5">
                       {alert.mensagem}
                     </div>
                   </div>
                   <div className="flex gap-2 shrink-0">
                     <button
                       onClick={() => { setSelectedCampaign(alert.campaign); setTab('campanhas'); }}
-                      className="text-xs px-3 py-1.5 rounded-lg bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 whitespace-nowrap"
+                      className="text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10 whitespace-nowrap"
                     >
                       Ver campanha
                     </button>
                     {(alert.acao === 'pausar' || alert.tipo === 'danger') && (
                       <button
                         onClick={() => { setSelectedCampaign(alert.campaign); }}
-                        className="text-xs px-3 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700 whitespace-nowrap"
+                        className="text-xs px-3 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700 whitespace-nowrap flex items-center gap-1"
                       >
-                        Pausar
+                        <Pause size={11} /> Pausar agora
                       </button>
                     )}
                   </div>
@@ -2831,49 +2857,53 @@ export default function TrafegoPage() {
         )}
 
         {/* ─── Abas ────────────────────────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+        <div className="bg-[#161b27] rounded-2xl border border-white/5">
           {/* Tab headers */}
-          <div className="flex border-b border-gray-100 overflow-x-auto">
-            {(
-              [
-                { key: 'campanhas', label: 'Campanhas', icon: <BarChart3 size={14} /> },
-                { key: 'criativos', label: 'Criativos',  icon: <ImageIcon size={14} /> },
-                { key: 'publicos',  label: 'Públicos',   icon: <Users size={14} /> },
-                { key: 'textos',    label: 'Textos',     icon: <FileText size={14} /> },
-                { key: 'analise',   label: 'Análise',    icon: <Zap size={14} /> },
-                { key: 'relatorio', label: 'Relatório',  icon: <TrendingUp size={14} /> },
-              ] as { key: Tab; label: string; icon: React.ReactNode }[]
-            ).map(({ key, label, icon }) => (
-              <button
-                key={key}
-                onClick={() => setTab(key)}
-                className={cn(
-                  'flex items-center gap-1.5 px-5 py-4 text-sm font-semibold whitespace-nowrap border-b-2 transition-colors',
-                  tab === key
-                    ? 'border-crm-primary text-crm-primary'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                )}
-              >
-                {icon}
-                {label}
+          <div className="flex items-center border-b border-white/5 overflow-x-auto">
+            <div className="flex flex-1">
+              {(
+                [
+                  { key: 'campanhas', label: 'Campanhas' },
+                  { key: 'criativos', label: 'Criativos' },
+                  { key: 'publicos',  label: 'Públicos' },
+                  { key: 'textos',    label: 'Textos' },
+                  { key: 'analise',   label: 'Análise' },
+                  { key: 'relatorio', label: 'Relatório' },
+                ] as { key: Tab; label: string }[]
+              ).map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setTab(key)}
+                  className={cn(
+                    'px-5 py-3.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
+                    tab === key
+                      ? 'border-blue-500 text-white'
+                      : 'border-transparent text-gray-500 hover:text-gray-300'
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {tab === 'publicos' && (
+              <button className="flex items-center gap-1 text-xs text-gray-400 hover:text-white px-4 py-3.5 transition-colors whitespace-nowrap">
+                <Plus size={12} /> Criar público
               </button>
-            ))}
+            )}
+            {tab === 'campanhas' && (
+              <button
+                onClick={() => setNovaCampanhaOpen(true)}
+                className="flex items-center gap-1 text-xs text-gray-400 hover:text-white px-4 py-3.5 transition-colors whitespace-nowrap"
+              >
+                <Plus size={12} /> Nova campanha
+              </button>
+            )}
           </div>
 
           <div className="p-5">
             {/* ── CAMPANHAS ── */}
             {tab === 'campanhas' && (
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h2 className="font-bold text-gray-900">Suas Campanhas</h2>
-                  <button
-                    onClick={() => setNovaCampanhaOpen(true)}
-                    className="flex items-center gap-1.5 text-sm px-4 py-2 bg-crm-primary text-white rounded-xl font-medium hover:opacity-90"
-                  >
-                    <Plus size={14} /> Nova Campanha
-                  </button>
-                </div>
-
                 {/* Filtros de status */}
                 {!loading && (data?.campaigns || []).length > 0 && (
                   <div className="flex items-center gap-2 flex-wrap">
@@ -2890,13 +2920,13 @@ export default function TrafegoPage() {
                         className={cn(
                           'px-3 py-1 rounded-lg text-xs font-medium transition-all border',
                           statusFilter === f.value
-                            ? 'bg-crm-primary text-white border-crm-primary'
-                            : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white/5 text-gray-400 border-white/10 hover:border-white/20 hover:text-gray-300'
                         )}
                       >
                         {f.label}
                         {f.value !== 'all' && (
-                          <span className="ml-1 opacity-70">
+                          <span className="ml-1 opacity-60">
                             ({(data?.campaigns || []).filter(c => c.effective_status === f.value).length})
                           </span>
                         )}
@@ -2906,14 +2936,14 @@ export default function TrafegoPage() {
                 )}
 
                 {loading && (
-                  <div className="text-center py-12 text-gray-400 text-sm">Carregando campanhas...</div>
+                  <div className="text-center py-12 text-gray-600 text-sm">Carregando campanhas...</div>
                 )}
 
                 {!loading && (!data?.campaigns || data.campaigns.length === 0) && (
                   <div className="text-center py-12">
-                    <Target size={40} className="text-gray-200 mx-auto mb-3" />
+                    <Target size={40} className="text-white/10 mx-auto mb-3" />
                     <p className="text-gray-500 text-sm">Nenhuma campanha encontrada no período</p>
-                    <p className="text-gray-400 text-xs mt-1">
+                    <p className="text-gray-600 text-xs mt-1">
                       {data?.connected ? 'Sem campanhas ativas ou pausadas' : 'Conecte o Meta Ads para ver campanhas'}
                     </p>
                   </div>
@@ -2932,23 +2962,23 @@ export default function TrafegoPage() {
                     <div className="overflow-x-auto">
                       <table className="w-full">
                         <thead>
-                          <tr className="border-b border-gray-100">
-                            <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide pb-3">Campanha</th>
-                            <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide pb-3">Status Meta</th>
-                            <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide pb-3">Saúde</th>
-                            <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wide pb-3">Gastei</th>
-                            <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wide pb-3">Retorno</th>
-                            <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wide pb-3">Leads</th>
+                          <tr className="border-b border-white/5">
+                            <th className="text-left text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">Campanha</th>
+                            <th className="text-left text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">Status</th>
+                            <th className="text-left text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">Saúde</th>
+                            <th className="text-right text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">Gasto</th>
+                            <th className="text-right text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">ROAS</th>
+                            <th className="text-right text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">Leads</th>
                             <th className="text-right pb-3" />
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-50">
+                        <tbody className="divide-y divide-white/5">
                           {filtered.map((c) => (
-                            <tr key={c.id} className="hover:bg-gray-50 transition-colors">
+                            <tr key={c.id} className="hover:bg-white/3 transition-colors group">
                               <td className="py-3 pr-4">
-                                <div className="font-medium text-gray-900 text-sm">{c.nome}</div>
+                                <div className="font-medium text-gray-200 text-sm">{c.nome}</div>
                                 {c.alerts.length > 0 && (
-                                  <div className="text-xs text-red-600 mt-0.5">
+                                  <div className="text-xs text-red-400 mt-0.5">
                                     {c.alerts[0].mensagem.substring(0, 50)}…
                                   </div>
                                 )}
@@ -2959,21 +2989,21 @@ export default function TrafegoPage() {
                               <td className="py-3 pr-4">
                                 <HealthBadge health={c.health} />
                               </td>
-                              <td className="py-3 pr-4 text-right text-sm font-medium text-gray-900">
+                              <td className="py-3 pr-4 text-right text-sm font-medium text-gray-300">
                                 {brl(c.spend)}
                               </td>
                               <td className="py-3 pr-4 text-right">
-                                <div className="text-sm font-medium text-gray-900">
-                                  {c.roas > 0 ? `${c.roas.toFixed(1)}x` : '—'}
+                                <div className={cn('text-sm font-medium', c.roas >= 3 ? 'text-emerald-400' : c.roas >= 1.5 ? 'text-amber-400' : 'text-red-400')}>
+                                  {c.roas > 0 ? `${c.roas.toFixed(1)}×` : '—'}
                                 </div>
                               </td>
-                              <td className="py-3 pr-4 text-right text-sm text-gray-600">
+                              <td className="py-3 pr-4 text-right text-sm text-gray-400">
                                 {c.leads > 0 ? c.leads : '—'}
                               </td>
                               <td className="py-3">
                                 <button
                                   onClick={() => setSelectedCampaign(c)}
-                                  className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 flex items-center gap-1 whitespace-nowrap"
+                                  className="text-xs px-3 py-1.5 rounded-lg border border-white/10 text-gray-400 hover:bg-white/5 hover:text-gray-200 flex items-center gap-1 whitespace-nowrap transition-colors"
                                 >
                                   Gerir <ChevronRight size={12} />
                                 </button>
@@ -2992,7 +3022,93 @@ export default function TrafegoPage() {
             {tab === 'criativos' && <CriativosTab />}
 
             {/* ── PÚBLICOS ── */}
-            {tab === 'publicos' && <PublicosTab />}
+            {tab === 'publicos' && (
+              <>
+                {/* Performance + Sugestões das IAs */}
+                {data?.summary && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-6">
+                    {/* Coluna esquerda: barras de performance */}
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-300 mb-4">Performance da semana</h3>
+                      <div className="space-y-4">
+                        {[
+                          { label: 'CPC', value: data.summary.totalCpc > 0 ? brl2(data.summary.totalCpc) : '—', color: 'bg-green-500', pct: data.summary.totalCpc > 0 ? Math.min(100, (data.summary.totalCpc / 2) * 100) : 0 },
+                          { label: 'CTR', value: (data.campaigns || []).length > 0 ? pct((data.campaigns || []).reduce((s, c) => s + c.ctr, 0) / (data.campaigns || []).length) : '—', color: 'bg-blue-500', pct: 35 },
+                          { label: 'CPM', value: (data.campaigns || []).length > 0 ? brl2((data.campaigns || []).reduce((s, c) => s + c.cpm, 0) / (data.campaigns || []).length) : '—', color: 'bg-orange-500', pct: 45 },
+                          { label: 'CPL', value: data.summary.totalCpl > 0 ? brl2(data.summary.totalCpl) : '—', color: 'bg-red-500', pct: data.summary.totalCpl > 0 ? Math.min(100, (data.summary.totalCpl / 150) * 100) : 0 },
+                          { label: 'Alcance', value: n0((data.campaigns || []).reduce((s, c) => s + c.reach, 0)), color: 'bg-gray-500', pct: 20 },
+                        ].map(({ label, value, color, pct: barPct }) => (
+                          <div key={label} className="flex items-center gap-3">
+                            <span className="text-xs text-gray-500 w-12 shrink-0">{label}</span>
+                            <div className="flex-1 bg-white/5 rounded-full h-1.5">
+                              <div className={cn('h-1.5 rounded-full transition-all', color)} style={{ width: `${barPct}%` }} />
+                            </div>
+                            <span className="text-xs font-mono text-gray-400 w-16 text-right shrink-0">{value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Coluna direita: sugestões das IAs */}
+                    <div>
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-sm font-semibold text-gray-300">Sugestões das IAs</h3>
+                        {allAlerts.length > 0 && (
+                          <span className="text-xs bg-white/10 text-gray-400 rounded-md px-2 py-0.5">
+                            {Math.min(allAlerts.length, 2)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="space-y-3">
+                        {allAlerts.length > 0 ? (
+                          <>
+                            <div className="flex gap-3">
+                              <div className="w-7 h-7 rounded-full bg-amber-500 flex items-center justify-center text-white text-xs font-bold shrink-0">J</div>
+                              <p className="text-xs text-gray-400 leading-relaxed">
+                                <span className="text-gray-200 font-medium">José:</span>{' '}
+                                {allAlerts[0].tipo === 'danger'
+                                  ? `Pausar ${allAlerts[0].campaign.nome} imediatamente. ${allAlerts[0].mensagem}.`
+                                  : allAlerts[0].mensagem}
+                              </p>
+                            </div>
+                            <div className="flex gap-3">
+                              <div className="w-7 h-7 rounded-full bg-purple-500 flex items-center justify-center text-white text-xs font-bold shrink-0">C</div>
+                              <p className="text-xs text-gray-400 leading-relaxed">
+                                <span className="text-gray-200 font-medium">Cláudio:</span>{' '}
+                                {allAlerts.length > 1
+                                  ? allAlerts[1].mensagem
+                                  : 'Criar público lookalike dos clientes com maior LTV. Testar R$30/dia por 3 dias antes de escalar orçamento.'}
+                              </p>
+                            </div>
+                          </>
+                        ) : (
+                          <p className="text-xs text-gray-600">Nenhum alerta ativo no período.</p>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 mt-5">
+                        <div>
+                          <div className="text-[10px] text-gray-600 uppercase tracking-wider">ROAS ATUAL</div>
+                          <div className="text-xl font-bold text-white mt-0.5">
+                            {data.summary.totalRoas > 0 ? `${data.summary.totalRoas.toFixed(2)}×` : '—'}
+                          </div>
+                          <div className="text-[10px] text-gray-600 mt-0.5">meta: 3× mínimo</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-gray-600 uppercase tracking-wider">EFICIÊNCIA</div>
+                          <div className="text-xl font-bold text-amber-400 mt-0.5">
+                            {data.summary.totalRoas > 0
+                              ? `${Math.min(100, Math.round((data.summary.totalRoas / 3) * 100))}%`
+                              : '—'}
+                          </div>
+                          <div className="text-[10px] text-gray-600 mt-0.5">do potencial da conta</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <PublicosTab />
+              </>
+            )}
 
             {/* ── TEXTOS ── */}
             {tab === 'textos' && <TextosTab copies={copies} />}
@@ -3006,22 +3122,22 @@ export default function TrafegoPage() {
         </div>
 
         {/* ─── Pedro — Sazonalidade ────────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+        <div className="bg-[#161b27] rounded-2xl border border-white/5 p-5">
           <div className="flex items-center gap-2 mb-4">
-            <span className="text-lg">📅</span>
-            <h2 className="font-bold text-gray-900">Pedro monitorando oportunidades</h2>
+            <span className="text-sm">📅</span>
+            <h2 className="font-semibold text-gray-300 text-sm">Pedro monitorando oportunidades</h2>
           </div>
           <div className="space-y-3">
-            <div className="bg-orange-50 rounded-xl px-4 py-3 text-sm text-orange-900">
+            <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl px-4 py-3 text-sm text-orange-300">
               <strong>{sazon.status}</strong>
-              <div className="mt-1 text-orange-700">Recomendação: {sazon.recomendacao}</div>
+              <div className="mt-1 text-orange-400 text-xs">Recomendação: {sazon.recomendacao}</div>
             </div>
             <div className="flex flex-col sm:flex-row gap-3">
-              <div className="flex-1 bg-blue-50 rounded-xl px-4 py-3 text-sm text-blue-900">
+              <div className="flex-1 bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-3 text-sm text-blue-300">
                 <strong>📌 {sazon.proximaData}</strong>
               </div>
-              <div className="flex-1 bg-purple-50 rounded-xl px-4 py-3 text-sm text-purple-900">
-                <strong>💡 Pedro encontrou:</strong> {sazon.dica}
+              <div className="flex-1 bg-purple-500/10 border border-purple-500/20 rounded-xl px-4 py-3 text-sm text-purple-300">
+                <strong>💡</strong> {sazon.dica}
               </div>
             </div>
           </div>
