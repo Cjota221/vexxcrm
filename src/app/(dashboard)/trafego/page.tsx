@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuthStore } from '@/store/auth';
 
 function authFetch(url: string, options?: RequestInit): Promise<Response> {
@@ -91,7 +91,7 @@ interface Criativo {
 }
 
 type Period = '1d' | '7d' | '15d' | '30d';
-type Tab = 'campanhas' | 'criativos' | 'publicos' | 'textos';
+type Tab = 'campanhas' | 'criativos' | 'publicos' | 'textos' | 'analise' | 'relatorio';
 
 /* ─── Formatadores ─────────────────────────────────────────────────────────── */
 
@@ -1345,6 +1345,12 @@ function CriativosTab() {
   const [loadingCriativos, setLoadingCriativos] = useState(true);
   const [syncing, setSyncing] = useState(false);
 
+  // Upload state
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'processing' | 'done' | 'error'>('idle');
+  const [uploadMsg, setUploadMsg] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const loadCriativos = async () => {
     setLoadingCriativos(true);
     try {
@@ -1366,21 +1372,127 @@ function CriativosTab() {
     finally { setSyncing(false); }
   };
 
+  const handleUploadVideo = (file: File) => {
+    const token = useAuthStore.getState().accessToken;
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('titulo', file.name.replace(/\.[^.]+$/, ''));
+
+    const xhr = new XMLHttpRequest();
+    setUploadProgress(0);
+    setUploadStatus('uploading');
+    setUploadMsg('');
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        setUploadProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        setUploadStatus('processing');
+        setUploadProgress(100);
+        setUploadMsg('Processando no Meta... aguarde');
+        setTimeout(() => {
+          setUploadStatus('done');
+          setUploadMsg('✅ Vídeo pronto para usar em anúncios!');
+          setUploadProgress(null);
+          loadCriativos();
+        }, 3000);
+      } else {
+        let msg = `Erro ${xhr.status}`;
+        try { msg = JSON.parse(xhr.responseText)?.error || msg; } catch { /* noop */ }
+        setUploadStatus('error');
+        setUploadMsg(msg);
+        setUploadProgress(null);
+      }
+    };
+
+    xhr.onerror = () => {
+      setUploadStatus('error');
+      setUploadMsg('Falha de conexão ao enviar vídeo');
+      setUploadProgress(null);
+    };
+
+    xhr.open('POST', '/api/trafego/criativos/upload-video');
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.send(formData);
+  };
+
   useEffect(() => { loadCriativos(); }, []);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="font-bold text-gray-900">Meus Criativos</h2>
-        <button
-          onClick={handleSync}
-          disabled={syncing}
-          className="flex items-center gap-2 px-4 py-2 bg-crm-primary text-white rounded-xl text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-60"
-        >
-          {syncing ? <Loader2 size={14} className="animate-spin" /> : <CloudDownload size={14} />}
-          {syncing ? 'Sincronizando...' : 'Sincronizar com Meta'}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploadStatus === 'uploading' || uploadStatus === 'processing'}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-xl text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-60"
+          >
+            <Plus size={14} /> Subir Vídeo
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="video/mp4,video/quicktime,video/avi,.mp4,.mov,.avi"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleUploadVideo(file);
+              e.target.value = '';
+            }}
+          />
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="flex items-center gap-2 px-4 py-2 bg-crm-primary text-white rounded-xl text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-60"
+          >
+            {syncing ? <Loader2 size={14} className="animate-spin" /> : <CloudDownload size={14} />}
+            {syncing ? 'Sincronizando...' : 'Sincronizar com Meta'}
+          </button>
+        </div>
       </div>
+
+      {/* Barra de progresso de upload */}
+      {(uploadStatus !== 'idle') && (
+        <div className={cn(
+          'rounded-xl p-4 text-sm',
+          uploadStatus === 'error' ? 'bg-red-50 border border-red-200 text-red-800' :
+          uploadStatus === 'done'  ? 'bg-green-50 border border-green-200 text-green-800' :
+          'bg-blue-50 border border-blue-200 text-blue-800'
+        )}>
+          {uploadStatus === 'uploading' && uploadProgress !== null && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span>Enviando vídeo...</span>
+                <span className="font-semibold">{uploadProgress}%</span>
+              </div>
+              <div className="w-full bg-blue-200 rounded-full h-2">
+                <div
+                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+            </div>
+          )}
+          {(uploadStatus === 'processing' || uploadStatus === 'done' || uploadStatus === 'error') && (
+            <div className="flex items-center justify-between">
+              <span>{uploadMsg}</span>
+              {(uploadStatus === 'done' || uploadStatus === 'error') && (
+                <button
+                  onClick={() => { setUploadStatus('idle'); setUploadMsg(''); }}
+                  className="text-xs opacity-60 hover:opacity-100"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
         <strong>Dicas da Judite para CJ Rasteirinhas:</strong>
@@ -1481,6 +1593,16 @@ function PublicosTab() {
   const [iaStep, setIaStep] = useState<IALoadingStep>(null);
   const [iaAnaliseResumo, setIaAnaliseResumo] = useState<string | null>(null);
 
+  // Criação manual de público
+  const [formManual, setFormManual] = useState(false);
+  const [formNome, setFormNome] = useState('');
+  const [formSegmento, setFormSegmento] = useState<'revendedoras' | 'franqueadas' | 'marca_propria' | 'personalizado'>('revendedoras');
+  const [formIdadeMin, setFormIdadeMin] = useState('25');
+  const [formIdadeMax, setFormIdadeMax] = useState('50');
+  const [formGenero, setFormGenero] = useState<'feminino' | 'masculino' | 'todos'>('feminino');
+  const [criandoManual, setCriandoManual] = useState(false);
+  const [formFeedback, setFormFeedback] = useState<string | null>(null);
+
   const carregarDados = useCallback(() => {
     setLoading(true);
     Promise.all([
@@ -1534,18 +1656,153 @@ function PublicosTab() {
     }
   }, [criandoComIA]);
 
+  const handleCriarManual = async () => {
+    if (!formNome.trim()) { setFormFeedback('Informe o nome do público'); return; }
+    setCriandoManual(true);
+    setFormFeedback(null);
+    try {
+      const res = await authFetch('/api/trafego/publicos/criar', {
+        method: 'POST',
+        body: JSON.stringify({
+          nome: formNome.trim(),
+          segmento: formSegmento,
+          idade_min: parseInt(formIdadeMin) || 25,
+          idade_max: parseInt(formIdadeMax) || 50,
+          genero: formGenero,
+        }),
+      });
+      const json = await res.json() as { ok?: boolean; error?: string; estimativa_alcance?: string; interesses_encontrados?: string[] };
+      if (json.ok) {
+        setFormFeedback(`✅ Público criado! Alcance: ${json.estimativa_alcance || 'calculando...'}`);
+        setFormNome('');
+        setFormManual(false);
+        carregarDados();
+      } else {
+        setFormFeedback(json.error || 'Erro ao criar público');
+      }
+    } catch (e) {
+      setFormFeedback(String(e));
+    } finally {
+      setCriandoManual(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {formFeedback && (
+        <div className={cn(
+          'rounded-xl px-4 py-3 text-sm border',
+          formFeedback.startsWith('✅')
+            ? 'bg-green-50 border-green-200 text-green-800'
+            : 'bg-red-50 border-red-200 text-red-800'
+        )}>
+          {formFeedback}
+          <button onClick={() => setFormFeedback(null)} className="ml-2 opacity-60 hover:opacity-100">✕</button>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <h2 className="font-bold text-gray-900">Públicos</h2>
-        <button
-          onClick={carregarDados}
-          disabled={loading || criandoComIA}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 text-gray-600 text-sm hover:bg-gray-50 disabled:opacity-40"
-        >
-          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Atualizar
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setFormManual(f => !f)}
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-xl border border-purple-200 text-purple-700 hover:bg-purple-50"
+          >
+            <Plus size={13} /> Criar manual
+          </button>
+          <button
+            onClick={carregarDados}
+            disabled={loading || criandoComIA}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 text-gray-600 text-sm hover:bg-gray-50 disabled:opacity-40"
+          >
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Atualizar
+          </button>
+        </div>
       </div>
+
+      {/* Formulário de criação manual */}
+      {formManual && (
+        <div className="bg-white rounded-2xl border border-purple-200 p-5 space-y-4">
+          <h3 className="font-semibold text-gray-900 text-sm">Criar público manualmente</h3>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Quem você quer atingir?</label>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { v: 'revendedoras',  l: 'Revendedoras e lojistas' },
+                { v: 'franqueadas',   l: 'Candidatas a franqueadas C4' },
+                { v: 'marca_propria', l: 'Compradores marca própria' },
+                { v: 'personalizado', l: 'Personalizado' },
+              ] as const).map(({ v, l }) => (
+                <button
+                  key={v}
+                  onClick={() => setFormSegmento(v)}
+                  className={cn(
+                    'py-2 px-3 rounded-xl border text-xs font-medium text-left transition-all',
+                    formSegmento === v
+                      ? 'bg-purple-600 text-white border-purple-600'
+                      : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+                  )}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Nome do público *</label>
+            <input
+              type="text"
+              value={formNome}
+              onChange={e => setFormNome(e.target.value)}
+              placeholder="Ex: Revendedoras SP/RJ"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-crm-primary/30"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Idade mínima</label>
+              <input type="number" min={18} max={64} value={formIdadeMin} onChange={e => setFormIdadeMin(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-crm-primary/30" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Idade máxima</label>
+              <input type="number" min={19} max={65} value={formIdadeMax} onChange={e => setFormIdadeMax(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-crm-primary/30" />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Gênero</label>
+            <div className="flex gap-2">
+              {([{ v: 'feminino', l: 'Mulheres' }, { v: 'masculino', l: 'Homens' }, { v: 'todos', l: 'Todos' }] as const).map(({ v, l }) => (
+                <button key={v} onClick={() => setFormGenero(v)}
+                  className={cn('flex-1 py-2 rounded-xl border text-xs font-medium transition-all',
+                    formGenero === v ? 'bg-crm-primary text-white border-crm-primary' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                  )}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <button onClick={() => setFormManual(false)} className="px-4 py-2 rounded-xl border border-gray-200 text-gray-700 text-sm hover:bg-gray-50">
+              Cancelar
+            </button>
+            <button
+              onClick={handleCriarManual}
+              disabled={criandoManual || !formNome.trim()}
+              className="flex-1 flex items-center justify-center gap-2 py-2 rounded-xl bg-purple-600 text-white text-sm font-medium hover:bg-purple-700 disabled:opacity-50"
+            >
+              {criandoManual ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
+              {criandoManual ? 'Criando...' : 'Criar público'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Card IA — Criar públicos com IA */}
       <div className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-2xl border border-purple-100 p-4">
@@ -1799,6 +2056,426 @@ function TextosTab({ copies }: { copies: Array<{ headline: string; texto_princip
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/* ─── Aba Análise (José + fila de aprovação) ───────────────────────────────── */
+
+interface AcaoPendente {
+  id: string;
+  agent: string;
+  action_type: string;
+  alvo_nome?: string;
+  motivo: string;
+  urgencia: string;
+  status: string;
+  created_at: string;
+}
+
+function AnaliseTab() {
+  const [loading, setLoading]           = useState(true);
+  const [analisando, setAnalisando]     = useState(false);
+  const [acoes, setAcoes]               = useState<AcaoPendente[]>([]);
+  const [analise, setAnalise]           = useState<{
+    resumo_executivo?: string;
+    situacao_geral?: string;
+    metricas_consolidadas?: {
+      gasto_total: number; retorno_total: number; roas_medio: number;
+      leads_total: number; cpl_medio: number; campanhas_ativas: number; campanhas_problemas: number;
+    };
+  } | null>(null);
+  const [aprovando, setAprovando]       = useState<string | null>(null);
+  const [feedback, setFeedback]         = useState<string | null>(null);
+
+  const carregar = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await authFetch('/api/ai-team/analise-performance');
+      if (res.ok) {
+        const json = await res.json() as {
+          ultima_analise?: { analyst_output?: typeof analise };
+          acoes_pendentes?: AcaoPendente[];
+        };
+        setAcoes(json.acoes_pendentes || []);
+        setAnalise(json.ultima_analise?.analyst_output || null);
+      }
+    } catch { /* silencioso */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { carregar(); }, [carregar]);
+
+  async function handleAnalisar() {
+    setAnalisando(true);
+    try {
+      const res = await authFetch('/api/ai-team/analise-performance', { method: 'POST' });
+      const json = await res.json() as { ok?: boolean; analise?: typeof analise; error?: string };
+      if (json.ok && json.analise) {
+        setAnalise(json.analise);
+        await carregar();
+        setFeedback('Análise concluída! Ações adicionadas à fila de aprovação.');
+        setTimeout(() => setFeedback(null), 5000);
+      } else {
+        setFeedback(json.error || 'Erro ao analisar campanhas');
+        setTimeout(() => setFeedback(null), 5000);
+      }
+    } catch (e) {
+      setFeedback(String(e));
+    } finally {
+      setAnalisando(false);
+    }
+  }
+
+  async function handleAprovar(id: string, aprovar: boolean) {
+    setAprovando(id);
+    try {
+      const token = useAuthStore.getState().accessToken;
+      const res = await fetch(`/api/ai-team/actions/${id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ status: aprovar ? 'approved' : 'rejected' }),
+      });
+      if (res.ok) {
+        setAcoes(prev => prev.filter(a => a.id !== id));
+        setFeedback(aprovar ? 'Ação aprovada!' : 'Ação rejeitada.');
+        setTimeout(() => setFeedback(null), 3000);
+      }
+    } catch { /* silencioso */ }
+    finally { setAprovando(null); }
+  }
+
+  const situacaoColor = {
+    otima:   'text-green-700 bg-green-50 border-green-200',
+    boa:     'text-blue-700 bg-blue-50 border-blue-200',
+    atencao: 'text-amber-700 bg-amber-50 border-amber-200',
+    critica: 'text-red-700 bg-red-50 border-red-200',
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-bold text-gray-900">Análise de Performance</h2>
+          <p className="text-xs text-gray-400 mt-0.5">José analisa suas campanhas e identifica oportunidades</p>
+        </div>
+        <button
+          onClick={handleAnalisar}
+          disabled={analisando}
+          className="flex items-center gap-2 px-4 py-2 bg-crm-primary text-white rounded-xl text-sm font-medium hover:opacity-90 disabled:opacity-60"
+        >
+          {analisando ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
+          {analisando ? 'Analisando...' : 'Analisar agora'}
+        </button>
+      </div>
+
+      {feedback && (
+        <div className={cn(
+          'rounded-xl px-4 py-3 text-sm flex items-center gap-2',
+          feedback.includes('Erro') || feedback.includes('erro')
+            ? 'bg-red-50 border border-red-200 text-red-800'
+            : 'bg-green-50 border border-green-200 text-green-800'
+        )}>
+          {feedback}
+        </div>
+      )}
+
+      {loading && (
+        <div className="text-center py-12 text-gray-400 text-sm">
+          <Loader2 size={24} className="animate-spin mx-auto mb-2" />
+          Carregando análise...
+        </div>
+      )}
+
+      {/* Resumo do José */}
+      {!loading && analise && (
+        <div className={cn(
+          'rounded-2xl border p-5',
+          situacaoColor[(analise.situacao_geral as keyof typeof situacaoColor) || 'boa']
+        )}>
+          <div className="flex items-start gap-3">
+            <span className="text-2xl">👨</span>
+            <div>
+              <div className="font-semibold text-sm mb-1">José analisou suas campanhas:</div>
+              <p className="text-sm leading-relaxed">{analise.resumo_executivo || 'Sem análise disponível ainda.'}</p>
+            </div>
+          </div>
+          {analise.metricas_consolidadas && (
+            <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-current/20">
+              <div className="text-center">
+                <div className="font-bold text-lg">{brl(analise.metricas_consolidadas.gasto_total)}</div>
+                <div className="text-xs opacity-70">Investido</div>
+              </div>
+              <div className="text-center">
+                <div className="font-bold text-lg">{analise.metricas_consolidadas.roas_medio.toFixed(1)}x</div>
+                <div className="text-xs opacity-70">ROAS médio</div>
+              </div>
+              <div className="text-center">
+                <div className="font-bold text-lg">{analise.metricas_consolidadas.campanhas_problemas}</div>
+                <div className="text-xs opacity-70">Com problema</div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!loading && !analise && (
+        <div className="text-center py-8 bg-gray-50 rounded-2xl border border-gray-100">
+          <Zap size={32} className="text-gray-200 mx-auto mb-3" />
+          <p className="text-gray-500 text-sm">Nenhuma análise realizada ainda</p>
+          <p className="text-gray-400 text-xs mt-1">Clique em "Analisar agora" para o José verificar suas campanhas</p>
+        </div>
+      )}
+
+      {/* Fila de aprovação */}
+      {!loading && acoes.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+            Ações aguardando aprovação ({acoes.length})
+          </h3>
+          <div className="space-y-3">
+            {acoes.map((acao) => (
+              <div
+                key={acao.id}
+                className={cn(
+                  'rounded-2xl border p-4',
+                  acao.urgencia === 'imediata' ? 'bg-red-50 border-red-200' :
+                  'bg-amber-50 border-amber-200'
+                )}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-sm text-gray-900">
+                        {acao.alvo_nome || 'Campanha'}
+                      </span>
+                      <span className={cn(
+                        'text-xs px-2 py-0.5 rounded-full font-medium',
+                        acao.urgencia === 'imediata' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                      )}>
+                        {acao.urgencia === 'imediata' ? '🔴 Urgente' :
+                         acao.urgencia === 'proximas_24h' ? '🟡 Hoje' : '🟢 Esta semana'}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-700 mt-1">{acao.motivo}</p>
+                    <p className="text-xs text-gray-400 mt-1">Sugerido por: {acao.agent}</p>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      onClick={() => handleAprovar(acao.id, false)}
+                      disabled={aprovando === acao.id}
+                      className="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 text-xs font-medium hover:bg-gray-100 disabled:opacity-50"
+                    >
+                      Rejeitar
+                    </button>
+                    <button
+                      onClick={() => handleAprovar(acao.id, true)}
+                      disabled={aprovando === acao.id}
+                      className="px-3 py-1.5 rounded-lg bg-crm-primary text-white text-xs font-medium hover:opacity-90 disabled:opacity-50 flex items-center gap-1"
+                    >
+                      {aprovando === acao.id ? <Loader2 size={11} className="animate-spin" /> : null}
+                      Aprovar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!loading && acoes.length === 0 && analise && (
+        <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-800 flex items-center gap-2">
+          <CheckCircle size={16} />
+          Nenhuma ação pendente — tudo em ordem!
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Aba Relatório ────────────────────────────────────────────────────────── */
+
+function RelatorioTab() {
+  const [loading, setLoading]     = useState(false);
+  const [relatorio, setRelatorio] = useState<{
+    periodo?: string;
+    gerado_em?: string;
+    resumo?: { gasto_total: number; retorno_total: number; roas_medio: number; leads_total: number; cpl_medio: number };
+    campanhas?: Array<{ nome: string; status: string; health: string; spend: number; leads: number; cpl: number; roas: number }>;
+    texto_relatorio?: string;
+  } | null>(null);
+  const [periodo, setPeriodo] = useState<'last_7d' | 'last_14d' | 'last_30d'>('last_7d');
+  const [copiado, setCopiado] = useState(false);
+
+  const gerarRelatorio = useCallback(async (p: string) => {
+    setLoading(true);
+    try {
+      const res = await authFetch(`/api/ai-team/relatorio?periodo=${p}`);
+      if (res.ok) {
+        const json = await res.json();
+        setRelatorio(json);
+      }
+    } catch { /* silencioso */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { gerarRelatorio(periodo); }, [gerarRelatorio, periodo]);
+
+  function copiarTexto() {
+    if (!relatorio?.texto_relatorio) return;
+    navigator.clipboard.writeText(relatorio.texto_relatorio);
+    setCopiado(true);
+    setTimeout(() => setCopiado(false), 2000);
+  }
+
+  const healthColors: Record<string, string> = {
+    great: 'text-green-700',
+    ok:    'text-amber-700',
+    bad:   'text-red-700',
+    paused:'text-gray-500',
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="font-bold text-gray-900">Relatório de Performance</h2>
+          <p className="text-xs text-gray-400 mt-0.5">Gerado pelo Cláudio em português simples</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="flex bg-gray-100 rounded-xl p-1 gap-1">
+            {([
+              { value: 'last_7d',  label: '7 dias' },
+              { value: 'last_14d', label: '15 dias' },
+              { value: 'last_30d', label: '30 dias' },
+            ] as const).map(({ value, label }) => (
+              <button
+                key={value}
+                onClick={() => setPeriodo(value)}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+                  periodo === value ? 'bg-crm-primary text-white shadow-sm' : 'bg-transparent text-gray-600 hover:bg-gray-200'
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => gerarRelatorio(periodo)}
+            disabled={loading}
+            className="p-2 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
+      </div>
+
+      {loading && (
+        <div className="text-center py-12 text-gray-400 text-sm">
+          <Loader2 size={24} className="animate-spin mx-auto mb-2" />
+          Cláudio está gerando seu relatório...
+        </div>
+      )}
+
+      {!loading && relatorio && (
+        <div className="space-y-5">
+          {/* Cards de resumo */}
+          {relatorio.resumo && (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+                <div className="text-xs text-gray-500 mb-1">Investido</div>
+                <div className="font-bold text-gray-900">{brl(relatorio.resumo.gasto_total)}</div>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+                <div className="text-xs text-gray-500 mb-1">Retorno</div>
+                <div className="font-bold text-gray-900">{brl(relatorio.resumo.retorno_total)}</div>
+              </div>
+              <div className={cn(
+                'rounded-xl p-4 border',
+                relatorio.resumo.roas_medio >= 3 ? 'bg-green-50 border-green-200' :
+                relatorio.resumo.roas_medio >= 1.5 ? 'bg-amber-50 border-amber-200' :
+                'bg-red-50 border-red-200'
+              )}>
+                <div className="text-xs text-gray-500 mb-1">ROAS médio</div>
+                <div className="font-bold text-gray-900">{relatorio.resumo.roas_medio.toFixed(1)}x</div>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+                <div className="text-xs text-gray-500 mb-1">Leads</div>
+                <div className="font-bold text-gray-900">{relatorio.resumo.leads_total}</div>
+                {relatorio.resumo.cpl_medio > 0 && (
+                  <div className="text-xs text-gray-400">{brl(relatorio.resumo.cpl_medio)}/lead</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Campanhas resumidas */}
+          {relatorio.campanhas && relatorio.campanhas.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Campanhas</h3>
+              <div className="space-y-2">
+                {relatorio.campanhas.map((c, i) => (
+                  <div key={i} className="flex items-center justify-between py-2.5 px-4 bg-gray-50 rounded-xl">
+                    <div className="flex items-center gap-2">
+                      <span className={cn('text-sm font-medium', healthColors[c.health] || 'text-gray-700')}>
+                        {c.health === 'great' ? '✅' : c.health === 'bad' ? '⚠️' : c.health === 'paused' ? '⏸️' : '🟡'}
+                        {' '}{c.nome}
+                      </span>
+                    </div>
+                    <div className="text-right text-xs text-gray-500">
+                      <span className="font-medium text-gray-700">{brl(c.spend)}</span>
+                      {c.leads > 0 && <span className="ml-2">{c.leads} leads · {brl(c.cpl)}/lead</span>}
+                      <span className="ml-2">ROAS {c.roas.toFixed(1)}x</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Texto do relatório (Cláudio) */}
+          {relatorio.texto_relatorio && (
+            <div className="bg-white rounded-2xl border border-gray-100 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">🧠</span>
+                  <span className="font-semibold text-gray-900 text-sm">Relatório do Cláudio</span>
+                </div>
+                <button
+                  onClick={copiarTexto}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
+                >
+                  <Copy size={12} />
+                  {copiado ? 'Copiado!' : 'Copiar para WhatsApp'}
+                </button>
+              </div>
+              <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">
+                {relatorio.texto_relatorio}
+              </pre>
+            </div>
+          )}
+
+          {relatorio.gerado_em && (
+            <p className="text-xs text-gray-400 text-center">
+              Gerado em {formatDateTime(relatorio.gerado_em)}
+            </p>
+          )}
+        </div>
+      )}
+
+      {!loading && !relatorio && (
+        <div className="text-center py-8 bg-gray-50 rounded-2xl border border-gray-100">
+          <BarChart3 size={32} className="text-gray-200 mx-auto mb-3" />
+          <p className="text-gray-500 text-sm">Clique em atualizar para gerar o relatório</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -2132,6 +2809,8 @@ export default function TrafegoPage() {
                 { key: 'criativos', label: 'Criativos',  icon: <ImageIcon size={14} /> },
                 { key: 'publicos',  label: 'Públicos',   icon: <Users size={14} /> },
                 { key: 'textos',    label: 'Textos',     icon: <FileText size={14} /> },
+                { key: 'analise',   label: 'Análise',    icon: <Zap size={14} /> },
+                { key: 'relatorio', label: 'Relatório',  icon: <TrendingUp size={14} /> },
               ] as { key: Tab; label: string; icon: React.ReactNode }[]
             ).map(({ key, label, icon }) => (
               <button
@@ -2286,6 +2965,12 @@ export default function TrafegoPage() {
 
             {/* ── TEXTOS ── */}
             {tab === 'textos' && <TextosTab copies={copies} />}
+
+            {/* ── ANÁLISE ── */}
+            {tab === 'analise' && <AnaliseTab />}
+
+            {/* ── RELATÓRIO ── */}
+            {tab === 'relatorio' && <RelatorioTab />}
           </div>
         </div>
 
