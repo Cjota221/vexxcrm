@@ -22,6 +22,12 @@
 [functions."api/sync"]
   timeout = 26
 
+[functions."api/trafego/sync"]
+  timeout = 26
+
+[functions."api/trafego/metrics"]
+  timeout = 26
+
 [functions."api/cron/campaign-dispatcher"]
   timeout = 26
 
