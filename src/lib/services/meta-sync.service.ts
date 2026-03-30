@@ -152,15 +152,13 @@ export async function sincronizarTudoDoMeta(
   token: string,
 ): Promise<SyncResult> {
   const t0 = Date.now();
-  const errors: string[] = [];
   const supabase = createServerSupabaseClient();
-
-  // ─── Garantir prefixo act_ ─────────────────────────────────────────────────
   const actId = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
+  const now = new Date().toISOString();
 
-  // ─── 1. Campanhas ──────────────────────────────────────────────────────────
-  let campanhasCount = 0;
-  try {
+  // ── Funções de fetch por entidade ────────────────────────────────────────────
+
+  async function syncCampanhas() {
     const insightFields = 'spend,impressions,clicks,cpc,cpm,ctr,reach,frequency,actions,action_values';
     const campaignFields = [
       `insights{${insightFields},date_start,date_stop}`,
@@ -180,41 +178,29 @@ export async function sincronizarTudoDoMeta(
         insight?.action_values?.find((a) => a.action_type === 'purchase')?.value || '0'
       );
       return {
-        id: c.id,
-        tenant_id: tenantId,
-        nome: c.name,
-        status: c.status,
+        id: c.id, tenant_id: tenantId, nome: c.name, status: c.status,
         objetivo: c.objective,
         orcamento_diario: c.daily_budget ? parseInt(c.daily_budget) : null,
-        data_inicio: c.start_time || null,
-        data_fim: c.stop_time || null,
+        data_inicio: c.start_time || null, data_fim: c.stop_time || null,
         metricas: insight ? {
           spend, revenue,
           impressions: parseInt(insight.impressions || '0'),
           clicks: parseInt(insight.clicks || '0'),
-          cpc: parseFloat(insight.cpc || '0'),
-          cpm: parseFloat(insight.cpm || '0'),
-          ctr: parseFloat(insight.ctr || '0'),
-          reach: parseInt(insight.reach || '0'),
+          cpc: parseFloat(insight.cpc || '0'), cpm: parseFloat(insight.cpm || '0'),
+          ctr: parseFloat(insight.ctr || '0'), reach: parseInt(insight.reach || '0'),
           frequency: parseFloat(insight.frequency || '0'),
           roas: spend > 0 ? revenue / spend : 0,
         } : null,
-        raw_data: c,
-        sincronizado_em: new Date().toISOString(),
+        raw_data: c, sincronizado_em: now,
       };
     });
 
-    if (rows.length > 0) {
+    if (rows.length > 0)
       await supabase.from('meta_campaigns_cache').upsert(rows, { onConflict: 'id,tenant_id' });
-    }
-    campanhasCount = rows.length;
-  } catch (err) {
-    errors.push(`Campanhas: ${String(err)}`);
+    return rows.length;
   }
 
-  // ─── 2. Anúncios ───────────────────────────────────────────────────────────
-  let adsCount = 0;
-  try {
+  async function syncAds() {
     const adFields = [
       'name,status,campaign_id,adset_id',
       'creative{id,name,title,body,call_to_action_type,image_url,video_id,thumbnail_url,object_story_spec}',
@@ -232,12 +218,9 @@ export async function sincronizarTudoDoMeta(
       const creative = ad.creative || {};
       const linkData = creative.object_story_spec?.link_data || {};
       return {
-        id: ad.id,
-        tenant_id: tenantId,
-        campaign_id: ad.campaign_id,
-        adset_id: ad.adset_id,
-        nome: ad.name,
-        status: ad.status,
+        id: ad.id, tenant_id: tenantId,
+        campaign_id: ad.campaign_id, adset_id: ad.adset_id,
+        nome: ad.name, status: ad.status,
         criativo: {
           id: creative.id,
           titulo: creative.title || linkData.name || '',
@@ -254,74 +237,66 @@ export async function sincronizarTudoDoMeta(
           cpc: parseFloat(insight.cpc || '0'),
           reach: parseInt(insight.reach || '0'),
         } : null,
-        sincronizado_em: new Date().toISOString(),
+        sincronizado_em: now,
       };
     });
 
-    if (rows.length > 0) {
+    if (rows.length > 0)
       await supabase.from('meta_ads_cache').upsert(rows, { onConflict: 'id,tenant_id' });
-    }
-    adsCount = rows.length;
-  } catch (err) {
-    errors.push(`Anúncios: ${String(err)}`);
+    return rows.length;
   }
 
-  // ─── 3. Vídeos ────────────────────────────────────────────────────────────
-  let criativosCount = 0;
-  try {
+  async function syncVideos() {
     const videos = await metaGetAll<MetaVideoRaw>(
       `${META_BASE}/${actId}/advideos?fields=id,title,description,thumbnails,length,created_time` +
       `&limit=100&access_token=${token}`
     );
-
     const rows = videos.map((v) => ({
-      id: v.id,
-      tenant_id: tenantId,
-      tipo: 'video',
+      id: v.id, tenant_id: tenantId, tipo: 'video',
       nome: v.title || v.description || `Vídeo ${v.id}`,
       url_thumb: v.thumbnails?.data?.[0]?.uri || '',
-      url_full: '',
-      duracao: Math.round(v.length || 0),
-      sincronizado_em: new Date().toISOString(),
+      url_full: '', duracao: Math.round(v.length || 0), sincronizado_em: now,
     }));
-
-    if (rows.length > 0) {
+    if (rows.length > 0)
       await supabase.from('meta_creatives_cache').upsert(rows, { onConflict: 'id,tenant_id' });
-    }
-    criativosCount += rows.length;
-  } catch (err) {
-    errors.push(`Vídeos: ${String(err)}`);
+    return rows.length;
   }
 
-  // ─── 4. Imagens ───────────────────────────────────────────────────────────
-  try {
+  async function syncImagens() {
     const images = await metaGetAll<MetaImageRaw>(
       `${META_BASE}/${actId}/adimages?fields=hash,name,url,url_128,created_time` +
       `&limit=100&access_token=${token}`
     );
-
     const rows = images.map((img) => ({
-      id: img.hash,
-      tenant_id: tenantId,
-      tipo: 'imagem',
+      id: img.hash, tenant_id: tenantId, tipo: 'imagem',
       nome: img.name || `Imagem ${img.hash?.substring(0, 8)}`,
       url_thumb: img.url_128 || img.url || '',
-      url_full: img.url || '',
-      sincronizado_em: new Date().toISOString(),
+      url_full: img.url || '', sincronizado_em: now,
     }));
-
-    if (rows.length > 0) {
+    if (rows.length > 0)
       await supabase.from('meta_creatives_cache').upsert(rows, { onConflict: 'id,tenant_id' });
-    }
-    criativosCount += rows.length;
-  } catch (err) {
-    errors.push(`Imagens: ${String(err)}`);
+    return rows.length;
   }
 
+  // ── Executar os 4 endpoints em paralelo ──────────────────────────────────────
+  const [rCampanhas, rAds, rVideos, rImagens] = await Promise.allSettled([
+    syncCampanhas(),
+    syncAds(),
+    syncVideos(),
+    syncImagens(),
+  ]);
+
+  const errors: string[] = [];
+  if (rCampanhas.status === 'rejected') errors.push(`Campanhas: ${String(rCampanhas.reason)}`);
+  if (rAds.status      === 'rejected') errors.push(`Anúncios: ${String(rAds.reason)}`);
+  if (rVideos.status   === 'rejected') errors.push(`Vídeos: ${String(rVideos.reason)}`);
+  if (rImagens.status  === 'rejected') errors.push(`Imagens: ${String(rImagens.reason)}`);
+
   return {
-    campanhas: campanhasCount,
-    ads: adsCount,
-    criativos: criativosCount,
+    campanhas: rCampanhas.status === 'fulfilled' ? rCampanhas.value : 0,
+    ads:       rAds.status       === 'fulfilled' ? rAds.value       : 0,
+    criativos: (rVideos.status   === 'fulfilled' ? rVideos.value    : 0) +
+               (rImagens.status  === 'fulfilled' ? rImagens.value   : 0),
     durationMs: Date.now() - t0,
     errors,
   };

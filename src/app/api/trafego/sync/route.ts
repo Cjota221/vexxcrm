@@ -3,6 +3,9 @@ import { createServerSupabaseClient } from '@/lib/supabase';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { sincronizarTudoDoMeta } from '@/lib/services/meta-sync.service';
 
+// Aumenta o timeout da função no Vercel para 60s (necessário para sync com muitos dados)
+export const maxDuration = 60;
+
 /**
  * POST /api/trafego/sync
  * Sincroniza campanhas, anúncios e criativos do Meta Ads para o cache local.
