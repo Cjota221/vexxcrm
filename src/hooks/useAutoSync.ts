@@ -113,8 +113,12 @@ export function useAutoSync() {
           console.warn('[AutoSync] Erro:', errData.error || response.status);
         }
       }
-    } catch (err) {
-      console.warn('[AutoSync] Falha na sincronização:', err);
+    } catch (err: any) {
+      // AbortError é esperado quando o usuário navega durante um sync — ignora silenciosamente
+      const isAbort = err?.name === 'AbortError' || err?.message?.includes('aborted');
+      if (!isAbort) {
+        console.warn('[AutoSync] Falha na sincronização:', err);
+      }
     } finally {
       isSyncingRef.current = false;
     }
