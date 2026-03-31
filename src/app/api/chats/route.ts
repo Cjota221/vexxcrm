@@ -118,8 +118,9 @@ export async function GET(request: NextRequest) {
       case 'all':
       default:
         // Mostrar todas as conversas EXCETO arquivadas.
-        // Inclui explicitamente: open, waiting, resolved, etc.
-        query = query.neq('status', 'archived');
+        // Inclui explicitamente: open, waiting, resolved, e também status=null (grupos).
+        // ATENÇÃO: neq('status','archived') exclui NULLs em PostgreSQL — usar OR explícito.
+        query = query.or('status.neq.archived,status.is.null');
         break;
     }
 
