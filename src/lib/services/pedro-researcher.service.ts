@@ -1,9 +1,8 @@
-// ANTES: não existia pesquisa de tendências de mercado.
-// DEPOIS: AGENTE PEDRO — pesquisador de tendências (Perplexity Sonar).
-//         Busca tendências de mercado em tempo real para embasar estratégias
-//         de campanha. Retorna insights acionáveis e oportunidades sazonais.
+// AGENTE PEDRO — pesquisador de tendências (OpenAI GPT-4o-mini).
+//         Analisa tendências de mercado para embasar estratégias de campanha.
+//         Retorna insights acionáveis e oportunidades sazonais.
 
-const PERPLEXITY_BASE = 'https://api.perplexity.ai';
+const OPENAI_BASE = 'https://api.openai.com/v1';
 
 /* ─── Tipos ────────────────────────────────────────────────────────────────── */
 
@@ -32,40 +31,34 @@ export interface PedroResearch {
   fontes: string[];
 }
 
-/* ─── Queries por nicho ─────────────────────────────────────────────────────── */
-
-function buildSearchQuery(produto: string, publico: string): string {
-  return `Tendências de mercado e oportunidades de campanha Meta Ads para: ${produto}.
-Público-alvo: ${publico}.
-Contexto: Brasil, março de 2026.
-Inclua: tendências de consumo, eventos sazonais próximos, estratégias de concorrentes,
-palavras-chave em alta, oportunidades de nicho.`;
-}
-
 /* ─── Função principal ──────────────────────────────────────────────────────── */
 
 /**
- * AGENTE PEDRO — Pesquisa tendências em tempo real via Perplexity Sonar.
+ * AGENTE PEDRO — Analisa tendências de mercado via GPT-4o-mini.
  *
  * @param produto   - Produto/nicho da marca (ex: "rasteirinhas femininas")
  * @param publico   - Público-alvo (ex: "mulheres 25-45, sul/sudeste")
- * @param apiKey    - Perplexity API Key (usa PERPLEXITY_API_KEY env var se não fornecida)
+ * @param apiKey    - OpenAI API Key (usa OPENAI_API_KEY env var se não fornecida)
  */
 export async function pedroResearchTrends(
   produto: string,
   publico: string,
   apiKey?: string,
 ): Promise<PedroResearch> {
-  const key = apiKey || process.env.PERPLEXITY_API_KEY;
-  if (!key) throw new Error('PERPLEXITY_API_KEY não configurada para o Pedro');
+  const key = apiKey || process.env.OPENAI_API_KEY;
+  if (!key) throw new Error('OPENAI_API_KEY não configurada para o Pedro');
 
   const systemPrompt = `Você é o PEDRO, pesquisador especializado em tendências de mercado para e-commerce brasileiro.
-Sua função é encontrar tendências e oportunidades de campanha em tempo real.
+Sua função é analisar tendências e oportunidades de campanha com base no seu conhecimento atualizado.
 Responda SEMPRE em português brasileiro.
 Estruture sua resposta como JSON válido com o formato especificado.
-Baseie-se em dados reais e recentes — esta é sua principal vantagem.`;
+Baseie-se em tendências reais do mercado brasileiro de e-commerce.`;
 
-  const userMessage = buildSearchQuery(produto, publico) + `
+  const userMessage = `Analise tendências de mercado e oportunidades de campanha Meta Ads para: ${produto}.
+Público-alvo: ${publico}.
+Contexto: Brasil, 2025/2026.
+Inclua: tendências de consumo, eventos sazonais próximos, estratégias de nicho,
+palavras-chave em alta, oportunidades identificadas.
 
 Retorne JSON com este formato exato:
 {
@@ -94,30 +87,29 @@ Retorne JSON com este formato exato:
     }
   ],
   "resumo": "string (2-3 frases)",
-  "fontes": ["url1", "url2"]
+  "fontes": ["string"]
 }`;
 
-  const response = await fetch(`${PERPLEXITY_BASE}/chat/completions`, {
+  const response = await fetch(`${OPENAI_BASE}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${key}`,
+      'Authorization': `Bearer ${key}`,
     },
     body: JSON.stringify({
-      model: 'llama-3.1-sonar-small-128k-online',  // modelo com acesso à internet
+      model: 'gpt-4o-mini',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userMessage },
       ],
       max_tokens: 2000,
-      temperature: 0.2,
-      return_citations: true,
+      temperature: 0.3,
     }),
   });
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({})) as { error?: { message?: string } };
-    throw new Error(err.error?.message || `Perplexity HTTP ${response.status}`);
+    throw new Error(err.error?.message || `OpenAI HTTP ${response.status}`);
   }
 
   const data = await response.json() as {
@@ -128,7 +120,6 @@ Retorne JSON com este formato exato:
   const jsonMatch = text.match(/\{[\s\S]*\}/);
 
   if (!jsonMatch) {
-    // Fallback: se não retornou JSON, construir estrutura mínima com o texto
     return {
       tendencias: [],
       oportunidades_sazonais: [],
