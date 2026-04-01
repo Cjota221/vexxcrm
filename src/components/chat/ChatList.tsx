@@ -83,11 +83,11 @@ export function ChatList() {
   return (
     <div className="flex flex-col bg-white h-full">
       {/* Header */}
-      <div className="p-4 border-b border-surface-border space-y-3 shrink-0">
+      <div className="px-3 py-2 border-b border-[#e0e4ed] space-y-2 shrink-0">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-txt-primary">Conversas</h2>
+          <h2 className="text-[13px] font-semibold text-[#1a1f2e]">Conversas</h2>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-txt-muted">
+            <span className="text-[11px] text-[#8890a8]">
               {totalCount > 0 ? `${totalCount} total` : ''}
             </span>
             <button
@@ -102,27 +102,27 @@ export function ChatList() {
 
         {/* Search */}
         <div className="relative">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-txt-muted" />
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8890a8]" />
           <input
             type="text"
             placeholder="Buscar conversa..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="input pl-9 py-2 text-sm bg-surface-bg w-full"
+            className="w-full text-[12px] pl-9 py-[7px] bg-[#f4f6fa] border border-[#e0e4ed] rounded-[9px] outline-none focus:border-[#3584e4] focus:bg-white placeholder:text-[#8890a8] text-[#1a1f2e] transition-colors"
           />
         </div>
 
         {/* Filters */}
-        <div className="flex gap-1 overflow-x-auto">
+        <div className="flex gap-1 overflow-x-auto scrollbar-none">
           {FILTERS.map((f) => (
             <button
               key={f.value}
               onClick={() => setFilter(f.value)}
               className={cn(
-                'px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors',
+                'px-[10px] py-[3px] text-[11px] rounded-full font-medium whitespace-nowrap transition-all border',
                 activeFilter === f.value
-                  ? 'bg-crm-primary text-white'
-                  : 'bg-slate-100 text-txt-secondary hover:bg-slate-200'
+                  ? 'bg-[#e8f0fd] text-[#1a5fb4] border-[#b8d0f5]'
+                  : 'bg-white text-[#4a5168] border-[#e0e4ed] hover:border-[#3584e4] hover:text-[#1a5fb4]'
               )}
             >
               {f.label}
@@ -197,8 +197,10 @@ const ChatListItem = memo(function ChatListItem({ chat, isSelected, onSelect }: 
     <button
       onClick={onSelect}
       className={cn(
-        'w-full flex items-center gap-3 px-4 py-3 text-left transition-colors border-b border-surface-border/50',
-        isSelected ? 'bg-crm-primary/5' : 'hover:bg-slate-50'
+        'w-full flex items-center gap-3 px-3 py-[10px] text-left transition-colors border-b border-[#f0f2f7] border-l-2',
+        isSelected
+          ? 'bg-[#e8f0fd] border-l-[#1a5fb4]'
+          : 'hover:bg-[#f4f6fa] border-l-transparent'
       )}
     >
       {/* Avatar */}
@@ -209,10 +211,15 @@ const ChatListItem = memo(function ChatListItem({ chat, isSelected, onSelect }: 
           size={44}
           rounded="full"
         />
-        {chat.is_group && (
-          <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
+        {chat.is_group ? (
+          <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-[#1a5fb4] rounded-full flex items-center justify-center">
             <Users size={9} className="text-white" />
           </span>
+        ) : (
+          <span className={cn(
+            'absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white',
+            (chat as any).canal === 'instagram' ? 'bg-[#e1306c]' : 'bg-[#25d366]'
+          )} />
         )}
         {!chat.is_group && chat.canal === 'instagram' && (
           <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center"
@@ -229,26 +236,23 @@ const ChatListItem = memo(function ChatListItem({ chat, isSelected, onSelect }: 
       {/* Content */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between">
-          <p className={cn(
-            'text-sm truncate',
-            chat.unread_count > 0 ? 'font-semibold text-txt-primary' : 'font-medium text-txt-primary'
-          )}>
+          <p className="text-[13px] font-[600] text-[#1a1f2e] truncate">
             {chat.client.name}
           </p>
-          <span className="text-[11px] text-txt-muted shrink-0 ml-2">
+          <span className="text-[10px] text-[#8890a8] shrink-0 ml-2">
             {chat.last_message?.timestamp
               ? formatRelativeTime(chat.last_message.timestamp)
               : ''}
           </span>
         </div>
         <div className="flex items-center justify-between mt-0.5">
-          <p className="text-xs text-txt-secondary truncate">
+          <p className="text-[11px] text-[#4a5168] truncate">
             {chat.last_message
               ? truncate(chat.last_message.content || '📷 Mídia', 40)
               : 'Sem mensagens'}
           </p>
           {chat.unread_count > 0 && (
-            <span className="ml-2 shrink-0 w-5 h-5 bg-crm-primary text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+            <span className="ml-2 shrink-0 min-w-[18px] h-[18px] px-1 bg-[#1a5fb4] text-white text-[9px] font-bold rounded-full flex items-center justify-center">
               {chat.unread_count > 9 ? '9+' : chat.unread_count}
             </span>
           )}
