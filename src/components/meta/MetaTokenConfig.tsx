@@ -2,6 +2,12 @@
 
 import { useState } from 'react';
 import { CheckCircle, XCircle, RefreshCw, Eye, EyeOff, ExternalLink } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+
+async function getAuthHeader(): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.access_token ? `Bearer ${session.access_token}` : '';
+}
 
 interface TokenStatus {
   valid: boolean;
@@ -23,7 +29,10 @@ export function MetaTokenConfig() {
   async function verificar() {
     setChecking(true);
     try {
-      const res = await fetch('/api/meta/token');
+      const auth = await getAuthHeader();
+      const res = await fetch('/api/meta/token', {
+        headers: { Authorization: auth },
+      });
       const data = await res.json() as TokenStatus;
       setStatus(data);
     } finally {
@@ -35,9 +44,10 @@ export function MetaTokenConfig() {
     if (!token.trim()) return;
     setLoading(true);
     try {
+      const auth = await getAuthHeader();
       const res = await fetch('/api/meta/token', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: auth },
         body: JSON.stringify({
           systemUserToken: token.trim(),
           businessId: businessId.trim() || undefined,
@@ -60,7 +70,8 @@ export function MetaTokenConfig() {
   async function remover() {
     setLoading(true);
     try {
-      await fetch('/api/meta/token', { method: 'DELETE' });
+      const auth = await getAuthHeader();
+      await fetch('/api/meta/token', { method: 'DELETE', headers: { Authorization: auth } });
       setStatus({ valid: false, error: 'Token removido' });
     } finally {
       setLoading(false);

@@ -1,6 +1,12 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '@/lib/supabase';
+
+async function getAuthHeader(): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.access_token ? `Bearer ${session.access_token}` : '';
+}
 
 export interface AdCreative {
   id: string;
@@ -28,7 +34,10 @@ export function useAdCreatives() {
   const carregar = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/meta/upload');
+      const auth = await getAuthHeader();
+      const res = await fetch('/api/meta/upload', {
+        headers: { Authorization: auth },
+      });
       if (res.ok) {
         const data = await res.json() as AdCreative[];
         setCriativos(data);
@@ -60,6 +69,7 @@ export function useAdCreatives() {
       if (duracao) form.append('duracao', String(Math.round(duracao)));
 
       // XMLHttpRequest para barra de progresso real
+      const auth = await getAuthHeader();
       const result = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
         const xhr = new XMLHttpRequest();
 
@@ -83,6 +93,7 @@ export function useAdCreatives() {
         xhr.onerror = () => resolve({ ok: false, error: 'Erro de rede' });
 
         xhr.open('POST', '/api/meta/upload');
+        xhr.setRequestHeader('Authorization', auth);
         xhr.send(form);
       });
 
@@ -95,7 +106,11 @@ export function useAdCreatives() {
   }
 
   async function arquivar(id: string) {
-    await fetch(`/api/meta/upload/${id}`, { method: 'DELETE' });
+    const auth = await getAuthHeader();
+    await fetch(`/api/meta/upload/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: auth },
+    });
     await carregar();
   }
 
