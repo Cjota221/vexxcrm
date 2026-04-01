@@ -10,34 +10,34 @@
   /* ── Fonts ── */
   --font-sans: 'Inter', 'Poppins', system-ui, sans-serif;
 
-  /* ── WhatsApp Light Theme Colors ── */
-  --color-wa-bg: #f0f2f5;
+  /* ── Chat Theme Colors (VEXX SaaS — redesign) ── */
+  --color-wa-bg: #f4f6fa;
   --color-wa-bg-panel: #ffffff;
-  --color-wa-bg-conversation: #efeae2;
-  --color-wa-bg-input: #ffffff;
-  --color-wa-bg-hover: #f5f6f6;
-  --color-wa-bg-deeper: #e9edef;
-  --color-wa-bg-app: #efeae2;
+  --color-wa-bg-conversation: #f9fafc;
+  --color-wa-bg-input: #f4f6fa;
+  --color-wa-bg-hover: #f4f6fa;
+  --color-wa-bg-deeper: #f0f2f7;
+  --color-wa-bg-app: #f4f6fa;
 
   --color-wa-bubble-in: #ffffff;
-  --color-wa-bubble-out: #d9fdd3;
+  --color-wa-bubble-out: #1a5fb4;
 
-  --color-wa-text-primary: #111b21;
-  --color-wa-text-secondary: #667781;
-  --color-wa-text-bubble: #111b21;
-  --color-wa-text-time: #667781;
+  --color-wa-text-primary: #1a1f2e;
+  --color-wa-text-secondary: #4a5168;
+  --color-wa-text-bubble: #ffffff;
+  --color-wa-text-time: rgba(255, 255, 255, 0.6);
 
-  --color-wa-accent-green: #00a884;
-  --color-wa-accent-blue: #53bdeb;
-  --color-wa-accent-teal: #00a884;
+  --color-wa-accent-green: #1a5fb4;
+  --color-wa-accent-blue: #3584e4;
+  --color-wa-accent-teal: #1a5fb4;
 
-  --color-wa-border: #222d34;
-  --color-wa-border-strong: #3b4a54;
+  --color-wa-border: #e0e4ed;
+  --color-wa-border-strong: #c8cfe0;
 
   /* ── CRM Brand Colors ── */
-  --color-crm-primary: #1e3a5f;
-  --color-crm-primary-hover: #162d4d;
-  --color-crm-primary-light: #2a4f7f;
+  --color-crm-primary: #1a5fb4;
+  --color-crm-primary-hover: #3584e4;
+  --color-crm-primary-light: #ddeeff;
   --color-crm-secondary: #2563eb;
   --color-crm-secondary-hover: #1d4ed8;
   --color-crm-success: #059669;
@@ -292,10 +292,9 @@ body {
   border-top: 1px solid #eef0f2;
 }
 
-/* ── WhatsApp Chat Background Pattern ── */
+/* ── Chat Background — VEXX SaaS (neutro, sem padrão bege) ── */
 .wa-chat-bg {
-  background-color: #efeae2;
-  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23b2a99a' fill-opacity='0.15'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  background-color: #f9fafc;
 }
 
 /* ── Skeleton Loading ── */

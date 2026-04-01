@@ -427,7 +427,7 @@ function MessageInputComponent({ onSend, onSendMedia, isLoading, disabled, recip
             disabled={isLoading || disabled}
             className={cn(
               'p-2.5 rounded-full transition-colors',
-              'bg-wa-accent-green text-white hover:opacity-90',
+              'bg-[#1a5fb4] text-white hover:bg-[#3584e4]',
               (isLoading || disabled) && 'opacity-50 cursor-not-allowed'
             )}
           >
@@ -599,7 +599,7 @@ function MessageInputComponent({ onSend, onSendMedia, isLoading, disabled, recip
         )}
 
         {/* Input */}
-        <div className="flex-1 bg-wa-bg-input rounded-xl px-3 py-1.5 md:px-4 md:py-2">
+        <div className="flex-1 bg-wa-bg-input border border-[#e0e4ed] rounded-[22px] px-3 py-1.5 md:px-4 md:py-2 focus-within:border-[#3584e4] focus-within:bg-white transition-colors">
           <textarea
             ref={textareaRef}
             value={text}
@@ -619,7 +619,7 @@ function MessageInputComponent({ onSend, onSendMedia, isLoading, disabled, recip
             disabled={isLoading || disabled}
             className={cn(
               'p-2.5 rounded-full transition-colors',
-              'bg-wa-accent-green text-white hover:opacity-90',
+              'bg-[#1a5fb4] text-white hover:bg-[#3584e4]',
               (isLoading || disabled) && 'opacity-50 cursor-not-allowed'
             )}
           >
@@ -641,7 +641,7 @@ function MessageInputComponent({ onSend, onSendMedia, isLoading, disabled, recip
             </button>
             <button
               onClick={stopRecording}
-              className="p-2.5 rounded-full bg-wa-accent-green text-white hover:opacity-90 transition-colors"
+              className="p-2.5 rounded-full bg-[#1a5fb4] text-white hover:bg-[#3584e4] transition-colors"
               title="Enviar áudio"
             >
               <Send size={20} />

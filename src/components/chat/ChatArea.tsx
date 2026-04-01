@@ -359,7 +359,7 @@ export function ChatArea({
       </div>
 
       {/* ━━━ HEADER DESKTOP ━━━ */}
-      <div className="hidden md:flex h-14 bg-wa-bg-panel border-b border-wa-border items-center px-4 gap-3 shrink-0">
+      <div className="hidden md:flex h-14 bg-white border-b border-[#e0e4ed] items-center px-4 gap-3 shrink-0">
         <div className="relative shrink-0">
           <AvatarImage
             src={clientData?.avatar_url}
@@ -368,12 +368,12 @@ export function ChatArea({
             rounded="full"
           />
           {presenceStatus === 'online' && (
-            <span className="absolute bottom-0 right-0 w-3 h-3 bg-[#25d366] rounded-full border-2 border-wa-bg-panel" />
+            <span className="absolute bottom-0 right-0 w-3 h-3 bg-[#25d366] rounded-full border-2 border-white" />
           )}
         </div>
 
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-wa-text-primary truncate leading-tight">
+          <p className="text-[14px] font-semibold text-[#1a1f2e] truncate">
             {clientData?.name || 'Cliente'}
           </p>
           {presenceLabel ? (
@@ -381,12 +381,12 @@ export function ChatArea({
               'text-xs truncate',
               presenceStatus === 'typing' || presenceStatus === 'recording'
                 ? 'text-[#25d366] animate-pulse font-medium'
-                : 'text-wa-text-secondary'
+                : 'text-[#4a5168]'
             )}>
               {presenceLabel}
             </p>
           ) : clientData?.phone ? (
-            <p className="text-xs text-wa-text-secondary truncate flex items-center gap-1">
+            <p className="text-xs text-[#4a5168] truncate flex items-center gap-1">
               <Phone size={10} className="shrink-0" />
               {clientData.phone}
             </p>
