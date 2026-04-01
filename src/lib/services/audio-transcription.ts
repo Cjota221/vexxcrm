@@ -37,7 +37,7 @@ export async function transcribeAudio(
     } else if (!provider || provider === 'openai') {
       endpoint = WHISPER_ENDPOINTS.openai;
     } else {
-      // Provider sem suporte a Whisper (anthropic, google, deepseek)
+      // Provider groq não suporta Whisper — usar openai para transcrição
       console.log(`[audio-transcription] Provider '${provider}' não suporta Whisper, pulando`);
       return null;
     }

@@ -759,13 +759,13 @@ function AnneSettings({ config }: { config?: TenantConfig }) {
   const [model, setModel] = useState(openai?.model || 'gpt-4o-mini');
   const [systemPrompt, setSystemPrompt] = useState(openai?.system_prompt || DEFAULT_ANNE_PROMPT_UI);
 
-  const providerInfo = AI_PROVIDER_INFO[provider] || AI_PROVIDER_INFO.custom;
+  const providerInfo = AI_PROVIDER_INFO[provider] || AI_PROVIDER_INFO.openai;
 
   // Ao trocar provedor: limpar key, ajustar modelo padrão e base_url
   const handleProviderChange = (newProvider: string) => {
     setProvider(newProvider);
     setApiKey('');
-    const info = AI_PROVIDER_INFO[newProvider] || AI_PROVIDER_INFO.custom;
+    const info = AI_PROVIDER_INFO[newProvider] || AI_PROVIDER_INFO.openai;
     setModel(info.defaultModel);
     setBaseUrl('');
   };
@@ -835,11 +835,11 @@ function AnneSettings({ config }: { config?: TenantConfig }) {
           </p>
         )}
 
-        {/* URL Base — apenas para custom */}
-        {provider === 'custom' && (
+        {/* URL Base — apenas para Groq (permite sobrescrever endpoint) */}
+        {provider === 'groq' && (
           <Input
             label="URL Base da API"
-            placeholder="https://meu-provedor.com/v1"
+            placeholder="https://api.groq.com/openai/v1"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
           />

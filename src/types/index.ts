@@ -32,7 +32,7 @@ export interface TenantConfigOpenAI {
   model?: string;
   enabled: boolean;
   system_prompt?: string;
-  provider?: string;  // openai, anthropic, google, groq, deepseek, custom
+  provider?: string;  // openai | groq
   base_url?: string;  // URL base customizada para provedores alternativos
   has_key?: boolean; // Indica se API key existe (key mascarada no GET)
 }
