@@ -369,9 +369,16 @@ export default function TimeIAPage() {
   async function handleSaveConfig() {
     setSavingConfig(true);
     try {
+      // Se a OpenAI key compartilhada foi preenchida, propagar para todos os agentes que usam OpenAI
+      const payload = { ...config };
+      if (payload.analytics_api_key && payload.analytics_api_key !== '••••••••') {
+        payload.strategy_api_key = payload.analytics_api_key;
+        payload.research_api_key = payload.analytics_api_key;
+        payload.visual_api_key   = payload.analytics_api_key;
+      }
       await authFetch('/api/ai-team/config', {
         method: 'PUT',
-        body: JSON.stringify(config),
+        body: JSON.stringify(payload),
       });
       setConfigSaved(true);
       setTimeout(() => setConfigSaved(false), 3000);
@@ -469,7 +476,7 @@ export default function TimeIAPage() {
           icon={<Brain size={20} className="text-purple-500" />}
           nome="Cláudio"
           funcao="Estratégia + Copies"
-          modelo="claude-haiku-4-5"
+          modelo="gpt-4o-mini"
           ativo={agentStatus?.claudio.active ?? false}
           configurado={agentStatus?.claudio.hasApiKey ?? false}
           metrica={copies.length > 0 ? `${copies.length} copies prontos` : undefined}
@@ -478,7 +485,7 @@ export default function TimeIAPage() {
           icon={<Search size={20} className="text-orange-500" />}
           nome="Pedro"
           funcao="Tendências de mercado"
-          modelo="Perplexity Sonar"
+          modelo="gpt-4o-mini"
           ativo={agentStatus?.pedro.active ?? false}
           configurado={agentStatus?.pedro.hasApiKey ?? false}
         />
@@ -486,7 +493,7 @@ export default function TimeIAPage() {
           icon={<Palette size={20} className="text-pink-500" />}
           nome="Judite"
           funcao="Avaliação de criativos"
-          modelo="Gemini 2.0 Flash"
+          modelo="gpt-4o-mini (visão)"
           ativo={agentStatus?.judite.active ?? false}
           configurado={agentStatus?.judite.hasApiKey ?? false}
         />
@@ -582,8 +589,12 @@ export default function TimeIAPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <label className="block">
-                <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5"><MessageCircle size={13} className="text-emerald-500" /> Anne — Groq API Key <span className="text-xs text-green-600">(gratuita)</span></span>
-                <p className="text-xs text-gray-400 mb-1">console.groq.com → API Keys</p>
+                <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+                  <MessageCircle size={13} className="text-emerald-500" />
+                  Anne — Groq API Key
+                  <span className="text-xs text-green-600">(gratuita)</span>
+                </span>
+                <p className="text-xs text-gray-400 mb-1">console.groq.com → API Keys — usada para auto-reply no WhatsApp</p>
                 <input
                   type="password"
                   placeholder={config.auto_reply_api_key ? '••••••••' : 'gsk_...'}
@@ -594,49 +605,16 @@ export default function TimeIAPage() {
               </label>
 
               <label className="block">
-                <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5"><BarChart2 size={13} className="text-blue-500" /> José — OpenAI API Key</span>
-                <p className="text-xs text-gray-400 mb-1">platform.openai.com → API Keys</p>
+                <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+                  <Sparkles size={13} className="text-blue-500" />
+                  José · Cláudio · Pedro · Judite — OpenAI API Key
+                </span>
+                <p className="text-xs text-gray-400 mb-1">platform.openai.com → API Keys — compartilhada por toda a inteligência interna</p>
                 <input
                   type="password"
                   placeholder={config.analytics_api_key ? '••••••••' : 'sk-...'}
                   value={config.analytics_api_key === '••••••••' ? '' : config.analytics_api_key}
                   onChange={e => setConfig(c => ({ ...c, analytics_api_key: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5"><Brain size={13} className="text-purple-500" /> Cláudio — OpenAI API Key</span>
-                <p className="text-xs text-gray-400 mb-1">platform.openai.com → API Keys</p>
-                <input
-                  type="password"
-                  placeholder={config.strategy_api_key ? '••••••••' : 'sk-...'}
-                  value={config.strategy_api_key === '••••••••' ? '' : config.strategy_api_key}
-                  onChange={e => setConfig(c => ({ ...c, strategy_api_key: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5"><Search size={13} className="text-orange-500" /> Pedro — OpenAI API Key</span>
-                <p className="text-xs text-gray-400 mb-1">platform.openai.com → API Keys</p>
-                <input
-                  type="password"
-                  placeholder={config.research_api_key ? '••••••••' : 'sk-...'}
-                  value={config.research_api_key === '••••••••' ? '' : config.research_api_key}
-                  onChange={e => setConfig(c => ({ ...c, research_api_key: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5"><Palette size={13} className="text-pink-500" /> Judite — OpenAI API Key</span>
-                <p className="text-xs text-gray-400 mb-1">platform.openai.com → API Keys</p>
-                <input
-                  type="password"
-                  placeholder={config.visual_api_key ? '••••••••' : 'sk-...'}
-                  value={config.visual_api_key === '••••••••' ? '' : config.visual_api_key}
-                  onChange={e => setConfig(c => ({ ...c, visual_api_key: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </label>
