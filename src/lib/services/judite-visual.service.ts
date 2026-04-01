@@ -1,10 +1,9 @@
-// ANTES: não existia avaliação automática de criativos visuais.
-// DEPOIS: AGENTE JUDITE — avaliadora de criativos visuais (Google Gemini Vision).
+// AGENTE JUDITE — avaliadora de criativos visuais (OpenAI GPT-4o-mini Vision).
 //         Analisa imagens de anúncios e retorna nota 1-10, pontos positivos/negativos
-//         e sugestões de melhoria. Usa Gemini 2.0 Flash com visão multimodal.
-//         Sem @google/generative-ai SDK — usa fetch diretamente (padrão do projeto).
+//         e sugestões de melhoria. Usa GPT-4o-mini com visão multimodal.
+//         Usa fetch diretamente (padrão do projeto).
 
-const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const OPENAI_BASE = 'https://api.openai.com/v1';
 
 /* ─── Tipos ────────────────────────────────────────────────────────────────── */
 
@@ -44,21 +43,20 @@ Retorne APENAS JSON válido com este formato:
 /* ─── Função principal ──────────────────────────────────────────────────────── */
 
 /**
- * AGENTE JUDITE — Avalia um criativo visual com Google Gemini Vision.
+ * AGENTE JUDITE — Avalia um criativo visual com GPT-4o-mini Vision.
  *
  * @param imageUrl    - URL pública da imagem do anúncio
  * @param adContext   - Contexto do anúncio (nome, objetivo, produto)
- * @param apiKey      - Google AI API Key (usa GEMINI_API_KEY env var se não fornecida)
+ * @param apiKey      - OpenAI API Key (usa OPENAI_API_KEY env var se não fornecida)
  */
 export async function juditeEvaluateCreative(
   imageUrl: string,
   adContext: { adName?: string; produto?: string; objetivo?: string },
   apiKey?: string,
 ): Promise<VisualEvaluation> {
-  const key = apiKey || process.env.GEMINI_API_KEY;
-  if (!key) throw new Error('GEMINI_API_KEY não configurada para a Judite');
+  const key = apiKey || process.env.OPENAI_API_KEY;
+  if (!key) throw new Error('OPENAI_API_KEY não configurada para a Judite');
 
-  const model = 'gemini-2.0-flash';
   const contextText = [
     adContext.adName && `Anúncio: ${adContext.adName}`,
     adContext.produto && `Produto: ${adContext.produto}`,
@@ -67,54 +65,42 @@ export async function juditeEvaluateCreative(
 
   const userMessage = `Avalie este criativo de anúncio.${contextText ? `\nContexto: ${contextText}` : ''}`;
 
-  const response = await fetch(
-    `${GEMINI_BASE}/models/${model}:generateContent?key=${key}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: JUDITE_SYSTEM_PROMPT }] },
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              { text: userMessage },
-              {
-                inlineData: {
-                  // Gemini aceita URL via fetch image — mas para URLs externas,
-                  // usar fileData ou passar como texto descritivo se não suportado
-                  mimeType: 'image/jpeg',
-                  // imageUrl será passada como referência; Gemini 2.0 suporta
-                  // imagens via URL com fileData para URLs públicas
-                },
-              },
-              // Fallback: passar a URL como texto para que o modelo descreva
-              { text: `URL da imagem para análise: ${imageUrl}` },
-            ].filter(p => !('inlineData' in p)), // remover inlineData vazio
-          },
-        ],
-        generationConfig: {
-          maxOutputTokens: 1000,
-          temperature: 0.3,
+  const response = await fetch(`${OPENAI_BASE}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${key}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      max_tokens: 1000,
+      temperature: 0.3,
+      messages: [
+        { role: 'system', content: JUDITE_SYSTEM_PROMPT },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: userMessage },
+            { type: 'image_url', image_url: { url: imageUrl, detail: 'low' } },
+          ],
         },
-      }),
-    }
-  );
+      ],
+    }),
+  });
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({})) as { error?: { message?: string } };
-    throw new Error(err.error?.message || `Gemini HTTP ${response.status}`);
+    throw new Error(err.error?.message || `OpenAI HTTP ${response.status}`);
   }
 
   const data = await response.json() as {
-    candidates: Array<{ content: { parts: Array<{ text: string }> } }>;
+    choices: Array<{ message: { content: string } }>;
   };
 
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const text = data.choices[0]?.message?.content || '';
   const jsonMatch = text.match(/\{[\s\S]*\}/);
 
   if (!jsonMatch) {
-    // Fallback mínimo se não retornou JSON
     return {
       nota: 5,
       aprovado: false,

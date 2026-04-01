@@ -79,35 +79,20 @@ type AddToast = (t: { type: 'success' | 'error' | 'warning' | 'info'; title: str
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const PROVIDERS = [
-  { value: 'openai',     label: 'OpenAI' },
-  { value: 'anthropic',  label: 'Anthropic (Claude)' },
-  { value: 'google',     label: 'Google (Gemini)' },
-  { value: 'groq',       label: 'Groq' },
-  { value: 'deepseek',   label: 'DeepSeek' },
-  { value: 'custom',     label: 'Custom / Self-hosted' },
+  { value: 'openai', label: 'OpenAI (ChatGPT)' },
+  { value: 'groq',   label: 'Groq (Llama)' },
 ];
 
 const MODELS: Record<string, { value: string; label: string }[]> = {
-  openai:     [
-    { value: 'gpt-4o-mini',   label: 'GPT-4o Mini (recomendado)' },
-    { value: 'gpt-4o',        label: 'GPT-4o' },
-    { value: 'gpt-4-turbo',   label: 'GPT-4 Turbo' },
+  openai: [
+    { value: 'gpt-4o-mini', label: 'GPT-4o Mini (recomendado)' },
+    { value: 'gpt-4o',      label: 'GPT-4o' },
+    { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
   ],
-  anthropic:  [
-    { value: 'claude-3-5-haiku-20241022',   label: 'Claude 3.5 Haiku (recomendado)' },
-    { value: 'claude-3-5-sonnet-20241022',  label: 'Claude 3.5 Sonnet' },
-    { value: 'claude-opus-4-6',             label: 'Claude Opus 4.6' },
-  ],
-  google:     [
-    { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash (recomendado)' },
-    { value: 'gemini-1.5-pro',   label: 'Gemini 1.5 Pro' },
-  ],
-  groq:       [
+  groq: [
     { value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (recomendado)' },
     { value: 'mixtral-8x7b-32768',      label: 'Mixtral 8x7B' },
   ],
-  deepseek:   [{ value: 'deepseek-chat', label: 'DeepSeek Chat' }],
-  custom:     [],
 };
 
 const DEFAULT_AUTOMATIONS: AnneAutomation[] = [
@@ -296,7 +281,7 @@ function TabConexao({ addToast }: { addToast: AddToast }) {
   };
 
   const models      = MODELS[provider] ?? [];
-  const showBaseUrl = provider === 'custom' || provider === 'groq';
+  const showBaseUrl = provider === 'groq';
 
   if (loadingTenant) return <TabLoader />;
 

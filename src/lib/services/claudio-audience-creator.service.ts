@@ -1,12 +1,11 @@
 // AGENTE CLÁUDIO — Refinador de públicos Meta Ads.
 // Recebe análise do José, traduz para configuração técnica pronta para criar
 // via Meta Ads API: interesses por nome, geo_locations, targeting completo.
-// Usa Claude Haiku via Anthropic API (HTTP direto, sem SDK).
+// Usa OpenAI GPT-4o-mini (HTTP direto, sem SDK).
 
 import type { JoseAudienceAnalysis } from './jose-audience-analyst.service';
 
-const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
-const ANTHROPIC_VERSION = '2023-06-01';
+const OPENAI_BASE = 'https://api.openai.com/v1';
 
 /* ─── Tipos de saída ─────────────────────────────────────────────────────────── */
 
@@ -111,25 +110,25 @@ Retorne APENAS JSON válido (sem texto antes ou depois):
  * AGENTE CLÁUDIO — Refina análise do José e gera configuração técnica dos públicos.
  *
  * @param joseAnalysis - Análise do José com recomendações de segmentação
- * @param apiKey       - Anthropic API Key (usa ANTHROPIC_API_KEY env var se não fornecida)
+ * @param apiKey       - OpenAI API Key (usa OPENAI_API_KEY env var se não fornecida)
  */
 export async function claudioRefiniarPublicos(
   joseAnalysis: JoseAudienceAnalysis,
   apiKey?: string,
 ): Promise<ClaudioAudienceConfig> {
-  const key = apiKey || process.env.ANTHROPIC_API_KEY;
-  if (!key) throw new Error('ANTHROPIC_API_KEY não configurada para o Cláudio');
+  const key = apiKey || process.env.OPENAI_API_KEY;
+  if (!key) throw new Error('OPENAI_API_KEY não configurada para o Cláudio');
 
-  const response = await fetch(`${ANTHROPIC_BASE}/messages`, {
+  const response = await fetch(`${OPENAI_BASE}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': key,
-      'anthropic-version': ANTHROPIC_VERSION,
+      'Authorization': `Bearer ${key}`,
     },
     body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
+      model: 'gpt-4o-mini',
       max_tokens: 4000,
+      temperature: 0.7,
       messages: [
         { role: 'user', content: buildClaudioPrompt(joseAnalysis) },
       ],
@@ -138,14 +137,14 @@ export async function claudioRefiniarPublicos(
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({})) as { error?: { message?: string } };
-    throw new Error(err.error?.message || `Anthropic HTTP ${response.status}`);
+    throw new Error(err.error?.message || `OpenAI HTTP ${response.status}`);
   }
 
   const data = await response.json() as {
-    content: Array<{ type: string; text: string }>;
+    choices: Array<{ message: { content: string } }>;
   };
 
-  const text = data.content?.find(c => c.type === 'text')?.text || '';
+  const text = data.choices[0]?.message?.content || '';
 
   // Extrair JSON (Cláudio às vezes adiciona texto antes/depois)
   const jsonMatch = text.match(/\{[\s\S]*\}/);

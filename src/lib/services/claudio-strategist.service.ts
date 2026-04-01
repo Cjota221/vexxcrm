@@ -1,13 +1,11 @@
-// ANTES: não existia agente de estratégia e geração de copies.
-// DEPOIS: AGENTE CLÁUDIO — estrategista + copywriter (Claude Haiku).
+// AGENTE CLÁUDIO — estrategista + copywriter (OpenAI GPT-4o-mini).
 //         Recebe análise do José e contexto de marca, decide ações estratégicas
 //         e gera copies de anúncio prontos. Nunca executa — apenas sugere.
-//         Usa Anthropic API via HTTP (sem @anthropic-ai/sdk — padrão do projeto).
+//         Usa OpenAI API via HTTP (padrão do projeto).
 
 import type { JoseAnalysis } from './jose-analyst.service';
 
-const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
-const ANTHROPIC_VERSION = '2023-06-01';
+const OPENAI_BASE = 'https://api.openai.com/v1';
 
 /* ─── Tipos de entrada ──────────────────────────────────────────────────────── */
 
@@ -116,50 +114,52 @@ Formato obrigatório de resposta:
 /* ─── Função principal ──────────────────────────────────────────────────────── */
 
 /**
- * AGENTE CLÁUDIO — Gera estratégia e copies com Claude Haiku.
+ * AGENTE CLÁUDIO — Gera estratégia e copies com GPT-4o-mini.
  *
  * @param analysis   - Análise do José (GPT-4o-mini)
  * @param brand      - Contexto da marca do tenant
- * @param apiKey     - Anthropic API Key (usa ANTHROPIC_API_KEY env var se não fornecida)
+ * @param apiKey     - OpenAI API Key (usa OPENAI_API_KEY env var se não fornecida)
  */
 export async function claudioGenerateStrategy(
   analysis: JoseAnalysis,
   brand: BrandContext,
   apiKey?: string,
 ): Promise<ClaudioStrategy> {
-  const key = apiKey || process.env.ANTHROPIC_API_KEY;
-  if (!key) throw new Error('ANTHROPIC_API_KEY não configurada para o Cláudio');
+  const key = apiKey || process.env.OPENAI_API_KEY;
+  if (!key) throw new Error('OPENAI_API_KEY não configurada para o Cláudio');
 
   const systemPrompt = buildClaudioPrompt(brand);
   const userMessage = `Com base nesta análise de métricas, gere sua estratégia:\n\n${JSON.stringify(analysis, null, 2)}`;
 
-  const response = await fetch(`${ANTHROPIC_BASE}/messages`, {
+  const response = await fetch(`${OPENAI_BASE}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': key,
-      'anthropic-version': ANTHROPIC_VERSION,
+      'Authorization': `Bearer ${key}`,
     },
     body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
+      model: 'gpt-4o-mini',
       max_tokens: 3000,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userMessage }],
+      temperature: 0.7,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage },
+      ],
     }),
   });
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({})) as { error?: { message?: string } };
-    throw new Error(err.error?.message || `Anthropic HTTP ${response.status}`);
+    throw new Error(err.error?.message || `OpenAI HTTP ${response.status}`);
   }
 
   const data = await response.json() as {
-    content: Array<{ type: string; text: string }>;
+    choices: Array<{ message: { content: string } }>;
   };
 
-  const text = data.content?.find(c => c.type === 'text')?.text || '';
+  const text = data.choices[0]?.message?.content || '';
 
-  // Extrair JSON (Claude às vezes adiciona texto antes/depois)
+  // Extrair JSON
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error('Cláudio retornou resposta sem JSON válido');
 

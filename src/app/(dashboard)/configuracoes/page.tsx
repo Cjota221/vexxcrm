@@ -746,12 +746,8 @@ function FacilZapSettings({ config }: { config?: TenantConfig }) {  const { upda
 
 // Modelos padrão e labels por provedor
 const AI_PROVIDER_INFO: Record<string, { label: string; defaultModel: string; modelPlaceholder: string; keyPlaceholder: string; needsBaseUrl: boolean; fixedUrl?: string }> = {
-  openai:    { label: 'OpenAI (ChatGPT)',       defaultModel: 'gpt-4o-mini',                   modelPlaceholder: 'gpt-4o ou gpt-4o-mini',                  keyPlaceholder: 'sk-...',                  needsBaseUrl: false, fixedUrl: 'api.openai.com' },
-  anthropic: { label: 'Anthropic (Claude)',      defaultModel: 'claude-3-5-haiku-20241022',      modelPlaceholder: 'claude-3-5-sonnet-20241022',             keyPlaceholder: 'sk-ant-...',              needsBaseUrl: false, fixedUrl: 'api.anthropic.com' },
-  google:    { label: 'Google (Gemini)',         defaultModel: 'gemini-1.5-flash',               modelPlaceholder: 'gemini-1.5-flash ou gemini-1.5-pro',     keyPlaceholder: 'AIza...',                 needsBaseUrl: false, fixedUrl: 'generativelanguage.googleapis.com' },
-  groq:      { label: 'Groq (LLaMA ultra-rápido)', defaultModel: 'llama-3.3-70b-versatile',     modelPlaceholder: 'llama-3.3-70b-versatile',               keyPlaceholder: 'gsk_...',                 needsBaseUrl: false, fixedUrl: 'api.groq.com' },
-  deepseek:  { label: 'DeepSeek',               defaultModel: 'deepseek-chat',                  modelPlaceholder: 'deepseek-chat ou deepseek-reasoner',     keyPlaceholder: 'sk-...',                  needsBaseUrl: false, fixedUrl: 'api.deepseek.com' },
-  custom:    { label: 'Outro (Custom API)',      defaultModel: '',                               modelPlaceholder: 'nome-do-modelo',                         keyPlaceholder: 'chave do provedor',       needsBaseUrl: true },
+  openai: { label: 'OpenAI (ChatGPT)',        defaultModel: 'gpt-4o-mini',             modelPlaceholder: 'gpt-4o ou gpt-4o-mini',       keyPlaceholder: 'sk-...',  needsBaseUrl: false, fixedUrl: 'api.openai.com' },
+  groq:   { label: 'Groq (LLaMA ultra-rápido)', defaultModel: 'llama-3.3-70b-versatile', modelPlaceholder: 'llama-3.3-70b-versatile', keyPlaceholder: 'gsk_...', needsBaseUrl: false, fixedUrl: 'api.groq.com' },
 };
 
 function AnneSettings({ config }: { config?: TenantConfig }) {
@@ -763,13 +759,13 @@ function AnneSettings({ config }: { config?: TenantConfig }) {
   const [model, setModel] = useState(openai?.model || 'gpt-4o-mini');
   const [systemPrompt, setSystemPrompt] = useState(openai?.system_prompt || DEFAULT_ANNE_PROMPT_UI);
 
-  const providerInfo = AI_PROVIDER_INFO[provider] || AI_PROVIDER_INFO.custom;
+  const providerInfo = AI_PROVIDER_INFO[provider] || AI_PROVIDER_INFO.openai;
 
   // Ao trocar provedor: limpar key, ajustar modelo padrão e base_url
   const handleProviderChange = (newProvider: string) => {
     setProvider(newProvider);
     setApiKey('');
-    const info = AI_PROVIDER_INFO[newProvider] || AI_PROVIDER_INFO.custom;
+    const info = AI_PROVIDER_INFO[newProvider] || AI_PROVIDER_INFO.openai;
     setModel(info.defaultModel);
     setBaseUrl('');
   };
@@ -839,11 +835,11 @@ function AnneSettings({ config }: { config?: TenantConfig }) {
           </p>
         )}
 
-        {/* URL Base — apenas para custom */}
-        {provider === 'custom' && (
+        {/* URL Base — apenas para Groq (permite sobrescrever endpoint) */}
+        {provider === 'groq' && (
           <Input
             label="URL Base da API"
-            placeholder="https://meu-provedor.com/v1"
+            placeholder="https://api.groq.com/openai/v1"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
           />

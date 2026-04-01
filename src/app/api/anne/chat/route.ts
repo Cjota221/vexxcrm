@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
-import { chat } from '@/lib/services/anne.service';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limiter';
 import { buildSystemPrompt } from '@/lib/anne-prompt';
 import type { AIProvider } from '@/lib/services/anne.service';
@@ -15,16 +14,11 @@ import {
 /** Máximo de mensagens do histórico enviadas à IA (controla custo de tokens) */
 const MAX_HISTORY = 10;
 
-/**
- * Provedores que suportam o protocolo OpenAI function calling.
- * Para Anthropic e Google usamos chat() padrão (sem tool calls automáticos).
- */
-const OPENAI_COMPATIBLE_PROVIDERS: AIProvider[] = ['openai', 'groq', 'deepseek', 'custom'];
+const OPENAI_COMPATIBLE_PROVIDERS: AIProvider[] = ['openai', 'groq'];
 
-const PROVIDER_BASE_URLS: Partial<Record<AIProvider, string>> = {
+const PROVIDER_BASE_URLS: Record<AIProvider, string> = {
   openai: 'https://api.openai.com/v1',
   groq: 'https://api.groq.com/openai/v1',
-  deepseek: 'https://api.deepseek.com/v1',
 };
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -197,117 +191,6 @@ async function runWithTools(opts: {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   TOOL CALLING BASEADO EM TEXTO (Anthropic / Google / qualquer provider)
-   ─────────────────────────────────────────────────────────────────────────
-   Injeta no system prompt instruções para o modelo emitir tags estruturadas
-   quando quiser chamar uma tool. O loop parseia as tags, executa as tools
-   e reenvia os resultados até obter uma resposta final em texto.
-
-   Formato de tool call emitido pelo modelo:
-     <tool_call>{"name":"buscar_clientes_pedido_alto","arguments":{"valor_minimo":700}}</tool_call>
-   ───────────────────────────────────────────────────────────────────────── */
-
-const TOOL_CALL_ADDENDUM = `
-
----
-
-## ⚙️ Como chamar ferramentas (OBRIGATÓRIO quando precisar de dados)
-
-Quando precisar usar uma ferramenta, responda **somente** com o bloco abaixo — nada mais:
-
-<tool_call>{"name":"NOME_DA_FERRAMENTA","arguments":{...}}</tool_call>
-
-Após receber o resultado da ferramenta (que virá marcado com [TOOL RESULT]), processe normalmente.
-Nunca invente resultados — sempre espere o resultado real da ferramenta.`;
-
-const TOOL_CALL_REGEX = /<tool_call>([\s\S]*?)<\/tool_call>/;
-
-async function runWithToolsTextBased(opts: {
-  apiKey: string;
-  model: string;
-  provider: AIProvider;
-  baseUrl: string;
-  systemPrompt: string;
-  chatHistory: Array<{ role: string; content: string }>;
-  userMessage: string;
-  extraContext?: Record<string, unknown>;
-  tenantId: string;
-}): Promise<{
-  reply: string;
-  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
-}> {
-  const { apiKey, model, provider, baseUrl, systemPrompt, chatHistory, userMessage, extraContext, tenantId } = opts;
-
-  // Injetar instruções de tool calling no system prompt
-  const augmentedSystemPrompt = systemPrompt + TOOL_CALL_ADDENDUM;
-
-  const currentHistory = chatHistory.map(m => ({
-    role: m.role as 'user' | 'assistant',
-    content: m.content,
-  }));
-  let currentMessage = userMessage;
-
-  let totalUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
-
-  for (let iter = 0; iter < 5; iter++) {
-    const response = await chat(
-      {
-        apiKey,
-        model,
-        systemPrompt: augmentedSystemPrompt,
-        maxTokens: 2000,
-        provider,
-        baseUrl,
-      },
-      currentMessage,
-      currentHistory,
-      extraContext
-    );
-
-    // Acumular usage
-    if (response.usage) {
-      totalUsage.prompt_tokens += response.usage.prompt_tokens || 0;
-      totalUsage.completion_tokens += response.usage.completion_tokens || 0;
-      totalUsage.total_tokens += response.usage.total_tokens || 0;
-    }
-
-    const reply = response.reply;
-    const match = TOOL_CALL_REGEX.exec(reply);
-
-    if (!match) {
-      // Resposta final em texto — retornar
-      return { reply, usage: totalUsage };
-    }
-
-    // Parsear e executar a tool call
-    let toolName = 'desconhecida';
-    let toolResult: string;
-    try {
-      const parsed = JSON.parse(match[1]) as { name: string; arguments: Record<string, unknown> };
-      toolName = parsed.name;
-
-      // Segurança: mesma prevenção busca+disparo paralelo do loop OpenAI
-      if (toolName === 'disparar_campanha_whatsapp' && iter === 0) {
-        toolResult = JSON.stringify({
-          error: 'Protocolo obrigatório: chame buscar_clientes_pedido_alto primeiro, ' +
-            'apresente a lista, aguarde confirmação explícita, depois dispare.',
-        });
-      } else {
-        toolResult = await executeAnneTool(toolName, parsed.arguments, tenantId);
-      }
-    } catch {
-      toolResult = JSON.stringify({ error: `Não foi possível parsear ou executar a tool: ${toolName}` });
-    }
-
-    // Adicionar a troca ao histórico para a próxima iteração
-    currentHistory.push({ role: 'assistant', content: reply });
-    currentMessage = `[TOOL RESULT para ${toolName}]\n${toolResult}\n\nAgora responda à operadora com base neste resultado.`;
-  }
-
-  throw new Error('Limite de iterações de tool calling (text-based) atingido');
-}
-
-/* ─────────────────────────────────────────────────────────────────────────
    ROUTE HANDLER
    ───────────────────────────────────────────────────────────────────────── */
 
@@ -453,11 +336,9 @@ export async function POST(request: NextRequest) {
     // ── Provedor e modelo ────────────────────────
     const aiModel = tenant.openai_model || 'gpt-4o-mini';
     const aiProvider = (tenant.openai_provider || 'openai') as AIProvider;
-    const aiBaseUrl = tenant.openai_base_url?.trim() || PROVIDER_BASE_URLS[aiProvider] || PROVIDER_BASE_URLS.openai!;
+    const aiBaseUrl = tenant.openai_base_url?.trim() || PROVIDER_BASE_URLS[aiProvider];
 
-    // ── Roteamento: tool calling vs chat simples ──
-    // Provedores OpenAI-compatible: usa loop de tool calling
-    // Anthropic / Google: usa chat() padrão (tools descritas no system prompt)
+    // ── Roteamento: ambos os provedores (openai, groq) usam tool calling ──
     if (OPENAI_COMPATIBLE_PROVIDERS.includes(aiProvider)) {
       try {
         const response = await runWithTools({
@@ -507,7 +388,7 @@ export async function POST(request: NextRequest) {
             const fallback = await runWithTools({
               apiKey: tenant.openai_api_key,
               model: 'gpt-4o-mini',
-              baseUrl: PROVIDER_BASE_URLS.openai!,
+              baseUrl: PROVIDER_BASE_URLS.openai,
               systemPrompt,
               chatHistory,
               userMessage: message,
@@ -535,61 +416,6 @@ export async function POST(request: NextRequest) {
           },
         });
       }
-    }
-
-    // ── Anthropic / Google: tool calling baseado em texto ──────────────────
-    // Injeta instruções de tool calling no system prompt e parseia tags
-    // <tool_call>...</tool_call> na resposta. Funciona em qualquer modelo que
-    // siga instruções — sem dependência de SDK nativo por provider.
-    try {
-      const response = await runWithToolsTextBased({
-        apiKey: tenant.openai_api_key,
-        model: aiModel,
-        provider: aiProvider,
-        baseUrl: aiBaseUrl,
-        systemPrompt,
-        chatHistory,
-        userMessage: message,
-        extraContext: Object.keys(extraContext).length > 0 ? extraContext : undefined,
-        tenantId: profile.tenant_id,
-      });
-
-      return NextResponse.json({
-        data: {
-          reply: response.reply,
-          usage: response.usage,
-          provider_used: aiProvider,
-          actions: [],
-        },
-      });
-    } catch (err) {
-      const msg = (err as Error).message || '';
-
-      if (msg.includes('Incorrect API key') || msg.includes('invalid_api_key') || msg.includes('authentication')) {
-        return NextResponse.json({
-          data: {
-            reply: '⚠️ A API Key configurada é inválida. Verifique em **Configurações → Anne (IA)**.',
-            actions: [],
-          },
-        });
-      }
-
-      if (msg.includes('quota') || msg.includes('insufficient_quota')) {
-        return NextResponse.json({
-          data: {
-            reply: '⚠️ Saldo da API esgotado. Verifique seu plano em **Configurações → Anne (IA)**.',
-            actions: [],
-          },
-        });
-      }
-
-      console.error('❌ Anne chat (text-based tools): falha.', msg);
-      return NextResponse.json({
-        data: {
-          reply: '❌ Não consegui processar sua mensagem agora. Por favor, tente novamente em alguns instantes.',
-          actions: [],
-        },
-      });
     }
 
   } catch (error) {
