@@ -125,7 +125,7 @@ async function processarLeadMeta(leadData: LeadgenValue): Promise<void> {
 
   const { resolverTokenMeta } = await import('@/lib/services/meta-token.service');
   const tokenConfig = earlyTenantId ? await resolverTokenMeta(earlyTenantId) : null;
-  const pageToken = tokenConfig?.accessToken ?? process.env.META_PAGE_TOKEN;
+  const pageToken = tokenConfig?.token ?? process.env.META_PAGE_TOKEN;
 
   if (!pageToken) {
     console.warn('[Meta Leads] Nenhum token configurado para page_id:', leadData.page_id);
