@@ -481,6 +481,14 @@ export function ChatArea({
       {/* ── Quick Actions Bar ── */}
       {(onToggleQuickMessages || onToggleAnne || onToggleSentinela) && (
         <div className="flex items-center gap-1.5 px-3 pb-2 overflow-x-auto bg-wa-bg-panel shrink-0">
+          <button
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-full text-[11px] font-medium text-gray-500 bg-white hover:border-gray-300 hover:text-gray-700 transition-all whitespace-nowrap"
+            title="Em breve"
+            disabled
+          >
+            <BarChart2 size={11} />
+            Enquete
+          </button>
           {onToggleQuickMessages && (
             <button
               onClick={onToggleQuickMessages}
@@ -508,14 +516,6 @@ export function ChatArea({
               Sentinela
             </button>
           )}
-          <button
-            className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-full text-[11px] font-medium text-gray-500 bg-white hover:border-gray-300 hover:text-gray-700 transition-all whitespace-nowrap"
-            title="Em breve"
-            disabled
-          >
-            <BarChart2 size={11} />
-            Enquete
-          </button>
         </div>
       )}
     </div>

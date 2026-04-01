@@ -34,6 +34,7 @@ import {
   Bot,
   Zap,
   Shield,
+  MessageCircle,
 } from 'lucide-react';
 
 /* Tipo da view mobile */
@@ -265,6 +266,14 @@ export default function CentralAtendimentoPage() {
           <NavBtn icon={<BookOpen size={15} />} label="Catálogo" onClick={() => setCatalogOpen(true)} />
           <NavBtn icon={<Zap size={15} />} label="Rápidas" active={rightSidebarTab === 'quick-messages'} onClick={() => setRightSidebarTab(v => v === 'quick-messages' ? null : 'quick-messages')} />
           <NavBtn icon={<Shield size={15} />} label="Sentinela" active={rightSidebarTab === 'sentinela'} onClick={() => setRightSidebarTab(v => v === 'sentinela' ? null : 'sentinela')} />
+
+          <div className="w-px h-5 bg-gray-200 shrink-0 mx-1" />
+          <NavBtn
+            icon={<MessageCircle size={15} />}
+            label="Atendimento"
+            active
+            onClick={() => {}}
+          />
 
           {selectedChatId && (
             <>

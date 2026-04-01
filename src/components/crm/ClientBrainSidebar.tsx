@@ -72,7 +72,7 @@ import { MaskedField } from '@/lib/privacy';
 
 /* ─── Abas disponíveis ───────────────────────────────────────── */
 
-type BrainTab = 'identity' | 'orders' | 'tracking' | 'pipeline' | 'patterns' | 'anne';
+type BrainTab = 'identity' | 'orders' | 'tracking' | 'pipeline' | 'patterns';
 
 const TABS: {
   key: BrainTab;
@@ -85,7 +85,6 @@ const TABS: {
   { key: 'tracking',  label: 'Rastreio',       shortLabel: 'Rastreio', icon: Truck },
   { key: 'pipeline',  label: 'Pipeline',       shortLabel: 'Pipeline', icon: GitBranch },
   { key: 'patterns',  label: 'Padrões',        shortLabel: 'Padrões',  icon: BarChart3 },
-  { key: 'anne',      label: 'Insights Anne',  shortLabel: 'Anne',     icon: Brain },
 ];
 
 const STATUS_MAP: Record<
@@ -2039,9 +2038,6 @@ export function ClientBrainSidebar({ onClose }: ClientBrainSidebarProps) {
             )}
             {activeTab === 'patterns' && (
               <PatternsTab clientId={(client.id as string) ?? selectedChatId} />
-            )}
-            {activeTab === 'anne' && (
-              <AnneInsightsTab chatId={selectedChatId} clientId={(client.id as string) ?? undefined} />
             )}
           </>
         )}
