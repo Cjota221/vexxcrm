@@ -147,8 +147,7 @@ Se receber contexto do cliente, personalize a resposta com base nos dados.`;
     { role: 'user', content: userMessage },
   ];
 
-  // OpenAI-compatible: openai, groq
-  const baseUrl = config.baseUrl?.trim() || PROVIDER_BASE_URLS[provider] || PROVIDER_BASE_URLS.openai;
+  const baseUrl = config.baseUrl?.trim() || PROVIDER_BASE_URLS[provider];
   return callOpenAICompatible(baseUrl, config.apiKey, model, messages, maxTokens);
 }
 

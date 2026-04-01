@@ -336,11 +336,9 @@ export async function POST(request: NextRequest) {
     // ── Provedor e modelo ────────────────────────
     const aiModel = tenant.openai_model || 'gpt-4o-mini';
     const aiProvider = (tenant.openai_provider || 'openai') as AIProvider;
-    const aiBaseUrl = tenant.openai_base_url?.trim() || PROVIDER_BASE_URLS[aiProvider] || PROVIDER_BASE_URLS.openai!;
+    const aiBaseUrl = tenant.openai_base_url?.trim() || PROVIDER_BASE_URLS[aiProvider];
 
-    // ── Roteamento: tool calling vs chat simples ──
-    // Provedores OpenAI-compatible: usa loop de tool calling
-    // Anthropic / Google: usa chat() padrão (tools descritas no system prompt)
+    // ── Roteamento: ambos os provedores (openai, groq) usam tool calling ──
     if (OPENAI_COMPATIBLE_PROVIDERS.includes(aiProvider)) {
       try {
         const response = await runWithTools({
@@ -390,7 +388,7 @@ export async function POST(request: NextRequest) {
             const fallback = await runWithTools({
               apiKey: tenant.openai_api_key,
               model: 'gpt-4o-mini',
-              baseUrl: PROVIDER_BASE_URLS.openai!,
+              baseUrl: PROVIDER_BASE_URLS.openai,
               systemPrompt,
               chatHistory,
               userMessage: message,
