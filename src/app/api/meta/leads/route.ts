@@ -249,7 +249,7 @@ async function processarMensagemInstagram(
   const igTenantId = await resolverTenant(supabaseForToken, pageId);
   const { resolverTokenMeta: resolverTokenMetaIg } = await import('@/lib/services/meta-token.service');
   const igTokenConfig = igTenantId ? await resolverTokenMetaIg(igTenantId) : null;
-  const pageToken = igTokenConfig?.accessToken ?? process.env.META_PAGE_TOKEN;
+  const pageToken = igTokenConfig?.token ?? process.env.META_PAGE_TOKEN;
   if (!pageToken) return;
 
   // Buscar nome + foto do remetente
