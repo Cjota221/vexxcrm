@@ -658,3 +658,43 @@ export function useMonthlyTrends() {
     staleTime: 10 * 60 * 1000,
   });
 }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   SEGMENTAÇÃO POR TICKET — Grandes / Médios / Pequenos
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+export interface ClienteSegmentado {
+  id: string;
+  nome: string;
+  telefone: string;
+  ticket_medio: number;
+  total_pedidos: number;
+  ltv: number;
+}
+
+export interface ResumoSegmento {
+  total: number;
+  ticket_medio_geral: number;
+  ltv_total: number;
+  clientes: ClienteSegmentado[];
+}
+
+export interface SegmentacaoTicketResponse {
+  success: boolean;
+  grandes: ResumoSegmento;
+  medios: ResumoSegmento;
+  pequenos: ResumoSegmento;
+  total_clientes_com_pedido: number;
+}
+
+export function useTicketSegmentation() {
+  return useQuery({
+    queryKey: ['intelligence', 'ticket-segmentation'],
+    queryFn: async () => {
+      const response = await api.get<SegmentacaoTicketResponse>('/api/anne/segmentar');
+      if (response.error) throw new Error(response.error);
+      return response.data;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
