@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
+import { createServerSupabaseClient } from '@/lib/supabase';
 import {
   salvarSystemUserToken,
   verificarTokenMeta,
