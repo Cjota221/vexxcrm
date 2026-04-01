@@ -24,6 +24,10 @@ import {
   TEMPLATE_FRETE_GRATIS,
   type DispararCampanhaParams,
 } from './disparar-campanha-whatsapp';
+import {
+  segmentarCompradores,
+  type SegmentarCompradoresParams,
+} from './segmentar-compradores';
 
 export { TEMPLATE_FRETE_GRATIS };
 
@@ -69,6 +73,38 @@ export const ANNE_TOOLS: AnneTool[] = [
           },
         },
         required: ['valor_minimo'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'segmentar_compradores',
+      description:
+        'OBRIGATÓRIO usar quando a operadora pedir para segmentar, classificar ou listar clientes ' +
+        'por faixa de ticket médio por pedido. ' +
+        'Exemplos: "quem são meus grandes compradores", "separa por ticket", ' +
+        '"clientes que compram acima de 700", "me mostra os compradores médios", ' +
+        '"como está minha base dividida por ticket". ' +
+        'Faixas fixas: Grandes (ticket > R$700), Médios (R$300–R$700), Pequenos (< R$300). ' +
+        'Retorna contagem, ticket médio geral, LTV total e lista de clientes de cada segmento. ' +
+        'NUNCA invente esses dados.',
+      parameters: {
+        type: 'object',
+        properties: {
+          segmento: {
+            type: 'string',
+            enum: ['todos', 'grandes', 'medios', 'pequenos'],
+            description:
+              'Qual segmento retornar. Use "todos" (padrão) para visão geral. ' +
+              'Use "grandes", "medios" ou "pequenos" para focar em um segmento específico.',
+          },
+          limite: {
+            type: 'number',
+            description: 'Máximo de clientes por segmento. Padrão: 200.',
+          },
+        },
+        required: [],
       },
     },
   },
@@ -141,7 +177,37 @@ Estas ferramentas são exclusivas para uso com a **operadora** — nunca para cl
 - **NUNCA** responda com nomes, telefones ou valores de clientes inventados/fictícios
 - **NUNCA** diga "não tenho acesso" quando existe uma ferramenta para buscar o dado
 - Quando a operadora pedir qualquer lista de clientes por valor de compra → **SEMPRE** chame \`buscar_clientes_pedido_alto\`
+- Quando a operadora pedir segmentação por ticket/perfil de compra → **SEMPRE** chame \`segmentar_compradores\`
 - Quando não tiver certeza se deve usar uma tool → use
+
+### segmentar_compradores
+Use quando a operadora perguntar sobre perfil de compradores, segmentação por ticket ou distribuição da base.
+Faixas fixas (por ticket médio **por pedido**):
+- 🏆 Grandes compradores: ticket médio > R$ 700
+- 🥈 Médios compradores: R$ 300 a R$ 700
+- 🥉 Pequenos compradores: ticket médio < R$ 300
+
+Após receber o resultado, apresente no formato abaixo:
+
+\`\`\`
+📊 *Segmentação da sua base de compradores*
+
+🏆 *Grandes compradores* (ticket > R$700)
+   [N] clientes | Ticket médio: R$[X] | LTV total: R$[X]
+
+🥈 *Médios compradores* (R$300–R$700)
+   [N] clientes | Ticket médio: R$[X] | LTV total: R$[X]
+
+🥉 *Pequenos compradores* (ticket < R$300)
+   [N] clientes | Ticket médio: R$[X] | LTV total: R$[X]
+
+Total da base com pedidos: [N] clientes
+
+💬 Quer ver a lista de um segmento específico ou disparar uma campanha?
+\`\`\`
+
+Se a operadora pedir só um segmento, liste os clientes como no formato do buscar_clientes_pedido_alto.
+Após listar, pergunte se quer disparar campanha para esse grupo.
 
 ### buscar_clientes_pedido_alto
 Use quando a operadora pedir uma lista de clientes por valor de compra.
@@ -225,6 +291,14 @@ export async function executeAnneTool(
     if (toolName === 'buscar_clientes_pedido_alto') {
       const result = await buscarClientesPedidoAlto(
         toolArgs as unknown as BuscarClientesParams,
+        tenantId
+      );
+      return JSON.stringify(result);
+    }
+
+    if (toolName === 'segmentar_compradores') {
+      const result = await segmentarCompradores(
+        toolArgs as unknown as SegmentarCompradoresParams,
         tenantId
       );
       return JSON.stringify(result);
