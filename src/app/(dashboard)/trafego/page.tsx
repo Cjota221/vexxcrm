@@ -5,6 +5,7 @@ import { useAuthStore } from '@/store/auth';
 import { useMetaAccounts } from '@/hooks/useMetaAccounts';
 import { AccountTabs } from '@/components/trafego/AccountTabs';
 import { AddAccountModal } from '@/components/trafego/AddAccountModal';
+import { MetaTokenConfig } from '@/components/meta/MetaTokenConfig';
 
 function authFetch(url: string, options?: RequestInit): Promise<Response> {
   const token = useAuthStore.getState().accessToken;
@@ -94,7 +95,7 @@ interface Criativo {
 }
 
 type Period = '1d' | '7d' | '15d' | '30d';
-type Tab = 'campanhas' | 'criativos' | 'publicos' | 'textos' | 'analise' | 'relatorio';
+type Tab = 'campanhas' | 'criativos' | 'publicos' | 'textos' | 'analise' | 'relatorio' | 'config';
 
 /* ─── Formatadores ─────────────────────────────────────────────────────────── */
 
@@ -2869,6 +2870,7 @@ export default function TrafegoPage() {
                   { key: 'textos',    label: 'Textos' },
                   { key: 'analise',   label: 'Análise' },
                   { key: 'relatorio', label: 'Relatório' },
+                  { key: 'config',   label: 'Configurações' },
                 ] as { key: Tab; label: string }[]
               ).map(({ key, label }) => (
                 <button
@@ -3118,6 +3120,17 @@ export default function TrafegoPage() {
 
             {/* ── RELATÓRIO ── */}
             {tab === 'relatorio' && <RelatorioTab />}
+
+            {/* ── CONFIG ── */}
+            {tab === 'config' && (
+              <div className="max-w-lg">
+                <h2 className="font-bold text-gray-900 mb-1">Conexão com o Meta Ads</h2>
+                <p className="text-xs text-gray-500 mb-5">
+                  Configure um System User Token para integração permanente sem expiração.
+                </p>
+                <MetaTokenConfig />
+              </div>
+            )}
           </div>
         </div>
 

@@ -119,9 +119,16 @@ async function processarLeadMeta(leadData: LeadgenValue): Promise<void> {
     return;
   }
 
-  const pageToken = process.env.META_PAGE_TOKEN;
+  // Resolver tenant antes do token para usar token por tenant quando possível
+  const supabaseEarly = createServerSupabaseClient();
+  const earlyTenantId = await resolverTenant(supabaseEarly, leadData.page_id);
+
+  const { resolverTokenMeta } = await import('@/lib/services/meta-token.service');
+  const tokenConfig = earlyTenantId ? await resolverTokenMeta(earlyTenantId) : null;
+  const pageToken = tokenConfig?.accessToken ?? process.env.META_PAGE_TOKEN;
+
   if (!pageToken) {
-    console.warn('[Meta Leads] META_PAGE_TOKEN não configurado');
+    console.warn('[Meta Leads] Nenhum token configurado para page_id:', leadData.page_id);
     return;
   }
 
@@ -238,7 +245,11 @@ async function processarMensagemInstagram(
 
   if (!text || !messageId) return;
 
-  const pageToken = process.env.META_PAGE_TOKEN;
+  const supabaseForToken = createServerSupabaseClient();
+  const igTenantId = await resolverTenant(supabaseForToken, pageId);
+  const { resolverTokenMeta: resolverTokenMetaIg } = await import('@/lib/services/meta-token.service');
+  const igTokenConfig = igTenantId ? await resolverTokenMetaIg(igTenantId) : null;
+  const pageToken = igTokenConfig?.accessToken ?? process.env.META_PAGE_TOKEN;
   if (!pageToken) return;
 
   // Buscar nome + foto do remetente

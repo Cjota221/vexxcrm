@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { sincronizarTudoDoMeta } from '@/lib/services/meta-sync.service';
+import { resolverTokenMeta } from '@/lib/services/meta-token.service';
 
 // Aumenta o timeout da função no Vercel para 60s (necessário para sync com muitos dados)
 export const maxDuration = 60;
@@ -17,23 +18,19 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => ({})) as { account_id?: string };
 
-    const { data: config } = await supabase
-      .from('ai_provider_config')
-      .select('meta_access_token, meta_ad_account_id')
-      .eq('tenant_id', profile.tenant_id)
-      .single();
-
-    if (!config?.meta_access_token || !config?.meta_ad_account_id) {
+    // Resolver token via hierarquia: system_user → page → env
+    const tokenConfig = await resolverTokenMeta(profile.tenant_id);
+    if (!tokenConfig) {
       return NextResponse.json({ error: 'Meta Ads não configurado' }, { status: 400 });
     }
 
     // account_id do body tem prioridade (multi-conta)
-    const accountId = body.account_id || config.meta_ad_account_id;
+    const accountId = body.account_id || tokenConfig.adAccountId;
 
     const result = await sincronizarTudoDoMeta(
       profile.tenant_id,
       accountId,
-      config.meta_access_token,
+      tokenConfig.accessToken,
     );
 
     return NextResponse.json({ ok: true, ...result });

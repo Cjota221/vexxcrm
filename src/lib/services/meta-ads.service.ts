@@ -41,6 +41,15 @@ function getConfig(): MetaAdsConfig {
   return { accessToken, adAccountId };
 }
 
+async function getConfigForTenant(tenantId?: string): Promise<MetaAdsConfig> {
+  if (tenantId) {
+    const { resolverTokenMeta } = await import('./meta-token.service');
+    const config = await resolverTokenMeta(tenantId);
+    if (config) return { accessToken: config.accessToken, adAccountId: config.adAccountId };
+  }
+  return getConfig();
+}
+
 function toNumber(value: string | undefined | null): number {
   return parseFloat(value || '0') || 0;
 }
@@ -57,8 +66,9 @@ function toNumber(value: string | undefined | null): number {
 export async function fetchCampaignMetrics(
   dateRange: 'last_7d' | 'last_30d' | 'this_month' = 'last_7d',
   cfg?: MetaAdsConfig,
+  tenantId?: string,
 ): Promise<MetaCampaignMetrics[]> {
-  const { accessToken, adAccountId } = cfg || getConfig();
+  const { accessToken, adAccountId } = cfg || await getConfigForTenant(tenantId);
 
   const insightFields = [
     'spend', 'impressions', 'clicks', 'reach', 'cpc', 'cpm', 'ctr',
@@ -150,8 +160,8 @@ export async function fetchCampaignMetrics(
  * ⚠️ ATENÇÃO: Chamar APENAS após aprovação em ai_action_queue.
  * Pausa um anúncio ou campanha no Meta Ads.
  */
-export async function pauseAd(adId: string, cfg?: MetaAdsConfig): Promise<boolean> {
-  const { accessToken } = cfg || getConfig();
+export async function pauseAd(adId: string, cfg?: MetaAdsConfig, tenantId?: string): Promise<boolean> {
+  const { accessToken } = cfg || await getConfigForTenant(tenantId);
 
   const res = await fetch(`${META_BASE}/${adId}`, {
     method: 'POST',
@@ -180,8 +190,9 @@ export async function createAdDraft(params: {
   callToAction: string;
   imageUrl?: string;
   cfg?: MetaAdsConfig;
+  tenantId?: string;
 }): Promise<{ ok: boolean; adId?: string; error?: string }> {
-  const { accessToken, adAccountId } = params.cfg || getConfig();
+  const { accessToken, adAccountId } = params.cfg || await getConfigForTenant(params.tenantId);
 
   // Passo 1: criar o criativo
   const creativeRes = await fetch(`${META_BASE}/${adAccountId}/adcreatives`, {
@@ -235,13 +246,13 @@ export async function createAdDraft(params: {
 
 /* ─── Verificar conexão com a Meta API ─────────────────────────────────────── */
 
-export async function testMetaConnection(cfg?: MetaAdsConfig): Promise<{
+export async function testMetaConnection(cfg?: MetaAdsConfig, tenantId?: string): Promise<{
   ok: boolean;
   accountName?: string;
   error?: string;
 }> {
   try {
-    const { accessToken, adAccountId } = cfg || getConfig();
+    const { accessToken, adAccountId } = cfg || await getConfigForTenant(tenantId);
     const url = `${META_BASE}/${adAccountId}?fields=name,account_status&access_token=${accessToken}`;
     const res = await fetch(url);
     if (!res.ok) {
