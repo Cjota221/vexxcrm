@@ -3,7 +3,7 @@ import { createServerSupabaseClient } from '@/lib/supabase';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
 
 import { META_BASE } from '@/lib/meta-config';
-const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
+const OPENAI_BASE = 'https://api.openai.com/v1';
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
 
@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
 
     const token       = config.meta_access_token;
     const accountId   = config.meta_ad_account_id;
-    const claudeKey   = config.strategy_api_key || process.env.ANTHROPIC_API_KEY || '';
+    const claudeKey   = config.strategy_api_key || process.env.OPENAI_API_KEY || '';
 
     // ── 1. Buscar métricas de campanhas ────────────────────────────────────
     const insightFields = 'spend,impressions,clicks,reach,cpc,cpm,ctr,frequency,actions,action_values';
@@ -149,22 +149,24 @@ export async function GET(req: NextRequest) {
 
     if (claudeKey) {
       try {
-        const claudeRes = await fetch(`${ANTHROPIC_BASE}/messages`, {
+        const claudeRes = await fetch(`${OPENAI_BASE}/chat/completions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-api-key': claudeKey,
-            'anthropic-version': '2023-06-01',
+            'Authorization': `Bearer ${claudeKey}`,
           },
           body: JSON.stringify({
-            model: 'claude-haiku-4-5-20251001',
+            model: 'gpt-4o-mini',
             max_tokens: 1500,
-            messages: [{
-              role: 'user',
-              content: `Você é Cláudio, estrategista de marketing da CJ Rasteirinhas.
-Escreva um relatório semanal de performance para a operadora entender o resultado do investimento.
-Use linguagem simples, sem termos técnicos. Seja direto e objetivo.
-Use emojis para facilitar a leitura.
+            temperature: 0.7,
+            messages: [
+              {
+                role: 'system',
+                content: 'Você é Cláudio, estrategista de marketing. Escreva relatórios de performance em linguagem simples, sem termos técnicos. Use emojis para facilitar a leitura. Seja direto e objetivo.',
+              },
+              {
+                role: 'user',
+                content: `Escreva um relatório semanal de performance para a operadora entender o resultado do investimento.
 
 PERÍODO: ${periodoLabel}
 PRODUTO: ${config.brand_produto || 'Rasteirinhas femininas'}
@@ -194,15 +196,16 @@ Escreva o relatório no formato:
 [3 ações prioritárias numeradas]
 
 Não inclua seção de "Melhores Públicos" nem "Pedro pesquisou" — apenas as 3 seções acima.`,
-            }],
+              },
+            ],
           }),
         });
 
         if (claudeRes.ok) {
           const claudeData = await claudeRes.json() as {
-            content: Array<{ type: string; text: string }>;
+            choices: Array<{ message: { content: string } }>;
           };
-          textoRelatorio = claudeData.content?.find(b => b.type === 'text')?.text || '';
+          textoRelatorio = claudeData.choices[0]?.message?.content || '';
         }
       } catch { /* fallback abaixo */ }
     }

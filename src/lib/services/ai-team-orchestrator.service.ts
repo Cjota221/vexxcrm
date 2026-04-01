@@ -445,15 +445,15 @@ export async function getAgentStatus(tenantId: string): Promise<{
     },
     claudio: {
       active: config?.analysis_enabled || false,
-      hasApiKey: !!(config?.strategy_api_key || process.env.ANTHROPIC_API_KEY),
+      hasApiKey: !!(config?.strategy_api_key || process.env.OPENAI_API_KEY),
     },
     pedro: {
       active: config?.research_enabled || false,
-      hasApiKey: !!(config?.research_api_key || process.env.PERPLEXITY_API_KEY),
+      hasApiKey: !!(config?.research_api_key || process.env.OPENAI_API_KEY),
     },
     judite: {
       active: config?.visual_enabled || false,
-      hasApiKey: !!(config?.visual_api_key || process.env.GEMINI_API_KEY),
+      hasApiKey: !!(config?.visual_api_key || process.env.OPENAI_API_KEY),
     },
   };
 }

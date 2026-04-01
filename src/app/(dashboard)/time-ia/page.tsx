@@ -606,11 +606,11 @@ export default function TimeIAPage() {
               </label>
 
               <label className="block">
-                <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5"><Brain size={13} className="text-purple-500" /> Cláudio — Anthropic API Key</span>
-                <p className="text-xs text-gray-400 mb-1">console.anthropic.com → API Keys</p>
+                <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5"><Brain size={13} className="text-purple-500" /> Cláudio — OpenAI API Key</span>
+                <p className="text-xs text-gray-400 mb-1">platform.openai.com → API Keys</p>
                 <input
                   type="password"
-                  placeholder={config.strategy_api_key ? '••••••••' : 'sk-ant-...'}
+                  placeholder={config.strategy_api_key ? '••••••••' : 'sk-...'}
                   value={config.strategy_api_key === '••••••••' ? '' : config.strategy_api_key}
                   onChange={e => setConfig(c => ({ ...c, strategy_api_key: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -618,11 +618,11 @@ export default function TimeIAPage() {
               </label>
 
               <label className="block">
-                <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5"><Search size={13} className="text-orange-500" /> Pedro — Perplexity API Key</span>
-                <p className="text-xs text-gray-400 mb-1">perplexity.ai → Settings → API</p>
+                <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5"><Search size={13} className="text-orange-500" /> Pedro — OpenAI API Key</span>
+                <p className="text-xs text-gray-400 mb-1">platform.openai.com → API Keys</p>
                 <input
                   type="password"
-                  placeholder={config.research_api_key ? '••••••••' : 'pplx-...'}
+                  placeholder={config.research_api_key ? '••••••••' : 'sk-...'}
                   value={config.research_api_key === '••••••••' ? '' : config.research_api_key}
                   onChange={e => setConfig(c => ({ ...c, research_api_key: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -630,11 +630,11 @@ export default function TimeIAPage() {
               </label>
 
               <label className="block">
-                <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5"><Palette size={13} className="text-pink-500" /> Judite — Gemini API Key <span className="text-xs text-green-600">(gratuita)</span></span>
-                <p className="text-xs text-gray-400 mb-1">aistudio.google.com → Get API Key</p>
+                <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5"><Palette size={13} className="text-pink-500" /> Judite — OpenAI API Key</span>
+                <p className="text-xs text-gray-400 mb-1">platform.openai.com → API Keys</p>
                 <input
                   type="password"
-                  placeholder={config.visual_api_key ? '••••••••' : 'AIza...'}
+                  placeholder={config.visual_api_key ? '••••••••' : 'sk-...'}
                   value={config.visual_api_key === '••••••••' ? '' : config.visual_api_key}
                   onChange={e => setConfig(c => ({ ...c, visual_api_key: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"

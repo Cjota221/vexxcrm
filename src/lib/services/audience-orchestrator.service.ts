@@ -27,7 +27,6 @@ async function loadMetaConfig(tenantId: string): Promise<{
   accountId: string;
   pageId: string | null;
   openaiKey: string | null;
-  anthropicKey: string | null;
 } | null> {
   const supabase = createServerSupabaseClient();
   const { data } = await supabase
@@ -45,8 +44,7 @@ async function loadMetaConfig(tenantId: string): Promise<{
     token: data.meta_access_token,
     accountId,
     pageId: data.meta_page_id || process.env.META_PAGE_ID || null,
-    openaiKey: data.analytics_api_key || null,
-    anthropicKey: data.strategy_api_key || null,
+    openaiKey: data.analytics_api_key || data.strategy_api_key || null,
   };
 }
 
@@ -87,7 +85,7 @@ export async function criarPublicosComIA(
   console.log('[PÚBLICOS] Cláudio configurando públicos...');
   const claudioConfig = await claudioRefiniarPublicos(
     joseAnalise,
-    config.anthropicKey || undefined,
+    config.openaiKey || undefined,
   );
   console.log(`[PÚBLICOS] Cláudio configurou ${claudioConfig.publicos_configurados.length} públicos`);
 
