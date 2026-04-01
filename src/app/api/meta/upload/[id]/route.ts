@@ -15,8 +15,9 @@ async function getTenantId(): Promise<string | null> {
 
 export async function DELETE(
   _req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params;
   const tenantId = await getTenantId();
   if (!tenantId) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
 
@@ -24,8 +25,8 @@ export async function DELETE(
   await supabase
     .from('ad_creatives')
     .update({ status: 'arquivado' })
-    .eq('id', params.id)
-    .eq('tenant_id', tenantId); // RLS extra: só arquiva do próprio tenant
+    .eq('id', id)
+    .eq('tenant_id', tenantId);
 
   return NextResponse.json({ ok: true });
 }
