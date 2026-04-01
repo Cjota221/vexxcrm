@@ -6,6 +6,7 @@ import { useMetaAccounts } from '@/hooks/useMetaAccounts';
 import { AccountTabs } from '@/components/trafego/AccountTabs';
 import { AddAccountModal } from '@/components/trafego/AddAccountModal';
 import { MetaTokenConfig } from '@/components/meta/MetaTokenConfig';
+import { GaleriaCriativos } from '@/components/meta/GaleriaCriativos';
 
 function authFetch(url: string, options?: RequestInit): Promise<Response> {
   const token = useAuthStore.getState().accessToken;
@@ -81,17 +82,6 @@ interface MetricsData {
   fromCache?: boolean;
   cacheWarning?: string;
   lastSync?: string;
-}
-
-interface Criativo {
-  id: string;
-  tenant_id?: string;
-  nome?: string;
-  tipo: string;
-  thumbnail_url?: string;
-  url?: string;
-  formato?: string;
-  sincronizado_em?: string;
 }
 
 type Period = '1d' | '7d' | '15d' | '30d';
@@ -1346,213 +1336,7 @@ function ConfirmModal({
   );
 }
 
-/* ─── Aba de Criativos ─────────────────────────────────────────────────────── */
-
-function CriativosTab() {
-  const [criativos, setCriativos] = useState<Criativo[]>([]);
-  const [loadingCriativos, setLoadingCriativos] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-
-  // Upload state
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
-  const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'processing' | 'done' | 'error'>('idle');
-  const [uploadMsg, setUploadMsg] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const loadCriativos = async () => {
-    setLoadingCriativos(true);
-    try {
-      const res = await authFetch('/api/trafego/sync?tipo=criativos');
-      if (res.ok) {
-        const json = await res.json() as { criativos: Criativo[] };
-        setCriativos(json.criativos || []);
-      }
-    } catch { /* silencioso */ }
-    finally { setLoadingCriativos(false); }
-  };
-
-  const handleSync = async () => {
-    setSyncing(true);
-    try {
-      await authFetch('/api/trafego/sync', { method: 'POST' });
-      await loadCriativos();
-    } catch { /* silencioso */ }
-    finally { setSyncing(false); }
-  };
-
-  const handleUploadVideo = (file: File) => {
-    const token = useAuthStore.getState().accessToken;
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('titulo', file.name.replace(/\.[^.]+$/, ''));
-
-    const xhr = new XMLHttpRequest();
-    setUploadProgress(0);
-    setUploadStatus('uploading');
-    setUploadMsg('');
-
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) {
-        setUploadProgress(Math.round((e.loaded / e.total) * 100));
-      }
-    };
-
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        setUploadStatus('processing');
-        setUploadProgress(100);
-        setUploadMsg('Processando no Meta... aguarde');
-        setTimeout(() => {
-          setUploadStatus('done');
-          setUploadMsg('✅ Vídeo pronto para usar em anúncios!');
-          setUploadProgress(null);
-          loadCriativos();
-        }, 3000);
-      } else {
-        let msg = `Erro ${xhr.status}`;
-        try { msg = JSON.parse(xhr.responseText)?.error || msg; } catch { /* noop */ }
-        setUploadStatus('error');
-        setUploadMsg(msg);
-        setUploadProgress(null);
-      }
-    };
-
-    xhr.onerror = () => {
-      setUploadStatus('error');
-      setUploadMsg('Falha de conexão ao enviar vídeo');
-      setUploadProgress(null);
-    };
-
-    xhr.open('POST', '/api/trafego/criativos/upload-video');
-    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-    xhr.send(formData);
-  };
-
-  useEffect(() => { loadCriativos(); }, []);
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="font-bold text-gray-900">Meus Criativos</h2>
-        <div className="flex gap-2">
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploadStatus === 'uploading' || uploadStatus === 'processing'}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-xl text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-60"
-          >
-            <Plus size={14} /> Subir Vídeo
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="video/mp4,video/quicktime,video/avi,.mp4,.mov,.avi"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleUploadVideo(file);
-              e.target.value = '';
-            }}
-          />
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="flex items-center gap-2 px-4 py-2 bg-crm-primary text-white rounded-xl text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-60"
-          >
-            {syncing ? <Loader2 size={14} className="animate-spin" /> : <CloudDownload size={14} />}
-            {syncing ? 'Sincronizando...' : 'Sincronizar com Meta'}
-          </button>
-        </div>
-      </div>
-
-      {/* Barra de progresso de upload */}
-      {(uploadStatus !== 'idle') && (
-        <div className={cn(
-          'rounded-xl p-4 text-sm',
-          uploadStatus === 'error' ? 'bg-red-50 border border-red-200 text-red-800' :
-          uploadStatus === 'done'  ? 'bg-green-50 border border-green-200 text-green-800' :
-          'bg-blue-50 border border-blue-200 text-blue-800'
-        )}>
-          {uploadStatus === 'uploading' && uploadProgress !== null && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span>Enviando vídeo...</span>
-                <span className="font-semibold">{uploadProgress}%</span>
-              </div>
-              <div className="w-full bg-blue-200 rounded-full h-2">
-                <div
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${uploadProgress}%` }}
-                />
-              </div>
-            </div>
-          )}
-          {(uploadStatus === 'processing' || uploadStatus === 'done' || uploadStatus === 'error') && (
-            <div className="flex items-center justify-between">
-              <span>{uploadMsg}</span>
-              {(uploadStatus === 'done' || uploadStatus === 'error') && (
-                <button
-                  onClick={() => { setUploadStatus('idle'); setUploadMsg(''); }}
-                  className="text-xs opacity-60 hover:opacity-100"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
-        <strong>Dicas da Judite para CJ Rasteirinhas:</strong>
-        <ul className="mt-2 space-y-1 list-disc list-inside">
-          <li>Vídeo do produto em uso converte mais que foto estática</li>
-          <li>Mostrar o preço visível ("R$25 o par") aumenta cliques</li>
-          <li>Stories 9:16 costuma sair mais barato que feed quadrado</li>
-          <li>Depoimento de revendedora real gera mais confiança</li>
-        </ul>
-      </div>
-
-      {loadingCriativos ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="bg-gray-100 rounded-xl aspect-video animate-pulse" />
-          ))}
-        </div>
-      ) : criativos.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-gray-100 p-8 text-center">
-          <ImageIcon size={40} className="text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500 text-sm">Nenhum criativo encontrado</p>
-          <p className="text-gray-400 text-xs mt-1">Clique em "Sincronizar com Meta" para importar criativos das suas campanhas</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          {criativos.map((c) => (
-            <div key={c.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-              {c.thumbnail_url ? (
-                <img src={c.thumbnail_url} alt={c.nome || 'Criativo'} className="w-full aspect-video object-cover" />
-              ) : (
-                <div className="w-full aspect-video bg-gray-100 flex items-center justify-center">
-                  {c.tipo === 'VIDEO' ? (
-                    <Play size={28} className="text-gray-300" />
-                  ) : (
-                    <ImageIcon size={28} className="text-gray-300" />
-                  )}
-                </div>
-              )}
-              <div className="p-3">
-                <div className="text-xs font-medium text-gray-700 truncate">{c.nome || `Criativo ${c.id.substring(0, 8)}`}</div>
-                <div className="flex items-center gap-1.5 mt-1">
-                  <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-medium">{c.tipo || 'IMG'}</span>
-                  {c.formato && <span className="text-xs text-gray-400">{c.formato}</span>}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+/* ─── Aba de Públicos ──────────────────────────────────────────────────────── */
 
 interface SavedAudience {
   id: string;
@@ -3021,7 +2805,7 @@ export default function TrafegoPage() {
             )}
 
             {/* ── CRIATIVOS ── */}
-            {tab === 'criativos' && <CriativosTab />}
+            {tab === 'criativos' && <GaleriaCriativos />}
 
             {/* ── PÚBLICOS ── */}
             {tab === 'publicos' && (
