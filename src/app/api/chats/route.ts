@@ -116,6 +116,9 @@ export async function GET(request: NextRequest) {
       case 'archived':
         query = query.eq('status', 'archived');
         break;
+      case 'instagram':
+        query = query.or('canal.eq.instagram,channel.eq.instagram').or('status.neq.archived,status.is.null');
+        break;
       case 'all':
       default:
         // Mostrar todas as conversas EXCETO arquivadas.
