@@ -132,7 +132,7 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
       case 'delivered':
         return <CheckCheck size={14} className="text-[#111b21]/50" />;
       case 'read':
-        return <CheckCheck size={14} className="text-[#00a884]" />;
+        return <CheckCheck size={14} className="text-[#60a5fa]" />;
       case 'failed':
         return <AlertCircle size={13} className="text-red-500" />;
       default:
@@ -241,7 +241,7 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
           'max-w-[65%] px-3 py-2 rounded-bubble relative',
           isFromMe
             ? 'bg-wa-bubble-out text-wa-text-bubble rounded-tr-sm'
-            : 'bg-wa-bubble-in text-wa-text-primary rounded-tl-sm'
+            : 'bg-wa-bubble-in text-wa-text-primary rounded-tl-sm border border-[#e0e4ed] shadow-[0_1px_2px_rgba(0,0,0,0.04)]'
         )}
       >
       {/* Media content — Imagem */}

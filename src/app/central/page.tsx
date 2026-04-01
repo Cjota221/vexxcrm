@@ -58,8 +58,8 @@ function NavBtn({
         // Compacto em md–lg, espaçoso em lg+
         'flex items-center gap-1.5 px-2.5 py-1.5 lg:px-4 lg:py-2 rounded-lg text-sm font-medium transition-all select-none shrink-0',
         active
-          ? 'bg-crm-primary text-white shadow-sm'
-          : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
+          ? 'bg-[#1a5fb4] text-white shadow-sm'
+          : 'text-[#4a5168] hover:bg-[#f4f6fa] hover:text-[#1a1f2e]'
       )}
     >
       {icon}
@@ -214,12 +214,12 @@ export default function CentralAtendimentoPage() {
     <div className="flex flex-col h-full bg-white overflow-hidden max-w-[100vw]">
 
       {/* ━━━ HEADER DESKTOP — oculto em mobile ━━━ */}
-      <header className="hidden md:flex h-14 shrink-0 bg-white border-b border-gray-100 items-center px-4 z-20 gap-3">
+      <header className="hidden md:flex h-[50px] shrink-0 bg-white border-b border-[#e0e4ed] items-center px-4 z-20 gap-3">
 
         {/* ZONA ESQUERDA */}
         <div className="flex items-center gap-2.5 shrink-0 min-w-0">
           <div className="relative">
-            <div className="w-8 h-8 rounded-xl bg-crm-primary flex items-center justify-center shadow-sm shrink-0">
+            <div className="w-8 h-8 rounded-[9px] bg-[#1a5fb4] flex items-center justify-center shadow-sm shrink-0">
               <span className="text-[11px] font-black text-white tracking-tight">VX</span>
             </div>
             <ConnectionDot />
@@ -270,7 +270,7 @@ export default function CentralAtendimentoPage() {
 
           {selectedChatId && (
             <>
-              <div className="w-px h-5 bg-gray-200 shrink-0 mx-1" />
+              <div className="w-px h-5 bg-[#e0e4ed] shrink-0 mx-1" />
               <NavBtn icon={<ArrowLeftRight size={15} />} label="Transferir" onClick={() => setTransferOpen(true)} />
             </>
           )}
@@ -281,7 +281,7 @@ export default function CentralAtendimentoPage() {
           {/* Cérebro */}
           <NavBtn icon={<Brain size={15} />} label="Cérebro" active={rightSidebarTab === 'brain'} onClick={() => setRightSidebarTab(v => v === 'brain' ? null : 'brain')} />
 
-          <div className="w-px h-5 bg-gray-100" />
+          <div className="w-px h-5 bg-[#e0e4ed] mx-1" />
 
           {/* Perfil do usuário */}
           <button

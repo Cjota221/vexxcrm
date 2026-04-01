@@ -19,16 +19,16 @@ export function ChatFilters() {
   const { activeFilter, setFilter } = useChatsStore();
 
   return (
-    <div className="flex gap-1 px-3 py-2 border-b border-wa-border bg-wa-bg-panel">
+    <div className="flex gap-1 px-3 py-2 border-b border-[#e0e4ed] bg-white overflow-x-auto scrollbar-none">
       {FILTERS.map(({ key, label }) => (
         <button
           key={key}
           onClick={() => setFilter(key)}
           className={cn(
-            'px-3 py-1.5 text-xs font-medium rounded-full transition-colors',
+            'px-[10px] py-[3px] text-[11px] font-medium rounded-full whitespace-nowrap transition-all border',
             activeFilter === key
-              ? 'bg-wa-accent-green text-white'
-              : 'text-wa-text-secondary hover:bg-wa-bg-hover hover:text-wa-text-primary'
+              ? 'bg-[#e8f0fd] text-[#1a5fb4] border-[#b8d0f5]'
+              : 'bg-white text-[#4a5168] border-[#e0e4ed] hover:border-[#3584e4] hover:text-[#1a5fb4]'
           )}
         >
           {label}
