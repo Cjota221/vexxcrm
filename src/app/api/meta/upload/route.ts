@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import {
   uploadVideoParaMeta,
@@ -13,21 +14,14 @@ import {
   salvarCriativoNoBanco,
 } from '@/lib/services/meta-upload.service';
 
-async function getTenantId(): Promise<string | null> {
-  const supabase = createServerSupabaseClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-  const { data } = await supabase
-    .from('profiles')
-    .select('tenant_id')
-    .eq('id', user.id)
-    .single();
-  return data?.tenant_id ?? null;
-}
-
-export async function GET() {
-  const tenantId = await getTenantId();
-  if (!tenantId) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+export async function GET(req: NextRequest) {
+  let tenantId: string;
+  try {
+    const auth = await getTenantFromRequest(req);
+    tenantId = auth.tenantId;
+  } catch {
+    return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+  }
 
   const supabase = createServerSupabaseClient();
   const { data } = await supabase
@@ -41,8 +35,13 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const tenantId = await getTenantId();
-  if (!tenantId) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+  let tenantId: string;
+  try {
+    const auth = await getTenantFromRequest(req);
+    tenantId = auth.tenantId;
+  } catch {
+    return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+  }
 
   let form: FormData;
   try {

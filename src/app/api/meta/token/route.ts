@@ -5,35 +5,33 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase';
+import { getTenantFromRequest } from '@/lib/auth-helpers';
 import {
   salvarSystemUserToken,
   verificarTokenMeta,
 } from '@/lib/services/meta-token.service';
 
-async function getTenantId(): Promise<string | null> {
-  const supabase = createServerSupabaseClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-  const { data } = await supabase
-    .from('profiles')
-    .select('tenant_id')
-    .eq('id', user.id)
-    .single();
-  return data?.tenant_id ?? null;
-}
-
-export async function GET() {
-  const tenantId = await getTenantId();
-  if (!tenantId) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+export async function GET(req: NextRequest) {
+  let tenantId: string;
+  try {
+    const auth = await getTenantFromRequest(req);
+    tenantId = auth.tenantId;
+  } catch {
+    return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+  }
 
   const result = await verificarTokenMeta(tenantId);
   return NextResponse.json(result);
 }
 
 export async function POST(req: NextRequest) {
-  const tenantId = await getTenantId();
-  if (!tenantId) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+  let tenantId: string;
+  try {
+    const auth = await getTenantFromRequest(req);
+    tenantId = auth.tenantId;
+  } catch {
+    return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+  }
 
   const body = await req.json() as {
     systemUserToken: string;
@@ -56,9 +54,14 @@ export async function POST(req: NextRequest) {
   return NextResponse.json(result);
 }
 
-export async function DELETE() {
-  const tenantId = await getTenantId();
-  if (!tenantId) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+export async function DELETE(req: NextRequest) {
+  let tenantId: string;
+  try {
+    const auth = await getTenantFromRequest(req);
+    tenantId = auth.tenantId;
+  } catch {
+    return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+  }
 
   const supabase = createServerSupabaseClient();
   await supabase
