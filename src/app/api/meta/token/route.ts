@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClientFromCookies, createServerSupabaseClient } from '@/lib/supabase';
+import { createServerSupabaseClient } from '@/lib/supabase';
+import { createServerClientFromCookies } from '@/lib/supabase-ssr';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { resolverTokenMeta, verificarTokenMeta } from '@/lib/services/meta-token.service';
 
