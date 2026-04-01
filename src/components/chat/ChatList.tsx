@@ -214,6 +214,16 @@ const ChatListItem = memo(function ChatListItem({ chat, isSelected, onSelect }: 
             <Users size={9} className="text-white" />
           </span>
         )}
+        {!chat.is_group && chat.canal === 'instagram' && (
+          <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center"
+            style={{ background: 'radial-gradient(circle at 30% 107%, #fdf497 0%, #fdf497 5%, #fd5949 45%,#d6249f 60%,#285AEB 90%)' }}>
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="white">
+              <rect x="2" y="2" width="20" height="20" rx="5" ry="5" fill="none" stroke="white" strokeWidth="2.5"/>
+              <circle cx="12" cy="12" r="4.5" fill="none" stroke="white" strokeWidth="2.5"/>
+              <circle cx="18" cy="6" r="1.2" fill="white"/>
+            </svg>
+          </span>
+        )}
       </div>
 
       {/* Content */}

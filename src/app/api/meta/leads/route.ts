@@ -253,25 +253,87 @@ async function processarMensagemInstagram(
   const tenantId = await resolverTenant(supabase, pageId);
   if (!tenantId) return;
 
-  // Salvar mensagem com canal 'instagram'
-  await supabase.from('messages').upsert(
+  // 1. Upsert cliente usando ig:{senderId} como identificador único
+  //    (phone é NOT NULL na tabela; usamos prefixo ig: para distinguir de telefones)
+  const igPhone = `ig:${senderId}`;
+  const { data: clientData, error: clientError } = await supabase
+    .from('clients')
+    .upsert(
+      {
+        tenant_id:        tenantId,
+        phone:            igPhone,
+        phone_normalized: igPhone,
+        name:             profile.name || `Usuário Instagram`,
+        avatar_url:       (profile as { profile_pic?: string }).profile_pic || null,
+        source:           'instagram',
+        custom_fields:    { instagram_id: senderId },
+      },
+      { onConflict: 'phone,tenant_id' }
+    )
+    .select('id')
+    .single();
+
+  if (clientError || !clientData) {
+    console.error('[Instagram DM] Erro ao upsert cliente:', clientError);
+    return;
+  }
+
+  const clientId = clientData.id;
+
+  // 2. Encontrar conversa aberta existente ou criar uma nova
+  const { data: existingConv } = await supabase
+    .from('conversations')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('client_id', clientId)
+    .neq('status', 'archived')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  let conversationId = existingConv?.id;
+
+  if (!conversationId) {
+    const { data: newConv, error: convError } = await supabase
+      .from('conversations')
+      .insert({
+        tenant_id: tenantId,
+        client_id: clientId,
+        channel:   'instagram',
+        canal:     'instagram',
+        status:    'open',
+      })
+      .select('id')
+      .single();
+
+    if (convError || !newConv) {
+      console.error('[Instagram DM] Erro ao criar conversa:', convError);
+      return;
+    }
+    conversationId = newConv.id;
+  }
+
+  // 3. Salvar mensagem — trigger trg_messages_update_conversation atualiza
+  //    last_message_text/at/count na conversation automaticamente
+  const { error: msgError } = await supabase.from('messages').upsert(
     {
-      tenant_id:    tenantId,
-      external_id:  messageId,
-      canal:        'instagram',
-      sender_id:    senderId,
-      sender_name:  profile.name || 'Usuário Instagram',
-      content:      text,
-      direction:    'inbound',
-      type:         'text',
+      tenant_id:       tenantId,
+      conversation_id: conversationId,
+      client_id:       clientId,
+      external_id:     messageId,
+      canal:           'instagram',
+      sender_name:     profile.name || 'Usuário Instagram',
+      content:         text,
+      direction:       'inbound',
+      type:            'text',
     },
     { onConflict: 'external_id' }
   );
 
-  // TODO: Anne responde via Instagram Messaging API
-  // Quando estiver pronto, integrar com anne.service.ts e enviar via:
-  // POST `${META_BASE}/`me/messages?access_token=${pageToken}
-  // { recipient: { id: senderId }, message: { text: reply } }
+  if (msgError) {
+    console.error('[Instagram DM] Erro ao salvar mensagem:', msgError);
+    return;
+  }
 
   console.log(`[Instagram DM] Mensagem de ${profile.name || senderId}: "${text.substring(0, 50)}"`);
 }

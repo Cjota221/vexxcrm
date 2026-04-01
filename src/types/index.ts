@@ -188,6 +188,7 @@ export interface Chat {
   is_archived: boolean;
   is_muted: boolean;
   is_group?: boolean;
+  canal?: string;
   assigned_to?: string;
   updated_at: string;
   labels?: ChatLabel[];

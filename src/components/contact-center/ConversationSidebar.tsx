@@ -73,7 +73,7 @@ const FILTERS: { label: string; value: ChatFilter; badge?: boolean }[] = [
 
 /* ─── Tipos de painel ativo ──────────────────────────────────── */
 
-type ActivePanel = 'anne' | null;
+type ActivePanel = 'anne' | 'grupos' | null;
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    ACTION BAR — barra de ações compacta no topo
@@ -361,14 +361,17 @@ const ChatListItem = memo(function ChatListItem({
             {getInitials(chat.client.name)}
           </div>
         )}
-        {/* Dot de status: grupo = roxo, unread = verde */}
+        {/* Dot de canal: grupo = roxo c/ ícone, instagram = rosa, whatsapp = verde */}
         {chat.is_group ? (
           <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-violet-500 rounded-full border-2 border-white flex items-center justify-center">
             <Users size={8} className="text-white" />
           </span>
-        ) : hasUnread ? (
-          <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white" />
-        ) : null}
+        ) : (
+          <span
+            className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white"
+            style={{ backgroundColor: chat.canal === 'instagram' ? '#e1306c' : '#25d366' }}
+          />
+        )}
       </div>
 
       {/* Conteúdo */}
@@ -517,6 +520,112 @@ function MobileListHeader({
         >
           <RefreshCw size={16} />
         </button>
+      </div>
+    </div>
+  );
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   PAINEL DE GRUPOS — lista de grupos WhatsApp
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+const GROUP_COLORS = [
+  { bg: '#d8f4e8', color: '#26a269' },
+  { bg: '#ddeeff', color: '#1a5fb4' },
+  { bg: '#e8dffd', color: '#613583' },
+  { bg: '#fef0cc', color: '#c97b00' },
+];
+
+function GruposPanel({ onSelect }: { onSelect: (chatId: string) => void }) {
+  const { data, isLoading } = useInfiniteChats('all', '');
+  const { selectedChatId, selectChat } = useChatsStore();
+
+  const groups = useMemo(
+    () => (data?.pages.flatMap(p => p.data) ?? []).filter(c => c.is_group),
+    [data]
+  );
+
+  const totalUnread = groups.reduce((s, g) => s + (g.unread_count || 0), 0);
+
+  return (
+    <div className="flex flex-col flex-1 overflow-hidden">
+      {/* Topo */}
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 shrink-0">
+        <span className="text-xs font-semibold text-gray-700">
+          Grupos WhatsApp
+        </span>
+        <span className="text-[11px] text-gray-400">
+          {groups.length} grupo{groups.length !== 1 ? 's' : ''}
+          {totalUnread > 0 && ` · ${totalUnread} não lidas`}
+        </span>
+      </div>
+
+      {/* Lista */}
+      <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
+        {isLoading ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="flex gap-3 p-3 rounded-xl border border-gray-100 animate-pulse">
+              <div className="w-10 h-10 rounded-xl bg-gray-200 shrink-0" />
+              <div className="flex-1 space-y-2 pt-1">
+                <div className="h-3 w-32 bg-gray-200 rounded" />
+                <div className="h-2 w-24 bg-gray-100 rounded" />
+              </div>
+            </div>
+          ))
+        ) : groups.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <Users size={28} className="text-gray-300 mb-2" />
+            <p className="text-sm text-gray-500 font-medium">Nenhum grupo</p>
+            <p className="text-xs text-gray-400 mt-1">Grupos WhatsApp aparecerão aqui</p>
+          </div>
+        ) : (
+          groups.map((chat, i) => {
+            const colorSet = GROUP_COLORS[i % GROUP_COLORS.length];
+            const isSelected = selectedChatId === chat.client.id;
+            return (
+              <button
+                key={chat.id}
+                onClick={() => { selectChat(chat.client.id); onSelect(chat.client.id); }}
+                className={cn(
+                  'w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all',
+                  isSelected
+                    ? 'border-crm-primary/40 bg-crm-primary/5'
+                    : 'border-gray-100 bg-white hover:border-blue-200 hover:bg-blue-50'
+                )}
+              >
+                {/* Avatar quadrado de grupo */}
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center text-[10px] font-bold shrink-0 leading-tight text-center"
+                  style={{ backgroundColor: colorSet.bg, color: colorSet.color }}
+                >
+                  {getInitials(chat.client.name)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-gray-800 truncate leading-tight">
+                    {chat.client.name}
+                  </div>
+                  {chat.last_message && (
+                    <div className="text-[11px] text-gray-400 truncate mt-0.5">
+                      {truncate(chat.last_message.content || '📷 Mídia', 36)}
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  {chat.last_message?.timestamp && (
+                    <span className="text-[10px] text-gray-400">
+                      {formatRelativeTime(chat.last_message.timestamp)}
+                    </span>
+                  )}
+                  {chat.unread_count > 0 && (
+                    <span className="px-1.5 py-0.5 bg-crm-primary text-white text-[9px] font-bold rounded-full min-w-5 text-center">
+                      {chat.unread_count > 9 ? '9+' : chat.unread_count}
+                    </span>
+                  )}
+                </div>
+              </button>
+            );
+          })
+        )}
       </div>
     </div>
   );
@@ -698,10 +807,10 @@ export function ConversationSidebar({
         {FILTERS.map(f => (
           <button
             key={f.value}
-            onClick={() => setFilter(f.value)}
+            onClick={() => { setFilter(f.value); setActivePanel(null); }}
             className={cn(
               'px-3 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap transition-all',
-              activeFilter === f.value
+              activeFilter === f.value && activePanel !== 'grupos'
                 ? 'bg-crm-primary text-white shadow-sm'
                 : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border border-transparent'
             )}
@@ -709,72 +818,91 @@ export function ConversationSidebar({
             {f.label}
           </button>
         ))}
+        {/* Aba Grupos */}
+        <button
+          onClick={() => setActivePanel(p => p === 'grupos' ? null : 'grupos')}
+          className={cn(
+            'px-3 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap transition-all',
+            activePanel === 'grupos'
+              ? 'bg-emerald-600 text-white shadow-sm'
+              : 'bg-gray-100 text-emerald-700 hover:bg-emerald-50 border border-transparent'
+          )}
+        >
+          Grupos
+        </button>
       </div>
 
-      {/* ── Contador ── */}
-      <div className="flex items-center justify-between px-4 pb-1 shrink-0">
-        <span className="text-[11px] font-medium text-gray-400">
-          {totalCount > 0 ? `${totalCount} conversa${totalCount !== 1 ? 's' : ''}` : 'Nenhuma conversa'}
-        </span>
-        {totalUnread > 0 && (
-          <span className="px-1.5 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-5 text-center">
-            {totalUnread > 99 ? '99+' : totalUnread}
-          </span>
-        )}
-      </div>
+      {/* ── Painel de Grupos ── */}
+      {activePanel === 'grupos' ? (
+        <GruposPanel onSelect={() => onMobileChatOpen?.()} />
+      ) : (
+        <>
+          {/* ── Contador ── */}
+          <div className="flex items-center justify-between px-4 pb-1 shrink-0">
+            <span className="text-[11px] font-medium text-gray-400">
+              {totalCount > 0 ? `${totalCount} conversa${totalCount !== 1 ? 's' : ''}` : 'Nenhuma conversa'}
+            </span>
+            {totalUnread > 0 && (
+              <span className="px-1.5 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-5 text-center">
+                {totalUnread > 99 ? '99+' : totalUnread}
+              </span>
+            )}
+          </div>
 
-      {/* ── Lista de conversas — 100% do espaço ── */}
-      <div className="flex-1 overflow-y-auto">
-        {isLoading ? (
-          <div className="p-3 space-y-2">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="flex gap-3 px-4 py-3">
-                <div className="w-10 h-10 rounded-full bg-gray-200 animate-pulse shrink-0" />
-                <div className="flex-1 space-y-2 pt-1">
-                  <div className="h-3 w-28 bg-gray-200 animate-pulse rounded" />
-                  <div className="h-2 w-36 bg-gray-100 animate-pulse rounded" />
-                </div>
+          {/* ── Lista de conversas — 100% do espaço ── */}
+          <div className="flex-1 overflow-y-auto">
+            {isLoading ? (
+              <div className="p-3 space-y-2">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="flex gap-3 px-4 py-3">
+                    <div className="w-10 h-10 rounded-full bg-gray-200 animate-pulse shrink-0" />
+                    <div className="flex-1 space-y-2 pt-1">
+                      <div className="h-3 w-28 bg-gray-200 animate-pulse rounded" />
+                      <div className="h-2 w-36 bg-gray-100 animate-pulse rounded" />
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            ) : chats.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+                <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mb-3">
+                  <Search size={20} className="text-gray-300" />
+                </div>
+                <p className="text-sm text-gray-500 font-medium">Nenhuma conversa</p>
+                <p className="text-xs text-gray-400 mt-1">Tente mudar o filtro ou atualizar</p>
+                <button
+                  onClick={() => refetch()}
+                  className="mt-3 text-xs text-crm-primary hover:underline font-medium"
+                >
+                  Recarregar
+                </button>
+              </div>
+            ) : (
+              <>
+                {chats.map(chat => (
+                  <ChatListItem
+                    key={chat.id}
+                    chat={chat}
+                    isSelected={selectedChatId === chat.client.id}
+                    onSelect={() => {
+                      selectChat(chat.client.id);
+                      onMobileChatOpen?.();
+                    }}
+                  />
+                ))}
+                <div ref={loadMoreRef} className="h-10 flex items-center justify-center">
+                  {isFetchingNextPage && (
+                    <Loader2 size={14} className="animate-spin text-crm-primary" />
+                  )}
+                  {!hasNextPage && chats.length > 25 && (
+                    <span className="text-[11px] text-gray-400">Fim da lista</span>
+                  )}
+                </div>
+              </>
+            )}
           </div>
-        ) : chats.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-            <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mb-3">
-              <Search size={20} className="text-gray-300" />
-            </div>
-            <p className="text-sm text-gray-500 font-medium">Nenhuma conversa</p>
-            <p className="text-xs text-gray-400 mt-1">Tente mudar o filtro ou atualizar</p>
-            <button
-              onClick={() => refetch()}
-              className="mt-3 text-xs text-crm-primary hover:underline font-medium"
-            >
-              Recarregar
-            </button>
-          </div>
-        ) : (
-          <>
-            {chats.map(chat => (
-              <ChatListItem
-                key={chat.id}
-                chat={chat}
-                isSelected={selectedChatId === chat.client.id}
-                onSelect={() => {
-                  selectChat(chat.client.id);
-                  onMobileChatOpen?.();
-                }}
-              />
-            ))}
-            <div ref={loadMoreRef} className="h-10 flex items-center justify-center">
-              {isFetchingNextPage && (
-                <Loader2 size={14} className="animate-spin text-crm-primary" />
-              )}
-              {!hasNextPage && chats.length > 25 && (
-                <span className="text-[11px] text-gray-400">Fim da lista</span>
-              )}
-            </div>
-          </>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }

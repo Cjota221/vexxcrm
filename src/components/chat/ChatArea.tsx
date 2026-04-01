@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
-import { MessageCircle, Loader2, ArrowLeft, BookOpen, ArrowLeftRight, MoreVertical, History, Phone, User, Tag, StickyNote } from 'lucide-react';
+import { MessageCircle, Loader2, ArrowLeft, BookOpen, ArrowLeftRight, MoreVertical, History, Phone, User, Tag, StickyNote, Zap, Bot, Shield, BarChart2 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMessages, useSendMessage } from '@/hooks/useWhatsApp';
 import { useChatsStore } from '@/store/chats';
@@ -26,13 +26,19 @@ export function ChatArea({
   onMobileBack,
   onOpenCatalog,
   onOpenTransfer,
+  onToggleQuickMessages,
+  onToggleAnne,
+  onToggleSentinela,
 }: {
-  /** Mobile: callback para voltar à lista de conversas */
   onMobileBack?: () => void;
-  /** Mobile: callback para abrir catálogo */
   onOpenCatalog?: () => void;
-  /** Mobile: callback para abrir transferir */
   onOpenTransfer?: () => void;
+  /** Abre/fecha o painel de Respostas Rápidas */
+  onToggleQuickMessages?: () => void;
+  /** Abre/fecha o painel Anne (mobile drawer ou desktop sidebar) */
+  onToggleAnne?: () => void;
+  /** Abre/fecha o painel Sentinela */
+  onToggleSentinela?: () => void;
 }) {
   const { selectedChatId } = useChatsStore();
   const { data: messages = [], isLoading, isFetching } = useMessages(selectedChatId);
@@ -471,6 +477,47 @@ export function ChatArea({
 
       {/* Message input */}
       <MessageInput onSend={handleSend} onSendMedia={handleSendMedia} isLoading={isSending} disabled={!resolvedPhone} recipientPhone={resolvedPhone || undefined} recipientName={clientData?.name || undefined} clientId={selectedChatId || undefined} fillText={fillText} />
+
+      {/* ── Quick Actions Bar ── */}
+      {(onToggleQuickMessages || onToggleAnne || onToggleSentinela) && (
+        <div className="flex items-center gap-1.5 px-3 pb-2 overflow-x-auto bg-wa-bg-panel shrink-0">
+          {onToggleQuickMessages && (
+            <button
+              onClick={onToggleQuickMessages}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-full text-[11px] font-medium text-gray-500 bg-white hover:border-amber-300 hover:text-amber-600 hover:bg-amber-50 transition-all whitespace-nowrap"
+            >
+              <Zap size={11} />
+              Respostas Rápidas
+            </button>
+          )}
+          {onToggleAnne && (
+            <button
+              onClick={onToggleAnne}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-full text-[11px] font-medium text-gray-500 bg-white hover:border-crm-primary/40 hover:text-crm-primary hover:bg-crm-primary/5 transition-all whitespace-nowrap"
+            >
+              <Bot size={11} />
+              Anne
+            </button>
+          )}
+          {onToggleSentinela && (
+            <button
+              onClick={onToggleSentinela}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-full text-[11px] font-medium text-gray-500 bg-white hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-all whitespace-nowrap"
+            >
+              <Shield size={11} />
+              Sentinela
+            </button>
+          )}
+          <button
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-full text-[11px] font-medium text-gray-500 bg-white hover:border-gray-300 hover:text-gray-700 transition-all whitespace-nowrap"
+            title="Em breve"
+            disabled
+          >
+            <BarChart2 size={11} />
+            Enquete
+          </button>
+        </div>
+      )}
     </div>
   );
 }

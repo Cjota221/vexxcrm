@@ -261,13 +261,14 @@ export default function CentralAtendimentoPage() {
           )}
 
           <NavBtn icon={<Megaphone size={15} />} label="Campanhas" onClick={() => setCampaignOpen(true)} />
-          <NavBtn icon={<Eye size={15} />} label="Status" onClick={() => setStatusOpen(true)} />
           <NavBtn icon={<Kanban size={15} />} label="Pipeline" active={kanbanOpen} onClick={() => setKanbanOpen(v => !v)} />
+          <NavBtn icon={<BookOpen size={15} />} label="Catálogo" onClick={() => setCatalogOpen(true)} />
+          <NavBtn icon={<Zap size={15} />} label="Rápidas" active={rightSidebarTab === 'quick-messages'} onClick={() => setRightSidebarTab(v => v === 'quick-messages' ? null : 'quick-messages')} />
+          <NavBtn icon={<Shield size={15} />} label="Sentinela" active={rightSidebarTab === 'sentinela'} onClick={() => setRightSidebarTab(v => v === 'sentinela' ? null : 'sentinela')} />
 
           {selectedChatId && (
             <>
               <div className="w-px h-5 bg-gray-200 shrink-0 mx-1" />
-              <NavBtn icon={<BookOpen size={15} />} label="Catálogo" onClick={() => setCatalogOpen(true)} />
               <NavBtn icon={<ArrowLeftRight size={15} />} label="Transferir" onClick={() => setTransferOpen(true)} />
             </>
           )}
@@ -275,12 +276,8 @@ export default function CentralAtendimentoPage() {
 
         {/* ZONA DIREITA */}
         <div className="flex items-center gap-1 shrink-0">
-          {/* Painéis direitos */}
-          <div className="flex items-center gap-0.5 mr-1">
-            <NavBtn icon={<Brain size={15} />} label="Cérebro" active={rightSidebarTab === 'brain'} onClick={() => setRightSidebarTab(v => v === 'brain' ? null : 'brain')} />
-            <NavBtn icon={<Zap size={15} />} label="Rápidas" active={rightSidebarTab === 'quick-messages'} onClick={() => setRightSidebarTab(v => v === 'quick-messages' ? null : 'quick-messages')} />
-            <NavBtn icon={<Shield size={15} />} label="Sentinela" active={rightSidebarTab === 'sentinela'} onClick={() => setRightSidebarTab(v => v === 'sentinela' ? null : 'sentinela')} />
-          </div>
+          {/* Cérebro */}
+          <NavBtn icon={<Brain size={15} />} label="Cérebro" active={rightSidebarTab === 'brain'} onClick={() => setRightSidebarTab(v => v === 'brain' ? null : 'brain')} />
 
           <div className="w-px h-5 bg-gray-100" />
 
@@ -346,6 +343,9 @@ export default function CentralAtendimentoPage() {
             onMobileBack={handleMobileBack}
             onOpenCatalog={() => setCatalogOpen(true)}
             onOpenTransfer={() => setTransferOpen(true)}
+            onToggleQuickMessages={() => setRightSidebarTab(v => v === 'quick-messages' ? null : 'quick-messages')}
+            onToggleAnne={() => setMobileSidePanel(p => p === 'anne' ? null : 'anne')}
+            onToggleSentinela={() => setRightSidebarTab(v => v === 'sentinela' ? null : 'sentinela')}
           />
         </div>
 

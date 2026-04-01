@@ -384,6 +384,19 @@ function IdentityTab({
         </SectionBlock>
       )}
 
+      {/* Cláudio sugere — dica de vendas gerada por IA */}
+      {(c.sales_script_hint as string) && (
+        <div className="rounded-xl border border-blue-100 bg-[#eef4ff] p-3">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Star size={12} className="text-crm-primary" />
+            <span className="text-[11px] font-bold text-crm-primary">Cláudio sugere</span>
+          </div>
+          <p className="text-[11px] text-blue-800 leading-relaxed">
+            {c.sales_script_hint as string}
+          </p>
+        </div>
+      )}
+
       {/* Botões de ação */}
       <div className="flex gap-2">
         {chatId && (
