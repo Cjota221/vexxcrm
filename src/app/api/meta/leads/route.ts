@@ -170,18 +170,19 @@ async function processarLeadMeta(leadData: LeadgenValue): Promise<void> {
     return;
   }
 
-  // Upsert do contato
+  // Upsert do contato na tabela clients (tabela correta do CRM)
   if (phone) {
-    await supabase.from('contacts').upsert(
+    await supabase.from('clients').upsert(
       {
-        tenant_id: tenantId,
-        phone,
-        name: nome,
+        tenant_id:        tenantId,
+        phone:            phone,
+        phone_normalized: phone,
+        name:             nome,
         email,
-        tags: ['meta-ads'],
-        canal: 'meta_leads',
+        tags:             ['meta-ads'],
+        source:           'meta_leads',
       },
-      { onConflict: 'phone,tenant_id' }
+      { onConflict: 'tenant_id,phone_normalized' }
     );
   }
 

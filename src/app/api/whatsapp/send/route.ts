@@ -53,8 +53,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Detectar Instagram: to começa com "ig:" (PSID armazenado como ig:{senderId})
+    const isInstagram = typeof to === 'string' && to.startsWith('ig:');
+    const instagramPsid = isInstagram ? to.replace(/^ig:/, '') : null;
+
     // Detectar grupo: clientId termina em @g.us (enviado pelo ChatList para grupos)
-    const isGroup = clientIdFromBody?.endsWith('@g.us') || to?.endsWith('@g.us');
+    const isGroup = !isInstagram && (clientIdFromBody?.endsWith('@g.us') || to?.endsWith('@g.us'));
     // JID para envio: grupos usam o JID completo; individuais normalizam o telefone
     const groupJid = isGroup
       ? (clientIdFromBody?.endsWith('@g.us') ? clientIdFromBody : `${to}@g.us`)
@@ -63,14 +67,51 @@ export async function POST(request: NextRequest) {
     // Normalizar telefone para ENVIO: usar normalize() que garante DDI + 9º dígito
     // NUNCA usar canonical() aqui — canonical remove o 9º dígito (para matching no banco)
     // e a Evolution API não encontra o destinatário sem ele.
-    const phoneNormalized = isGroup ? groupJid! : PhoneNormalizer.normalize(to);
+    const phoneNormalized = isInstagram ? to : (isGroup ? groupJid! : PhoneNormalizer.normalize(to));
     // Canonical separado apenas para busca/criação do cliente no banco
-    const phoneCanonical = isGroup ? '' : PhoneNormalizer.canonical(to);
+    const phoneCanonical = isInstagram ? to : (isGroup ? '' : PhoneNormalizer.canonical(to));
 
     let messageId: string;
 
-    // Enviar mensagem (texto, pix, copy_code ou mídia)
-    if (type === 'text') {
+    // ── Instagram Direct: enviar via Meta Graph API ───────────────────────────
+    if (isInstagram) {
+      if (type !== 'text') {
+        return NextResponse.json(
+          { error: 'Instagram Direct suporta apenas mensagens de texto por enquanto.' },
+          { status: 400 }
+        );
+      }
+      const pageToken = process.env.META_PAGE_TOKEN;
+      if (!pageToken) {
+        return NextResponse.json(
+          { error: 'META_PAGE_TOKEN não configurado. Configure nas variáveis de ambiente do Netlify.' },
+          { status: 503 }
+        );
+      }
+      const igRes = await fetch(
+        `https://graph.facebook.com/v19.0/me/messages?access_token=${pageToken}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            recipient: { id: instagramPsid },
+            message: { text: content },
+          }),
+        }
+      );
+      if (!igRes.ok) {
+        const igErr = await igRes.json().catch(() => ({}));
+        console.error('[Instagram Send] Erro na Graph API:', igErr);
+        return NextResponse.json(
+          { error: 'Falha ao enviar mensagem pelo Instagram.' },
+          { status: 502 }
+        );
+      }
+      const igBody = await igRes.json() as { message_id?: string };
+      messageId = igBody.message_id || `ig_local_${Date.now()}`;
+
+    // ── WhatsApp / Evolution API ──────────────────────────────────────────────
+    } else if (type === 'text') {
       messageId = await sendTextMessage(config, phoneNormalized, content);
 
     } else if (type === 'copy_code') {
@@ -186,11 +227,11 @@ export async function POST(request: NextRequest) {
           console.log(`[Send] clientId por phone: ${clientId}`);
         } else {
           // Criar cliente novo
-          const phoneDisplay = PhoneNormalizer.normalize(to);
+          const phoneDisplay = isInstagram ? to : PhoneNormalizer.normalize(to);
           const { data: newClient, error: clientErr } = await supabase
             .from('clients')
             .upsert(
-              { tenant_id: tenantId, phone: phoneDisplay, phone_normalized: phoneCanonical, name: phoneDisplay },
+              { tenant_id: tenantId, phone: phoneDisplay, phone_normalized: phoneCanonical, name: phoneDisplay, source: isInstagram ? 'instagram' : undefined },
               { onConflict: 'tenant_id,phone_normalized', ignoreDuplicates: false }
             )
             .select('id').single();
@@ -216,9 +257,10 @@ export async function POST(request: NextRequest) {
       if (existingConv) {
         conversationId = existingConv.id;
       } else {
+        const convChannel = isInstagram ? 'instagram' : 'whatsapp';
         const { data: newConv } = await supabase
           .from('conversations')
-          .insert({ tenant_id: tenantId, client_id: clientId, channel: 'whatsapp', status: 'open' })
+          .insert({ tenant_id: tenantId, client_id: clientId, channel: convChannel, canal: convChannel, status: 'open' })
           .select('id').single();
         if (!newConv) throw new Error('Erro ao criar conversa');
         conversationId = newConv.id;
@@ -247,7 +289,8 @@ export async function POST(request: NextRequest) {
       tenant_id: tenantId,
       conversation_id: conversationId,
       client_id: clientId,
-      external_id: messageId,   // ← ID da Evolution API = chave de dedup
+      external_id: messageId,   // ← ID da Evolution/Graph API = chave de dedup
+      canal: isInstagram ? 'instagram' : 'whatsapp',
       direction: 'outbound' as const,
       sender_name: 'Atendente',
       sender_phone: null,

@@ -196,7 +196,7 @@ export interface Chat {
   _cursor?: string;
 }
 
-export type ChatFilter = 'all' | 'unread' | 'waiting' | 'mine' | 'archived';
+export type ChatFilter = 'all' | 'unread' | 'waiting' | 'mine' | 'archived' | 'instagram';
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    CAMPAIGN

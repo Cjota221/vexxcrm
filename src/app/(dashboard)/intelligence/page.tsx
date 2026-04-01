@@ -31,6 +31,7 @@ import { SeasonalInsights } from '@/components/intelligence/SeasonalInsights';
 import { ProductTrends } from '@/components/intelligence/ProductTrends';
 import { TodayInHistory } from '@/components/intelligence/TodayInHistory';
 import { MonthlyTrends } from '@/components/intelligence/MonthlyTrends';
+import { TicketSegmentation } from '@/components/intelligence/TicketSegmentation';
 import type { ClientListItem } from '@/components/intelligence/ClientListDrawer';
 import { cn } from '@/lib/utils';
 
@@ -363,7 +364,10 @@ export default function IntelligencePage() {
               />
             </div>
 
-            {/* Linha 4: Inteligência v2 — Sazonalidade + Produto */}
+            {/* Linha 4: Segmentação por Ticket */}
+            <TicketSegmentation onAskAnne={handleAskAnne} />
+
+            {/* Linha 5: Inteligência v2 — Sazonalidade + Produto */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <SeasonalInsights onAskAnne={handleAskAnne} />
               <ProductTrends />
