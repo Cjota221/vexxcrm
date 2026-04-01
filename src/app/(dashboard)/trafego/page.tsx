@@ -130,7 +130,7 @@ function PeriodBtn({ label, active, onClick }: { label: string; active: boolean;
       onClick={onClick}
       className={cn(
         'px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
-        active ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
+        active ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-900'
       )}
     >
       {label}
@@ -152,15 +152,15 @@ function MetricCard({
     green:  'bg-green-500/20 text-green-400 border border-green-500/30',
     yellow: 'bg-amber-500/20 text-amber-400 border border-amber-500/30',
     red:    'bg-red-500/20 text-red-400 border border-red-500/30',
-    gray:   'bg-white/10 text-gray-400 border border-white/10',
+    gray:   'bg-gray-100 text-gray-600 border border-gray-200',
   };
   const valueColor =
-    badgeColor === 'red' ? 'text-red-400' :
-    badgeColor === 'yellow' ? 'text-amber-300' :
-    badgeColor === 'green' ? 'text-emerald-400' :
-    'text-white';
+    badgeColor === 'red' ? 'text-red-500' :
+    badgeColor === 'yellow' ? 'text-amber-500' :
+    badgeColor === 'green' ? 'text-emerald-600' :
+    'text-gray-900';
   return (
-    <div className="bg-[#161b27] rounded-2xl p-5 border border-white/5">
+    <div className="bg-white rounded-2xl p-5 border border-gray-100">
       <div className="flex items-start justify-between mb-3">
         <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{label}</div>
         {badge && (
@@ -1519,7 +1519,7 @@ function CriativosTab() {
         </div>
       ) : criativos.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-100 p-8 text-center">
-          <ImageIcon size={40} className="text-gray-200 mx-auto mb-3" />
+          <ImageIcon size={40} className="text-gray-300 mx-auto mb-3" />
           <p className="text-gray-500 text-sm">Nenhum criativo encontrado</p>
           <p className="text-gray-400 text-xs mt-1">Clique em "Sincronizar com Meta" para importar criativos das suas campanhas</p>
         </div>
@@ -1966,7 +1966,7 @@ function PublicosTab() {
 
       {!loading && metaConnected && savedAudiences.length === 0 && customAudiences.length === 0 && iaPublicos.length === 0 && (
         <div className="text-center py-8">
-          <Users size={36} className="text-gray-200 mx-auto mb-3" />
+          <Users size={36} className="text-gray-300 mx-auto mb-3" />
           <p className="text-gray-500 text-sm">Nenhum público ainda</p>
           <p className="text-gray-400 text-xs mt-1">Clique em &quot;Criar com IA&quot; para gerar públicos segmentados automaticamente.</p>
         </div>
@@ -2232,7 +2232,7 @@ function AnaliseTab() {
 
       {!loading && !analise && (
         <div className="text-center py-8 bg-gray-50 rounded-2xl border border-gray-100">
-          <Zap size={32} className="text-gray-200 mx-auto mb-3" />
+          <Zap size={32} className="text-gray-300 mx-auto mb-3" />
           <p className="text-gray-500 text-sm">Nenhuma análise realizada ainda</p>
           <p className="text-gray-400 text-xs mt-1">Clique em "Analisar agora" para o José verificar suas campanhas</p>
         </div>
@@ -2479,7 +2479,7 @@ function RelatorioTab() {
 
       {!loading && !relatorio && (
         <div className="text-center py-8 bg-gray-50 rounded-2xl border border-gray-100">
-          <BarChart3 size={32} className="text-gray-200 mx-auto mb-3" />
+          <BarChart3 size={32} className="text-gray-300 mx-auto mb-3" />
           <p className="text-gray-500 text-sm">Clique em atualizar para gerar o relatório</p>
         </div>
       )}
@@ -2610,11 +2610,11 @@ export default function TrafegoPage() {
   const periodLabel = { '1d': 'Hoje', '7d': '7 dias', '15d': '15 dias', '30d': '30 dias' }[period];
 
   return (
-    <div className="min-h-screen bg-[#0d1117]">
+    <div className="min-h-screen bg-gray-50">
       <div className="max-w-6xl mx-auto px-4 py-6 space-y-4">
 
         {/* ─── Cabeçalho ─────────────────────────────────────────────────── */}
-        <div className="bg-[#161b27] rounded-2xl border border-white/5 overflow-hidden">
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
 
         <AddAccountModal
           open={showAddAccount}
@@ -2627,7 +2627,7 @@ export default function TrafegoPage() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-4 min-w-0">
               <div className="shrink-0">
-                <h1 className="text-base font-bold text-white">Tráfego Pago</h1>
+                <h1 className="text-base font-bold text-gray-900">Tráfego Pago</h1>
                 <p className="text-xs text-gray-500 mt-0.5">
                   {activeAccount?.nome || data?.accountName || 'CJ Rasteirinhas'}
                 </p>
@@ -2637,7 +2637,7 @@ export default function TrafegoPage() {
               {(accounts.length > 0 || accountsLoading) && (
                 <div className="flex items-center gap-1 overflow-x-auto shrink-0">
                   {accountsLoading ? (
-                    <div className="h-6 w-24 rounded-full bg-white/5 animate-pulse" />
+                    <div className="h-6 w-24 rounded-full bg-gray-200 animate-pulse" />
                   ) : accounts.map(acc => (
                     <button
                       key={acc.id}
@@ -2645,8 +2645,8 @@ export default function TrafegoPage() {
                       className={cn(
                         'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition-all border',
                         activeAccount?.id === acc.id
-                          ? 'bg-white/10 text-white border-white/20'
-                          : 'text-gray-500 border-transparent hover:text-gray-300 hover:border-white/10'
+                          ? 'bg-blue-50 text-blue-700 border-blue-200'
+                          : 'text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-200'
                       )}
                     >
                       <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: acc.cor }} />
@@ -2655,7 +2655,7 @@ export default function TrafegoPage() {
                   ))}
                   <button
                     onClick={() => setShowAddAccount(true)}
-                    className="text-gray-600 hover:text-gray-300 px-1.5 transition-colors"
+                    className="text-gray-400 hover:text-gray-700 px-1.5 transition-colors"
                     title="Nova conta"
                   >
                     <Plus size={12} />
@@ -2678,7 +2678,7 @@ export default function TrafegoPage() {
               <button
                 onClick={handleSync}
                 disabled={syncing}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-gray-300 hover:bg-white/5 transition-colors disabled:opacity-50 text-sm font-medium"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50 text-sm font-medium"
               >
                 {syncing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
                 {syncing ? 'Sincronizando...' : 'Sincronizar'}
@@ -2719,7 +2719,7 @@ export default function TrafegoPage() {
 
         {/* ─── Aviso de cache ──────────────────────────────────────────────── */}
         {!loading && data?.fromCache && (
-          <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-3 text-sm text-blue-400 flex items-center gap-2">
+          <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-600 flex items-center gap-2">
             <Clock size={15} className="shrink-0" />
             <span>{data.cacheWarning || 'Exibindo dados do último sync.'}</span>
             {data.lastSync && (
@@ -2732,11 +2732,11 @@ export default function TrafegoPage() {
 
         {/* ─── Meta não conectado ──────────────────────────────────────────── */}
         {!loading && data && !data.connected && (
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-start gap-3">
-              <AlertTriangle size={20} className="text-amber-400 shrink-0 mt-0.5" />
+              <AlertTriangle size={20} className="text-amber-500 shrink-0 mt-0.5" />
               <div>
-                <div className="font-semibold text-amber-300">Conta Meta não conectada</div>
+                <div className="font-semibold text-amber-700">Conta Meta não conectada</div>
                 <div className="text-sm text-amber-500 mt-0.5">
                   {data.error || 'Configure a conta do Meta para ver suas campanhas'}
                 </div>
@@ -2755,10 +2755,10 @@ export default function TrafegoPage() {
         {loading && (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="bg-[#161b27] rounded-2xl p-5 border border-white/5 animate-pulse">
-                <div className="h-3 w-16 bg-white/10 rounded mb-4" />
-                <div className="h-8 w-20 bg-white/10 rounded mb-2" />
-                <div className="h-2.5 w-24 bg-white/5 rounded" />
+              <div key={i} className="bg-white rounded-2xl p-5 border border-gray-100 animate-pulse">
+                <div className="h-3 w-16 bg-gray-200 rounded mb-4" />
+                <div className="h-8 w-20 bg-gray-200 rounded mb-2" />
+                <div className="h-2.5 w-24 bg-gray-100 rounded" />
               </div>
             ))}
           </div>
@@ -2803,10 +2803,10 @@ export default function TrafegoPage() {
 
         {/* ─── Alertas inteligentes ────────────────────────────────────────── */}
         {!loading && allAlerts.length > 0 && (
-          <div className="bg-[#161b27] rounded-2xl border border-red-500/40 p-5">
+          <div className="bg-white rounded-2xl border border-red-200 p-5">
             <div className="flex items-center gap-2 mb-1">
-              <AlertTriangle size={16} className="text-red-400 shrink-0" />
-              <h2 className="font-bold text-white text-sm">
+              <AlertTriangle size={16} className="text-red-500 shrink-0" />
+              <h2 className="font-bold text-gray-900 text-sm">
                 José identificou {allAlerts.length} situaç{allAlerts.length === 1 ? 'ão' : 'ões'} crítica{allAlerts.length !== 1 ? 's' : ''}
               </h2>
             </div>
@@ -2820,12 +2820,12 @@ export default function TrafegoPage() {
                   className={cn(
                     'rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border',
                     alert.tipo === 'danger'
-                      ? 'bg-red-500/10 border-red-500/20'
-                      : 'bg-amber-500/10 border-amber-500/20'
+                      ? 'bg-red-50 border-red-200'
+                      : 'bg-amber-50 border-amber-200'
                   )}
                 >
                   <div className="min-w-0">
-                    <div className={cn('font-semibold text-xs flex items-center gap-2 flex-wrap', alert.tipo === 'danger' ? 'text-red-300' : 'text-amber-300')}>
+                    <div className={cn('font-semibold text-xs flex items-center gap-2 flex-wrap', alert.tipo === 'danger' ? 'text-red-600' : 'text-amber-600')}>
                       {alert.campaign.nome.split('·').map((part, pi) => (
                         <span key={pi}>{part.trim()}{pi < alert.campaign.nome.split('·').length - 1 ? ' ·' : ''}</span>
                       ))}
@@ -2837,7 +2837,7 @@ export default function TrafegoPage() {
                   <div className="flex gap-2 shrink-0">
                     <button
                       onClick={() => { setSelectedCampaign(alert.campaign); setTab('campanhas'); }}
-                      className="text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10 whitespace-nowrap"
+                      className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 border border-gray-200 text-gray-600 hover:bg-gray-200 whitespace-nowrap"
                     >
                       Ver campanha
                     </button>
@@ -2857,9 +2857,9 @@ export default function TrafegoPage() {
         )}
 
         {/* ─── Abas ────────────────────────────────────────────────────────── */}
-        <div className="bg-[#161b27] rounded-2xl border border-white/5">
+        <div className="bg-white rounded-2xl border border-gray-100">
           {/* Tab headers */}
-          <div className="flex items-center border-b border-white/5 overflow-x-auto">
+          <div className="flex items-center border-b border-gray-100 overflow-x-auto">
             <div className="flex flex-1">
               {(
                 [
@@ -2877,8 +2877,8 @@ export default function TrafegoPage() {
                   className={cn(
                     'px-5 py-3.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
                     tab === key
-                      ? 'border-blue-500 text-white'
-                      : 'border-transparent text-gray-500 hover:text-gray-300'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
                   )}
                 >
                   {label}
@@ -2886,14 +2886,14 @@ export default function TrafegoPage() {
               ))}
             </div>
             {tab === 'publicos' && (
-              <button className="flex items-center gap-1 text-xs text-gray-400 hover:text-white px-4 py-3.5 transition-colors whitespace-nowrap">
+              <button className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 px-4 py-3.5 transition-colors whitespace-nowrap">
                 <Plus size={12} /> Criar público
               </button>
             )}
             {tab === 'campanhas' && (
               <button
                 onClick={() => setNovaCampanhaOpen(true)}
-                className="flex items-center gap-1 text-xs text-gray-400 hover:text-white px-4 py-3.5 transition-colors whitespace-nowrap"
+                className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 px-4 py-3.5 transition-colors whitespace-nowrap"
               >
                 <Plus size={12} /> Nova campanha
               </button>
@@ -2921,7 +2921,7 @@ export default function TrafegoPage() {
                           'px-3 py-1 rounded-lg text-xs font-medium transition-all border',
                           statusFilter === f.value
                             ? 'bg-blue-600 text-white border-blue-600'
-                            : 'bg-white/5 text-gray-400 border-white/10 hover:border-white/20 hover:text-gray-300'
+                            : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-300 hover:text-gray-700'
                         )}
                       >
                         {f.label}
@@ -2941,7 +2941,7 @@ export default function TrafegoPage() {
 
                 {!loading && (!data?.campaigns || data.campaigns.length === 0) && (
                   <div className="text-center py-12">
-                    <Target size={40} className="text-white/10 mx-auto mb-3" />
+                    <Target size={40} className="text-gray-300 mx-auto mb-3" />
                     <p className="text-gray-500 text-sm">Nenhuma campanha encontrada no período</p>
                     <p className="text-gray-600 text-xs mt-1">
                       {data?.connected ? 'Sem campanhas ativas ou pausadas' : 'Conecte o Meta Ads para ver campanhas'}
@@ -2962,7 +2962,7 @@ export default function TrafegoPage() {
                     <div className="overflow-x-auto">
                       <table className="w-full">
                         <thead>
-                          <tr className="border-b border-white/5">
+                          <tr className="border-b border-gray-100">
                             <th className="text-left text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">Campanha</th>
                             <th className="text-left text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">Status</th>
                             <th className="text-left text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">Saúde</th>
@@ -2972,11 +2972,11 @@ export default function TrafegoPage() {
                             <th className="text-right pb-3" />
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-white/5">
+                        <tbody className="divide-y divide-gray-100">
                           {filtered.map((c) => (
-                            <tr key={c.id} className="hover:bg-white/3 transition-colors group">
+                            <tr key={c.id} className="hover:bg-gray-50 transition-colors group">
                               <td className="py-3 pr-4">
-                                <div className="font-medium text-gray-200 text-sm">{c.nome}</div>
+                                <div className="font-medium text-gray-800 text-sm">{c.nome}</div>
                                 {c.alerts.length > 0 && (
                                   <div className="text-xs text-red-400 mt-0.5">
                                     {c.alerts[0].mensagem.substring(0, 50)}…
@@ -2989,7 +2989,7 @@ export default function TrafegoPage() {
                               <td className="py-3 pr-4">
                                 <HealthBadge health={c.health} />
                               </td>
-                              <td className="py-3 pr-4 text-right text-sm font-medium text-gray-300">
+                              <td className="py-3 pr-4 text-right text-sm font-medium text-gray-700">
                                 {brl(c.spend)}
                               </td>
                               <td className="py-3 pr-4 text-right">
@@ -3003,7 +3003,7 @@ export default function TrafegoPage() {
                               <td className="py-3">
                                 <button
                                   onClick={() => setSelectedCampaign(c)}
-                                  className="text-xs px-3 py-1.5 rounded-lg border border-white/10 text-gray-400 hover:bg-white/5 hover:text-gray-200 flex items-center gap-1 whitespace-nowrap transition-colors"
+                                  className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 flex items-center gap-1 whitespace-nowrap transition-colors"
                                 >
                                   Gerir <ChevronRight size={12} />
                                 </button>
@@ -3029,7 +3029,7 @@ export default function TrafegoPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-6">
                     {/* Coluna esquerda: barras de performance */}
                     <div>
-                      <h3 className="text-sm font-semibold text-gray-300 mb-4">Performance da semana</h3>
+                      <h3 className="text-sm font-semibold text-gray-700 mb-4">Performance da semana</h3>
                       <div className="space-y-4">
                         {[
                           { label: 'CPC', value: data.summary.totalCpc > 0 ? brl2(data.summary.totalCpc) : '—', color: 'bg-green-500', pct: data.summary.totalCpc > 0 ? Math.min(100, (data.summary.totalCpc / 2) * 100) : 0 },
@@ -3040,7 +3040,7 @@ export default function TrafegoPage() {
                         ].map(({ label, value, color, pct: barPct }) => (
                           <div key={label} className="flex items-center gap-3">
                             <span className="text-xs text-gray-500 w-12 shrink-0">{label}</span>
-                            <div className="flex-1 bg-white/5 rounded-full h-1.5">
+                            <div className="flex-1 bg-gray-200 rounded-full h-1.5">
                               <div className={cn('h-1.5 rounded-full transition-all', color)} style={{ width: `${barPct}%` }} />
                             </div>
                             <span className="text-xs font-mono text-gray-400 w-16 text-right shrink-0">{value}</span>
@@ -3052,9 +3052,9 @@ export default function TrafegoPage() {
                     {/* Coluna direita: sugestões das IAs */}
                     <div>
                       <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-sm font-semibold text-gray-300">Sugestões das IAs</h3>
+                        <h3 className="text-sm font-semibold text-gray-700">Sugestões das IAs</h3>
                         {allAlerts.length > 0 && (
-                          <span className="text-xs bg-white/10 text-gray-400 rounded-md px-2 py-0.5">
+                          <span className="text-xs bg-gray-100 text-gray-500 rounded-md px-2 py-0.5">
                             {Math.min(allAlerts.length, 2)}
                           </span>
                         )}
@@ -3065,7 +3065,7 @@ export default function TrafegoPage() {
                             <div className="flex gap-3">
                               <div className="w-7 h-7 rounded-full bg-amber-500 flex items-center justify-center text-white text-xs font-bold shrink-0">J</div>
                               <p className="text-xs text-gray-400 leading-relaxed">
-                                <span className="text-gray-200 font-medium">José:</span>{' '}
+                                <span className="text-gray-800 font-medium">José:</span>{' '}
                                 {allAlerts[0].tipo === 'danger'
                                   ? `Pausar ${allAlerts[0].campaign.nome} imediatamente. ${allAlerts[0].mensagem}.`
                                   : allAlerts[0].mensagem}
@@ -3074,7 +3074,7 @@ export default function TrafegoPage() {
                             <div className="flex gap-3">
                               <div className="w-7 h-7 rounded-full bg-purple-500 flex items-center justify-center text-white text-xs font-bold shrink-0">C</div>
                               <p className="text-xs text-gray-400 leading-relaxed">
-                                <span className="text-gray-200 font-medium">Cláudio:</span>{' '}
+                                <span className="text-gray-800 font-medium">Cláudio:</span>{' '}
                                 {allAlerts.length > 1
                                   ? allAlerts[1].mensagem
                                   : 'Criar público lookalike dos clientes com maior LTV. Testar R$30/dia por 3 dias antes de escalar orçamento.'}
@@ -3088,7 +3088,7 @@ export default function TrafegoPage() {
                       <div className="grid grid-cols-2 gap-3 mt-5">
                         <div>
                           <div className="text-[10px] text-gray-600 uppercase tracking-wider">ROAS ATUAL</div>
-                          <div className="text-xl font-bold text-white mt-0.5">
+                          <div className="text-xl font-bold text-gray-900 mt-0.5">
                             {data.summary.totalRoas > 0 ? `${data.summary.totalRoas.toFixed(2)}×` : '—'}
                           </div>
                           <div className="text-[10px] text-gray-600 mt-0.5">meta: 3× mínimo</div>
@@ -3122,21 +3122,21 @@ export default function TrafegoPage() {
         </div>
 
         {/* ─── Pedro — Sazonalidade ────────────────────────────────────────── */}
-        <div className="bg-[#161b27] rounded-2xl border border-white/5 p-5">
+        <div className="bg-white rounded-2xl border border-gray-100 p-5">
           <div className="flex items-center gap-2 mb-4">
             <span className="text-sm">📅</span>
-            <h2 className="font-semibold text-gray-300 text-sm">Pedro monitorando oportunidades</h2>
+            <h2 className="font-semibold text-gray-700 text-sm">Pedro monitorando oportunidades</h2>
           </div>
           <div className="space-y-3">
-            <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl px-4 py-3 text-sm text-orange-300">
+            <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 text-sm text-orange-700">
               <strong>{sazon.status}</strong>
-              <div className="mt-1 text-orange-400 text-xs">Recomendação: {sazon.recomendacao}</div>
+              <div className="mt-1 text-orange-600 text-xs">Recomendação: {sazon.recomendacao}</div>
             </div>
             <div className="flex flex-col sm:flex-row gap-3">
-              <div className="flex-1 bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-3 text-sm text-blue-300">
+              <div className="flex-1 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-700">
                 <strong>📌 {sazon.proximaData}</strong>
               </div>
-              <div className="flex-1 bg-purple-500/10 border border-purple-500/20 rounded-xl px-4 py-3 text-sm text-purple-300">
+              <div className="flex-1 bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 text-sm text-purple-700">
                 <strong>💡</strong> {sazon.dica}
               </div>
             </div>

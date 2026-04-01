@@ -9,7 +9,26 @@
       "Bash(cp \"src/app/api/messages/[messageId]/react/route.ts\" \"src/app/api/messages/[clientId]/react/route.ts\")",
       "Bash(cp \"src/app/api/messages/[messageId]/edit/route.ts\" \"src/app/api/messages/[clientId]/edit/route.ts\")",
       "Bash(find src:*)",
-      "Bash(find 'c:\\\\Users\\\\carol\\\\Downloads\\\\vexx crm\\\\supabase\\\\migrations' -name *.sql -type f)"
+      "Bash(find 'c:\\\\Users\\\\carol\\\\Downloads\\\\vexx crm\\\\supabase\\\\migrations' -name *.sql -type f)",
+      "Bash(find 'c:/Users/carol/Downloads/vexx crm' -type f \\\\\\(-name *chat* -o -name *message* -o -name *conversation* -o -name *inbox* \\\\\\))",
+      "Bash(grep -E \"\\\\.\\(tsx|ts|jsx|js\\)$\")",
+      "Bash(ls -la \"c:/Users/carol/Downloads/vexx crm/src/app/\\(dashboard\\)/\")",
+      "Bash(wc -l \"c:/Users/carol/Downloads/vexx crm/src/components/chat\"/*.tsx \"c:/Users/carol/Downloads/vexx crm/src/app/central\"/*.tsx \"c:/Users/carol/Downloads/vexx crm/src/app/atendimento\"/*.tsx)",
+      "Bash(find 'c:/Users/carol/Downloads/vexx crm' -type f -name *.env*)",
+      "Bash(find 'c:/Users/carol/Downloads/vexx crm/src/app/\\(dashboard\\)' -type f -name *.ts -o -name *.tsx -o -name *.js -o -name *.jsx)",
+      "Bash(find \"c:/Users/carol/Downloads/vexx crm/src/app/\\(dashboard\\)/trafego\" -type f)",
+      "Bash(xargs -I {} basename {})",
+      "Bash(ls \"C:\\\\Users\\\\carol\\\\.claude\\\\projects\\\\c--Users-carol-Downloads-vexx-crm\\\\memory\"\" 2>/dev/null || echo \"dir nao existe \")",
+      "Bash(ls \"c:/Users/carol/Downloads/vexx crm/src/app/\\(dashboard\\)/\")",
+      "Bash(grep -v \"^$\")",
+      "Bash(wc -l \"c:\\\\Users\\\\carol\\\\Downloads\\\\vexx crm\\\\src\\\\app\\\\\\(dashboard\\)\\\\trafego\\\\page.tsx\")",
+      "Bash(ls -la \"src/app/\\(auth\\)/\")",
+      "Bash(ls -la \"src/app/\\(auth\\)/register/\")",
+      "Bash(grep -E \"\\\\.\\(sql|ts\\)$\")",
+      "Bash(grep -l \"message_reactions\\\\|contact_presence\\\\|whatsapp_groups\\\\|whatsapp_labels\\\\|calls_log\" supabase/migrations/*.sql)",
+      "Bash(grep -rn \"advideos\\\\|adimages\\\\|owned_product_catalogs\\\\|/me/adaccounts\" src/lib/services/meta-*.ts)",
+      "Bash(grep -rn \"account_id\\\\|META_AD_ACCOUNT_ID\" src/lib/services/meta-*.ts src/app/api/trafego/*.ts)",
+      "Bash(grep -r \"grupos\\\\|groups\" src/components --include=*.tsx --include=*.ts -l)"
     ]
   }
 }
