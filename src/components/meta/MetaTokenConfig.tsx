@@ -10,15 +10,21 @@ async function getAuthHeader(): Promise<string> {
 }
 
 interface TokenStatus {
-  valid: boolean;
-  accountName?: string;
-  tokenType?: string;
+  configurado?: boolean;
+  valido: boolean;
+  expira_em?: string | null;
+  scopes?: string[];
+  account_id?: string | null;
+  page_id?: string | null;
+  erro?: string;
+  // compat
+  valid?: boolean;
   error?: string;
 }
 
 export function MetaTokenConfig() {
   const [token, setToken]           = useState('');
-  const [businessId, setBusinessId] = useState('');
+  const [accountId, setAccountId]   = useState('');
   const [pageId, setPageId]         = useState('');
   const [pixelId, setPixelId]       = useState('');
   const [showToken, setShowToken]   = useState(false);
@@ -49,18 +55,17 @@ export function MetaTokenConfig() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: auth },
         body: JSON.stringify({
-          systemUserToken: token.trim(),
-          businessId: businessId.trim() || undefined,
-          pageId: pageId.trim() || undefined,
-          pixelId: pixelId.trim() || undefined,
+          access_token: token.trim(),
+          account_id:   accountId.trim() || undefined,
+          page_id:      pageId.trim() || undefined,
         }),
       });
-      const data = await res.json() as { ok?: boolean; accountName?: string; error?: string };
+      const data = await res.json() as { ok?: boolean; valido?: boolean; expira_em?: string | null; error?: string };
       if (data.ok) {
-        setStatus({ valid: true, accountName: data.accountName, tokenType: 'system_user' });
+        setStatus({ valido: data.valido ?? true, expira_em: data.expira_em });
         setToken('');
       } else {
-        setStatus({ valid: false, error: data.error });
+        setStatus({ valido: false, erro: data.error });
       }
     } finally {
       setLoading(false);
@@ -72,7 +77,7 @@ export function MetaTokenConfig() {
     try {
       const auth = await getAuthHeader();
       await fetch('/api/meta/token', { method: 'DELETE', headers: { Authorization: auth } });
-      setStatus({ valid: false, error: 'Token removido' });
+      setStatus({ valido: false, erro: 'Token removido' });
     } finally {
       setLoading(false);
     }
@@ -86,24 +91,18 @@ export function MetaTokenConfig() {
         <div className="flex items-center gap-2">
           {status === null ? (
             <span className="text-sm text-gray-400">Clique em verificar para checar o token atual</span>
-          ) : status.valid ? (
+          ) : status.valido ? (
             <>
               <CheckCircle size={16} className="text-green-500" />
               <span className="text-sm text-green-600">
-                Conectado{status.accountName ? ` — ${status.accountName}` : ''}
-                {status.tokenType === 'system_user' && (
-                  <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full font-medium">
-                    System User (não expira)
-                  </span>
-                )}
-                {status.tokenType === 'page' && (
+                Conectado{status.account_id ? ` — conta ${status.account_id}` : ''}
+                {status.expira_em ? (
                   <span className="ml-2 px-2 py-0.5 bg-yellow-100 text-yellow-700 text-xs rounded-full font-medium">
-                    Page Token (expira em 60 dias)
+                    Expira {new Date(status.expira_em).toLocaleDateString('pt-BR')}
                   </span>
-                )}
-                {status.tokenType === 'env' && (
-                  <span className="ml-2 px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-full font-medium">
-                    Variável de ambiente
+                ) : (
+                  <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full font-medium">
+                    Não expira
                   </span>
                 )}
               </span>
@@ -111,12 +110,14 @@ export function MetaTokenConfig() {
           ) : (
             <>
               <XCircle size={16} className="text-red-500" />
-              <span className="text-sm text-red-600">{status.error ?? 'Token inválido ou não configurado'}</span>
+              <span className="text-sm text-red-600">
+                {status.erro ?? status.error ?? 'Token inválido ou não configurado'}
+              </span>
             </>
           )}
         </div>
         <div className="flex items-center gap-2">
-          {status?.valid && status.tokenType === 'system_user' && (
+          {status?.valido && (
             <button
               onClick={remover}
               disabled={loading}
@@ -189,12 +190,12 @@ export function MetaTokenConfig() {
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Business ID</label>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Ad Account ID</label>
             <input
               type="text"
-              value={businessId}
-              onChange={e => setBusinessId(e.target.value)}
-              placeholder="123456789"
+              value={accountId}
+              onChange={e => setAccountId(e.target.value)}
+              placeholder="act_123456789"
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
             />
           </div>
