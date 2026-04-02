@@ -66,6 +66,7 @@ export async function POST(req: NextRequest) {
       objective: 'OUTCOME_ENGAGEMENT',
       status: 'PAUSED',
       special_ad_categories: [],
+      is_adset_budget_sharing_enabled: false,
       access_token: token,
     });
 
