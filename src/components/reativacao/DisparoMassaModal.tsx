@@ -5,6 +5,7 @@ import { X, Send, AlertTriangle, CheckCircle2, Loader2, Users, Image as ImageIco
 import { cn } from '@/lib/utils';
 import { REGRA_DA_CAROL } from '@/lib/services/campaign-dispatcher';
 import { supabase } from '@/lib/supabase';
+import { useAuthStore } from '@/store/auth';
 import type { Client } from '@/types';
 
 interface DisparoMassaModalProps {
@@ -44,6 +45,7 @@ const ACCEPTED = 'image/jpeg,image/png,image/webp,image/gif,video/mp4,video/3gpp
 const MAX_SIZE_MB = 15;
 
 export function DisparoMassaModal({ leads, onClose }: DisparoMassaModalProps) {
+  const accessToken = useAuthStore(s => s.accessToken);
   const [message, setMessage] = useState('');
   const [media, setMedia] = useState<MediaAttachment | null>(null);
   const [status, setStatus] = useState<DispatchStatus>('idle');
@@ -135,8 +137,10 @@ export function DisparoMassaModal({ leads, onClose }: DisparoMassaModalProps) {
 
         const res = await fetch('/api/whatsapp/send', {
           method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
           body: JSON.stringify(body),
         });
 
