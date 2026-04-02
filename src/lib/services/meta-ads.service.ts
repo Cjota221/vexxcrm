@@ -43,9 +43,11 @@ function getConfig(): MetaAdsConfig {
 
 async function getConfigForTenant(tenantId?: string): Promise<MetaAdsConfig> {
   if (tenantId) {
-    const { resolverTokenMeta } = await import('./meta-token.service');
-    const config = await resolverTokenMeta(tenantId);
-    if (config) return { accessToken: config.accessToken, adAccountId: config.adAccountId };
+    try {
+      const { resolverTokenMeta } = await import('./meta-token.service');
+      const config = await resolverTokenMeta(tenantId);
+      if (config.account_id) return { accessToken: config.token, adAccountId: config.account_id };
+    } catch { /* sem token configurado, usa env vars */ }
   }
   return getConfig();
 }

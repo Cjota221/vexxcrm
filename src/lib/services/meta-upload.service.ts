@@ -26,17 +26,22 @@ export async function uploadVideoParaMeta(
   file: File | Blob,
   nome: string,
 ): Promise<UploadResult> {
-  const config = await resolverTokenMeta(tenantId);
-  if (!config) return { ok: false, error: 'Token Meta não configurado' };
+  let config;
+  try {
+    config = await resolverTokenMeta(tenantId);
+  } catch {
+    return { ok: false, error: 'Token Meta não configurado' };
+  }
+  if (!config.account_id) return { ok: false, error: 'Ad Account ID não configurado' };
 
-  const actId = config.adAccountId.startsWith('act_')
-    ? config.adAccountId
-    : `act_${config.adAccountId}`;
+  const actId = config.account_id.startsWith('act_')
+    ? config.account_id
+    : `act_${config.account_id}`;
 
   const form = new FormData();
   form.append('source', file, nome);
   form.append('title', nome);
-  form.append('access_token', config.accessToken);
+  form.append('access_token', config.token);
 
   const res = await fetch(`${META_BASE}/${actId}/advideos`, {
     method: 'POST',
@@ -58,7 +63,7 @@ export async function uploadVideoParaMeta(
   if (data.id) {
     try {
       const thumbRes = await fetch(
-        `${META_BASE}/${data.id}?fields=thumbnails&access_token=${config.accessToken}`
+        `${META_BASE}/${data.id}?fields=thumbnails&access_token=${config.token}`
       );
       if (thumbRes.ok) {
         const thumbData = await thumbRes.json() as {
@@ -80,16 +85,21 @@ export async function uploadImagemParaMeta(
   file: File | Blob,
   nome: string,
 ): Promise<UploadResult> {
-  const config = await resolverTokenMeta(tenantId);
-  if (!config) return { ok: false, error: 'Token Meta não configurado' };
+  let config;
+  try {
+    config = await resolverTokenMeta(tenantId);
+  } catch {
+    return { ok: false, error: 'Token Meta não configurado' };
+  }
+  if (!config.account_id) return { ok: false, error: 'Ad Account ID não configurado' };
 
-  const actId = config.adAccountId.startsWith('act_')
-    ? config.adAccountId
-    : `act_${config.adAccountId}`;
+  const actId = config.account_id.startsWith('act_')
+    ? config.account_id
+    : `act_${config.account_id}`;
 
   const form = new FormData();
   form.append('filename', file, nome);
-  form.append('access_token', config.accessToken);
+  form.append('access_token', config.token);
 
   const res = await fetch(`${META_BASE}/${actId}/adimages`, {
     method: 'POST',
