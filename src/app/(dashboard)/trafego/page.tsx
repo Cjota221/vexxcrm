@@ -10,6 +10,7 @@ import { GaleriaCriativos } from '@/components/meta/GaleriaCriativos';
 import { CriadorCampanha } from '@/components/meta/CriadorCampanha';
 import { AgenteTrafegoPanel } from '@/components/meta/AgenteTrafegoPanel';
 import { FilaAprovacao } from '@/components/meta/FilaAprovacao';
+import { InicializadorPublicos } from '@/components/meta/InicializadorPublicos';
 
 function authFetch(url: string, options?: RequestInit): Promise<Response> {
   const token = useAuthStore.getState().accessToken;
@@ -3010,6 +3011,7 @@ export default function TrafegoPage() {
                   Configure um System User Token para integração permanente sem expiração.
                 </p>
                 <MetaTokenConfig />
+                <InicializadorPublicos />
               </div>
             )}
           </div>

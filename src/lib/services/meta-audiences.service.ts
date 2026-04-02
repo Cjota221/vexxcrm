@@ -231,7 +231,7 @@ export async function criarPublicoRemarketing(
   // com o campo rule como string JSON (não objeto aninhado)
   const formParams = new URLSearchParams();
   formParams.set('name', nome);
-  formParams.set('description', `Pessoas que interagiram com @cjrasteirinhas nos últimos ${dias} dias`);
+  formParams.set('description', `Pessoas que interagiram com @cjotarasteirinhas nos últimos ${dias} dias`);
   formParams.set('subtype', 'ENGAGEMENT');
   formParams.set('rule', JSON.stringify(rule));
   formParams.set('access_token', token);
@@ -254,7 +254,7 @@ export async function criarPublicoRemarketing(
     .insert({
       tenant_id: tenantId,
       nome,
-      descricao: `Pessoas que interagiram com @cjrasteirinhas nos últimos ${dias} dias`,
+      descricao: `Pessoas que interagiram com @cjotarasteirinhas nos últimos ${dias} dias`,
       meta_audience_id: metaAudienceId,
       targeting: { custom_audiences: metaAudienceId ? [{ id: metaAudienceId }] : [] },
       criado_por_ia: true,

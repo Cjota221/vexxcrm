@@ -6,6 +6,14 @@
 import { META_BASE } from '@/lib/meta-config';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { resolverTokenMeta } from './meta-token.service';
+import {
+  buscarInteressesAtacado,
+  criarPublicoEngajamentoReal,
+  criarPublicoVisitantesSite,
+  targetingFrio,
+  targetingQuente,
+  targetingWhatsApp,
+} from './meta-publicos-cj.service';
 
 /* ─── Tipos ─────────────────────────────────────────────────────────────────── */
 
@@ -27,6 +35,8 @@ export interface ConfiguracaoAdset {
   genero: 'all' | 'male' | 'female';
   interesses: InteresseTargeting[];
   publico_meta_id?: string;
+  /** Quando fornecido, substitui todo o targeting construído a partir dos campos individuais */
+  targetingCompleto?: Record<string, unknown>;
 }
 
 export interface ConfiguracaoCriativo {
@@ -165,7 +175,7 @@ async function criarAdset(
     optimization_goal: tipoCfg.optimization_goal,
     billing_event:     tipoCfg.billing_event,
     bid_strategy:      'LOWEST_COST_WITHOUT_CAP',  // sobrescreve padrão da conta (BID_CAP/ROAS)
-    targeting: {
+    targeting: cfg.targetingCompleto ?? {
       age_min:       cfg.idadeMin,
       age_max:       cfg.idadeMax,
       geo_locations: { countries: cfg.paises },
@@ -491,6 +501,26 @@ export async function criarCampanhaCompleta(
 
   const objetivo = TIPO_OBJETIVO[cfg.tipo];
 
+  // Montar targeting de alta performance para cada tipo de campanha
+  let targetingCompleto: Record<string, unknown>;
+  if (cfg.tipo === 'frio') {
+    const interesses = await buscarInteressesAtacado(token);
+    targetingCompleto = targetingFrio(interesses);
+  } else if (cfg.tipo === 'quente') {
+    const [audienceId, visitantesId] = await Promise.all([
+      criarPublicoEngajamentoReal(actId, token, tenantId, 30),
+      criarPublicoVisitantesSite(actId, token, tenantId, 30),
+    ]);
+    const customAudiences = [audienceId, visitantesId].filter(Boolean).map(id => ({ id }));
+    targetingCompleto = {
+      ...targetingQuente(audienceId),
+      ...(customAudiences.length > 1 ? { custom_audiences: customAudiences } : {}),
+    };
+  } else {
+    const interesses = await buscarInteressesAtacado(token);
+    targetingCompleto = targetingWhatsApp(interesses);
+  }
+
   const campaignId = await criarCampanha(token, actId, cfg.nome, objetivo);
   const adsetId = await criarAdset(token, actId, campaignId, {
     nome:            cfg.nome,
@@ -503,6 +533,7 @@ export async function criarCampanhaCompleta(
     idadeMax:        cfg.idadeMax ?? 65,
     genero:          cfg.genero ?? 'all',
     interesses:      cfg.interesses ?? [],
+    targetingCompleto,
   });
   const creativeId = await criarAdCreative(token, actId, cfg.criativo);
   const adId = await criarAd(token, actId, adsetId, creativeId, cfg.nome);
