@@ -399,7 +399,10 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
         {/* Text content */}
         {message.content && message.type !== 'image' && message.type !== 'video' && message.type !== 'sticker' && message.type !== 'location' && (
           <>
-            <p className="text-sm wrap-break-word leading-relaxed">
+            <p className={cn(
+              'text-sm wrap-break-word leading-relaxed',
+              isFromMe ? 'text-white' : 'text-wa-text-primary'
+            )}>
               {parseMessageContent(message.content)}
             </p>
             {/* Link preview — renderiza card OG para a primeira URL encontrada no texto */}
