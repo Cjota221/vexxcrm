@@ -56,11 +56,11 @@ export function useInfiniteChats(filter: ChatFilter = 'all', search?: string) {
     },
     getNextPageParam: (lastPage) => lastPage.pagination?.nextCursor ?? undefined,
     initialPageParam: undefined as string | undefined,
-    // Sempre revalidar ao montar o componente — garante lista atualizada ao entrar na Central
-    refetchOnMount: 'always',
-    // staleTime de 30s: o Supabase Realtime invalida o cache em tempo real via
-    // debouncedInvalidateChats. O staleTime de 10s causava refetch a cada remontagem
-    // de componente (troca de tab, abrir chat, etc), gerando ~10 req/min desnecessários.
+    // refetchOnMount: true respeita o staleTime — só busca novamente se os dados tiverem
+    // mais de 30s. O Supabase Realtime invalida o cache em tempo real via
+    // debouncedInvalidateChats, então 'always' causava refetches redundantes a cada
+    // troca de tab/remontagem mesmo com dados frescos.
+    refetchOnMount: true,
     staleTime: 30_000,
     // Polling de 120s como fallback apenas se o WebSocket cair.
     // Com Realtime ativo, este polling raramente dispara.
