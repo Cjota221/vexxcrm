@@ -81,10 +81,17 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
-      const pageToken = process.env.META_PAGE_TOKEN;
+      // Buscar token Meta do tenant no banco (não de variável de ambiente)
+      const supabaseForToken = createServerSupabaseClient();
+      const { data: metaCfg } = await supabaseForToken
+        .from('ai_provider_config')
+        .select('meta_access_token')
+        .eq('tenant_id', tenantId)
+        .single();
+      const pageToken = metaCfg?.meta_access_token || process.env.META_PAGE_TOKEN;
       if (!pageToken) {
         return NextResponse.json(
-          { error: 'META_PAGE_TOKEN não configurado. Configure nas variáveis de ambiente do Netlify.' },
+          { error: 'Token Meta não configurado. Configure em Configurações → Social Mídia.' },
           { status: 503 }
         );
       }
