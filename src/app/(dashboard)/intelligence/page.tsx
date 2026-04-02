@@ -14,6 +14,10 @@ import {
   X,
   Minimize2,
   Maximize2,
+  BarChart2,
+  Users,
+  TrendingUp,
+  Calendar,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import {
@@ -35,21 +39,24 @@ import { TicketSegmentation } from '@/components/intelligence/TicketSegmentation
 import type { ClientListItem } from '@/components/intelligence/ClientListDrawer';
 import { cn } from '@/lib/utils';
 
-/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   Chat Message type
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
 }
 
-/**
- * Intelligence Dashboard — Painel completo de IA comportamental.
- * RFM Engine, Segmentação, Alertas, Predições.
- */
+type Tab = 'overview' | 'clients' | 'products' | 'seasonality';
+
+const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+  { id: 'overview', label: 'Visão Geral', icon: <BarChart2 size={15} /> },
+  { id: 'clients', label: 'Clientes', icon: <Users size={15} /> },
+  { id: 'products', label: 'Produtos', icon: <TrendingUp size={15} /> },
+  { id: 'seasonality', label: 'Sazonalidade', icon: <Calendar size={15} /> },
+];
+
 export default function IntelligencePage() {
   const router = useRouter();
+  const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [notification, setNotification] = useState<{
     type: 'success' | 'error';
     message: string;
@@ -73,12 +80,10 @@ export default function IntelligencePage() {
     anneMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [anneMessages]);
 
-  // Callback quando clientes são selecionados e enviados à Anne
   const handleAskAnne = useCallback((clients: ClientListItem[], context: string) => {
     setAnneOpen(true);
     setAnneMinimized(false);
 
-    // Montar prompt com dados dos clientes
     const clientsSummary = clients.slice(0, 10).map(c => {
       const parts = [`• ${c.name || 'Sem nome'}`];
       if (c.phone) parts.push(`Tel: ${c.phone}`);
@@ -91,62 +96,38 @@ export default function IntelligencePage() {
     }).join('\n');
 
     const moreText = clients.length > 10 ? `\n... e mais ${clients.length - 10} clientes` : '';
-
     const autoMessage = `Preciso de sugestões para estes ${clients.length} clientes do grupo "${context}":\n\n${clientsSummary}${moreText}\n\nO que devo fazer para recuperar/engajar esses clientes? Quais ações, mensagens e ofertas você sugere?`;
 
-    // Adicionar como mensagem do usuário
-    const userMsg: ChatMessage = {
-      role: 'user',
-      content: autoMessage,
-      timestamp: new Date(),
-    };
+    const userMsg: ChatMessage = { role: 'user', content: autoMessage, timestamp: new Date() };
     setAnneMessages(prev => [...prev, userMsg]);
 
-    // Enviar para a Anne
-    const chatHistory = anneMessages
-      .slice(-10)
-      .map(m => ({ role: m.role, content: m.content }));
-
-    anneSendMessage({
-      message: autoMessage,
-      context: { chat_history: chatHistory },
-    }).then(data => {
-      setAnneMessages(prev => [...prev, {
-        role: 'assistant',
-        content: data?.reply || 'Desculpe, não consegui processar.',
-        timestamp: new Date(),
-      }]);
-    }).catch(() => {
-      setAnneMessages(prev => [...prev, {
-        role: 'assistant',
-        content: 'Ops, ocorreu um erro. Tente novamente.',
-        timestamp: new Date(),
-      }]);
-    });
+    const chatHistory = anneMessages.slice(-10).map(m => ({ role: m.role, content: m.content }));
+    anneSendMessage({ message: autoMessage, context: { chat_history: chatHistory } })
+      .then(data => {
+        setAnneMessages(prev => [...prev, {
+          role: 'assistant',
+          content: data?.reply || 'Desculpe, não consegui processar.',
+          timestamp: new Date(),
+        }]);
+      })
+      .catch(() => {
+        setAnneMessages(prev => [...prev, {
+          role: 'assistant',
+          content: 'Ops, ocorreu um erro. Tente novamente.',
+          timestamp: new Date(),
+        }]);
+      });
   }, [anneMessages, anneSendMessage]);
 
-  // Handler de envio manual de mensagem
   const handleAnneSend = async () => {
     if (!anneInput.trim() || anneIsPending) return;
-
-    const userMsg: ChatMessage = {
-      role: 'user',
-      content: anneInput.trim(),
-      timestamp: new Date(),
-    };
+    const userMsg: ChatMessage = { role: 'user', content: anneInput.trim(), timestamp: new Date() };
     setAnneMessages(prev => [...prev, userMsg]);
     const text = anneInput.trim();
     setAnneInput('');
-
     try {
-      const chatHistory = anneMessages
-        .slice(-10)
-        .map(m => ({ role: m.role, content: m.content }));
-
-      const data = await anneSendMessage({
-        message: text,
-        context: { chat_history: chatHistory },
-      });
+      const chatHistory = anneMessages.slice(-10).map(m => ({ role: m.role, content: m.content }));
+      const data = await anneSendMessage({ message: text, context: { chat_history: chatHistory } });
       setAnneMessages(prev => [...prev, {
         role: 'assistant',
         content: data?.reply || 'Desculpe, não consegui processar.',
@@ -161,18 +142,14 @@ export default function IntelligencePage() {
     }
   };
 
-  // Verificar autenticação
   useEffect(() => {
     const checkAuth = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        router.push('/login');
-      }
+      if (!session) router.push('/login');
     };
     checkAuth();
   }, [router]);
 
-  // Dados
   const {
     data: overview,
     isLoading: isLoadingOverview,
@@ -190,7 +167,6 @@ export default function IntelligencePage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [lastReport, setLastReport] = useState<any>(null);
 
-  // Handler do cálculo RFM
   const handleCalculateRFM = async () => {
     try {
       setNotification(null);
@@ -202,7 +178,6 @@ export default function IntelligencePage() {
           message: `✅ RFM calculado! ${result.report.stats.total_processed} clientes processados, ${result.report.stats.segment_changes} mudanças de segmento.`,
         });
       }
-      // Refetch dados
       refetchOverview();
       refetchRFM();
     } catch (error) {
@@ -213,10 +188,8 @@ export default function IntelligencePage() {
     }
   };
 
-  // Loading state
   const isLoading = isLoadingOverview || isLoadingRFM;
 
-  // Extract overview data
   const ov = overview?.overview;
   const kpis = ov?.kpis || {
     vip_count: 0,
@@ -236,79 +209,81 @@ export default function IntelligencePage() {
   const coveragePct = (ov?.rfm as any)?.coverage_pct || 0;
   const lastCalculatedAt = ov?.rfm?.last_calculated_at || null;
   const events7d = ov?.events?.total_7d || 0;
-
-  // Distribution com dados detalhados do endpoint /rfm
   const detailedDistribution = rfmData?.distribution || {};
 
-  // ── Segmento selecionado pelo click no RFMOverview ──
   const [activeSegment, setActiveSegment] = useState<string | null>(null);
 
   const handleSegmentClick = useCallback((segment: string) => {
     setActiveSegment(segment);
-    // Rolar suavemente até o SegmentGrid
-    setTimeout(() => {
-      document.getElementById('segment-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 50);
+    setActiveTab('clients');
   }, []);
 
   return (
-    <div className="min-h-screen bg-surface-bg">
+    <div className="min-h-screen bg-surface-bg flex flex-col">
       {/* ─── HEADER ─── */}
-      <div className="bg-white border-b border-surface-border px-6 py-5">
+      <div className="bg-white border-b border-surface-border px-6 py-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-linear-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-lg">
-              <Brain size={24} className="text-white" />
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-linear-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow">
+              <Brain size={20} className="text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-txt-primary flex items-center gap-2">
+              <h1 className="text-lg font-bold text-txt-primary flex items-center gap-2">
                 Inteligência Artificial
-                <Sparkles size={18} className="text-yellow-500" />
+                <Sparkles size={15} className="text-yellow-500" />
               </h1>
-              <p className="text-sm text-txt-muted">
-                Motor RFM, segmentação comportamental e predições de IA
-              </p>
+              <p className="text-xs text-txt-muted">Motor RFM · Segmentação comportamental · Predições de IA</p>
             </div>
           </div>
-
-          {/* Botão de refresh */}
           <button
             onClick={() => { refetchOverview(); refetchRFM(); }}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-surface-border text-sm text-txt-secondary hover:bg-surface-50 transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-surface-border text-sm text-txt-secondary hover:bg-surface-50 transition-colors"
           >
-            <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
+            <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />
             Atualizar
           </button>
+        </div>
+
+        {/* ─── TABS ─── */}
+        <div className="flex gap-1 mt-4">
+          {TABS.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                'flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+                activeTab === tab.id
+                  ? 'bg-violet-600 text-white shadow-sm'
+                  : 'text-txt-secondary hover:bg-surface-100 hover:text-txt-primary'
+              )}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
         </div>
       </div>
 
       {/* ─── NOTIFICAÇÃO ─── */}
       {notification && (
-        <div className={`mx-6 mt-4 p-4 rounded-xl flex items-center gap-3 ${
+        <div className={`mx-6 mt-4 p-3 rounded-xl flex items-center gap-3 text-sm ${
           notification.type === 'success'
             ? 'bg-green-50 border border-green-200 text-green-800'
             : 'bg-red-50 border border-red-200 text-red-800'
         }`}>
-          {notification.type === 'success' ? (
-            <CheckCircle2 size={18} className="text-green-600 shrink-0" />
-          ) : (
-            <AlertCircle size={18} className="text-red-600 shrink-0" />
-          )}
-          <p className="text-sm">{notification.message}</p>
-          <button
-            onClick={() => setNotification(null)}
-            className="ml-auto text-sm font-medium hover:underline"
-          >
-            Fechar
-          </button>
+          {notification.type === 'success'
+            ? <CheckCircle2 size={16} className="text-green-600 shrink-0" />
+            : <AlertCircle size={16} className="text-red-600 shrink-0" />}
+          <p>{notification.message}</p>
+          <button onClick={() => setNotification(null)} className="ml-auto font-medium hover:underline">Fechar</button>
         </div>
       )}
 
       {/* ─── CONTEÚDO ─── */}
-      <div className="p-6 space-y-6">
+      <div className="flex-1 p-6">
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-20">
-            <Loader2 size={40} className="animate-spin text-crm-primary mb-4" />
+            <Loader2 size={36} className="animate-spin text-crm-primary mb-4" />
             <p className="text-sm text-txt-muted">Carregando inteligência artificial...</p>
           </div>
         ) : overviewError ? (
@@ -325,75 +300,79 @@ export default function IntelligencePage() {
           </div>
         ) : (
           <>
-            {/* Linha 1: KPIs + Calcular */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2">
-                <RFMOverview
-                  kpis={kpis}
-                  totalCalculated={totalCalculated}
-                  totalClients={totalClients}
-                  coveragePct={coveragePct}
-                  lastCalculatedAt={lastCalculatedAt}
-                  events7d={events7d}
-                  onSegmentClick={handleSegmentClick}
-                />
+            {/* ══ VISÃO GERAL ══ */}
+            {activeTab === 'overview' && (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  <div className="lg:col-span-2">
+                    <RFMOverview
+                      kpis={kpis}
+                      totalCalculated={totalCalculated}
+                      totalClients={totalClients}
+                      coveragePct={coveragePct}
+                      lastCalculatedAt={lastCalculatedAt}
+                      events7d={events7d}
+                      onSegmentClick={handleSegmentClick}
+                    />
+                  </div>
+                  <div>
+                    <CalculateRFMButton
+                      onCalculate={handleCalculateRFM}
+                      isCalculating={calculateRFM.isPending}
+                      lastReport={lastReport}
+                    />
+                  </div>
+                </div>
+
+                <AIAlerts alerts={[]} kpis={kpis} />
+
+                {totalCalculated === 0 && (
+                  <div className="bg-violet-50 border border-violet-200 rounded-2xl p-8 text-center">
+                    <Brain size={48} className="text-violet-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold text-violet-800 mb-2">Nenhum cálculo RFM realizado</h3>
+                    <p className="text-sm text-violet-600 max-w-md mx-auto mb-4">
+                      Clique em &quot;Calcular RFM Agora&quot; para analisar todos os seus clientes
+                      e gerar segmentação inteligente, predições de churn e oportunidades de upsell.
+                    </p>
+                    <p className="text-xs text-violet-500">
+                      O cálculo usa dados de pedidos sincronizados da FacilZap para determinar
+                      Recência, Frequência e Valor Monetário de cada cliente.
+                    </p>
+                  </div>
+                )}
               </div>
-              <div>
-                <CalculateRFMButton
-                  onCalculate={handleCalculateRFM}
-                  isCalculating={calculateRFM.isPending}
-                  lastReport={lastReport}
-                />
+            )}
+
+            {/* ══ CLIENTES ══ */}
+            {activeTab === 'clients' && (
+              <div className="space-y-6">
+                <RFMChart distribution={rfmDistribution} />
+                <div id="segment-grid">
+                  <SegmentGrid
+                    distribution={detailedDistribution}
+                    totalClients={totalCalculated}
+                    onAskAnne={handleAskAnne}
+                    initialSegment={activeSegment}
+                    onInitialSegmentHandled={() => setActiveSegment(null)}
+                  />
+                </div>
+                <TicketSegmentation onAskAnne={handleAskAnne} />
               </div>
-            </div>
+            )}
 
-            {/* Linha 2: Gráfico de distribuição + Alertas */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <RFMChart distribution={rfmDistribution} />
-              <AIAlerts alerts={[]} kpis={kpis} />
-            </div>
+            {/* ══ PRODUTOS ══ */}
+            {activeTab === 'products' && (
+              <div className="space-y-6">
+                <ProductTrends />
+                <MonthlyTrends />
+              </div>
+            )}
 
-            {/* Linha 3: Grid completo de segmentos */}
-            <div id="segment-grid">
-              <SegmentGrid
-                distribution={detailedDistribution}
-                totalClients={totalCalculated}
-                onAskAnne={handleAskAnne}
-                initialSegment={activeSegment}
-                onInitialSegmentHandled={() => setActiveSegment(null)}
-              />
-            </div>
-
-            {/* Linha 4: Segmentação por Ticket */}
-            <TicketSegmentation onAskAnne={handleAskAnne} />
-
-            {/* Linha 5: Inteligência v2 — Sazonalidade + Produto */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <SeasonalInsights onAskAnne={handleAskAnne} />
-              <ProductTrends />
-            </div>
-
-            {/* Linha 5: Comportamento Mensal Histórico */}
-            <MonthlyTrends />
-
-            {/* Linha 6: Hoje na História */}
-            <TodayInHistory />
-
-            {/* Linha 5: Nota sobre estado */}
-            {totalCalculated === 0 && (
-              <div className="bg-violet-50 border border-violet-200 rounded-2xl p-8 text-center">
-                <Brain size={48} className="text-violet-400 mx-auto mb-4" />
-                <h3 className="text-lg font-semibold text-violet-800 mb-2">
-                  Nenhum cálculo RFM realizado
-                </h3>
-                <p className="text-sm text-violet-600 max-w-md mx-auto mb-4">
-                  Clique em &quot;Calcular RFM Agora&quot; para analisar todos os seus clientes
-                  e gerar segmentação inteligente, predições de churn e oportunidades de upsell.
-                </p>
-                <p className="text-xs text-violet-500">
-                  O cálculo usa dados de pedidos sincronizados da FacilZap para determinar
-                  Recência, Frequência e Valor Monetário de cada cliente.
-                </p>
+            {/* ══ SAZONALIDADE ══ */}
+            {activeTab === 'seasonality' && (
+              <div className="space-y-6">
+                <SeasonalInsights onAskAnne={handleAskAnne} />
+                <TodayInHistory />
               </div>
             )}
           </>
@@ -404,7 +383,7 @@ export default function IntelligencePage() {
       {!anneOpen ? (
         <button
           onClick={() => setAnneOpen(true)}
-          className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-linear-to-br from-crm-primary to-crm-secondary text-white flex items-center justify-center shadow-lg hover:scale-105 transition-transform group"
+          className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-linear-to-br from-crm-primary to-crm-secondary text-white flex items-center justify-center shadow-lg hover:scale-105 transition-transform"
           title="Abrir Anne IA"
         >
           <Bot size={24} />
@@ -413,15 +392,12 @@ export default function IntelligencePage() {
           </span>
         </button>
       ) : (
-        <div
-          className={cn(
-            'fixed bottom-6 right-6 z-50',
-            'bg-white rounded-2xl shadow-2xl border border-surface-200',
-            'flex flex-col overflow-hidden transition-all duration-300',
-            anneMinimized ? 'w-80 h-14' : 'w-105 h-137.5'
-          )}
-        >
-          {/* Header do Chat */}
+        <div className={cn(
+          'fixed bottom-6 right-6 z-50',
+          'bg-white rounded-2xl shadow-2xl border border-surface-200',
+          'flex flex-col overflow-hidden transition-all duration-300',
+          anneMinimized ? 'w-80 h-14' : 'w-105 h-137.5'
+        )}>
           <div className="h-14 bg-linear-to-r from-crm-primary to-crm-secondary text-white flex items-center justify-between px-4 shrink-0">
             <div className="flex items-center gap-2">
               <Bot size={18} />
@@ -433,16 +409,10 @@ export default function IntelligencePage() {
               </div>
             </div>
             <div className="flex items-center gap-1">
-              <button
-                onClick={() => setAnneMinimized(!anneMinimized)}
-                className="p-1.5 hover:bg-white/20 rounded transition-colors"
-              >
+              <button onClick={() => setAnneMinimized(!anneMinimized)} className="p-1.5 hover:bg-white/20 rounded transition-colors">
                 {anneMinimized ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
               </button>
-              <button
-                onClick={() => setAnneOpen(false)}
-                className="p-1.5 hover:bg-white/20 rounded transition-colors"
-              >
+              <button onClick={() => setAnneOpen(false)} className="p-1.5 hover:bg-white/20 rounded transition-colors">
                 <X size={14} />
               </button>
             </div>
@@ -450,7 +420,6 @@ export default function IntelligencePage() {
 
           {!anneMinimized && (
             <>
-              {/* Mensagens */}
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {anneMessages.map((msg, i) => (
                   <div
@@ -475,8 +444,6 @@ export default function IntelligencePage() {
                 )}
                 <div ref={anneMessagesEndRef} />
               </div>
-
-              {/* Input */}
               <div className="border-t border-surface-200 p-3 flex gap-2 shrink-0">
                 <input
                   value={anneInput}

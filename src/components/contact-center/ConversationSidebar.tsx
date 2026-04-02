@@ -369,7 +369,7 @@ const ChatListItem = memo(function ChatListItem({
           </span>
         ) : (
           <span
-            className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white"
+            className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white"
             style={{ backgroundColor: chat.canal === 'instagram' ? '#e1306c' : '#25d366' }}
           />
         )}
@@ -406,29 +406,14 @@ const ChatListItem = memo(function ChatListItem({
               ? truncate(chat.last_message.content || '📷 Mídia', 38)
               : 'Sem mensagens'}
           </p>
-          <div className="flex items-center gap-1 shrink-0">
-            {/* Tag de canal */}
-            {!chat.is_group && (
-              chat.canal === 'instagram' ? (
-                <span className="px-1.5 py-0.5 text-[9px] font-semibold rounded-md text-white"
-                  style={{ background: 'linear-gradient(135deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888)' }}>
-                  Instagram
-                </span>
-              ) : (
-                <span className="px-1.5 py-0.5 bg-[#25d366]/10 text-[#1a8a47] text-[9px] font-semibold rounded-md">
-                  WhatsApp
-                </span>
-              )
-            )}
-            {/* Badge Aguardando */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Indicador de fila (sem assignee) */}
             {showQueueBadge && (
-              <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[9px] font-semibold rounded-md">
-                Fila
-              </span>
+              <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" title="Aguardando atendimento" />
             )}
             {/* Contador não lidas */}
             {hasUnread && (
-              <span className="min-w-5 h-5 px-1 bg-[#25d366] text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+              <span className="min-w-5 h-5 px-1 bg-crm-primary text-white text-[10px] font-bold rounded-full flex items-center justify-center">
                 {chat.unread_count > 9 ? '9+' : chat.unread_count}
               </span>
             )}
