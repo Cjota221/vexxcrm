@@ -113,10 +113,10 @@ export const ANNE_TOOLS: AnneTool[] = [
     function: {
       name: 'disparar_campanha_whatsapp',
       description:
-        'Envia mensagem WhatsApp individual para uma lista de clientes. ' +
-        'IMPORTANTE: Use esta ferramenta SOMENTE quando a operadora confirmar explicitamente que quer disparar. ' +
-        'Nunca dispare automaticamente sem confirmação. ' +
-        'Use {nome} e {codigo_cupom} como variáveis na mensagem.',
+        'Envia mensagem WhatsApp para uma lista de clientes. ' +
+        'IMPORTANTE: Use SOMENTE após a operadora ter aprovado o texto final da mensagem. ' +
+        'Nunca dispare sem mostrar o texto completo antes e receber confirmação. ' +
+        'Use {nome}, {codigo_cupom} e {link} como variáveis na mensagem.',
       parameters: {
         type: 'object',
         properties: {
@@ -128,10 +128,7 @@ export const ANNE_TOOLS: AnneTool[] = [
               properties: {
                 id: { type: 'string', description: 'UUID do cliente' },
                 nome: { type: 'string', description: 'Nome do cliente' },
-                telefone: {
-                  type: 'string',
-                  description: 'Telefone no formato 5562999999999',
-                },
+                telefone: { type: 'string', description: 'Telefone no formato 5562999999999' },
               },
               required: ['id', 'nome', 'telefone'],
             },
@@ -139,18 +136,20 @@ export const ANNE_TOOLS: AnneTool[] = [
           mensagem_template: {
             type: 'string',
             description:
-              'Texto da mensagem com variáveis {nome} e {codigo_cupom}. ' +
-              'Se a operadora não especificar, use o template padrão de frete grátis.',
+              'Texto da mensagem com variáveis {nome}, {codigo_cupom} e opcionalmente {link}. ' +
+              'Use o template padrão se a operadora não especificar outro.',
           },
           codigo_cupom: {
             type: 'string',
-            description: 'Código do cupom de frete grátis a ser enviado.',
+            description: 'Código do cupom a ser enviado.',
+          },
+          link: {
+            type: 'string',
+            description: 'URL do site a ser incluída no lugar de {link}. Ex: https://c4franquias.com.br',
           },
           dry_run: {
             type: 'boolean',
-            description:
-              'Se true, simula o disparo sem enviar nenhuma mensagem. ' +
-              'Use para mostrar uma prévia antes do envio real.',
+            description: 'Se true, simula o disparo sem enviar nada. Use para prévia.',
           },
         },
         required: ['clientes', 'mensagem_template', 'codigo_cupom'],
@@ -230,13 +229,32 @@ Se sim, me passa o código do cupom!
 \`\`\`
 
 ### disparar_campanha_whatsapp
-⚠️ **REGRA DE CONFIRMAÇÃO OBRIGATÓRIA** — antes de chamar esta ferramenta:
-1. Você DEVE ter a lista de clientes (via buscar_clientes_pedido_alto ou fornecida pela operadora)
-2. Você DEVE apresentar o resumo: total de clientes + código do cupom
-3. Você DEVE perguntar: *"Confirma o disparo para [N] clientes com o cupom [X]?"*
-4. Você SÓ executa após receber confirmação explícita (sim / confirma / pode / ok / dispara)
+⚠️ **PROTOCOLO OBRIGATÓRIO — 4 passos antes de disparar:**
 
-Nunca chame disparar_campanha_whatsapp sem ter passado pelo passo de confirmação.
+**Passo 1** — Ter a lista de clientes (via buscar_clientes_pedido_alto ou segmentar_compradores)
+
+**Passo 2** — Mostrar o texto completo da mensagem que será enviada, com exemplo real:
+\`\`\`
+📨 *Mensagem que será enviada:*
+
+Oi, [Nome do 1º cliente]! 🎉
+
+A C4 tem um presente especial pra você: *FRETE GRÁTIS* no seu próximo pedido!
+Use o cupom: *CUPOMX*
+https://c4franquias.com.br
+
+Aproveite enquanto é válido! 🛍️
+
+💬 Quer alterar alguma coisa no texto antes de enviar?
+\`\`\`
+
+**Passo 3** — Aguardar a operadora aprovar ou pedir alterações no texto. Se pedir alteração, mostrar o texto corrigido e repetir.
+
+**Passo 4** — Confirmar disparo:
+*"Vou disparar para [N] clientes. O envio segue regras anti-ban: 15s entre cada mensagem e 1 minuto de pausa a cada 10 envios. Confirma?"*
+Só executar após "sim / confirma / pode / ok / dispara".
+
+Nunca pule esses passos. A campanha será criada automaticamente na aba Campanhas para acompanhamento.
 
 Após o disparo, informe:
 \`\`\`
