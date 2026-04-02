@@ -32,15 +32,18 @@ function classifyLead(lead: Client): LeadBucket {
 
 export function useLeadsSemCompra(page = 1, perPage = 50) {
   const tenantId = useAuthStore(s => s.tenant?.id);
+  const accessToken = useAuthStore(s => s.accessToken);
 
   return useQuery<LeadsSemCompraResponse>({
     queryKey: ['leads-sem-compra', tenantId, page, perPage],
-    enabled: !!tenantId,
+    enabled: !!tenantId && !!accessToken,
     staleTime: 2 * 60 * 1000,
     queryFn: async () => {
       const res = await fetch(
         `/api/reativacao/leads?page=${page}&per_page=${perPage}`,
-        { credentials: 'include' }
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }
       );
       if (!res.ok) {
         const body = await res.text();
