@@ -139,7 +139,7 @@ export function DisparoMassaModal({ leads, onClose }: DisparoMassaModalProps) {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
+            Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token || accessToken}`,
           },
           body: JSON.stringify(body),
         });
