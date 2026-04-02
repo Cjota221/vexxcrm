@@ -8,7 +8,7 @@ import {
 import { useAdCreatives, type AdCreative } from '@/hooks/useAdCreatives';
 
 export function GaleriaCriativos() {
-  const { criativos, loading, uploading, uploadProgress, uploadArquivo, arquivar, recarregar } = useAdCreatives();
+  const { criativos, loading, uploading, uploadProgress, uploadArquivo, arquivar, retranscrever, recarregar } = useAdCreatives();
   const inputRef = useRef<HTMLInputElement>(null);
   const [erro, setErro]   = useState<string | null>(null);
   const [filtro, setFiltro] = useState<'todos' | 'video' | 'imagem'>('todos');
@@ -143,6 +143,7 @@ export function GaleriaCriativos() {
               key={criativo.id}
               criativo={criativo}
               onArquivar={() => arquivar(criativo.id)}
+              onRetranscrever={() => retranscrever(criativo.id)}
             />
           ))}
         </div>
@@ -156,9 +157,11 @@ export function GaleriaCriativos() {
 function CardCriativo({
   criativo,
   onArquivar,
+  onRetranscrever,
 }: {
   criativo: AdCreative;
   onArquivar: () => void;
+  onRetranscrever: () => void;
 }) {
   const [confirmando, setConfirmando] = useState(false);
 
@@ -274,6 +277,63 @@ function CardCriativo({
             <span className="text-xs text-blue-600 font-mono truncate block" title={metaId}>
               Meta: {metaId.substring(0, 14)}…
             </span>
+          </div>
+        )}
+
+        {/* Transcrição / Classificação */}
+        {criativo.tipo === 'video' && (
+          <div className="mt-1.5">
+            {criativo.transcricao_status === 'processando' && (
+              <div className="flex items-center gap-1 px-1.5 py-0.5 bg-yellow-50 rounded-md">
+                <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse" />
+                <span className="text-xs text-yellow-700">Transcrevendo...</span>
+              </div>
+            )}
+
+            {criativo.transcricao_status === 'concluida' && criativo.classificacao && (
+              <div className="space-y-1">
+                <div className="flex items-center gap-1 flex-wrap">
+                  <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-md capitalize">
+                    {criativo.classificacao.tipo_conteudo}
+                  </span>
+                  <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-xs rounded-md capitalize">
+                    {criativo.classificacao.tom}
+                  </span>
+                  {criativo.classificacao.tem_cta && (
+                    <span className="px-1.5 py-0.5 bg-green-50 text-green-700 text-xs rounded-md font-medium">
+                      CTA
+                    </span>
+                  )}
+                </div>
+                <div className="space-y-0.5">
+                  {([
+                    { label: 'Frio',   valor: criativo.classificacao.adequacao_publico_frio },
+                    { label: 'Quente', valor: criativo.classificacao.adequacao_publico_quente },
+                    { label: 'WA',     valor: criativo.classificacao.adequacao_whatsapp },
+                  ] as const).map(({ label, valor }) => (
+                    <div key={label} className="flex items-center gap-1">
+                      <span className="text-xs text-gray-400 w-10">{label}</span>
+                      <div className="flex-1 bg-gray-100 rounded-full h-1">
+                        <div
+                          className="h-1 rounded-full bg-[#1e3a5f] transition-all"
+                          style={{ width: `${valor * 10}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-gray-500 w-4">{valor}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {criativo.transcricao_status === 'erro' && (
+              <button
+                onClick={onRetranscrever}
+                className="text-xs text-red-500 hover:text-red-700 underline"
+              >
+                Erro — tentar novamente
+              </button>
+            )}
           </div>
         )}
       </div>

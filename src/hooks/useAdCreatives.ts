@@ -8,6 +8,19 @@ async function getAuthHeader(): Promise<string> {
   return session?.access_token ? `Bearer ${session.access_token}` : '';
 }
 
+export interface AdCreativeClassificacao {
+  tipo_conteudo: string;
+  tom: string;
+  tem_cta: boolean;
+  cta_texto?: string;
+  adequacao_publico_frio: number;
+  adequacao_publico_quente: number;
+  adequacao_whatsapp: number;
+  palavras_chave: string[];
+  resumo: string;
+  recomendacao_uso: string;
+}
+
 export interface AdCreative {
   id: string;
   nome: string;
@@ -23,6 +36,9 @@ export interface AdCreative {
   status: 'processando' | 'pronto' | 'arquivado' | 'erro';
   em_uso_em: number;
   created_at: string;
+  transcricao_status?: 'pendente' | 'processando' | 'concluida' | 'erro' | 'sem_audio';
+  classificacao?: AdCreativeClassificacao | null;
+  transcricao_erro?: string | null;
 }
 
 export function useAdCreatives() {
@@ -114,6 +130,23 @@ export function useAdCreatives() {
     await carregar();
   }
 
+  async function retranscrever(id: string) {
+    const auth = await getAuthHeader();
+    await fetch('/api/meta/transcricao', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: auth },
+      body: JSON.stringify({ criativoId: id }),
+    });
+
+    // Polling por 30s para atualizar status
+    let tentativas = 0;
+    const intervalo = setInterval(async () => {
+      tentativas++;
+      await carregar();
+      if (tentativas >= 10) clearInterval(intervalo);
+    }, 3000);
+  }
+
   return {
     criativos,
     loading,
@@ -121,6 +154,7 @@ export function useAdCreatives() {
     uploadProgress,
     uploadArquivo,
     arquivar,
+    retranscrever,
     recarregar: carregar,
   };
 }

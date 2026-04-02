@@ -84,6 +84,19 @@ export async function POST(req: NextRequest) {
     duracaoSegundos: duracaoStr ? parseInt(duracaoStr) : undefined,
   });
 
+  // Disparar transcrição em background para vídeos
+  if (isVideo && id) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+    fetch(`${appUrl}/api/meta/transcricao`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tenant-id': tenantId,
+      },
+      body: JSON.stringify({ criativoId: id }),
+    }).catch(err => console.error('[Upload] Erro ao disparar transcrição:', err));
+  }
+
   return NextResponse.json({
     ok: true,
     id,
