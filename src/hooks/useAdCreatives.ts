@@ -71,50 +71,117 @@ export function useAdCreatives() {
   ): Promise<{ ok: boolean; error?: string }> {
     setUploading(true);
     setUploadProgress(0);
+    const nomeArquivo = nome || file.name;
+    const isVideo = file.type.startsWith('video/');
 
     try {
-      // Extrair duração do vídeo no browser antes de enviar
       let duracao: number | undefined;
-      if (file.type.startsWith('video/')) {
-        duracao = await extrairDuracaoVideo(file);
-      }
+      if (isVideo) duracao = await extrairDuracaoVideo(file);
 
-      const form = new FormData();
-      form.append('file', file);
-      form.append('nome', nome || file.name);
-      if (duracao) form.append('duracao', String(Math.round(duracao)));
-
-      // XMLHttpRequest para barra de progresso real
       const auth = await getAuthHeader();
-      const result = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
-        const xhr = new XMLHttpRequest();
 
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) {
-            // 90% = upload concluído, 10% restantes = processamento no Meta
-            setUploadProgress(Math.round((e.loaded / e.total) * 90));
+      if (isVideo) {
+        // Vídeos: upload direto browser → Meta (evita limite 6MB do Netlify)
+        const cfgRes = await fetch('/api/meta/upload/config', {
+          headers: { Authorization: auth },
+        });
+        if (!cfgRes.ok) {
+          const e = await cfgRes.json() as { error?: string };
+          return { ok: false, error: e.error ?? 'Erro ao obter credenciais' };
+        }
+        const { token, adAccountId } = await cfgRes.json() as { token: string; adAccountId: string };
+
+        const META_BASE = 'https://graph.facebook.com/v21.0';
+
+        // Upload do vídeo direto para o Meta com barra de progresso
+        const { videoId, error: uploadError } = await new Promise<{ videoId?: string; error?: string }>((resolve) => {
+          const form = new FormData();
+          form.append('source', file, nomeArquivo);
+          form.append('title', nomeArquivo);
+          form.append('access_token', token);
+
+          const xhr = new XMLHttpRequest();
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 90));
+          };
+          xhr.onload = () => {
+            try {
+              const data = JSON.parse(xhr.responseText) as { id?: string; error?: { message: string } };
+              if (data.id) resolve({ videoId: data.id });
+              else resolve({ error: data.error?.message ?? `HTTP ${xhr.status}` });
+            } catch {
+              resolve({ error: 'Resposta inválida do Meta' });
+            }
+          };
+          xhr.onerror = () => resolve({ error: 'Erro de rede' });
+          xhr.open('POST', `${META_BASE}/${adAccountId}/advideos`);
+          xhr.send(form);
+        });
+
+        if (!videoId) return { ok: false, error: uploadError };
+
+        // Buscar thumbnail
+        setUploadProgress(95);
+        let thumbUrl: string | undefined;
+        try {
+          const thumbRes = await fetch(
+            `${META_BASE}/${videoId}?fields=thumbnails&access_token=${token}`
+          );
+          if (thumbRes.ok) {
+            const t = await thumbRes.json() as { thumbnails?: { data: Array<{ uri: string; is_preferred?: boolean }> } };
+            const pref = t.thumbnails?.data?.find(x => x.is_preferred);
+            thumbUrl = pref?.uri ?? t.thumbnails?.data?.[0]?.uri;
           }
-        };
+        } catch { /* thumbnail é opcional */ }
 
-        xhr.onload = () => {
-          setUploadProgress(100);
-          try {
-            const data = JSON.parse(xhr.responseText) as { ok?: boolean; error?: string };
-            resolve({ ok: data.ok ?? false, error: data.error });
-          } catch {
-            resolve({ ok: false, error: 'Erro ao processar resposta' });
-          }
-        };
+        // Salvar no banco
+        const saveRes = await fetch('/api/meta/upload/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: auth },
+          body: JSON.stringify({
+            nome: nomeArquivo,
+            tipo: 'video',
+            metaVideoId: videoId,
+            thumbUrl,
+            tamanhoBytes: file.size,
+            duracaoSegundos: duracao ? Math.round(duracao) : undefined,
+          }),
+        });
 
-        xhr.onerror = () => resolve({ ok: false, error: 'Erro de rede' });
+        setUploadProgress(100);
+        const saveData = await saveRes.json() as { ok?: boolean; error?: string };
+        if (saveData.ok) { await carregar(); return { ok: true }; }
+        return { ok: false, error: saveData.error };
 
-        xhr.open('POST', '/api/meta/upload');
-        xhr.setRequestHeader('Authorization', auth);
-        xhr.send(form);
-      });
+      } else {
+        // Imagens: continua via servidor (< 6MB)
+        const form = new FormData();
+        form.append('file', file);
+        form.append('nome', nomeArquivo);
 
-      if (result.ok) await carregar();
-      return result;
+        const result = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+          const xhr = new XMLHttpRequest();
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 90));
+          };
+          xhr.onload = () => {
+            setUploadProgress(100);
+            try {
+              const data = JSON.parse(xhr.responseText) as { ok?: boolean; error?: string };
+              resolve({ ok: data.ok ?? false, error: data.error });
+            } catch {
+              resolve({ ok: false, error: 'Erro ao processar resposta' });
+            }
+          };
+          xhr.onerror = () => resolve({ ok: false, error: 'Erro de rede' });
+          xhr.open('POST', '/api/meta/upload');
+          xhr.setRequestHeader('Authorization', auth);
+          xhr.send(form);
+        });
+
+        if (result.ok) await carregar();
+        return result;
+      }
     } finally {
       setUploading(false);
       setUploadProgress(0);
