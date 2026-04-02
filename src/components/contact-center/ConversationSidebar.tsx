@@ -68,6 +68,7 @@ const FILTERS: { label: string; value: ChatFilter; badge?: boolean }[] = [
   { label: 'Não lidas', value: 'unread', badge: true },
   { label: 'Aguardando', value: 'waiting', badge: true },
   { label: 'Minhas', value: 'mine' },
+  { label: 'Instagram', value: 'instagram' },
   { label: 'Arquivadas', value: 'archived' },
 ];
 
@@ -406,6 +407,19 @@ const ChatListItem = memo(function ChatListItem({
               : 'Sem mensagens'}
           </p>
           <div className="flex items-center gap-1 shrink-0">
+            {/* Tag de canal */}
+            {!chat.is_group && (
+              chat.canal === 'instagram' ? (
+                <span className="px-1.5 py-0.5 text-[9px] font-semibold rounded-md text-white"
+                  style={{ background: 'linear-gradient(135deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888)' }}>
+                  Instagram
+                </span>
+              ) : (
+                <span className="px-1.5 py-0.5 bg-[#25d366]/10 text-[#1a8a47] text-[9px] font-semibold rounded-md">
+                  WhatsApp
+                </span>
+              )
+            )}
             {/* Badge Aguardando */}
             {showQueueBadge && (
               <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[9px] font-semibold rounded-md">
