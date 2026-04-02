@@ -76,7 +76,7 @@ const CONFIG_POR_TIPO = {
   },
 } as const;
 
-type TipoCampanha = keyof typeof CONFIG_POR_TIPO;
+export type TipoCampanha = keyof typeof CONFIG_POR_TIPO;
 
 /** Mapeia o objetivo do wizard para o tipo simplificado */
 function objetivoParaTipo(objetivo: string): TipoCampanha {
@@ -361,4 +361,94 @@ export async function publicarRascunho(
       .eq('id', draftId);
     throw err;
   }
+}
+
+/* ─── distribuirOrcamento ────────────────────────────────────────────────────── */
+
+export interface OrcamentoDistribuido {
+  tipo: TipoCampanha;
+  label: string;
+  orcamentoCentavos: number;
+}
+
+const TIPO_LABEL: Record<TipoCampanha, string> = {
+  frio:      'Público Frio',
+  quente:    'Público Quente',
+  whatsapp:  'WhatsApp',
+};
+
+/**
+ * Divide orçamento total igualmente entre os tipos de campanha informados.
+ * Arredonda para baixo e garante mínimo de R$1/dia (100 centavos) por tipo.
+ */
+export function distribuirOrcamento(
+  totalReais: number,
+  tipos: TipoCampanha[],
+): OrcamentoDistribuido[] {
+  if (tipos.length === 0) return [];
+  const porTipo = Math.max(100, Math.floor((totalReais * 100) / tipos.length));
+  return tipos.map(tipo => ({
+    tipo,
+    label: TIPO_LABEL[tipo],
+    orcamentoCentavos: porTipo,
+  }));
+}
+
+/* ─── criarCampanhaCompleta ──────────────────────────────────────────────────── */
+
+export interface ConfigCampanhaCompleta {
+  nome: string;
+  tipo: TipoCampanha;
+  /** Orçamento diário em centavos */
+  orcamentoDiario: number;
+  dataInicio?: string;
+  dataFim?: string;
+  paises?: string[];
+  idadeMin?: number;
+  idadeMax?: number;
+  genero?: 'all' | 'male' | 'female';
+  interesses?: InteresseTargeting[];
+  criativo: ConfiguracaoCriativo;
+}
+
+const TIPO_OBJETIVO: Record<TipoCampanha, ConfiguracaoAdset['objetivo']> = {
+  frio:     'BRAND_AWARENESS',
+  quente:   'LINK_CLICKS',
+  whatsapp: 'LINK_CLICKS',
+};
+
+/**
+ * Cria campanha + adset + criativo + ad em uma única chamada.
+ * Usa as credenciais Meta do tenant informado.
+ */
+export async function criarCampanhaCompleta(
+  tenantId: string,
+  cfg: ConfigCampanhaCompleta,
+): Promise<ResultadoPublicacao> {
+  const config = await resolverTokenMeta(tenantId);
+  const token = config.token;
+  if (!config.account_id) throw new Error('Ad Account ID não configurado');
+  const actId = config.account_id.startsWith('act_')
+    ? config.account_id
+    : `act_${config.account_id}`;
+
+  const objetivo = TIPO_OBJETIVO[cfg.tipo];
+
+  const campaignId = await criarCampanha(token, actId, cfg.nome, objetivo);
+  const adsetId = await criarAdset(token, actId, campaignId, {
+    nome:            cfg.nome,
+    objetivo,
+    orcamentoDiario: cfg.orcamentoDiario,
+    dataInicio:      cfg.dataInicio,
+    dataFim:         cfg.dataFim,
+    paises:          cfg.paises ?? ['BR'],
+    idadeMin:        cfg.idadeMin ?? 18,
+    idadeMax:        cfg.idadeMax ?? 65,
+    genero:          cfg.genero ?? 'all',
+    interesses:      cfg.interesses ?? [],
+  });
+  const creativeId = await criarAdCreative(token, actId, cfg.criativo);
+  const adId = await criarAd(token, actId, adsetId, creativeId, cfg.nome);
+
+  return { campaignId, adsetId, adId };
 }

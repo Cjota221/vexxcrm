@@ -8,6 +8,7 @@ import { AddAccountModal } from '@/components/trafego/AddAccountModal';
 import { MetaTokenConfig } from '@/components/meta/MetaTokenConfig';
 import { GaleriaCriativos } from '@/components/meta/GaleriaCriativos';
 import { CriadorCampanha } from '@/components/meta/CriadorCampanha';
+import { AgenteTrafegoPanel } from '@/components/meta/AgenteTrafegoPanel';
 
 function authFetch(url: string, options?: RequestInit): Promise<Response> {
   const token = useAuthStore.getState().accessToken;
@@ -86,7 +87,7 @@ interface MetricsData {
 }
 
 type Period = '1d' | '7d' | '15d' | '30d';
-type Tab = 'campanhas' | 'criativos' | 'publicos' | 'textos' | 'analise' | 'relatorio' | 'config';
+type Tab = 'campanhas' | 'criativos' | 'publicos' | 'textos' | 'analise' | 'relatorio' | 'config' | 'agente';
 
 /* ─── Formatadores ─────────────────────────────────────────────────────────── */
 
@@ -2710,6 +2711,7 @@ export default function TrafegoPage() {
                   { key: 'analise',   label: 'Análise' },
                   { key: 'relatorio', label: 'Relatório' },
                   { key: 'config',   label: 'Configurações' },
+                  { key: 'agente',   label: '⚡ Agente' },
                 ] as { key: Tab; label: string }[]
               ).map(({ key, label }) => (
                 <button
@@ -2966,6 +2968,11 @@ export default function TrafegoPage() {
 
             {/* ── RELATÓRIO ── */}
             {tab === 'relatorio' && <RelatorioTab />}
+
+            {/* ── AGENTE ── */}
+            {tab === 'agente' && (
+              <AgenteTrafegoPanel pageId="110009834520002" whatsappNumber="5562993044255" />
+            )}
 
             {/* ── CONFIG ── */}
             {tab === 'config' && (
