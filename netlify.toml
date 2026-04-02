@@ -40,6 +40,9 @@
 [functions."api/ai-team/create-audiences"]
   timeout = 26
 
+[functions."api/meta/upload"]
+  timeout = 26
+
 [functions."api/meta/transcricao"]
   timeout = 26
 
