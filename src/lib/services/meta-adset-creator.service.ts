@@ -108,6 +108,7 @@ async function criarCampanha(
     objective:         objetivoParaMetaApi(objetivo),
     status:            'PAUSED',
     special_ad_categories: '[]',
+    is_adset_budget_sharing_enabled: false,
   }, token);
 
   if (!data.id) throw new Error(`Erro ao criar campanha: ${data.error?.message ?? 'sem ID retornado'}`);
