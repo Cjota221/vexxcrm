@@ -112,7 +112,7 @@ export function MediaMessage({
 
         {caption && (
           <p className={cn('text-[13px] mt-1.5 max-w-70 wrap-break-word leading-relaxed',
-            isFromMe ? 'text-white' : 'text-[#111B21]'
+            'text-[#111b21]'
           )}>
             {caption}
           </p>
@@ -146,7 +146,7 @@ export function MediaMessage({
         Seu navegador não suporta vídeo.
       </video>
       {caption && (
-        <p className={cn('text-[13px] mt-1 wrap-break-word', isFromMe ? 'text-white' : 'text-[#111B21]')}>
+        <p className="text-[13px] mt-1 wrap-break-word text-[#111b21]">
           {caption}
         </p>
       )}
