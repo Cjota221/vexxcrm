@@ -49,48 +49,40 @@ export interface ResultadoPublicacao {
 
 /* ─── Helpers ────────────────────────────────────────────────────────────────── */
 
-interface ObjetivoConfig {
-  objetivo:          string;
-  optimization_goal: string;
-  billing_event:     string;
-  bid_strategy:      string;
-}
-
-const CONFIG_POR_TIPO: Record<string, ObjetivoConfig> = {
-  LEAD_GENERATION: {
-    objetivo:          'OUTCOME_LEADS',
-    optimization_goal: 'LEAD_GENERATION',
-    billing_event:     'IMPRESSIONS',
-    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
-  },
-  MESSAGES: {
-    objetivo:          'OUTCOME_ENGAGEMENT',
-    optimization_goal: 'CONVERSATIONS',
-    billing_event:     'IMPRESSIONS',
-    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
-  },
-  LINK_CLICKS: {
-    objetivo:          'OUTCOME_TRAFFIC',
-    optimization_goal: 'LINK_CLICKS',
-    billing_event:     'IMPRESSIONS',
-    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
-  },
-  CONVERSIONS: {
-    objetivo:          'OUTCOME_SALES',
-    optimization_goal: 'OFFSITE_CONVERSIONS',
-    billing_event:     'IMPRESSIONS',
-    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
-  },
-  BRAND_AWARENESS: {
+const CONFIG_POR_TIPO = {
+  frio: {
     objetivo:          'OUTCOME_AWARENESS',
     optimization_goal: 'REACH',
     billing_event:     'IMPRESSIONS',
-    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
+    placements: {
+      publisher_platforms: ['facebook', 'instagram'],
+    },
   },
-};
+  quente: {
+    objetivo:          'OUTCOME_TRAFFIC',
+    optimization_goal: 'LINK_CLICKS',
+    billing_event:     'IMPRESSIONS',
+    placements: {
+      publisher_platforms: ['facebook', 'instagram'],
+    },
+  },
+  whatsapp: {
+    objetivo:          'OUTCOME_TRAFFIC',
+    optimization_goal: 'LINK_CLICKS',
+    billing_event:     'IMPRESSIONS',
+    placements: {
+      publisher_platforms: ['facebook', 'instagram'],
+    },
+  },
+} as const;
 
-function getConfig(objetivo: string): ObjetivoConfig {
-  return CONFIG_POR_TIPO[objetivo] ?? CONFIG_POR_TIPO.LINK_CLICKS;
+type TipoCampanha = keyof typeof CONFIG_POR_TIPO;
+
+/** Mapeia o objetivo do wizard para o tipo simplificado */
+function objetivoParaTipo(objetivo: string): TipoCampanha {
+  if (objetivo === 'MESSAGES')         return 'whatsapp';
+  if (objetivo === 'BRAND_AWARENESS')  return 'frio';
+  return 'quente'; // LINK_CLICKS, CONVERSIONS, LEAD_GENERATION
 }
 
 async function metaPost(
@@ -120,10 +112,10 @@ async function criarCampanha(
   nome: string,
   objetivo: string,
 ): Promise<string> {
-  const cfg = getConfig(objetivo);
+  const tipo = objetivoParaTipo(objetivo);
   const data = await metaPost(`${META_BASE}/${actId}/campaigns`, {
     name:              nome,
-    objective:         cfg.objetivo,
+    objective:         CONFIG_POR_TIPO[tipo].objetivo,
     status:            'PAUSED',
     special_ad_categories: '[]',
     is_adset_budget_sharing_enabled: false,
@@ -158,15 +150,15 @@ async function criarAdset(
     targeting.custom_audiences = [{ id: cfg.publico_meta_id }];
   }
 
-  const tipoCfg = getConfig(cfg.objetivo);
+  const tipo = objetivoParaTipo(cfg.objetivo);
+  const tipoCfg = CONFIG_POR_TIPO[tipo];
   const body: Record<string, unknown> = {
     name:              `${cfg.nome} — Adset`,
     campaign_id:       campaignId,
     daily_budget:      cfg.orcamentoDiario,
-    billing_event:     tipoCfg.billing_event,
     optimization_goal: tipoCfg.optimization_goal,
-    bid_strategy:      tipoCfg.bid_strategy,
-    targeting,
+    billing_event:     tipoCfg.billing_event,
+    targeting:         { ...targeting, ...tipoCfg.placements },
     status:            'PAUSED',
   };
 
