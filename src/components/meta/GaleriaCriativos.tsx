@@ -16,9 +16,33 @@ async function getAuthHeader(): Promise<string> {
 export function GaleriaCriativos() {
   const { criativos, loading, uploading, uploadProgress, uploadArquivo, arquivar, retranscrever, recarregar } = useAdCreatives();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [erro, setErro]       = useState<string | null>(null);
-  const [filtro, setFiltro]   = useState<'todos' | 'video' | 'imagem'>('todos');
-  const [preview, setPreview] = useState<{ id: string; nome: string } | null>(null);
+  const [erro, setErro]             = useState<string | null>(null);
+  const [filtro, setFiltro]         = useState<'todos' | 'video' | 'imagem'>('todos');
+  const [preview, setPreview]       = useState<{ id: string; nome: string } | null>(null);
+  const [transcrevendo, setTranscrevendo] = useState(false);
+
+  const qtdPendentes = criativos.filter(
+    c => c.tipo === 'video' && (!c.transcricao_status || c.transcricao_status === 'pendente' || c.transcricao_status === 'erro')
+  ).length;
+
+  async function transcreverTodos() {
+    setTranscrevendo(true);
+    try {
+      const auth = await getAuthHeader();
+      await fetch('/api/meta/transcricao/batch', {
+        method: 'POST',
+        headers: { Authorization: auth },
+      });
+      // Polling para atualizar os cards
+      let i = 0;
+      const poll = setInterval(async () => {
+        await recarregar();
+        if (++i >= 10) clearInterval(poll);
+      }, 3000);
+    } finally {
+      setTranscrevendo(false);
+    }
+  }
 
   const visiveis = criativos.filter(c => filtro === 'todos' || c.tipo === filtro);
   const qtdVideos  = criativos.filter(c => c.tipo === 'video').length;
@@ -76,14 +100,27 @@ export function GaleriaCriativos() {
             </button>
           ))}
         </div>
-        <button
-          onClick={recarregar}
-          disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-500 disabled:opacity-50 transition-colors"
-        >
-          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-          Atualizar
-        </button>
+        <div className="flex items-center gap-2">
+          {qtdPendentes > 0 && (
+            <button
+              onClick={transcreverTodos}
+              disabled={transcrevendo}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[#1e3a5f] rounded-xl hover:bg-[#1e3a5f] hover:text-white text-[#1e3a5f] disabled:opacity-50 transition-colors"
+            >
+              <Loader2 size={12} className={transcrevendo ? 'animate-spin' : 'hidden'} />
+              {!transcrevendo && <Play size={12} />}
+              Transcrever todos ({qtdPendentes})
+            </button>
+          )}
+          <button
+            onClick={recarregar}
+            disabled={loading}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-500 disabled:opacity-50 transition-colors"
+          >
+            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+            Atualizar
+          </button>
+        </div>
       </div>
 
       {/* Área de drop / upload */}
