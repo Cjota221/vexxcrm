@@ -43,16 +43,47 @@ export async function POST(request: NextRequest) {
     for (const entry of body.entry ?? []) {
       const pageId = entry.id as string;
 
-      // Buscar tenant pelo meta_page_id
+      // Buscar tenant pelo meta_instagram_id (Instagram Business Account ID)
       const { data: config } = await supabase
         .from('ai_provider_config')
         .select('tenant_id')
-        .eq('meta_page_id', pageId)
+        .eq('meta_instagram_id', pageId)
         .maybeSingle();
 
       if (!config?.tenant_id) {
-        // Tentar pelo account_id (fallback)
-        console.warn(`[Instagram Webhook] page_id ${pageId} não encontrado em nenhum tenant`);
+        // Fallback: tentar pelo meta_page_id (caso antigo)
+        const { data: fallback } = await supabase
+          .from('ai_provider_config')
+          .select('tenant_id')
+          .eq('meta_page_id', pageId)
+          .maybeSingle();
+
+        if (!fallback?.tenant_id) {
+          // Último fallback: único tenant com token Meta configurado
+          const { data: anyTenant } = await supabase
+            .from('ai_provider_config')
+            .select('tenant_id')
+            .not('meta_access_token', 'is', null)
+            .limit(1)
+            .maybeSingle();
+
+          if (!anyTenant?.tenant_id) {
+            console.warn(`[Instagram Webhook] Instagram ID ${pageId} não encontrado em nenhum tenant`);
+            continue;
+          }
+
+          const tenantId = anyTenant.tenant_id;
+          console.warn(`[Instagram Webhook] Usando fallback tenant ${tenantId} para Instagram ID ${pageId}`);
+          for (const event of entry.messaging ?? []) {
+            await processInstagramMessage(supabase, tenantId, pageId, event);
+          }
+          continue;
+        }
+
+        const tenantId = fallback.tenant_id;
+        for (const event of entry.messaging ?? []) {
+          await processInstagramMessage(supabase, tenantId, pageId, event);
+        }
         continue;
       }
 
