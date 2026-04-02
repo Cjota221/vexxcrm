@@ -198,7 +198,7 @@ async function processInstagramMessage(
   const attachments = message.attachments as Array<{ type: string; payload: { url: string } }> | undefined;
   const mediaUrl = attachments?.[0]?.payload?.url;
 
-  await supabase.from('messages').insert({
+  const { error: msgError } = await supabase.from('messages').insert({
     tenant_id: tenantId,
     conversation_id: conversationId,
     external_id: messageId,
@@ -206,9 +206,14 @@ async function processInstagramMessage(
     type: msgType,
     content: text || (mediaUrl ? '📷 Mídia' : ''),
     media_url: mediaUrl || null,
-    timestamp: new Date(timestamp).toISOString(),
+    created_at: new Date(timestamp).toISOString(),
     status: 'delivered',
   });
+
+  if (msgError) {
+    console.error('[Instagram Webhook] Erro ao inserir mensagem:', msgError.message);
+    return;
+  }
 
   // Trigger do Supabase cuida de unread_count e last_message_* automaticamente.
   // Apenas garantir que a conversa esteja aberta.
