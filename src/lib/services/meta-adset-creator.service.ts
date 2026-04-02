@@ -206,11 +206,12 @@ async function criarAdCreative(
   }
 
   if (cfg.tipo === 'video' && cfg.metaVideoId) {
+    const mensagem = cfg.texto?.trim() || 'Conheça nossos produtos. Qualidade garantida.';
     object_story_spec = {
       page_id: cfg.pageId,
       video_data: {
         video_id:       cfg.metaVideoId,
-        message:        cfg.texto,
+        message:        mensagem,
         call_to_action: callToAction,
       },
     };
