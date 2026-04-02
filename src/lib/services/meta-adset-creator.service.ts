@@ -49,31 +49,48 @@ export interface ResultadoPublicacao {
 
 /* ─── Helpers ────────────────────────────────────────────────────────────────── */
 
-function objetivoParaMetaApi(objetivo: string): string {
-  const map: Record<string, string> = {
-    LEAD_GENERATION: 'LEAD_GENERATION',
-    MESSAGES:        'MESSAGES',
-    LINK_CLICKS:     'LINK_CLICKS',
-    CONVERSIONS:     'CONVERSIONS',
-    BRAND_AWARENESS: 'BRAND_AWARENESS',
-  };
-  return map[objetivo] ?? 'LINK_CLICKS';
+interface ObjetivoConfig {
+  objetivo:          string;
+  optimization_goal: string;
+  billing_event:     string;
+  bid_strategy:      string;
 }
 
-function objetivoParaOptimization(objetivo: string): string {
-  const map: Record<string, string> = {
-    LEAD_GENERATION: 'LEAD_GENERATION',
-    MESSAGES:        'CONVERSATIONS',
-    LINK_CLICKS:     'LINK_CLICKS',
-    CONVERSIONS:     'OFFSITE_CONVERSIONS',
-    BRAND_AWARENESS: 'REACH',
-  };
-  return map[objetivo] ?? 'LINK_CLICKS';
-}
+const CONFIG_POR_TIPO: Record<string, ObjetivoConfig> = {
+  LEAD_GENERATION: {
+    objetivo:          'OUTCOME_LEADS',
+    optimization_goal: 'LEAD_GENERATION',
+    billing_event:     'IMPRESSIONS',
+    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
+  },
+  MESSAGES: {
+    objetivo:          'OUTCOME_ENGAGEMENT',
+    optimization_goal: 'CONVERSATIONS',
+    billing_event:     'IMPRESSIONS',
+    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
+  },
+  LINK_CLICKS: {
+    objetivo:          'OUTCOME_TRAFFIC',
+    optimization_goal: 'LINK_CLICKS',
+    billing_event:     'IMPRESSIONS',
+    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
+  },
+  CONVERSIONS: {
+    objetivo:          'OUTCOME_SALES',
+    optimization_goal: 'OFFSITE_CONVERSIONS',
+    billing_event:     'IMPRESSIONS',
+    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
+  },
+  BRAND_AWARENESS: {
+    objetivo:          'OUTCOME_AWARENESS',
+    optimization_goal: 'REACH',
+    billing_event:     'IMPRESSIONS',
+    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
+  },
+};
 
-function objetivoParaBillingEvent(objetivo: string): string {
-  if (objetivo === 'BRAND_AWARENESS') return 'IMPRESSIONS';
-  return 'IMPRESSIONS';
+function getConfig(objetivo: string): ObjetivoConfig {
+  return CONFIG_POR_TIPO[objetivo] ?? CONFIG_POR_TIPO.LINK_CLICKS;
 }
 
 async function metaPost(
@@ -103,9 +120,10 @@ async function criarCampanha(
   nome: string,
   objetivo: string,
 ): Promise<string> {
+  const cfg = getConfig(objetivo);
   const data = await metaPost(`${META_BASE}/${actId}/campaigns`, {
     name:              nome,
-    objective:         objetivoParaMetaApi(objetivo),
+    objective:         cfg.objetivo,
     status:            'PAUSED',
     special_ad_categories: '[]',
     is_adset_budget_sharing_enabled: false,
@@ -140,15 +158,16 @@ async function criarAdset(
     targeting.custom_audiences = [{ id: cfg.publico_meta_id }];
   }
 
+  const tipoCfg = getConfig(cfg.objetivo);
   const body: Record<string, unknown> = {
-    name:             `${cfg.nome} — Adset`,
-    campaign_id:      campaignId,
-    daily_budget:     cfg.orcamentoDiario,
-    billing_event:    objetivoParaBillingEvent(cfg.objetivo),
-    optimization_goal: objetivoParaOptimization(cfg.objetivo),
-    bid_strategy:     'LOWEST_COST_WITHOUT_CAP',
+    name:              `${cfg.nome} — Adset`,
+    campaign_id:       campaignId,
+    daily_budget:      cfg.orcamentoDiario,
+    billing_event:     tipoCfg.billing_event,
+    optimization_goal: tipoCfg.optimization_goal,
+    bid_strategy:      tipoCfg.bid_strategy,
     targeting,
-    status:           'PAUSED',
+    status:            'PAUSED',
   };
 
   if (cfg.dataInicio) {
