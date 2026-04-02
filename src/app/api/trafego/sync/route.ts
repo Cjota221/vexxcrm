@@ -19,18 +19,20 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({})) as { account_id?: string };
 
     // Resolver token via hierarquia: system_user → page → env
-    const tokenConfig = await resolverTokenMeta(profile.tenant_id);
-    if (!tokenConfig) {
+    let tokenConfig;
+    try {
+      tokenConfig = await resolverTokenMeta(profile.tenant_id);
+    } catch {
       return NextResponse.json({ error: 'Meta Ads não configurado' }, { status: 400 });
     }
 
     // account_id do body tem prioridade (multi-conta)
-    const accountId = body.account_id || tokenConfig.adAccountId;
+    const accountId = body.account_id || tokenConfig.account_id;
 
     const result = await sincronizarTudoDoMeta(
       profile.tenant_id,
       accountId,
-      tokenConfig.accessToken,
+      tokenConfig.token,
     );
 
     return NextResponse.json({ ok: true, ...result });
