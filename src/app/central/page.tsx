@@ -319,7 +319,7 @@ export default function CentralAtendimentoPage() {
         <div className={cn(
           'flex flex-col',
           // Desktop: fixed width sidebar
-          'md:w-70 md:min-w-65 md:max-w-xs md:shrink-0 md:flex',
+          'md:w-[350px] md:min-w-[325px] md:max-w-[400px] md:shrink-0 md:flex',
           // Mobile: full screen ou oculto
           mobileView === 'list' ? 'flex w-full' : 'hidden md:flex',
         )}>
