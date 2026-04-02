@@ -162,6 +162,7 @@ async function criarAdset(
     daily_budget:      String(cfg.orcamentoDiario),
     optimization_goal: tipoCfg.optimization_goal,
     billing_event:     tipoCfg.billing_event,
+    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',  // sobrescreve padrão da conta (BID_CAP/ROAS)
     targeting: {
       age_min:       cfg.idadeMin,
       age_max:       cfg.idadeMax,

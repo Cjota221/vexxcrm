@@ -148,6 +148,7 @@ export async function POST(req: NextRequest) {
       campaign_id: campaign.id,
       billing_event: 'IMPRESSIONS',
       optimization_goal: optimizationGoal,
+      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',  // sobrescreve padrão da conta (BID_CAP/ROAS)
       daily_budget: String(orcamentoCentavos),
       targeting,
       start_time: new Date(body.data_inicio).toISOString(),

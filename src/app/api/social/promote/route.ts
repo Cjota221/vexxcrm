@@ -76,6 +76,7 @@ export async function POST(req: NextRequest) {
       campaign_id: campaign.id,
       billing_event: 'IMPRESSIONS',
       optimization_goal: 'LINK_CLICKS',
+      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',  // sobrescreve padrão da conta (BID_CAP/ROAS)
       daily_budget: orcamentoCentavos,
       targeting: {
         geo_locations: { countries: body.paises || ['BR'] },
