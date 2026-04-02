@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { UserX, Send, RefreshCw, Loader2, AlertCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { useLeadsSemCompra, bucketLeads } from '@/hooks/useLeadsSemCompra';
+import { useLeadsSemCompra } from '@/hooks/useLeadsSemCompra';
 import { LeadBlock } from '@/components/reativacao/LeadBlock';
 import { DisparoMassaModal } from '@/components/reativacao/DisparoMassaModal';
 import type { Client } from '@/types';
@@ -53,25 +53,27 @@ export default function ReativacaoPage() {
     });
   }, [router]);
 
-  // Carregar todos os leads (primeira página — suficiente para resumo e blocos iniciais)
-  const { data, isLoading, error, refetch } = useLeadsSemCompra(1, 100);
+  const { data, isLoading, error, refetch } = useLeadsSemCompra(1, 50);
 
-  const leads = data?.data ?? [];
+  const buckets = data?.buckets;
   const total = data?.total ?? 0;
   const totalClients = data?.total_clients ?? 0;
 
-  const bucketed = bucketLeads(leads);
-
-  // Totais dos cards de resumo
-  const pctSemCompra = totalClients > 0 ? Math.round((total / totalClients) * 100) : 0;
+  // Todos os leads das primeiras páginas para o disparo em massa
+  const allLeads = [
+    ...(buckets?.recentes.data ?? []),
+    ...(buckets?.em_espera.data ?? []),
+    ...(buckets?.esfriando.data ?? []),
+    ...(buckets?.frios.data ?? []),
+  ];
 
   const handleDisparar = useCallback((targets: Client[]) => {
     setDisparoLeads(targets);
   }, []);
 
   const handleDispararTodos = useCallback(() => {
-    setDisparoLeads(leads);
-  }, [leads]);
+    setDisparoLeads(allLeads);
+  }, [allLeads]);
 
   return (
     <div className="min-h-screen bg-[#f4f6f8]">
@@ -98,7 +100,7 @@ export default function ReativacaoPage() {
             </button>
             <button
               onClick={handleDispararTodos}
-              disabled={leads.length === 0}
+              disabled={total === 0}
               className="flex items-center gap-2 px-4 py-2 bg-[#1e3a5f] text-white text-sm font-semibold rounded-xl hover:bg-[#162d4a] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <Send size={14} />
@@ -139,19 +141,19 @@ export default function ReativacaoPage() {
               />
               <SummaryCard
                 label="Recentes (0–7 dias)"
-                value={bucketed.recentes.length.toLocaleString('pt-BR')}
+                value={(buckets?.recentes.count ?? 0).toLocaleString('pt-BR')}
                 sub="mais quentes"
                 valueColor="text-blue-600"
               />
               <SummaryCard
                 label="Esfriando (30–90d)"
-                value={bucketed.esfriando.length.toLocaleString('pt-BR')}
+                value={(buckets?.esfriando.count ?? 0).toLocaleString('pt-BR')}
                 sub="urgente reativar"
                 valueColor="text-amber-600"
               />
               <SummaryCard
-                label={`Frios (+90 dias)`}
-                value={bucketed.frios.length.toLocaleString('pt-BR')}
+                label="Frios (+90 dias)"
+                value={(buckets?.frios.count ?? 0).toLocaleString('pt-BR')}
                 sub="última chance"
                 valueColor="text-red-500"
               />
@@ -171,21 +173,14 @@ export default function ReativacaoPage() {
                     key={cfg.key}
                     label={cfg.label}
                     sublabel={cfg.sublabel}
-                    leads={bucketed[cfg.key]}
+                    leads={buckets?.[cfg.key].data ?? []}
+                    totalCount={buckets?.[cfg.key].count ?? 0}
                     cor={cfg.cor}
                     badge={cfg.badge}
                     onDisparar={handleDisparar}
                   />
                 ))}
               </div>
-            )}
-
-            {/* Aviso: mostrando apenas primeiros 100 */}
-            {total > 100 && (
-              <p className="text-xs text-gray-400 text-center">
-                Exibindo os 100 leads mais recentes de {total.toLocaleString('pt-BR')} total.
-                Use o disparo em massa para atingir todos.
-              </p>
             )}
           </>
         )}
