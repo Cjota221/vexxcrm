@@ -1,17 +1,24 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import {
   Upload, Video, Image, Trash2, CheckCircle,
-  Clock, AlertCircle, Play, RefreshCw,
+  Clock, AlertCircle, Play, RefreshCw, X, Loader2,
 } from 'lucide-react';
 import { useAdCreatives, type AdCreative } from '@/hooks/useAdCreatives';
+import { supabase } from '@/lib/supabase';
+
+async function getAuthHeader(): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.access_token ? `Bearer ${session.access_token}` : '';
+}
 
 export function GaleriaCriativos() {
   const { criativos, loading, uploading, uploadProgress, uploadArquivo, arquivar, retranscrever, recarregar } = useAdCreatives();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [erro, setErro]   = useState<string | null>(null);
-  const [filtro, setFiltro] = useState<'todos' | 'video' | 'imagem'>('todos');
+  const [erro, setErro]       = useState<string | null>(null);
+  const [filtro, setFiltro]   = useState<'todos' | 'video' | 'imagem'>('todos');
+  const [preview, setPreview] = useState<{ id: string; nome: string } | null>(null);
 
   const visiveis = criativos.filter(c => filtro === 'todos' || c.tipo === filtro);
   const qtdVideos  = criativos.filter(c => c.tipo === 'video').length;
@@ -38,6 +45,14 @@ export function GaleriaCriativos() {
   }
 
   return (
+    <>
+    {preview && (
+      <VideoPreviewModal
+        criativoId={preview.id}
+        nome={preview.nome}
+        onClose={() => setPreview(null)}
+      />
+    )}
     <div className="space-y-4">
 
       {/* Filtros + recarregar */}
@@ -144,10 +159,78 @@ export function GaleriaCriativos() {
               criativo={criativo}
               onArquivar={() => arquivar(criativo.id)}
               onRetranscrever={() => retranscrever(criativo.id)}
+              onPreview={() => setPreview({ id: criativo.id, nome: criativo.nome })}
             />
           ))}
         </div>
       )}
+    </div>
+    </>
+  );
+}
+
+/* ─── Modal de preview de vídeo ──────────────────────────────────────────── */
+
+function VideoPreviewModal({
+  criativoId,
+  nome,
+  onClose,
+}: {
+  criativoId: string;
+  nome: string;
+  onClose: () => void;
+}) {
+  const [url, setUrl]       = useState<string | null>(null);
+  const [erro, setErro]     = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const auth = await getAuthHeader();
+        const res = await fetch(`/api/meta/upload/${criativoId}`, {
+          headers: { Authorization: auth },
+        });
+        const data = await res.json() as { url?: string; error?: string };
+        if (data.url) setUrl(data.url);
+        else setErro(data.error ?? 'URL não disponível');
+      } catch {
+        setErro('Erro ao carregar vídeo');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [criativoId]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="relative bg-black rounded-2xl overflow-hidden w-full max-w-2xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-2 bg-black/80">
+          <span className="text-white text-sm truncate max-w-xs">{nome}</span>
+          <button onClick={onClose} className="text-white/70 hover:text-white p-1">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="aspect-video bg-gray-900 flex items-center justify-center">
+          {loading && <Loader2 size={32} className="text-white/50 animate-spin" />}
+          {erro && <p className="text-red-400 text-sm px-4 text-center">{erro}</p>}
+          {url && (
+            <video
+              src={url}
+              controls
+              autoPlay
+              className="w-full h-full object-contain"
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -158,10 +241,12 @@ function CardCriativo({
   criativo,
   onArquivar,
   onRetranscrever,
+  onPreview,
 }: {
   criativo: AdCreative;
   onArquivar: () => void;
   onRetranscrever: () => void;
+  onPreview: () => void;
 }) {
   const [confirmando, setConfirmando] = useState(false);
 
@@ -208,12 +293,15 @@ function CardCriativo({
         )}
 
         {/* Play overlay para vídeos */}
-        {criativo.tipo === 'video' && criativo.url_preview && (
-          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/20 transition-opacity">
+        {criativo.tipo === 'video' && (
+          <button
+            onClick={onPreview}
+            className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/20 transition-opacity"
+          >
             <div className="w-9 h-9 bg-white/90 rounded-full flex items-center justify-center shadow">
               <Play size={13} className="text-gray-800 ml-0.5" fill="currentColor" />
             </div>
-          </div>
+          </button>
         )}
 
         {/* Duração */}
