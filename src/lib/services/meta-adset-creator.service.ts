@@ -292,15 +292,27 @@ async function criarAd(
   creativeId: string,
   nome: string,
 ): Promise<string> {
-  const data = await metaPost(`${META_BASE}/${actId}/ads`, {
+  const adPayload = {
     name:     nome,
     adset_id: adsetId,
     creative: { creative_id: creativeId },
     status:   'PAUSED',
-  }, token);
+  };
+  console.log('[META AD PAYLOAD]', JSON.stringify(adPayload, null, 2));
 
-  if (!data.id) throw new Error(`Erro ao criar ad: ${data.error?.message ?? 'sem ID retornado'}`);
-  return data.id;
+  const urlObj = new URL(`${META_BASE}/${actId}/ads`);
+  urlObj.searchParams.set('access_token', token);
+  const adRes = await fetch(urlObj.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(adPayload),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const adData = await adRes.json() as { id?: string; error?: { message: string; error_subcode?: number; fbtrace_id?: string } };
+  console.log('[META AD RESPONSE]', JSON.stringify(adData));
+
+  if (!adRes.ok || !adData.id) throw new Error(`Erro ao criar ad: ${adData.error?.message ?? 'sem ID retornado'}`);
+  return adData.id;
 }
 
 /* ─── publicarRascunho ───────────────────────────────────────────────────────── */
