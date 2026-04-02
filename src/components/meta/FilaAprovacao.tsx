@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useAuthStore } from '@/store/auth';
 import {
   CheckCircle, XCircle, Edit2, Play,
   Clock, Loader2, ChevronDown, ChevronUp,
@@ -41,10 +42,15 @@ export function FilaAprovacao() {
   const [processando, setProcessando] = useState<string | null>(null);
   const [feedback, setFeedback]       = useState<{ id: string; msg: string; ok: boolean } | null>(null);
 
+  function authHeader() {
+    const token = useAuthStore.getState().accessToken;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
   const carregar = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/meta/campanhas/fila');
+      const res = await fetch('/api/meta/campanhas/fila', { headers: authHeader() });
       const data = await res.json() as DraftCampanha[];
       setDrafts(Array.isArray(data) ? data : []);
     } finally {
@@ -59,7 +65,7 @@ export function FilaAprovacao() {
     try {
       const res = await fetch('/api/meta/campanhas/aprovar', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify({
           draftId,
           acao,

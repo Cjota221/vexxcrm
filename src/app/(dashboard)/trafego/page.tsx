@@ -2365,7 +2365,7 @@ export default function TrafegoPage() {
   const [pendentes, setPendentes] = useState(0);
 
   useEffect(() => {
-    fetch('/api/meta/campanhas/fila')
+    authFetch('/api/meta/campanhas/fila')
       .then(r => r.json())
       .then((data: unknown) => setPendentes(Array.isArray(data) ? data.length : 0))
       .catch(() => {});

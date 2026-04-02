@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useAuthStore } from '@/store/auth';
 import { Users, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 
 interface ResultadoPublicos {
@@ -19,8 +20,12 @@ export function InicializadorPublicos() {
 
   async function inicializar() {
     setLoading(true);
+    const token = useAuthStore.getState().accessToken;
     try {
-      const res = await fetch('/api/meta/publicos/inicializar', { method: 'POST' });
+      const res = await fetch('/api/meta/publicos/inicializar', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       const data = await res.json() as ResultadoPublicos;
       setResultado(data);
     } finally {
