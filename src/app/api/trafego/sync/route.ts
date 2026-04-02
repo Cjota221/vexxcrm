@@ -28,6 +28,9 @@ export async function POST(req: NextRequest) {
 
     // account_id do body tem prioridade (multi-conta)
     const accountId = body.account_id || tokenConfig.account_id;
+    if (!accountId) {
+      return NextResponse.json({ error: 'Ad Account ID não configurado' }, { status: 400 });
+    }
 
     const result = await sincronizarTudoDoMeta(
       profile.tenant_id,
