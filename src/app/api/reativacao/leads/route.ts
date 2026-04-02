@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
       .from('clients')
       .select('*', { count: 'exact' })
       .eq('tenant_id', tenantId)
-      .eq('total_pedidos', 0)
+      .eq('total_orders', 0)
       .order('created_at', { ascending: false })
       .range(offset, offset + perPage - 1);
 
