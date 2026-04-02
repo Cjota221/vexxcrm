@@ -7,6 +7,7 @@ import { AccountTabs } from '@/components/trafego/AccountTabs';
 import { AddAccountModal } from '@/components/trafego/AddAccountModal';
 import { MetaTokenConfig } from '@/components/meta/MetaTokenConfig';
 import { GaleriaCriativos } from '@/components/meta/GaleriaCriativos';
+import { CriadorCampanha } from '@/components/meta/CriadorCampanha';
 
 function authFetch(url: string, options?: RequestInit): Promise<Response> {
   const token = useAuthStore.getState().accessToken;
@@ -2801,6 +2802,13 @@ export default function TrafegoPage() {
                     </div>
                   );
                 })()}
+              </div>
+            )}
+
+            {/* ── CRIADOR DE CAMPANHA ── */}
+            {tab === 'campanhas' && (
+              <div className="mt-6 pt-6 border-t border-gray-100">
+                <CriadorCampanha pageId="110009834520002" whatsappNumber="5562993044255" />
               </div>
             )}
 
