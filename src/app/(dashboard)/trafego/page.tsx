@@ -927,6 +927,8 @@ function NovaCampanhaModal({ onClose, onCreated }: { onClose: () => void; onCrea
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [verificandoDup, setVerificandoDup] = useState(false);
+  const [avisosDup, setAvisosDup] = useState<Array<{ id: string; nome: string }>>([]);
 
   // Step 1 — Basic
   const [nome, setNome] = useState('');
@@ -1022,6 +1024,33 @@ function NovaCampanhaModal({ onClose, onCreated }: { onClose: () => void; onCrea
           {err && (
             <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-800 flex items-start gap-2">
               <AlertTriangle size={15} className="shrink-0 mt-0.5" /> {err}
+            </div>
+          )}
+
+          {avisosDup.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800 space-y-2">
+              <div className="flex items-start gap-2 font-medium">
+                <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+                Já existe{avisosDup.length > 1 ? 'm' : ''} {avisosDup.length} campanha{avisosDup.length > 1 ? 's' : ''} com nome similar nos últimos 7 dias:
+              </div>
+              <ul className="list-disc list-inside text-xs space-y-0.5 pl-1">
+                {avisosDup.map(d => <li key={d.id}>{d.nome}</li>)}
+              </ul>
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => { setAvisosDup([]); setStep(2); }}
+                  className="text-xs font-medium text-amber-900 underline hover:no-underline"
+                >
+                  Criar mesmo assim
+                </button>
+                <span className="text-amber-400">·</span>
+                <button
+                  onClick={() => setAvisosDup([])}
+                  className="text-xs text-amber-700 hover:text-amber-900"
+                >
+                  Alterar nome
+                </button>
+              </div>
             </div>
           )}
 
@@ -1185,10 +1214,35 @@ function NovaCampanhaModal({ onClose, onCreated }: { onClose: () => void; onCrea
           <div className="flex-1" />
           {step < 3 ? (
             <button
-              onClick={() => setStep(s => (s + 1) as 2 | 3)}
-              disabled={step === 1 ? !canGoStep2 : !canGoStep3}
+              onClick={async () => {
+                if (step === 1) {
+                  // Verificar duplicatas antes de avançar
+                  setVerificandoDup(true);
+                  setAvisosDup([]);
+                  try {
+                    const seteAtras = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                    const res = await authFetch(
+                      `/api/trafego/metrics?campaign_name_filter=${encodeURIComponent(nome.trim())}&since=${seteAtras}`
+                    );
+                    if (res.ok) {
+                      const dados = await res.json() as { campaigns?: Array<{ id: string; nome: string }> };
+                      const iguais = (dados.campaigns ?? []).filter(
+                        c => c.nome.toLowerCase().includes(nome.trim().toLowerCase())
+                      );
+                      if (iguais.length > 0) {
+                        setAvisosDup(iguais);
+                        return; // não avança — mostra aviso
+                      }
+                    }
+                  } catch { /* silencia: se falhar a checagem, avança normalmente */ }
+                  finally { setVerificandoDup(false); }
+                }
+                setStep(s => (s + 1) as 2 | 3);
+              }}
+              disabled={(step === 1 ? !canGoStep2 : !canGoStep3) || verificandoDup}
               className="px-5 py-2.5 rounded-xl bg-crm-primary text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 flex items-center gap-1.5"
             >
+              {verificandoDup ? <Loader2 size={14} className="animate-spin" /> : null}
               Próximo <ChevronRight size={15} />
             </button>
           ) : (
