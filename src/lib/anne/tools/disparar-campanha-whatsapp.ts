@@ -1,16 +1,15 @@
 /**
  * Tool: disparar_campanha_whatsapp
  *
- * Envia mensagem WhatsApp individual para uma lista de clientes via Evolution API.
- * Registra cada envio na tabela campanha_disparos.
+ * Envia mensagem WhatsApp para uma lista de clientes via Evolution API.
+ * Antes de disparar, cria um registro na tabela campaigns para acompanhamento.
  *
- * Delay obrigatório de 1,5s entre envios para evitar bloqueio no WhatsApp.
- * Usar SOMENTE após confirmação explícita da operadora.
+ * Regras anti-ban:
+ *  - 15s de delay entre cada envio
+ *  - 60s de pausa a cada 10 contatos enviados
  *
- * Limites de segurança:
- *  - MAX_CLIENTES_POR_DISPARO = 200 (evita timeout serverless)
- *  - Telefone obrigatoriamente ≥ 10 dígitos (evita envio para número inválido)
- *  - dry_run = true simula o disparo sem enviar nada
+ * Usar SOMENTE após confirmação explícita da operadora E após ela aprovar
+ * o texto final da mensagem.
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase';
@@ -19,8 +18,13 @@ import {
   sendTextMessage,
 } from '@/lib/services/evolution.service';
 
-/** Limite máximo de clientes por disparo. Acima disso lance erro claro. */
 const MAX_CLIENTES_POR_DISPARO = 200;
+
+/** 15 segundos entre cada envio (anti-ban) */
+const DELAY_ENTRE_ENVIOS_MS = 15_000;
+/** Pausa de 60 segundos a cada N contatos enviados */
+const PAUSA_A_CADA_N = 10;
+const PAUSA_LONGA_MS = 60_000;
 
 export interface ClienteDisparo {
   id: string;
@@ -32,7 +36,9 @@ export interface DispararCampanhaParams {
   clientes: ClienteDisparo[];
   mensagem_template: string;
   codigo_cupom: string;
-  /** Se true, simula o disparo sem enviar nenhuma mensagem. Útil para testes. */
+  /** Link do site a ser incluído na mensagem via {link} */
+  link?: string;
+  /** Se true, simula o disparo sem enviar nada */
   dry_run?: boolean;
 }
 
@@ -47,18 +53,18 @@ export interface DispararCampanhaResult {
   enviados: number;
   erros: number;
   detalhes: DetalheEnvio[];
-  /** Presente quando dry_run = true */
+  campanha_id?: string;
   simulated?: boolean;
 }
 
-const DELAY_ENTRE_ENVIOS_MS = 1_500;
-
-/** Template padrão de frete grátis. Aceita {nome} e {codigo_cupom}. */
+/** Template padrão de frete grátis. Variáveis: {nome}, {codigo_cupom}, {link} */
 export const TEMPLATE_FRETE_GRATIS = `Oi, {nome}! 🎉
 
 A C4 tem um presente especial pra você: *FRETE GRÁTIS* no seu próximo pedido!
 
 Use o cupom: *{codigo_cupom}*
+
+{link}
 
 Aproveite enquanto é válido! 🛍️
 Qualquer dúvida é só chamar. 😊`;
@@ -67,34 +73,38 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function aplicarTemplate(template: string, nome: string, codigoCupom: string): string {
+function aplicarTemplate(
+  template: string,
+  nome: string,
+  codigoCupom: string,
+  link?: string,
+): string {
   return template
     .replace(/\{nome\}/g, nome)
-    .replace(/\{codigo_cupom\}/g, codigoCupom);
+    .replace(/\{codigo_cupom\}/g, codigoCupom)
+    .replace(/\{link\}/g, link ?? '')
+    .trim();
 }
 
 function isTelefoneValido(telefone: string): boolean {
-  const digits = telefone.replace(/\D/g, '');
-  return digits.length >= 10;
+  return telefone.replace(/\D/g, '').length >= 10;
 }
 
 export async function dispararCampanhaWhatsApp(
   params: DispararCampanhaParams,
   tenantId: string,
-  campanhaNome = 'frete-gratis'
+  campanhaNome = 'campanha-anne',
 ): Promise<DispararCampanhaResult> {
-  const { clientes, mensagem_template, codigo_cupom, dry_run = false } = params;
+  const { clientes, mensagem_template, codigo_cupom, link, dry_run = false } = params;
 
-  // ── Hard cap: evita timeout serverless em listas muito grandes ──────────
   if (clientes.length > MAX_CLIENTES_POR_DISPARO) {
     throw new Error(
       `Limite de ${MAX_CLIENTES_POR_DISPARO} clientes por disparo. ` +
-      `Lista recebida: ${clientes.length} clientes. ` +
-      `Divida em lotes menores e dispare em etapas.`
+      `Lista: ${clientes.length}. Divida em lotes menores.`,
     );
   }
 
-  // ── Modo simulação (dry run) ─────────────────────────────────────────────
+  // ── Modo simulação ───────────────────────────────────────────────────────
   if (dry_run) {
     return {
       enviados: 0,
@@ -112,6 +122,34 @@ export async function dispararCampanhaWhatsApp(
   const supabase = createServerSupabaseClient();
   const evolutionConfig = getTenantEvolutionConfig(tenantId);
 
+  // ── Criar campanha para acompanhamento ───────────────────────────────────
+  let campanha_id: string | undefined;
+  const mensagemExemplo = aplicarTemplate(
+    mensagem_template,
+    clientes[0]?.nome ?? 'Cliente',
+    codigo_cupom,
+    link,
+  );
+
+  const { data: campanha } = await supabase
+    .from('campaigns')
+    .insert({
+      tenant_id:    tenantId,
+      name:         campanhaNome,
+      description:  `Disparado pela Anne — ${clientes.length} contatos`,
+      type:         'broadcast',
+      status:       'running',
+      target_count: clientes.length,
+      sent_count:   0,
+      failed_count: 0,
+      started_at:   new Date().toISOString(),
+      messages:     [{ type: 'text', content: mensagemExemplo }],
+    })
+    .select('id')
+    .single();
+
+  campanha_id = campanha?.id;
+
   const detalhes: DetalheEnvio[] = [];
   let enviados = 0;
   let erros = 0;
@@ -120,29 +158,19 @@ export async function dispararCampanhaWhatsApp(
     const cliente = clientes[i];
     const telefone = cliente.telefone.replace(/\D/g, '');
 
-    // ── Validação de telefone ─────────────────────────────────────────────
     if (!isTelefoneValido(telefone)) {
       erros++;
-      const motivo = `Telefone inválido: "${cliente.telefone}" (mínimo 10 dígitos)`;
-      console.warn(`[Campanha] ${motivo} — cliente: ${cliente.nome}`);
+      const motivo = `Telefone inválido: "${cliente.telefone}"`;
+      detalhes.push({ nome: cliente.nome, telefone: cliente.telefone, status: 'erro', motivo });
 
       supabase.from('campanha_disparos').insert({
-        tenant_id: tenantId,
-        cliente_id: cliente.id,
-        telefone: cliente.telefone,
-        mensagem: null,
-        status: 'erro',
-        motivo,
-        campanha_nome: campanhaNome,
-      }).then(({ error }) => {
-        if (error) console.error('[Campanha] Erro ao salvar log:', error.message);
-      });
-
-      detalhes.push({ nome: cliente.nome, telefone: cliente.telefone, status: 'erro', motivo });
+        tenant_id: tenantId, cliente_id: cliente.id, telefone: cliente.telefone,
+        mensagem: null, status: 'erro', motivo, campanha_nome: campanhaNome,
+      }).then(({ error }) => { if (error) console.error('[Campanha] log erro:', error.message); });
       continue;
     }
 
-    const mensagem = aplicarTemplate(mensagem_template, cliente.nome, codigo_cupom);
+    const mensagem = aplicarTemplate(mensagem_template, cliente.nome, codigo_cupom, link);
     let status: 'enviado' | 'erro' = 'enviado';
     let motivo: string | undefined;
 
@@ -152,44 +180,45 @@ export async function dispararCampanhaWhatsApp(
     } catch (err) {
       erros++;
       status = 'erro';
-      motivo = err instanceof Error ? err.message : 'Erro desconhecido na Evolution API';
-      console.error(`[Campanha] Falha ao enviar para ${cliente.nome} (${telefone}):`, motivo);
+      motivo = err instanceof Error ? err.message : 'Erro Evolution API';
     }
 
-    // Registrar no banco (fire-and-forget, não bloqueia o loop)
-    supabase
-      .from('campanha_disparos')
-      .insert({
-        tenant_id: tenantId,
-        cliente_id: cliente.id,
-        telefone,
-        mensagem,
-        status,
-        motivo: motivo ?? null,
-        campanha_nome: campanhaNome,
-      })
-      .then(({ error }) => {
-        if (error) console.error('[Campanha] Erro ao salvar log:', error.message);
-      });
+    supabase.from('campanha_disparos').insert({
+      tenant_id: tenantId, cliente_id: cliente.id, telefone, mensagem,
+      status, motivo: motivo ?? null, campanha_nome: campanhaNome,
+    }).then(({ error }) => { if (error) console.error('[Campanha] log disparo:', error.message); });
 
     detalhes.push({ nome: cliente.nome, telefone, status, ...(motivo ? { motivo } : {}) });
 
-    // Log de progresso a cada 10 envios
-    if ((i + 1) % 10 === 0 || i === clientes.length - 1) {
+    // Progresso a cada 10
+    if ((i + 1) % PAUSA_A_CADA_N === 0) {
       console.log(JSON.stringify({
-        event: 'campanha_progress',
-        campanha_nome: campanhaNome,
-        enviados: i + 1,
-        total: clientes.length,
-        percentual: Math.round(((i + 1) / clientes.length) * 100),
+        event: 'campanha_progress', campanha_nome: campanhaNome,
+        enviados: i + 1, total: clientes.length,
       }));
     }
 
-    // Delay obrigatório entre envios (exceto no último)
     if (i < clientes.length - 1) {
-      await sleep(DELAY_ENTRE_ENVIOS_MS);
+      // Pausa longa a cada PAUSA_A_CADA_N envios
+      if ((i + 1) % PAUSA_A_CADA_N === 0) {
+        await sleep(PAUSA_LONGA_MS);
+      } else {
+        await sleep(DELAY_ENTRE_ENVIOS_MS);
+      }
     }
   }
 
-  return { enviados, erros, detalhes };
+  // Atualizar campanha com totais finais
+  if (campanha_id) {
+    supabase.from('campaigns').update({
+      status:       erros === clientes.length ? 'cancelled' : 'completed',
+      sent_count:   enviados,
+      failed_count: erros,
+      completed_at: new Date().toISOString(),
+    }).eq('id', campanha_id).then(({ error }) => {
+      if (error) console.error('[Campanha] update status:', error.message);
+    });
+  }
+
+  return { enviados, erros, detalhes, campanha_id };
 }
