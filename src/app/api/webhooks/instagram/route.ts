@@ -125,8 +125,34 @@ async function processInstagramMessage(
   // Ignorar echo (mensagens enviadas pela página via API)
   if (message.is_echo) return;
 
-  // ── Upsert cliente ──────────────────────────────────────────────────────
+  // ── Buscar nome e foto do usuário via Graph API ─────────────────────────
   const igUserId = senderId;
+  let igName = `Instagram ${igUserId.slice(-6)}`;
+  let igAvatar: string | null = null;
+
+  try {
+    const { data: cfg } = await supabase
+      .from('ai_provider_config')
+      .select('meta_access_token')
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (cfg?.meta_access_token) {
+      const profileRes = await fetch(
+        `https://graph.facebook.com/v19.0/${igUserId}?fields=name,profile_pic&access_token=${cfg.meta_access_token}`,
+        { signal: AbortSignal.timeout(5000) }
+      );
+      if (profileRes.ok) {
+        const profile = await profileRes.json() as { name?: string; profile_pic?: string };
+        if (profile.name) igName = profile.name;
+        if (profile.profile_pic) igAvatar = profile.profile_pic;
+      }
+    }
+  } catch {
+    // Falha silenciosa — usa nome padrão
+  }
+
+  // ── Upsert cliente ──────────────────────────────────────────────────────
   const { data: client } = await supabase
     .from('clients')
     .upsert(
@@ -134,7 +160,8 @@ async function processInstagramMessage(
         tenant_id: tenantId,
         phone: `ig:${igUserId}`,
         phone_normalized: `ig:${igUserId}`,
-        name: `Instagram ${igUserId.slice(-6)}`,
+        name: igName,
+        avatar_url: igAvatar || undefined,
         source: 'instagram',
       },
       { onConflict: 'tenant_id,phone_normalized', ignoreDuplicates: false }
