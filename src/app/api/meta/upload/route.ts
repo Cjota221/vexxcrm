@@ -63,44 +63,49 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Tipo não suportado. Envie vídeo ou imagem.' }, { status: 400 });
   }
 
-  // Upload para o Meta
-  const uploadResult = isVideo
-    ? await uploadVideoParaMeta(tenantId, file, nome)
-    : await uploadImagemParaMeta(tenantId, file, nome);
+  try {
+    // Upload para o Meta
+    const uploadResult = isVideo
+      ? await uploadVideoParaMeta(tenantId, file, nome)
+      : await uploadImagemParaMeta(tenantId, file, nome);
 
-  if (!uploadResult.ok) {
-    return NextResponse.json({ error: uploadResult.error }, { status: 400 });
+    if (!uploadResult.ok) {
+      return NextResponse.json({ error: uploadResult.error }, { status: 400 });
+    }
+
+    // Salvar no banco
+    const id = await salvarCriativoNoBanco({
+      tenantId,
+      nome,
+      tipo:            isVideo ? 'video' : 'imagem',
+      metaVideoId:     isVideo  ? uploadResult.metaId : undefined,
+      metaImageHash:   isImagem ? uploadResult.metaId : undefined,
+      urlPreview:      uploadResult.thumbUrl,
+      tamanhoBytes:    file.size,
+      duracaoSegundos: duracaoStr ? parseInt(duracaoStr) : undefined,
+    });
+
+    // Disparar transcrição em background para vídeos
+    if (isVideo && id) {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+      fetch(`${appUrl}/api/meta/transcricao`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-tenant-id': tenantId,
+        },
+        body: JSON.stringify({ criativoId: id }),
+      }).catch(err => console.error('[Upload] Erro ao disparar transcrição:', err));
+    }
+
+    return NextResponse.json({
+      ok: true,
+      id,
+      metaId:   uploadResult.metaId,
+      thumbUrl: uploadResult.thumbUrl,
+    });
+  } catch (err) {
+    console.error('[Upload] Erro interno:', err);
+    return NextResponse.json({ error: String(err) }, { status: 500 });
   }
-
-  // Salvar no banco
-  const id = await salvarCriativoNoBanco({
-    tenantId,
-    nome,
-    tipo:            isVideo ? 'video' : 'imagem',
-    metaVideoId:     isVideo  ? uploadResult.metaId : undefined,
-    metaImageHash:   isImagem ? uploadResult.metaId : undefined,
-    urlPreview:      uploadResult.thumbUrl,
-    tamanhoBytes:    file.size,
-    duracaoSegundos: duracaoStr ? parseInt(duracaoStr) : undefined,
-  });
-
-  // Disparar transcrição em background para vídeos
-  if (isVideo && id) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
-    fetch(`${appUrl}/api/meta/transcricao`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-tenant-id': tenantId,
-      },
-      body: JSON.stringify({ criativoId: id }),
-    }).catch(err => console.error('[Upload] Erro ao disparar transcrição:', err));
-  }
-
-  return NextResponse.json({
-    ok: true,
-    id,
-    metaId:   uploadResult.metaId,
-    thumbUrl: uploadResult.thumbUrl,
-  });
 }
