@@ -24,16 +24,22 @@ export async function GET(request: NextRequest) {
 
     const supabase = createServerSupabaseClient();
     const { searchParams } = new URL(request.url);
-    const perPage = Math.min(100, Math.max(1, parseInt(searchParams.get('per_page') || '50')));
+    const perPage = Math.min(500, Math.max(1, parseInt(searchParams.get('per_page') || '50')));
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
+    const ascending = searchParams.get('order') === 'asc';
+    const tagFilter = searchParams.get('tag'); // filtra 1 tag específica (para sub-grupos)
+    const offset = (page - 1) * perPage;
 
     async function fetchByTag(tag: string) {
+      if (tagFilter && tagFilter !== tag) return { data: [], count: 0 };
+
       const { data, error, count } = await supabase
         .from('clients')
         .select('*', { count: 'exact' })
         .eq('tenant_id', tenantId)
         .contains('tags', [tag])
-        .order('created_at', { ascending: false })
-        .limit(perPage);
+        .order('created_at', { ascending })
+        .range(offset, offset + perPage - 1);
 
       if (error) throw new Error(`[${tag}] ${error.message}`);
       return { data: data ?? [], count: count ?? 0 };

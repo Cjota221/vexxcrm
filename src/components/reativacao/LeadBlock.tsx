@@ -1,10 +1,14 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { ChevronDown, ChevronUp, Send } from 'lucide-react';
+import { ChevronDown, ChevronUp, Send, Layers } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getInitials, getAvatarColor, formatRelativeTime } from '@/lib/utils';
+import { SubgruposModal } from './SubgruposModal';
 import type { Client } from '@/types';
+
+/** Acima deste limite mostra botão de sub-grupos em vez de disparo direto */
+const SUBGROUP_THRESHOLD = 100;
 
 interface BadgeProps {
   texto: string;
@@ -31,14 +35,18 @@ interface LeadBlockProps {
   label: string;
   sublabel: string;
   leads: Client[];
-  totalCount?: number; // total real do bucket (pode ser > leads.length)
+  totalCount?: number;
+  bucketKey?: string;  // para busca paginada no SubgruposModal
+  isByTag?: boolean;
   cor: string;
   badge: BadgeProps;
   onDisparar: (leads: Client[]) => void;
 }
 
-export function LeadBlock({ label, sublabel, leads, totalCount, cor, badge, onDisparar }: LeadBlockProps) {
+export function LeadBlock({ label, sublabel, leads, totalCount, bucketKey, isByTag, cor, badge, onDisparar }: LeadBlockProps) {
   const displayCount = totalCount ?? leads.length;
+  const [subgruposOpen, setSubgruposOpen] = useState(false);
+  const usesSubgrupos = displayCount > SUBGROUP_THRESHOLD && !!bucketKey;
   const [expanded, setExpanded] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -88,13 +96,23 @@ export function LeadBlock({ label, sublabel, leads, totalCount, cor, badge, onDi
         </span>
 
         {/* Botão disparar */}
-        <button
-          onClick={e => { e.stopPropagation(); handleDisparar(); }}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1e3a5f] text-white text-xs font-medium rounded-lg hover:bg-[#162d4a] transition-colors shrink-0"
-        >
-          <Send size={11} />
-          Disparar bloco
-        </button>
+        {usesSubgrupos ? (
+          <button
+            onClick={e => { e.stopPropagation(); setSubgruposOpen(true); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1e3a5f] text-white text-xs font-medium rounded-lg hover:bg-[#162d4a] transition-colors shrink-0"
+          >
+            <Layers size={11} />
+            Sub-grupos
+          </button>
+        ) : (
+          <button
+            onClick={e => { e.stopPropagation(); handleDisparar(); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1e3a5f] text-white text-xs font-medium rounded-lg hover:bg-[#162d4a] transition-colors shrink-0"
+          >
+            <Send size={11} />
+            Disparar bloco
+          </button>
+        )}
 
         {/* Chevron */}
         <span className="text-gray-400 shrink-0">
@@ -167,6 +185,17 @@ export function LeadBlock({ label, sublabel, leads, totalCount, cor, badge, onDi
             </button>
           </div>
         </>
+      )}
+
+      {/* Modal de sub-grupos */}
+      {subgruposOpen && bucketKey && (
+        <SubgruposModal
+          bucketKey={bucketKey}
+          bucketLabel={label}
+          totalCount={displayCount}
+          isByTag={isByTag}
+          onClose={() => setSubgruposOpen(false)}
+        />
       )}
     </div>
   );

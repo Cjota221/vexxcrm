@@ -41,8 +41,9 @@ export async function GET(request: NextRequest) {
     const supabase = createServerSupabaseClient();
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
-    const perPage = Math.min(200, Math.max(1, parseInt(searchParams.get('per_page') || '50')));
+    const perPage = Math.min(500, Math.max(1, parseInt(searchParams.get('per_page') || '50')));
     const bucketFilter = searchParams.get('bucket'); // opcional: filtrar 1 bucket
+    const ascending = searchParams.get('order') === 'asc'; // para sub-grupos (mais antigos primeiro)
     const offset = (page - 1) * perPage;
 
     // Limites de data para cada bucket
@@ -66,7 +67,7 @@ export async function GET(request: NextRequest) {
         return { data: [], count: 0 };
       }
 
-      let q = base().order('created_at', { ascending: false }).range(offset, offset + perPage - 1);
+      let q = base().order('created_at', { ascending }).range(offset, offset + perPage - 1);
 
       switch (bucket) {
         case 'recentes':

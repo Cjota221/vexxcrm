@@ -153,7 +153,7 @@ export default function ReativacaoPage() {
       </div>
 
       {/* ─── Conteúdo ─── */}
-      <div className="p-6 space-y-5 max-w-4xl mx-auto">
+      <div className="p-6 space-y-5">
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-24">
             <Loader2 size={32} className="animate-spin text-[#1e3a5f] mb-3" />
@@ -186,6 +186,7 @@ export default function ReativacaoPage() {
                     sublabel={cfg.sublabel}
                     leads={buckets?.[cfg.key].data ?? []}
                     totalCount={buckets?.[cfg.key].count ?? 0}
+                    bucketKey={cfg.key}
                     cor={cfg.cor}
                     badge={cfg.badge}
                     onDisparar={handleDisparar}
@@ -214,6 +215,8 @@ export default function ReativacaoPage() {
                     sublabel={cfg.sublabel}
                     leads={grupos?.[cfg.key].data ?? []}
                     totalCount={grupos?.[cfg.key].count ?? 0}
+                    bucketKey={cfg.key}
+                    isByTag
                     cor={cfg.cor}
                     badge={cfg.badge}
                     onDisparar={handleDisparar}
