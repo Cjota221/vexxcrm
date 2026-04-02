@@ -72,15 +72,17 @@ interface CriativoDb {
   tipo: string;
   meta_video_id: string | null;
   meta_image_hash: string | null;
+  url_preview: string | null;
 }
 
 async function buscarCriativo(tenantId: string): Promise<CriativoDb | null> {
   const supabase = createServerSupabaseClient();
+  const CAMPOS = 'id, tipo, meta_video_id, meta_image_hash, url_preview';
 
   // Preferir imagem (mais rápida de criar no Meta)
   const { data: imagem } = await supabase
     .from('ad_creatives')
-    .select('id, tipo, meta_video_id, meta_image_hash')
+    .select(CAMPOS)
     .eq('tenant_id', tenantId)
     .not('meta_image_hash', 'is', null)
     .order('created_at', { ascending: false })
@@ -92,7 +94,7 @@ async function buscarCriativo(tenantId: string): Promise<CriativoDb | null> {
   // Fallback: vídeo
   const { data: video } = await supabase
     .from('ad_creatives')
-    .select('id, tipo, meta_video_id, meta_image_hash')
+    .select(CAMPOS)
     .eq('tenant_id', tenantId)
     .not('meta_video_id', 'is', null)
     .order('created_at', { ascending: false })
@@ -174,6 +176,7 @@ export async function executarAgente(
       tipo:           criativoDb.tipo as 'video' | 'imagem',
       metaVideoId:    criativoDb.meta_video_id ?? undefined,
       metaImageHash:  criativoDb.meta_image_hash ?? undefined,
+      imageUrl:       criativoDb.url_preview ?? undefined,
       headline:       nomeCampanha,
       texto:          '',
       cta:            tipo === 'whatsapp' ? 'WHATSAPP_MESSAGE' : 'LEARN_MORE',

@@ -33,6 +33,8 @@ export interface ConfiguracaoCriativo {
   tipo: 'video' | 'imagem';
   metaVideoId?: string;
   metaImageHash?: string;
+  /** Thumbnail do vídeo — obrigatório pela Meta API quando tipo='video' */
+  imageUrl?: string;
   headline: string;
   texto: string;
   cta: string;
@@ -227,13 +229,15 @@ async function criarAdCreative(
     }
 
     const mensagem = cfg.texto?.trim() || 'Conheça nossos produtos. Qualidade garantida.';
+    const videoData: Record<string, unknown> = {
+      video_id:       cfg.metaVideoId,
+      message:        mensagem,
+      call_to_action: callToAction,
+    };
+    if (cfg.imageUrl) videoData.image_url = cfg.imageUrl;
     object_story_spec = {
       page_id: cfg.pageId,
-      video_data: {
-        video_id:       cfg.metaVideoId,
-        message:        mensagem,
-        call_to_action: callToAction,
-      },
+      video_data: videoData,
     };
   } else if (cfg.tipo === 'imagem' && cfg.metaImageHash) {
     object_story_spec = {
@@ -309,7 +313,7 @@ export async function publicarRascunho(
     .select(`
       *,
       ad_creatives (
-        tipo, meta_video_id, meta_image_hash
+        tipo, meta_video_id, meta_image_hash, url_preview
       )
     `)
     .eq('id', draftId)
@@ -354,13 +358,14 @@ export async function publicarRascunho(
     });
 
     // 3. Criar ad creative
-    const criativo = draft.ad_creatives as { tipo: string; meta_video_id: string | null; meta_image_hash: string | null } | null;
+    const criativo = draft.ad_creatives as { tipo: string; meta_video_id: string | null; meta_image_hash: string | null; url_preview: string | null } | null;
     if (!criativo) throw new Error('Criativo não encontrado. Selecione um criativo antes de publicar.');
 
     const cfgCriativo: ConfiguracaoCriativo = {
       tipo:          criativo.tipo as 'video' | 'imagem',
       metaVideoId:   criativo.meta_video_id ?? undefined,
       metaImageHash: criativo.meta_image_hash ?? undefined,
+      imageUrl:      criativo.url_preview ?? undefined,
       headline:      draft.copy_headline ?? draft.nome,
       texto:         draft.copy_texto ?? '',
       cta:           draft.copy_cta ?? 'LEARN_MORE',
