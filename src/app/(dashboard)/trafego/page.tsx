@@ -9,6 +9,7 @@ import { MetaTokenConfig } from '@/components/meta/MetaTokenConfig';
 import { GaleriaCriativos } from '@/components/meta/GaleriaCriativos';
 import { CriadorCampanha } from '@/components/meta/CriadorCampanha';
 import { AgenteTrafegoPanel } from '@/components/meta/AgenteTrafegoPanel';
+import { FilaAprovacao } from '@/components/meta/FilaAprovacao';
 
 function authFetch(url: string, options?: RequestInit): Promise<Response> {
   const token = useAuthStore.getState().accessToken;
@@ -87,7 +88,7 @@ interface MetricsData {
 }
 
 type Period = '1d' | '7d' | '15d' | '30d';
-type Tab = 'campanhas' | 'criativos' | 'publicos' | 'textos' | 'analise' | 'relatorio' | 'config' | 'agente';
+type Tab = 'campanhas' | 'criativos' | 'publicos' | 'textos' | 'analise' | 'relatorio' | 'config' | 'agente' | 'aprovacoes';
 
 /* ─── Formatadores ─────────────────────────────────────────────────────────── */
 
@@ -2360,6 +2361,14 @@ export default function TrafegoPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('campanhas');
+  const [pendentes, setPendentes] = useState(0);
+
+  useEffect(() => {
+    fetch('/api/meta/campanhas/fila')
+      .then(r => r.json())
+      .then((data: unknown) => setPendentes(Array.isArray(data) ? data.length : 0))
+      .catch(() => {});
+  }, []);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   const [copies, setCopies] = useState<Array<{ id: string; headline: string; texto_principal: string; cta: string; justificativa?: string }>>([]);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
@@ -2727,6 +2736,22 @@ export default function TrafegoPage() {
                   {label}
                 </button>
               ))}
+              <button
+                onClick={() => setTab('aprovacoes')}
+                className={cn(
+                  'relative px-5 py-3.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
+                  tab === 'aprovacoes'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                )}
+              >
+                Aprovações
+                {pendentes > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                    {pendentes}
+                  </span>
+                )}
+              </button>
             </div>
             {tab === 'publicos' && (
               <button className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 px-4 py-3.5 transition-colors whitespace-nowrap">
@@ -2973,6 +2998,9 @@ export default function TrafegoPage() {
             {tab === 'agente' && (
               <AgenteTrafegoPanel />
             )}
+
+            {/* ── APROVAÇÕES ── */}
+            {tab === 'aprovacoes' && <FilaAprovacao />}
 
             {/* ── CONFIG ── */}
             {tab === 'config' && (
