@@ -169,7 +169,10 @@ async function criarAdset(
     body.end_time = new Date(cfg.dataFim + 'T23:59:59-03:00').toISOString();
   }
 
+  console.log('[META ADSET PAYLOAD]', JSON.stringify(body, null, 2));
+
   const data = await metaPost(`${META_BASE}/${actId}/adsets`, body, token);
+  console.log('[META ADSET RESPONSE]', JSON.stringify(data, null, 2));
   if (!data.id) throw new Error(`Erro ao criar adset: ${data.error?.message ?? 'sem ID retornado'}`);
   return data.id;
 }
