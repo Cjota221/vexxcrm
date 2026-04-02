@@ -85,20 +85,21 @@ function objetivoParaTipo(objetivo: string): TipoCampanha {
   return 'quente'; // LINK_CLICKS, CONVERSIONS, LEAD_GENERATION
 }
 
+// Meta Graph API aceita JSON com access_token no query string.
+// URLSearchParams converte booleans para string "false" que pode ser
+// interpretada como truthy → ativa CBO → exige bid_amount.
 async function metaPost(
   url: string,
   body: Record<string, unknown>,
   token: string,
 ): Promise<{ id?: string; error?: { message: string; code: number } }> {
-  const form = new URLSearchParams();
-  form.append('access_token', token);
-  for (const [k, v] of Object.entries(body)) {
-    form.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
-  }
+  const urlObj = new URL(url);
+  urlObj.searchParams.set('access_token', token);
 
-  const res = await fetch(url, {
+  const res = await fetch(urlObj.toString(), {
     method: 'POST',
-    body: form,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(20_000),
   });
   return res.json() as Promise<{ id?: string; error?: { message: string; code: number } }>;
@@ -152,26 +153,33 @@ async function criarAdset(
 
   const tipo = objetivoParaTipo(cfg.objetivo);
   const tipoCfg = CONFIG_POR_TIPO[tipo];
-  const body: Record<string, unknown> = {
-    name:              `${cfg.nome} — Adset`,
+
+  // Payload mínimo garantido pela Meta API v21.0.
+  // Campos extras (placements, interests, gender) adicionados após confirmação que funciona.
+  const adsetPayload: Record<string, unknown> = {
+    name:              `[VEXX] ${cfg.nome} — Adset`,
     campaign_id:       campaignId,
-    daily_budget:      cfg.orcamentoDiario,
+    daily_budget:      String(cfg.orcamentoDiario),
     optimization_goal: tipoCfg.optimization_goal,
     billing_event:     tipoCfg.billing_event,
-    targeting:         { ...targeting, ...tipoCfg.placements },
-    status:            'PAUSED',
+    targeting: {
+      age_min:       cfg.idadeMin,
+      age_max:       cfg.idadeMax,
+      geo_locations: { countries: cfg.paises },
+    },
+    status: 'PAUSED',
   };
 
   if (cfg.dataInicio) {
-    body.start_time = new Date(cfg.dataInicio + 'T00:00:00-03:00').toISOString();
+    adsetPayload.start_time = new Date(cfg.dataInicio + 'T00:00:00-03:00').toISOString();
   }
   if (cfg.dataFim) {
-    body.end_time = new Date(cfg.dataFim + 'T23:59:59-03:00').toISOString();
+    adsetPayload.end_time = new Date(cfg.dataFim + 'T23:59:59-03:00').toISOString();
   }
 
-  console.log('[META ADSET PAYLOAD]', JSON.stringify(body, null, 2));
+  console.log('[META ADSET PAYLOAD]', JSON.stringify(adsetPayload, null, 2));
 
-  const data = await metaPost(`${META_BASE}/${actId}/adsets`, body, token);
+  const data = await metaPost(`${META_BASE}/${actId}/adsets`, adsetPayload, token);
   console.log('[META ADSET RESPONSE]', JSON.stringify(data, null, 2));
   if (!data.id) throw new Error(`Erro ao criar adset: ${data.error?.message ?? 'sem ID retornado'}`);
   return data.id;

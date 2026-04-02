@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
       objective: objetivoNormalizado,
       status: 'PAUSED',
       special_ad_categories: [],
-      is_adset_budget_sharing_enabled: false,
+      is_adset_budget_sharing_enabled: 0,  // 0/1 p/ form-encoded: evita string "false" interpretada como truthy
       access_token: token,
     });
 

@@ -63,31 +63,32 @@ export async function POST(req: NextRequest) {
     // 1. Campaign
     const campaign = await metaPost<{ id: string }>(`${META_BASE}/${accountId}/campaigns`, {
       name: body.nome_campanha,
-      objective: 'OUTCOME_ENGAGEMENT',
+      objective: 'OUTCOME_TRAFFIC',
       status: 'PAUSED',
       special_ad_categories: [],
       is_adset_budget_sharing_enabled: false,
       access_token: token,
     });
 
-    // 2. Adset
-    const adset = await metaPost<{ id: string }>(`${META_BASE}/${accountId}/adsets`, {
+    // 2. Adset — POST_ENGAGEMENT pode exigir bid_amount em v21.0; usar LINK_CLICKS (seguro)
+    const adsetPayload = {
       name: `${body.nome_campanha} — Conjunto`,
       campaign_id: campaign.id,
       billing_event: 'IMPRESSIONS',
-      optimization_goal: 'POST_ENGAGEMENT',
+      optimization_goal: 'LINK_CLICKS',
       daily_budget: orcamentoCentavos,
       targeting: {
         geo_locations: { countries: body.paises || ['BR'] },
         age_min: body.idade_min || 18,
         age_max: body.idade_max || 65,
       },
-      promoted_object: { page_id: pageId },
       start_time: new Date(body.data_inicio).toISOString(),
       ...(body.data_fim ? { end_time: new Date(body.data_fim).toISOString() } : {}),
       status: 'PAUSED',
       access_token: token,
-    });
+    };
+    console.log('[social/promote ADSET PAYLOAD]', JSON.stringify(adsetPayload, null, 2));
+    const adset = await metaPost<{ id: string }>(`${META_BASE}/${accountId}/adsets`, adsetPayload);
 
     // 3. Ad using existing post as creative
     const postObjectStoryId = body.post_id.includes('_') ? body.post_id : `${pageId}_${body.post_id}`;
