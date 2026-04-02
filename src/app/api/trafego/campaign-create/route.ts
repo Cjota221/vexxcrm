@@ -102,10 +102,17 @@ export async function POST(req: NextRequest) {
 
     const orcamentoCentavos = Math.round(body.orcamento_diario * 100);
 
+    // Normalizar objetivo: OUTCOME_LEADS e OUTCOME_SALES → OUTCOME_TRAFFIC
+    // (evita exigir pixel/formulário; adset usa LINK_CLICKS como optimization_goal)
+    const objetivoNormalizado =
+      body.objetivo === 'OUTCOME_AWARENESS'  ? 'OUTCOME_AWARENESS'  :
+      body.objetivo === 'OUTCOME_ENGAGEMENT' ? 'OUTCOME_ENGAGEMENT' :
+      'OUTCOME_TRAFFIC';
+
     // 1. Criar campanha
     const campaign = await metaPost<{ id: string }>(`${META_BASE}/${accountId}/campaigns`, {
       name: body.nome,
-      objective: body.objetivo,
+      objective: objetivoNormalizado,
       status: 'PAUSED',
       special_ad_categories: [],
       is_adset_budget_sharing_enabled: false,
@@ -125,13 +132,16 @@ export async function POST(req: NextRequest) {
       targeting.flexible_spec = [{ interests: body.publico.interesses }];
     }
 
+    // optimization_goal seguro: REACH para awareness, LINK_CLICKS para os demais.
+    // LEAD_GENERATION exige formulário de lead; OFFSITE_CONVERSIONS exige pixel + bid_amount.
+    // Ambos causam erro "lance obrigatório" — usar LINK_CLICKS como fallback seguro.
+    const optimizationGoal = body.objetivo === 'OUTCOME_AWARENESS' ? 'REACH' : 'LINK_CLICKS';
+
     const adset = await metaPost<{ id: string }>(`${META_BASE}/${accountId}/adsets`, {
       name: `${body.nome} — Conjunto`,
       campaign_id: campaign.id,
       billing_event: 'IMPRESSIONS',
-      optimization_goal: body.objetivo === 'OUTCOME_LEADS' ? 'LEAD_GENERATION' :
-                         body.objetivo === 'OUTCOME_TRAFFIC' ? 'LINK_CLICKS' :
-                         body.objetivo === 'OUTCOME_SALES' ? 'OFFSITE_CONVERSIONS' : 'REACH',
+      optimization_goal: optimizationGoal,
       daily_budget: String(orcamentoCentavos),
       targeting,
       start_time: new Date(body.data_inicio).toISOString(),
