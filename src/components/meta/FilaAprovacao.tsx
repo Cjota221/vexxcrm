@@ -42,7 +42,7 @@ export function FilaAprovacao() {
   const [processando, setProcessando] = useState<string | null>(null);
   const [feedback, setFeedback]       = useState<{ id: string; msg: string; ok: boolean } | null>(null);
 
-  function authHeader() {
+  function authHeader(): HeadersInit {
     const token = useAuthStore.getState().accessToken;
     return token ? { Authorization: `Bearer ${token}` } : {};
   }
