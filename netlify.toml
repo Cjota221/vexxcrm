@@ -37,6 +37,9 @@
 [functions."api/catalog/sync"]
   timeout = 26
 
+[functions."api/ai-team/create-audiences"]
+  timeout = 26
+
 # SSE: desabilitado como fonte de mensagens (eventBus in-memory não funciona
 # em Netlify serverless — processos isolados por request).
 # O hook useRealtimeMessages usa Supabase Realtime (WebSocket) como fonte
