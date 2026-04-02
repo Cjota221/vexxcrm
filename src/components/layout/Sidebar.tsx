@@ -21,6 +21,7 @@ import {
   TrendingUp,
   Share2,
   BookOpen,
+  UserX,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/store/ui';
@@ -35,6 +36,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', href: '/', icon: <LayoutDashboard size={20} /> },
   { label: 'Central de Atendimento', href: '/central', icon: <Headset size={20} /> },
   { label: 'Clientes', href: '/clientes', icon: <Users size={20} /> },
+  { label: 'Reativação', href: '/reativacao', icon: <UserX size={20} /> },
   { label: 'Pedidos', href: '/pedidos', icon: <Package size={20} /> },
   { label: 'Produtos', href: '/produtos', icon: <ShoppingBag size={20} /> },
   { label: 'Campanhas', href: '/campanhas', icon: <Megaphone size={20} /> },
