@@ -61,6 +61,7 @@ export async function POST(req: NextRequest) {
   try {
     const { profile } = await getTenantFromRequest(req);
     const body = await req.json() as {
+
       nome: string;
       objetivo: string;
       orcamento_diario: number;
@@ -136,6 +137,11 @@ export async function POST(req: NextRequest) {
     // LEAD_GENERATION exige formulário de lead; OFFSITE_CONVERSIONS exige pixel + bid_amount.
     // Ambos causam erro "lance obrigatório" — usar LINK_CLICKS como fallback seguro.
     const optimizationGoal = body.objetivo === 'OUTCOME_AWARENESS' ? 'REACH' : 'LINK_CLICKS';
+
+    console.log('[campaign-create] objetivo recebido:', body.objetivo);
+    console.log('[campaign-create] objetivoNormalizado:', objetivoNormalizado);
+    console.log('[campaign-create] optimizationGoal calculado:', optimizationGoal);
+    console.log('[campaign-create] campaign_id criado:', campaign.id);
 
     const adset = await metaPost<{ id: string }>(`${META_BASE}/${accountId}/adsets`, {
       name: `${body.nome} — Conjunto`,
