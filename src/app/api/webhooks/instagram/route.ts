@@ -156,11 +156,12 @@ async function processInstagramMessage(
         { signal: AbortSignal.timeout(5000) }
       );
       const profile = await profileRes.json() as { name?: string; profile_pic?: string; error?: { message: string } };
-      console.log(`[Instagram Webhook] Profile API | userId=${igUserId} | ok=${profileRes.ok} | name=${profile.name} | has_pic=${!!profile.profile_pic} | error=${profile.error?.message}`);
       if (profileRes.ok) {
         if (profile.name) igName = profile.name;
         if (profile.profile_pic) igAvatar = profile.profile_pic;
       }
+      // Foto requer Page Access Token — user token não tem acesso ao perfil do remetente
+      // Por enquanto usa nome padrão se não retornar
     }
   } catch {
     // Falha silenciosa — usa nome padrão

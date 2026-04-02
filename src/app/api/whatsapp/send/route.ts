@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
       const supabaseForToken = createServerSupabaseClient();
       const { data: metaCfg } = await supabaseForToken
         .from('ai_provider_config')
-        .select('meta_access_token')
+        .select('meta_access_token, meta_instagram_id')
         .eq('tenant_id', tenantId)
         .single();
       const pageToken = metaCfg?.meta_access_token || process.env.META_PAGE_TOKEN;
@@ -95,8 +95,10 @@ export async function POST(request: NextRequest) {
           { status: 503 }
         );
       }
+      // Usar meta_instagram_id em vez de /me — /me não funciona com user access token
+      const igAccountId = metaCfg?.meta_instagram_id || 'me';
       const igRes = await fetch(
-        `https://graph.facebook.com/v19.0/me/messages?access_token=${pageToken}`,
+        `https://graph.facebook.com/v19.0/${igAccountId}/messages?access_token=${pageToken}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -107,10 +109,10 @@ export async function POST(request: NextRequest) {
         }
       );
       if (!igRes.ok) {
-        const igErr = await igRes.json().catch(() => ({}));
+        const igErr = await igRes.json().catch(() => ({})) as { error?: { message?: string } };
         console.error('[Instagram Send] Erro na Graph API:', igErr);
         return NextResponse.json(
-          { error: 'Falha ao enviar mensagem pelo Instagram.' },
+          { error: `Instagram: ${igErr?.error?.message || 'Falha ao enviar mensagem.'}` },
           { status: 502 }
         );
       }
