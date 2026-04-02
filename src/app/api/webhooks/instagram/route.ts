@@ -118,12 +118,25 @@ async function processInstagramMessage(
   const message = event.message as Record<string, unknown> | undefined;
   if (!message) return;
 
+  // Ignorar echo (mensagens enviadas pela página via API)
+  // is_echo pode estar no message ou no event dependendo da versão da API
+  if (message.is_echo || (event as Record<string, unknown>).is_echo) return;
+
+  // Ignorar se o sender é o próprio Instagram da página (meta_instagram_id)
+  const { data: pageConfig } = await supabase
+    .from('ai_provider_config')
+    .select('meta_instagram_id, meta_page_id')
+    .eq('tenant_id', tenantId)
+    .single();
+  const ownIds = [pageConfig?.meta_instagram_id, pageConfig?.meta_page_id].filter(Boolean);
+  if (ownIds.includes(senderId)) {
+    console.log(`[Instagram Webhook] Ignorando echo da própria página | sender=${senderId}`);
+    return;
+  }
+
   const messageId = message.mid as string;
   const text = (message.text as string) || '';
   const timestamp = (event.timestamp as number) ?? Date.now();
-
-  // Ignorar echo (mensagens enviadas pela página via API)
-  if (message.is_echo) return;
 
   // ── Buscar nome e foto do usuário via Graph API ─────────────────────────
   const igUserId = senderId;
@@ -142,8 +155,9 @@ async function processInstagramMessage(
         `https://graph.facebook.com/v19.0/${igUserId}?fields=name,profile_pic&access_token=${cfg.meta_access_token}`,
         { signal: AbortSignal.timeout(5000) }
       );
+      const profile = await profileRes.json() as { name?: string; profile_pic?: string; error?: { message: string } };
+      console.log(`[Instagram Webhook] Profile API | userId=${igUserId} | ok=${profileRes.ok} | name=${profile.name} | has_pic=${!!profile.profile_pic} | error=${profile.error?.message}`);
       if (profileRes.ok) {
-        const profile = await profileRes.json() as { name?: string; profile_pic?: string };
         if (profile.name) igName = profile.name;
         if (profile.profile_pic) igAvatar = profile.profile_pic;
       }
