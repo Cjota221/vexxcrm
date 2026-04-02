@@ -180,6 +180,22 @@ export async function GET(req: NextRequest) {
               criativo:        cfgCriativo,
             });
 
+            // Salvar draft para aparecer na fila de aprovação
+            await supabase.from('meta_campaign_drafts').insert({
+              tenant_id:        tenantId,
+              nome:             `${nome} — ${tipoLabel}`,
+              objetivo:         tipo === 'frio' ? 'BRAND_AWARENESS' : 'LINK_CLICKS',
+              status:           'aprovado',
+              criativo_id:      criativo.id,
+              copy_headline:    cfgCriativo.headline,
+              copy_texto:       cfgCriativo.texto || null,
+              copy_cta:         cfgCriativo.cta,
+              orcamento_diario: orcPorTipo[tipo] ?? 5000,
+              meta_campaign_id: resultado.campaignId,
+              meta_adset_id:    resultado.adsetId,
+              meta_ad_id:       resultado.adId,
+            });
+
             send('step', {
               id: `campanha_${tipo}`,
               status: 'ok',
