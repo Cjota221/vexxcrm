@@ -209,9 +209,8 @@ async function criarAdCreative(
     object_story_spec = {
       page_id: cfg.pageId,
       video_data: {
-        video_id:    cfg.metaVideoId,
-        title:       cfg.headline,
-        message:     cfg.texto,
+        video_id:       cfg.metaVideoId,
+        message:        cfg.texto,
         call_to_action: callToAction,
       },
     };
