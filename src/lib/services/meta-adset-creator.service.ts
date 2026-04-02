@@ -229,10 +229,13 @@ async function criarAdCreative(
     throw new Error('Criativo inválido: precisa de metaVideoId ou metaImageHash');
   }
 
-  const data = await metaPost(`${META_BASE}/${actId}/adcreatives`, {
+  const creativePayload = {
     name:               cfg.headline.slice(0, 255),
     object_story_spec,
-  }, token);
+  };
+  console.log('[META CREATIVE PAYLOAD]', JSON.stringify(creativePayload, null, 2));
+
+  const data = await metaPost(`${META_BASE}/${actId}/adcreatives`, creativePayload, token);
 
   if (!data.id) throw new Error(`Erro ao criar criativo: ${data.error?.message ?? 'sem ID retornado'}`);
   return data.id;
