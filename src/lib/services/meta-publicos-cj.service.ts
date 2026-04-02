@@ -39,7 +39,7 @@ export function targetingFrio(interestIds: Array<{ id: string; name: string }>) 
     flexible_spec: interestIds.length > 0 ? [{ interests: interestIds }] : undefined,
     publisher_platforms: ['facebook', 'instagram'],
     instagram_positions: ['stream', 'reels', 'story'],
-    facebook_positions: ['feed', 'video_feeds'],
+    facebook_positions: ['feed'],
     device_platforms: ['mobile'],
   };
 }

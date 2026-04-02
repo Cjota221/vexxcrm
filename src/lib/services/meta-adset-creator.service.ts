@@ -175,10 +175,13 @@ async function criarAdset(
     optimization_goal: tipoCfg.optimization_goal,
     billing_event:     tipoCfg.billing_event,
     bid_strategy:      'LOWEST_COST_WITHOUT_CAP',  // sobrescreve padrão da conta (BID_CAP/ROAS)
-    targeting: cfg.targetingCompleto ?? {
-      age_min:       cfg.idadeMin,
-      age_max:       cfg.idadeMax,
-      geo_locations: { countries: cfg.paises },
+    targeting: {
+      ...(cfg.targetingCompleto ?? {
+        age_min:       cfg.idadeMin,
+        age_max:       cfg.idadeMax,
+        geo_locations: { countries: cfg.paises },
+      }),
+      targeting_automation: { advantage_audience: 0 },
     },
     status: 'PAUSED',
   };
