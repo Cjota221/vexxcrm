@@ -17,8 +17,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // ─── ROTAS PÚBLICAS ───
-  const isAuthPage = pathname.startsWith('/login') || 
-                     pathname.startsWith('/register') || 
+  const isAuthPage = pathname.startsWith('/login') ||
                      pathname.startsWith('/forgot-password');
   
   const isPublicApiRoute = pathname.startsWith('/api/auth') ||

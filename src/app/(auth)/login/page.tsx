@@ -134,18 +134,6 @@ export default function LoginPage() {
         </form>
       </div>
 
-      {/* Link para cadastro */}
-      <div className="text-center mt-6">
-        <p className="text-sm text-txt-secondary">
-          Não tem uma conta?{' '}
-          <Link
-            href="/register"
-            className="text-crm-primary font-semibold hover:underline transition-colors"
-          >
-            Criar conta grátis
-          </Link>
-        </p>
-      </div>
 
       <p className="text-center text-[10px] text-txt-muted mt-8">
         VEXX CRM v2.0 — Todos os direitos reservados
