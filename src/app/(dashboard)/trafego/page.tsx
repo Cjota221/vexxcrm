@@ -2971,7 +2971,7 @@ export default function TrafegoPage() {
 
             {/* ── AGENTE ── */}
             {tab === 'agente' && (
-              <AgenteTrafegoPanel pageId="110009834520002" whatsappNumber="5562993044255" />
+              <AgenteTrafegoPanel />
             )}
 
             {/* ── CONFIG ── */}
