@@ -208,13 +208,14 @@ async function criarAdCreative(
   }
 
   if (cfg.tipo === 'video' && cfg.metaVideoId) {
-    // Verificar se o vídeo já terminou de processar no Meta
+    // Verificar status e buscar thumbnail do vídeo no Meta
     const videoStatusRes = await fetch(
-      `${META_BASE}/${cfg.metaVideoId}?fields=status&access_token=${token}`,
+      `${META_BASE}/${cfg.metaVideoId}?fields=status,picture&access_token=${token}`,
       { signal: AbortSignal.timeout(10_000) },
     );
     const videoStatus = await videoStatusRes.json() as {
       status?: { processing_progress?: number; video_status?: string };
+      picture?: string;
       error?: { message: string };
     };
     console.log('[VIDEO STATUS]', JSON.stringify(videoStatus));
@@ -228,16 +229,21 @@ async function criarAdCreative(
       );
     }
 
+    // image_url obrigatório: prioriza thumbnail do Meta, depois url_preview do banco
+    const imageUrl = videoStatus.picture ?? cfg.imageUrl;
+    if (!imageUrl) {
+      throw new Error('Thumbnail do vídeo não disponível. O Meta ainda pode estar processando o vídeo.');
+    }
+
     const mensagem = cfg.texto?.trim() || 'Conheça nossos produtos. Qualidade garantida.';
-    const videoData: Record<string, unknown> = {
-      video_id:       cfg.metaVideoId,
-      message:        mensagem,
-      call_to_action: callToAction,
-    };
-    if (cfg.imageUrl) videoData.image_url = cfg.imageUrl;
     object_story_spec = {
       page_id: cfg.pageId,
-      video_data: videoData,
+      video_data: {
+        video_id:       cfg.metaVideoId,
+        image_url:      imageUrl,
+        message:        mensagem,
+        call_to_action: callToAction,
+      },
     };
   } else if (cfg.tipo === 'imagem' && cfg.metaImageHash) {
     object_story_spec = {
