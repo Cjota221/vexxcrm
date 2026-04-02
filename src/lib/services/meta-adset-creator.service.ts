@@ -206,6 +206,26 @@ async function criarAdCreative(
   }
 
   if (cfg.tipo === 'video' && cfg.metaVideoId) {
+    // Verificar se o vídeo já terminou de processar no Meta
+    const videoStatusRes = await fetch(
+      `${META_BASE}/${cfg.metaVideoId}?fields=status&access_token=${token}`,
+      { signal: AbortSignal.timeout(10_000) },
+    );
+    const videoStatus = await videoStatusRes.json() as {
+      status?: { processing_progress?: number; video_status?: string };
+      error?: { message: string };
+    };
+    console.log('[VIDEO STATUS]', JSON.stringify(videoStatus));
+
+    if (videoStatus.error) {
+      throw new Error(`Erro ao verificar status do vídeo: ${videoStatus.error.message}`);
+    }
+    if (videoStatus.status?.video_status && videoStatus.status.video_status !== 'ready') {
+      throw new Error(
+        `Vídeo ainda não está pronto para uso (status: ${videoStatus.status.video_status}, progresso: ${videoStatus.status.processing_progress ?? '?'}%). Aguarde o processamento concluir e tente novamente.`,
+      );
+    }
+
     const mensagem = cfg.texto?.trim() || 'Conheça nossos produtos. Qualidade garantida.';
     object_story_spec = {
       page_id: cfg.pageId,
@@ -236,10 +256,21 @@ async function criarAdCreative(
   };
   console.log('[META CREATIVE PAYLOAD]', JSON.stringify(creativePayload, null, 2));
 
-  const data = await metaPost(`${META_BASE}/${actId}/adcreatives`, creativePayload, token);
+  const urlObj = new URL(`${META_BASE}/${actId}/adcreatives`);
+  urlObj.searchParams.set('access_token', token);
+  const creativeRes = await fetch(urlObj.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(creativePayload),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const creativeData = await creativeRes.json() as { id?: string; error?: { message: string; error_subcode?: number; fbtrace_id?: string } };
+  console.log('[META CREATIVE RESPONSE]', JSON.stringify(creativeData));
 
-  if (!data.id) throw new Error(`Erro ao criar criativo: ${data.error?.message ?? 'sem ID retornado'}`);
-  return data.id;
+  if (!creativeRes.ok || !creativeData.id) {
+    throw new Error(`Erro ao criar criativo: ${creativeData.error?.message ?? 'sem ID retornado'}`);
+  }
+  return creativeData.id;
 }
 
 /* ─── Criar Ad ───────────────────────────────────────────────────────────────── */
