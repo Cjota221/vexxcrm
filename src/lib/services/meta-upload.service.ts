@@ -138,6 +138,17 @@ export async function salvarCriativoNoBanco(params: {
 }): Promise<string> {
   const supabase = createServerSupabaseClient();
 
+  // Se o vídeo já existe (sync Meta), retornar o ID existente em vez de duplicar
+  if (params.metaVideoId) {
+    const { data: existing } = await supabase
+      .from('ad_creatives')
+      .select('id')
+      .eq('tenant_id', params.tenantId)
+      .eq('meta_video_id', params.metaVideoId)
+      .single();
+    if (existing) return existing.id as string;
+  }
+
   const { data, error } = await supabase
     .from('ad_creatives')
     .insert({

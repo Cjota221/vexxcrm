@@ -378,18 +378,36 @@ function CardCriativoCache({ item }: { item: CacheCreativo }) {
     setErroAcao(null);
     try {
       const auth = await getAuthHeader();
-      // Garantir que o vídeo existe em ad_creatives antes de transcrever
-      await fetch('/api/meta/sync', { method: 'POST', headers: { Authorization: auth } });
-      const res = await fetch('/api/meta/transcricao', {
+
+      // Passo 1: garantir que o criativo existe em ad_creatives (retorna ID existente ou cria)
+      const upsertRes = await fetch('/api/meta/upload/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: auth },
-        body: JSON.stringify({ metaVideoId: item.id }),
+        body: JSON.stringify({
+          nome:            item.nome || `Vídeo Meta ${item.id}`,
+          tipo:            'video',
+          metaVideoId:     item.id,
+          thumbUrl:        item.url_thumb ?? undefined,
+          duracaoSegundos: item.duracao ?? undefined,
+        }),
       });
-      const data = await res.json() as { ok?: boolean; error?: string };
-      if (data.ok) {
+      const upsertData = await upsertRes.json() as { ok?: boolean; id?: string; error?: string };
+      if (!upsertData.ok || !upsertData.id) {
+        setErroAcao(upsertData.error ?? 'Erro ao registrar criativo');
+        return;
+      }
+
+      // Passo 2: transcrever usando o UUID de ad_creatives
+      const transcRes = await fetch('/api/meta/transcricao', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: auth },
+        body: JSON.stringify({ criativoId: upsertData.id }),
+      });
+      const transcData = await transcRes.json() as { ok?: boolean; error?: string };
+      if (transcData.ok) {
         setTranscrito(true);
       } else {
-        setErroAcao(data.error ?? 'Erro ao transcrever');
+        setErroAcao(transcData.error ?? 'Erro ao transcrever');
       }
     } catch {
       setErroAcao('Erro de conexão');
