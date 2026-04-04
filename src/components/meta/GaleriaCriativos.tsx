@@ -3,7 +3,7 @@
 import { useRef, useState, useEffect } from 'react';
 import {
   Upload, Video, Image, Trash2, CheckCircle,
-  Clock, AlertCircle, Play, RefreshCw, X, Loader2, CloudDownload,
+  Clock, AlertCircle, Play, RefreshCw, X, Loader2, CloudDownload, Search,
 } from 'lucide-react';
 import { useAdCreatives, type AdCreative } from '@/hooks/useAdCreatives';
 import { supabase } from '@/lib/supabase';
@@ -361,6 +361,7 @@ function VideoPreviewModal({
 function CardCriativoCache({ item }: { item: CacheCreativo }) {
   const [analisando, setAnalisando] = useState(false);
   const [analisado, setAnalisado]   = useState(false);
+  const [classificacao, setClassificacao] = useState<Record<string, unknown> | null>(null);
 
   function formatDuracao(s: number | null) {
     if (!s) return '';
@@ -370,16 +371,25 @@ function CardCriativoCache({ item }: { item: CacheCreativo }) {
   }
 
   async function analisar() {
-    if (!item.url_thumb) return;
+    const imageUrl = item.url_thumb || item.url_full;
+    if (!imageUrl) return;
     setAnalisando(true);
     try {
       const auth = await getAuthHeader();
-      await fetch('/api/meta/analisar-imagem', {
+      const res = await fetch('/api/meta/analisar-imagem', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: auth },
-        body: JSON.stringify({ criativoId: item.id, imageUrl: item.url_thumb, fonte: 'meta_creatives_cache' }),
+        body: JSON.stringify({ criativoId: item.id, imageUrl, fonte: 'meta_creatives_cache' }),
       });
-      setAnalisado(true);
+      const data = await res.json() as { ok?: boolean; classificacao?: Record<string, unknown>; error?: string };
+      if (data.ok && data.classificacao) {
+        setClassificacao(data.classificacao);
+        setAnalisado(true);
+      } else {
+        alert(data.error ?? 'Erro ao analisar');
+      }
+    } catch {
+      alert('Erro de conexão');
     } finally {
       setAnalisando(false);
     }
@@ -416,15 +426,43 @@ function CardCriativoCache({ item }: { item: CacheCreativo }) {
         <p className="text-xs text-gray-400 mt-0.5 truncate">
           ID: {item.id.substring(0, 12)}…
         </p>
-        {item.tipo === 'imagem' && item.url_thumb && (
-          <button
-            onClick={analisar}
-            disabled={analisando || analisado}
-            className="w-full mt-1.5 py-1 text-xs bg-[#1e3a5f]/10 hover:bg-[#1e3a5f]/20 text-[#1e3a5f] rounded-lg transition-colors disabled:opacity-50"
-          >
-            {analisando ? <Loader2 size={10} className="animate-spin inline mr-1" /> : null}
-            {analisado ? '✓ Analisado' : analisando ? 'Analisando...' : '🔍 Analisar'}
-          </button>
+        {item.tipo === 'imagem' && (item.url_thumb || item.url_full) && (
+          <>
+            <button
+              onClick={analisar}
+              disabled={analisando || analisado}
+              className="w-full mt-1.5 py-1 text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-1"
+            >
+              {analisando
+                ? <><Loader2 size={10} className="animate-spin" /> Analisando...</>
+                : analisado
+                  ? <><CheckCircle size={10} className="text-green-500" /> Analisado</>
+                  : <><Search size={10} /> Analisar</>
+              }
+            </button>
+            {analisado && classificacao && (
+              <div className="mt-1.5 space-y-0.5">
+                {([
+                  { label: 'Frio',   valor: classificacao.adequacao_publico_frio as number },
+                  { label: 'Quente', valor: classificacao.adequacao_publico_quente as number },
+                  { label: 'WA',     valor: classificacao.adequacao_whatsapp as number },
+                ]).map(({ label, valor }) => (
+                  <div key={label} className="flex items-center gap-1">
+                    <span className="text-xs text-gray-400 w-10">{label}</span>
+                    <div className="flex-1 bg-gray-100 rounded-full h-1">
+                      <div className="h-1 rounded-full bg-blue-500" style={{ width: `${(valor ?? 0) * 10}%` }} />
+                    </div>
+                    <span className="text-xs text-gray-500 w-4">{valor}</span>
+                  </div>
+                ))}
+                {classificacao.resumo && (
+                  <p className="text-xs text-gray-400 mt-1 line-clamp-2">
+                    {classificacao.resumo as string}
+                  </p>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

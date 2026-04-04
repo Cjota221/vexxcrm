@@ -40,6 +40,8 @@ export async function POST(req: NextRequest) {
 
   const fonte = body.fonte ?? 'ad_creatives';
 
+  console.log('[ANALISAR IMAGEM] criativoId:', body.criativoId, 'url:', body.imageUrl?.substring(0, 50));
+
   const openaiKey = process.env.OPENAI_API_KEY;
   if (!openaiKey) {
     return NextResponse.json({ error: 'OPENAI_API_KEY não configurada' }, { status: 500 });
