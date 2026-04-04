@@ -455,9 +455,9 @@ function CardCriativoCache({ item }: { item: CacheCreativo }) {
                     <span className="text-xs text-gray-500 w-4">{valor}</span>
                   </div>
                 ))}
-                {classificacao.resumo && (
+                {typeof classificacao.resumo === 'string' && (
                   <p className="text-xs text-gray-400 mt-1 line-clamp-2">
-                    {classificacao.resumo as string}
+                    {classificacao.resumo}
                   </p>
                 )}
               </div>
