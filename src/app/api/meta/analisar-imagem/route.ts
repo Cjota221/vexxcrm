@@ -48,6 +48,21 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // Baixar imagem no servidor e converter para base64
+    // URLs do Meta CDN expiram e exigem auth — OpenAI não consegue baixar diretamente
+    let imagePayload: { url: string };
+    try {
+      const imgRes = await fetch(body.imageUrl, { signal: AbortSignal.timeout(10_000) });
+      if (!imgRes.ok) throw new Error(`HTTP ${imgRes.status}`);
+      const contentType = imgRes.headers.get('content-type') ?? 'image/jpeg';
+      const buffer = await imgRes.arrayBuffer();
+      const base64 = Buffer.from(buffer).toString('base64');
+      imagePayload = { url: `data:${contentType};base64,${base64}` };
+    } catch (downloadErr) {
+      console.warn('[ANALISAR IMAGEM] Falha ao baixar imagem, tentando URL direta:', downloadErr);
+      imagePayload = { url: body.imageUrl };
+    }
+
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -61,7 +76,7 @@ export async function POST(req: NextRequest) {
           content: [
             {
               type: 'image_url',
-              image_url: { url: body.imageUrl },
+              image_url: imagePayload,
             },
             {
               type: 'text',
