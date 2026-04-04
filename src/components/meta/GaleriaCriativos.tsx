@@ -3,10 +3,20 @@
 import { useRef, useState, useEffect } from 'react';
 import {
   Upload, Video, Image, Trash2, CheckCircle,
-  Clock, AlertCircle, Play, RefreshCw, X, Loader2,
+  Clock, AlertCircle, Play, RefreshCw, X, Loader2, CloudDownload,
 } from 'lucide-react';
 import { useAdCreatives, type AdCreative } from '@/hooks/useAdCreatives';
 import { supabase } from '@/lib/supabase';
+
+interface CacheCreativo {
+  id: string;
+  nome: string;
+  tipo: string;
+  url_thumb: string | null;
+  url_full: string | null;
+  duracao: number | null;
+  sincronizado_em: string;
+}
 
 async function getAuthHeader(): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession();
@@ -20,6 +30,37 @@ export function GaleriaCriativos() {
   const [filtro, setFiltro]         = useState<'todos' | 'video' | 'imagem'>('todos');
   const [preview, setPreview]       = useState<{ id: string; nome: string } | null>(null);
   const [transcrevendo, setTranscrevendo] = useState(false);
+  const [sincronizando, setSincronizando] = useState(false);
+  const [syncMsg, setSyncMsg]       = useState<string | null>(null);
+  const [cacheItems, setCacheItems] = useState<CacheCreativo[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      const auth = await getAuthHeader();
+      const res = await fetch('/api/meta/criativos-cache', { headers: { Authorization: auth } });
+      if (res.ok) setCacheItems(await res.json() as CacheCreativo[]);
+    })();
+  }, []);
+
+  async function sincronizarDoMeta() {
+    setSincronizando(true);
+    setSyncMsg(null);
+    try {
+      const auth = await getAuthHeader();
+      const res = await fetch('/api/meta/sync', { method: 'POST', headers: { Authorization: auth } });
+      const data = await res.json() as { criativos?: number; errors?: string[] };
+      const total = data.criativos ?? 0;
+      setSyncMsg(`${total} criativo${total !== 1 ? 's' : ''} sincronizado${total !== 1 ? 's' : ''} do Meta`);
+      // Recarregar cache
+      const cacheRes = await fetch('/api/meta/criativos-cache', { headers: { Authorization: auth } });
+      if (cacheRes.ok) setCacheItems(await cacheRes.json() as CacheCreativo[]);
+      await recarregar();
+    } catch {
+      setSyncMsg('Erro ao sincronizar');
+    } finally {
+      setSincronizando(false);
+    }
+  }
 
   const qtdPendentes = criativos.filter(
     c => c.tipo === 'video' && (!c.transcricao_status || c.transcricao_status === 'pendente' || c.transcricao_status === 'erro')
@@ -113,6 +154,17 @@ export function GaleriaCriativos() {
             </button>
           )}
           <button
+            onClick={sincronizarDoMeta}
+            disabled={sincronizando}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[#1e3a5f] rounded-xl hover:bg-[#1e3a5f] hover:text-white text-[#1e3a5f] disabled:opacity-50 transition-colors"
+          >
+            {sincronizando
+              ? <Loader2 size={12} className="animate-spin" />
+              : <CloudDownload size={12} />
+            }
+            {sincronizando ? 'Sincronizando...' : 'Sincronizar do Meta'}
+          </button>
+          <button
             onClick={recarregar}
             disabled={loading}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-500 disabled:opacity-50 transition-colors"
@@ -122,6 +174,13 @@ export function GaleriaCriativos() {
           </button>
         </div>
       </div>
+
+      {syncMsg && (
+        <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
+          <span>{syncMsg}</span>
+          <button onClick={() => setSyncMsg(null)} className="text-blue-400 hover:text-blue-600 text-xs">✕</button>
+        </div>
+      )}
 
       {/* Área de drop / upload */}
       <div
@@ -199,6 +258,12 @@ export function GaleriaCriativos() {
               onPreview={() => setPreview({ id: criativo.id, nome: criativo.nome })}
             />
           ))}
+          {cacheItems
+            .filter(c => filtro === 'todos' || c.tipo === filtro)
+            .map(c => (
+              <CardCriativoCache key={`cache-${c.id}`} item={c} />
+            ))
+          }
         </div>
       )}
     </div>
@@ -267,6 +332,52 @@ function VideoPreviewModal({
             />
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Card criativo do cache Meta ───────────────────────────────────────── */
+
+function CardCriativoCache({ item }: { item: CacheCreativo }) {
+  function formatDuracao(s: number | null) {
+    if (!s) return '';
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  }
+
+  return (
+    <div className="group relative bg-white border border-blue-100 rounded-2xl overflow-hidden hover:shadow-md transition-shadow">
+      {/* Thumbnail */}
+      <div className="aspect-video bg-gray-100 relative">
+        {item.url_thumb ? (
+          <img src={item.url_thumb} alt={item.nome} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            {item.tipo === 'video'
+              ? <Video size={24} className="text-gray-300" />
+              : <Image size={24} className="text-gray-300" />
+            }
+          </div>
+        )}
+        {item.duracao && (
+          <span className="absolute bottom-1.5 right-1.5 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded-md font-mono">
+            {formatDuracao(item.duracao)}
+          </span>
+        )}
+        {/* Badge Meta */}
+        <span className="absolute top-1.5 right-1.5 bg-blue-600 text-white text-[10px] px-1.5 py-0.5 rounded font-semibold">
+          Meta
+        </span>
+      </div>
+
+      {/* Info */}
+      <div className="p-2.5">
+        <p className="text-xs font-medium text-gray-700 truncate">{item.nome}</p>
+        <p className="text-xs text-gray-400 mt-0.5 truncate">
+          ID: {item.id.substring(0, 12)}…
+        </p>
       </div>
     </div>
   );
