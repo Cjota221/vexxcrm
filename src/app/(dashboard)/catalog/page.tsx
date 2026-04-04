@@ -317,14 +317,14 @@ export default function CatalogPage() {
 
         {/* ─── Banner: Link do Catálogo Público WhatsApp ─── */}
         {tenant?.slug && (
-          <div className="bg-gradient-to-r from-[#1a1f2e] to-[#1c2333] rounded-2xl border border-[#dc2ade]/20 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
             <div className="flex items-center gap-2 flex-1 min-w-0">
-              <div className="w-8 h-8 rounded-lg bg-[#dc2ade]/15 flex items-center justify-center shrink-0">
-                <Link2 size={15} className="text-[#dc2ade]" />
+              <div className="w-8 h-8 rounded-lg bg-crm-primary/10 flex items-center justify-center shrink-0">
+                <Link2 size={15} className="text-crm-primary" />
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-semibold text-white/70 mb-0.5">Catálogo público (WhatsApp)</p>
-                <p className="text-sm text-white font-mono truncate">
+                <p className="text-xs font-semibold text-gray-500 mb-0.5">Catálogo público (WhatsApp)</p>
+                <p className="text-sm text-gray-800 font-mono truncate">
                   {typeof window !== 'undefined' ? window.location.origin : ''}/catalogo/{tenant.slug}
                 </p>
               </div>
@@ -336,7 +336,7 @@ export default function CatalogPage() {
                     navigator.clipboard.writeText(`${window.location.origin}/catalogo/${tenant.slug}`);
                   }
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/8 hover:bg-white/15 text-white/70 hover:text-white text-xs font-medium transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-medium transition-colors"
               >
                 <Copy size={12} /> Copiar
               </button>
@@ -344,7 +344,7 @@ export default function CatalogPage() {
                 href={`/catalogo/${tenant.slug}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#dc2ade]/80 hover:bg-[#dc2ade] text-white text-xs font-medium transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-crm-primary hover:opacity-90 text-white text-xs font-medium transition-colors"
               >
                 <ExternalLink size={12} /> Abrir
               </a>
