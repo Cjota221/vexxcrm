@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     .eq('tenant_id', tenantId)
     .eq('tipo', 'video')
     .in('transcricao_status', ['pendente', 'erro'])
-    .limit(10);
+    .limit(20);
 
   if (!pendentes?.length) {
     return NextResponse.json({ ok: true, processados: 0 });

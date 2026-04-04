@@ -142,16 +142,19 @@ export function GaleriaCriativos() {
           ))}
         </div>
         <div className="flex items-center gap-2">
-          {qtdPendentes > 0 && (
-            <button
-              onClick={transcreverTodos}
-              disabled={transcrevendo}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[#1e3a5f] rounded-xl hover:bg-[#1e3a5f] hover:text-white text-[#1e3a5f] disabled:opacity-50 transition-colors"
-            >
-              {transcrevendo ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
-              {transcrevendo ? 'Transcrevendo...' : `Transcrever próximos 10 (${qtdPendentes} pendentes)`}
-            </button>
-          )}
+          <button
+            onClick={transcreverTodos}
+            disabled={transcrevendo}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[#1e3a5f] rounded-xl hover:bg-[#1e3a5f] hover:text-white text-[#1e3a5f] disabled:opacity-50 transition-colors"
+          >
+            {transcrevendo ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+            {transcrevendo
+              ? 'Transcrevendo...'
+              : qtdPendentes > 0
+                ? `Transcrever próximos 10 (${qtdPendentes} pendentes)`
+                : 'Transcrever próximos 10'
+            }
+          </button>
           <button
             onClick={sincronizarDoMeta}
             disabled={sincronizando}
