@@ -24,7 +24,7 @@ async function getAuthHeader(): Promise<string> {
 }
 
 export function GaleriaCriativos() {
-  const { criativos, loading, uploading, uploadProgress, uploadArquivo, arquivar, retranscrever, recarregar } = useAdCreatives();
+  const { criativos, total, hasMore, loading, loadingMore, uploading, uploadProgress, uploadArquivo, arquivar, retranscrever, recarregar, carregarMais } = useAdCreatives();
   const inputRef = useRef<HTMLInputElement>(null);
   const [erro, setErro]             = useState<string | null>(null);
   const [filtro, setFiltro]         = useState<'todos' | 'video' | 'imagem'>('todos');
@@ -148,9 +148,8 @@ export function GaleriaCriativos() {
               disabled={transcrevendo}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[#1e3a5f] rounded-xl hover:bg-[#1e3a5f] hover:text-white text-[#1e3a5f] disabled:opacity-50 transition-colors"
             >
-              <Loader2 size={12} className={transcrevendo ? 'animate-spin' : 'hidden'} />
-              {!transcrevendo && <Play size={12} />}
-              Transcrever todos ({qtdPendentes})
+              {transcrevendo ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+              {transcrevendo ? 'Transcrevendo...' : `Transcrever próximos 10 (${qtdPendentes} pendentes)`}
             </button>
           )}
           <button
@@ -248,23 +247,40 @@ export function GaleriaCriativos() {
             : 'Nenhum criativo com este filtro.'}
         </div>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-          {visiveis.map(criativo => (
-            <CardCriativo
-              key={criativo.id}
-              criativo={criativo}
-              onArquivar={() => arquivar(criativo.id)}
-              onRetranscrever={() => retranscrever(criativo.id)}
-              onPreview={() => setPreview({ id: criativo.id, nome: criativo.nome })}
-            />
-          ))}
-          {cacheItems
-            .filter(c => filtro === 'todos' || c.tipo === filtro)
-            .map(c => (
-              <CardCriativoCache key={`cache-${c.id}`} item={c} />
-            ))
-          }
-        </div>
+        <>
+          <p className="text-xs text-gray-400">
+            Exibindo {visiveis.length} de {total} criativo{total !== 1 ? 's' : ''}
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            {visiveis.map(criativo => (
+              <CardCriativo
+                key={criativo.id}
+                criativo={criativo}
+                onArquivar={() => arquivar(criativo.id)}
+                onRetranscrever={() => retranscrever(criativo.id)}
+                onPreview={() => setPreview({ id: criativo.id, nome: criativo.nome })}
+              />
+            ))}
+            {cacheItems
+              .filter(c => filtro === 'todos' || c.tipo === filtro)
+              .map(c => (
+                <CardCriativoCache key={`cache-${c.id}`} item={c} />
+              ))
+            }
+          </div>
+          {hasMore && (
+            <div className="flex items-center justify-center pt-2">
+              <button
+                onClick={carregarMais}
+                disabled={loadingMore}
+                className="flex items-center gap-2 px-4 py-2 text-sm border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-500 disabled:opacity-50 transition-colors"
+              >
+                {loadingMore ? <Loader2 size={14} className="animate-spin" /> : null}
+                {loadingMore ? 'Carregando...' : `Carregar mais 20`}
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
     </>

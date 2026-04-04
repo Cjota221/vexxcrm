@@ -249,7 +249,7 @@ export async function sincronizarTudoDoMeta(
   async function syncVideos() {
     const videos = await metaGetAll<MetaVideoRaw>(
       `${META_BASE}/${actId}/advideos?fields=id,title,description,thumbnails,length,created_time` +
-      `&limit=100&access_token=${token}`
+      `&limit=100&sort=created_time_descending&access_token=${token}`
     );
     const rows = videos.map((v) => ({
       id: v.id, tenant_id: tenantId, ad_account_id: actId, tipo: 'video',

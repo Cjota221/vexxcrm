@@ -26,14 +26,14 @@ export async function POST(req: NextRequest) {
     .eq('tenant_id', tenantId)
     .eq('tipo', 'video')
     .in('transcricao_status', ['pendente', 'erro'])
-    .limit(5);
+    .limit(10);
 
   if (!pendentes?.length) {
     return NextResponse.json({ ok: true, processados: 0 });
   }
 
   const resultados = await Promise.allSettled(
-    pendentes.slice(0, 3).map(c => processarCriativo(c.id, tenantId))
+    pendentes.map(c => processarCriativo(c.id, tenantId))
   );
 
   const sucessos = resultados.filter(r => r.status === 'fulfilled' && r.value.ok).length;

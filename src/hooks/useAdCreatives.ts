@@ -41,27 +41,53 @@ export interface AdCreative {
   transcricao_erro?: string | null;
 }
 
+const PAGE_SIZE = 20;
+
 export function useAdCreatives() {
   const [criativos, setCriativos]         = useState<AdCreative[]>([]);
+  const [total, setTotal]                 = useState(0);
+  const [page, setPage]                   = useState(1);
   const [loading, setLoading]             = useState(true);
+  const [loadingMore, setLoadingMore]     = useState(false);
   const [uploading, setUploading]         = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
   const carregar = useCallback(async () => {
     setLoading(true);
+    setPage(1);
     try {
       const auth = await getAuthHeader();
-      const res = await fetch('/api/meta/upload', {
+      const res = await fetch(`/api/meta/upload?page=1&limit=${PAGE_SIZE}`, {
         headers: { Authorization: auth },
       });
       if (res.ok) {
-        const data = await res.json() as AdCreative[];
+        const { data, total: t } = await res.json() as { data: AdCreative[]; total: number };
         setCriativos(data);
+        setTotal(t);
       }
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const carregarMais = useCallback(async () => {
+    setLoadingMore(true);
+    try {
+      const nextPage = page + 1;
+      const auth = await getAuthHeader();
+      const res = await fetch(`/api/meta/upload?page=${nextPage}&limit=${PAGE_SIZE}`, {
+        headers: { Authorization: auth },
+      });
+      if (res.ok) {
+        const { data, total: t } = await res.json() as { data: AdCreative[]; total: number };
+        setCriativos(prev => [...prev, ...data]);
+        setTotal(t);
+        setPage(nextPage);
+      }
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [page]);
 
   useEffect(() => { carregar(); }, [carregar]);
 
@@ -216,13 +242,17 @@ export function useAdCreatives() {
 
   return {
     criativos,
+    total,
+    hasMore: criativos.length < total,
     loading,
+    loadingMore,
     uploading,
     uploadProgress,
     uploadArquivo,
     arquivar,
     retranscrever,
     recarregar: carregar,
+    carregarMais,
   };
 }
 
