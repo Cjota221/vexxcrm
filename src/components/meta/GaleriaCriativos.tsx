@@ -359,8 +359,11 @@ function VideoPreviewModal({
 /* ─── Card criativo do cache Meta ───────────────────────────────────────── */
 
 function CardCriativoCache({ item }: { item: CacheCreativo }) {
-  const [analisando, setAnalisando] = useState(false);
-  const [analisado, setAnalisado]   = useState(false);
+  const [analisando, setAnalisando]   = useState(false);
+  const [analisado, setAnalisado]     = useState(false);
+  const [transcrevendo, setTranscrevendo] = useState(false);
+  const [transcrito, setTranscrito]   = useState(false);
+  const [erroAcao, setErroAcao]       = useState<string | null>(null);
   const [classificacao, setClassificacao] = useState<Record<string, unknown> | null>(null);
 
   function formatDuracao(s: number | null) {
@@ -370,10 +373,36 @@ function CardCriativoCache({ item }: { item: CacheCreativo }) {
     return `${m}:${sec.toString().padStart(2, '0')}`;
   }
 
+  async function transcrever() {
+    setTranscrevendo(true);
+    setErroAcao(null);
+    try {
+      const auth = await getAuthHeader();
+      // Garantir que o vídeo existe em ad_creatives antes de transcrever
+      await fetch('/api/meta/sync', { method: 'POST', headers: { Authorization: auth } });
+      const res = await fetch('/api/meta/transcricao', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: auth },
+        body: JSON.stringify({ metaVideoId: item.id }),
+      });
+      const data = await res.json() as { ok?: boolean; error?: string };
+      if (data.ok) {
+        setTranscrito(true);
+      } else {
+        setErroAcao(data.error ?? 'Erro ao transcrever');
+      }
+    } catch {
+      setErroAcao('Erro de conexão');
+    } finally {
+      setTranscrevendo(false);
+    }
+  }
+
   async function analisar() {
     const imageUrl = item.url_thumb || item.url_full;
     if (!imageUrl) return;
     setAnalisando(true);
+    setErroAcao(null);
     try {
       const auth = await getAuthHeader();
       const res = await fetch('/api/meta/analisar-imagem', {
@@ -386,10 +415,10 @@ function CardCriativoCache({ item }: { item: CacheCreativo }) {
         setClassificacao(data.classificacao);
         setAnalisado(true);
       } else {
-        alert(data.error ?? 'Erro ao analisar');
+        setErroAcao(data.error?.includes('downloading') ? 'URL expirada — re-sincronize os criativos' : (data.error ?? 'Erro ao analisar'));
       }
     } catch {
-      alert('Erro de conexão');
+      setErroAcao('Erro de conexão');
     } finally {
       setAnalisando(false);
     }
@@ -414,7 +443,6 @@ function CardCriativoCache({ item }: { item: CacheCreativo }) {
             {formatDuracao(item.duracao)}
           </span>
         )}
-        {/* Badge Meta */}
         <span className="absolute top-1.5 right-1.5 bg-blue-600 text-white text-[10px] px-1.5 py-0.5 rounded font-semibold">
           Meta
         </span>
@@ -426,7 +454,21 @@ function CardCriativoCache({ item }: { item: CacheCreativo }) {
         <p className="text-xs text-gray-400 mt-0.5 truncate">
           ID: {item.id.substring(0, 12)}…
         </p>
-        {item.tipo === 'imagem' && (item.url_thumb || item.url_full) && (
+
+        {item.tipo === 'video' ? (
+          <button
+            onClick={transcrever}
+            disabled={transcrevendo || transcrito}
+            className="w-full mt-1.5 py-1 text-xs bg-[#1e3a5f]/10 hover:bg-[#1e3a5f]/20 text-[#1e3a5f] rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-1"
+          >
+            {transcrevendo
+              ? <><Loader2 size={10} className="animate-spin" /> Transcrevendo áudio...</>
+              : transcrito
+                ? <><CheckCircle size={10} className="text-green-500" /> Transcrito</>
+                : <>▶ Transcrever vídeo</>
+            }
+          </button>
+        ) : (item.url_thumb || item.url_full) ? (
           <>
             <button
               onClick={analisar}
@@ -434,10 +476,10 @@ function CardCriativoCache({ item }: { item: CacheCreativo }) {
               className="w-full mt-1.5 py-1 text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-1"
             >
               {analisando
-                ? <><Loader2 size={10} className="animate-spin" /> Analisando...</>
+                ? <><Loader2 size={10} className="animate-spin" /> Analisando imagem...</>
                 : analisado
                   ? <><CheckCircle size={10} className="text-green-500" /> Analisado</>
-                  : <><Search size={10} /> Analisar</>
+                  : <><Search size={10} /> Analisar imagem</>
               }
             </button>
             {analisado && classificacao && (
@@ -456,13 +498,15 @@ function CardCriativoCache({ item }: { item: CacheCreativo }) {
                   </div>
                 ))}
                 {typeof classificacao.resumo === 'string' && (
-                  <p className="text-xs text-gray-400 mt-1 line-clamp-2">
-                    {classificacao.resumo}
-                  </p>
+                  <p className="text-xs text-gray-400 mt-1 line-clamp-2">{classificacao.resumo}</p>
                 )}
               </div>
             )}
           </>
+        ) : null}
+
+        {erroAcao && (
+          <p className="text-[10px] text-red-500 mt-1">{erroAcao}</p>
         )}
       </div>
     </div>
