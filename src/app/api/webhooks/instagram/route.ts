@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase';
+import { downloadInstagramMediaToStorage } from '@/lib/services/evolution.service';
 
 /**
  * GET /api/webhooks/instagram
@@ -313,7 +314,15 @@ async function processInstagramMessage(
   // ── Inserir mensagem ────────────────────────────────────────────────────
   const msgType = message.attachments ? 'image' : 'text';
   const attachments = message.attachments as Array<{ type: string; payload: { url: string } }> | undefined;
-  const mediaUrl = attachments?.[0]?.payload?.url;
+  const ephemeralUrl = attachments?.[0]?.payload?.url;
+
+  // URLs do Instagram CDN expiram rapidamente — fazer download imediato para Storage permanente
+  let mediaUrl: string | null = ephemeralUrl || null;
+  if (ephemeralUrl) {
+    const permanentUrl = await downloadInstagramMediaToStorage(ephemeralUrl, tenantId, messageId);
+    if (permanentUrl) mediaUrl = permanentUrl;
+    // Se falhar, guardamos a URL ephemeral como fallback (pode já ter expirado quando exibida)
+  }
 
   const { error: msgError } = await supabase.from('messages').insert({
     tenant_id: tenantId,
