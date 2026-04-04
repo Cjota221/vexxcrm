@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Search } from 'lucide-react'
 import { useProdutos, useConfiguracaoCatalogo } from './useCatalogo'
 import ProdutoCard from './ProdutoCard'
 import CarrinhoFlutuante from './CarrinhoFlutuante'
+import { useCarrinho } from './useCarrinho'
 
 interface Props {
   slug: string
@@ -14,6 +15,11 @@ interface Props {
 export default function CatalogoCliente({ slug, whatsapp }: Props) {
   const [busca, setBusca] = useState('')
   const [categoriaAtiva, setCategoriaAtiva] = useState('todas')
+
+  // Rehydrate carrinho do localStorage após mount (evita hydration mismatch)
+  useEffect(() => {
+    useCarrinho.persist.rehydrate()
+  }, [])
 
   const { data: produtos = [], isLoading, isError } = useProdutos(slug)
   const { data: config } = useConfiguracaoCatalogo(slug)

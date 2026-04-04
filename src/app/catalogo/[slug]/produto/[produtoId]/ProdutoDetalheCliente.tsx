@@ -6,6 +6,8 @@ import { ArrowLeft, ShoppingBag, ChevronLeft, ChevronRight, AlertCircle, Check }
 import { useProdutos, useConfiguracaoCatalogo } from '../../useCatalogo'
 import { useCarrinho } from '../../useCarrinho'
 import CarrinhoFlutuante from '../../CarrinhoFlutuante'
+import SeletorTamanhos from '../../SeletorTamanhos'
+import type { ProdutoCatalogo } from '../../catalogo.types'
 
 interface Props {
   slug: string
@@ -15,7 +17,6 @@ interface Props {
 export default function ProdutoDetalheCliente({ slug, produtoId }: Props) {
   const { data: produtos = [], isLoading } = useProdutos(slug)
   const { data: config } = useConfiguracaoCatalogo(slug)
-  const adicionarItem = useCarrinho((s) => s.adicionarItem)
 
   const produto = produtos.find((p) => p.id === produtoId)
   const corPrimaria = config?.cor_primaria ?? '#dc2ade'
@@ -23,8 +24,6 @@ export default function ProdutoDetalheCliente({ slug, produtoId }: Props) {
 
   const [fotoIdx, setFotoIdx] = useState(0)
   const [corSelecionada, setCorSelecionada] = useState('')
-  const [tamanhoSelecionado, setTamanhoSelecionado] = useState('')
-  const [adicionado, setAdicionado] = useState(false)
 
   if (isLoading) {
     return (
@@ -57,26 +56,8 @@ export default function ProdutoDetalheCliente({ slug, produtoId }: Props) {
   const semEstoque = produto.estoque === 0
   const estoqueBaixo = produto.estoque > 0 && produto.estoque <= 4
   const temDesconto = !!produto.preco_promocional && produto.preco_promocional < produto.preco
-  const precoExibido = temDesconto ? produto.preco_promocional! : produto.preco
-
-  // Se produto tem cores, filtrar tamanhos com estoque da cor selecionada
   const temCores = produto.cores && produto.cores.length > 0
-
-  function handleAdicionar() {
-    if (semEstoque) return
-    adicionarItem({
-      produto_id: produto!.id,
-      sku: produto!.sku,
-      nome: produto!.nome,
-      foto_url: produto!.foto_url,
-      preco: precoExibido,
-      cor: corSelecionada || undefined,
-      tamanho: tamanhoSelecionado || undefined,
-      quantidade: 1,
-    })
-    setAdicionado(true)
-    setTimeout(() => setAdicionado(false), 2000)
-  }
+  const temTamanhos = produto.tamanhos.length > 0
 
   function prevFoto() {
     setFotoIdx((i) => (i === 0 ? fotos.length - 1 : i - 1))
@@ -272,69 +253,61 @@ export default function ProdutoDetalheCliente({ slug, produtoId }: Props) {
               </div>
             )}
 
-            {/* Seletor de tamanhos */}
-            {produto.tamanhos.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                  Tamanho{tamanhoSelecionado && <span className="normal-case font-normal text-gray-400 ml-1">— {tamanhoSelecionado}</span>}
-                </p>
-                <div className="flex gap-2 flex-wrap">
-                  {produto.tamanhos.map((tam) => (
-                    <button
-                      key={tam}
-                      onClick={() => setTamanhoSelecionado((prev) => (prev === tam ? '' : tam))}
-                      className={`min-w-[44px] px-3 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${
-                        tamanhoSelecionado === tam
-                          ? 'text-white border-transparent'
-                          : 'border-gray-200 text-gray-600 hover:border-gray-400 hover:text-gray-800'
-                      }`}
-                      style={tamanhoSelecionado === tam ? { backgroundColor: corPrimaria, borderColor: corPrimaria } : {}}
-                    >
-                      {tam}
-                    </button>
-                  ))}
-                </div>
+            {/* Seletor atacadista de tamanhos */}
+            {temTamanhos && !semEstoque && (
+              <div className="border border-gray-200 rounded-2xl overflow-hidden">
+                <SeletorTamanhos produto={produto} corPrimaria={corPrimaria} />
               </div>
             )}
 
-            {/* Botão adicionar */}
-            <div className="pt-2 space-y-3">
-              <button
-                onClick={handleAdicionar}
-                disabled={semEstoque}
-                className={`w-full py-4 rounded-2xl text-base font-bold flex items-center justify-center gap-3 transition-all duration-200 active:scale-95 shadow-lg ${
-                  semEstoque
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'
-                    : adicionado
-                    ? 'bg-green-500 text-white shadow-green-500/30'
-                    : 'text-white'
-                }`}
-                style={!semEstoque && !adicionado ? { backgroundColor: corPrimaria, boxShadow: `0 8px 24px ${corPrimaria}40` } : {}}
-              >
-                {adicionado ? (
-                  <>
-                    <Check className="w-5 h-5" />
-                    Adicionado ao carrinho!
-                  </>
-                ) : (
-                  <>
-                    <ShoppingBag className="w-5 h-5" />
-                    {semEstoque ? 'Indisponível' : 'Adicionar ao carrinho'}
-                  </>
-                )}
-              </button>
+            {/* Produto sem tamanhos ou sem estoque */}
+            {!temTamanhos && (
+              <div className="pt-2">
+                <SingleAddButton produto={produto} corPrimaria={corPrimaria} semEstoque={semEstoque} />
+              </div>
+            )}
 
-              <Link
-                href={`/catalogo/${slug}`}
-                className="block w-full py-3 rounded-2xl text-sm font-semibold text-gray-500 hover:text-gray-700 text-center transition-colors border border-gray-200 hover:border-gray-300 hover:bg-gray-50"
-              >
-                Continuar comprando
-              </Link>
-            </div>
+            {semEstoque && (
+              <p className="text-sm text-gray-400 text-center py-2">Produto indisponível no momento</p>
+            )}
+
+            <Link
+              href={`/catalogo/${slug}`}
+              className="block w-full py-3 rounded-2xl text-sm font-semibold text-gray-500 hover:text-gray-700 text-center transition-colors border border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+            >
+              Continuar comprando
+            </Link>
           </div>
         </div>
       </div>
     </div>
+  )
+}
+
+/** Botão de adição única (produto sem tamanhos) */
+function SingleAddButton({ produto, corPrimaria, semEstoque }: { produto: ProdutoCatalogo; corPrimaria: string; semEstoque: boolean }) {
+  const adicionarItem = useCarrinho((s) => s.adicionarItem)
+  const [adicionado, setAdicionado] = useState(false)
+  const temDesconto = !!produto.preco_promocional && produto.preco_promocional < produto.preco
+  const preco = temDesconto ? produto.preco_promocional! : produto.preco
+
+  function handle() {
+    if (semEstoque) return
+    adicionarItem({ produto_id: produto.id, sku: produto.sku, nome: produto.nome, foto_url: produto.foto_url, preco, quantidade: 1 })
+    setAdicionado(true)
+    setTimeout(() => setAdicionado(false), 2000)
+  }
+
+  return (
+    <button
+      onClick={handle}
+      disabled={semEstoque}
+      className="w-full py-4 rounded-2xl text-base font-bold flex items-center justify-center gap-3 transition-all duration-200 active:scale-95 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
+      style={!semEstoque && !adicionado ? { backgroundColor: corPrimaria, color: 'white', boxShadow: `0 8px 24px ${corPrimaria}40` }
+        : adicionado ? { backgroundColor: '#22c55e', color: 'white' } : {}}
+    >
+      {adicionado ? <><Check className="w-5 h-5" /> Adicionado!</> : <><ShoppingBag className="w-5 h-5" />{semEstoque ? 'Indisponível' : 'Adicionar ao carrinho'}</>}
+    </button>
   )
 }
 
@@ -345,6 +318,5 @@ function isLight(hex: string): boolean {
   const r = parseInt(c.slice(0, 2), 16)
   const g = parseInt(c.slice(2, 4), 16)
   const b = parseInt(c.slice(4, 6), 16)
-  // Luminância relativa simplificada
   return (r * 299 + g * 587 + b * 114) / 1000 > 128
 }

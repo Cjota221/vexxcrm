@@ -2,23 +2,27 @@
 
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { ItemCarrinho } from './catalogo.types'
+import type { ItemCarrinhoLoja } from './loja.types'
 
-interface CarrinhoState {
-  itens: ItemCarrinho[]
-  adicionarItem: (item: ItemCarrinho) => void
-  removerItem: (produtoId: string, cor?: string, tamanho?: string) => void
-  alterarQuantidade: (produtoId: string, cor: string | undefined, tamanho: string | undefined, quantidade: number) => void
+const MINIMO_PECAS = 5
+
+interface CarrinhoLojaState {
+  itens: ItemCarrinhoLoja[]
+  adicionarItem: (item: ItemCarrinhoLoja) => void
+  removerItem: (produtoId: string, cor: string | undefined, tamanho: string) => void
+  alterarQuantidade: (produtoId: string, cor: string | undefined, tamanho: string, quantidade: number) => void
   limparCarrinho: () => void
-  totalItens: () => number
+  totalPecas: () => number
   totalPreco: () => number
+  atingiuMinimo: () => boolean
+  pecasFaltando: () => number
 }
 
-function mesmoItem(a: ItemCarrinho, produtoId: string, cor?: string, tamanho?: string) {
-  return a.produto_id === produtoId && a.cor === cor && a.tamanho === tamanho
+function mesmoItem(i: ItemCarrinhoLoja, produtoId: string, cor: string | undefined, tamanho: string) {
+  return i.produto_id === produtoId && i.cor === cor && i.tamanho === tamanho
 }
 
-export const useCarrinho = create<CarrinhoState>()(
+export const useCarrinhoLoja = create<CarrinhoLojaState>()(
   persist(
     (set, get) => ({
       itens: [],
@@ -53,10 +57,15 @@ export const useCarrinho = create<CarrinhoState>()(
 
       limparCarrinho: () => set({ itens: [] }),
 
-      totalItens: () => get().itens.reduce((acc, i) => acc + i.quantidade, 0),
+      totalPecas: () => get().itens.reduce((acc, i) => acc + i.quantidade, 0),
 
-      totalPreco: () => get().itens.reduce((acc, i) => acc + i.preco * i.quantidade, 0),
+      totalPreco: () => get().itens.reduce((acc, i) => acc + i.preco_unitario * i.quantidade, 0),
+
+      atingiuMinimo: () => get().itens.reduce((acc, i) => acc + i.quantidade, 0) >= MINIMO_PECAS,
+
+      pecasFaltando: () =>
+        Math.max(0, MINIMO_PECAS - get().itens.reduce((acc, i) => acc + i.quantidade, 0)),
     }),
-    { name: 'vexx-carrinho', skipHydration: true }
+    { name: 'cj-carrinho-loja', skipHydration: true }
   )
 )
