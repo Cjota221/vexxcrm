@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
 
     const { data: config } = await supabase
       .from('ai_provider_config')
-      .select('meta_access_token, meta_page_id')
+      .select('meta_access_token, meta_page_id, meta_page_token')
       .eq('tenant_id', profile.tenant_id)
       .single();
 
@@ -24,8 +24,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Token Meta não configurado' }, { status: 400 });
     }
 
+    // Buscar páginas + access_token de cada uma
     const res = await fetch(
-      `${META_BASE}/me/accounts?fields=id,name,fan_count,picture{url},instagram_business_account{id,username}&access_token=${config.meta_access_token}`
+      `${META_BASE}/me/accounts?fields=id,name,fan_count,picture{url},access_token,instagram_business_account{id,username}&access_token=${config.meta_access_token}`
     );
 
     if (!res.ok) {
@@ -38,13 +39,36 @@ export async function GET(req: NextRequest) {
         id: string;
         name: string;
         fan_count?: number;
+        access_token?: string;
         picture?: { data?: { url?: string } };
         instagram_business_account?: { id: string; username?: string };
       }>;
     };
 
+    const pages = data.data || [];
+
+    // Auto-preencher meta_page_token se ainda não foi salvo
+    if (!config.meta_page_token && pages.length > 0) {
+      const currentPage = config.meta_page_id
+        ? pages.find((p) => p.id === config.meta_page_id) ?? pages[0]
+        : pages[0];
+      if (currentPage?.access_token) {
+        await supabase
+          .from('ai_provider_config')
+          .update({
+            meta_page_token: currentPage.access_token,
+            meta_page_id: currentPage.id,
+            ...(currentPage.instagram_business_account?.id && {
+              meta_instagram_id: currentPage.instagram_business_account.id,
+            }),
+          })
+          .eq('tenant_id', profile.tenant_id);
+        console.log(`[Social Config] meta_page_token auto-preenchido para page ${currentPage.id}`);
+      }
+    }
+
     return NextResponse.json({
-      pages: data.data || [],
+      pages,
       currentPageId: config.meta_page_id || null,
     });
   } catch (err) {
