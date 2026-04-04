@@ -138,51 +138,101 @@ async function processInstagramMessage(
   const text = (message.text as string) || '';
   const timestamp = (event.timestamp as number) ?? Date.now();
 
-  // ── Buscar nome e foto do usuário via Graph API ─────────────────────────
+  // ── Verificar se cliente Instagram já existe com nome real ──────────────
   const igUserId = senderId;
-  let igName = `Instagram ${igUserId.slice(-6)}`;
-  let igAvatar: string | null = null;
+  const igPhone = `ig:${igUserId}`;
 
-  try {
-    const { data: cfg } = await supabase
-      .from('ai_provider_config')
-      .select('meta_access_token')
-      .eq('tenant_id', tenantId)
-      .single();
+  const { data: existingClient } = await supabase
+    .from('clients')
+    .select('id, name, avatar_url')
+    .eq('tenant_id', tenantId)
+    .eq('phone_normalized', igPhone)
+    .single();
 
-    if (cfg?.meta_access_token) {
-      const profileRes = await fetch(
-        `https://graph.facebook.com/v19.0/${igUserId}?fields=name,profile_pic&access_token=${cfg.meta_access_token}`,
-        { signal: AbortSignal.timeout(5000) }
-      );
-      const profile = await profileRes.json() as { name?: string; profile_pic?: string; error?: { message: string } };
-      if (profileRes.ok) {
-        if (profile.name) igName = profile.name;
-        if (profile.profile_pic) igAvatar = profile.profile_pic;
+  // Se já existe com nome real (não é o fallback de código), preservar
+  const jaTemNomeReal = existingClient?.name &&
+    !existingClient.name.startsWith('Instagram ') &&
+    existingClient.name !== igUserId;
+
+  let igName: string | null = null; // null = não atualizar nome existente
+  let igAvatar: string | null = existingClient?.avatar_url ?? null;
+  let resolvedNameFromApi = false;
+
+  if (!jaTemNomeReal) {
+    // Tentar buscar nome real via Graph API
+    try {
+      const { data: cfg } = await supabase
+        .from('ai_provider_config')
+        .select('meta_access_token')
+        .eq('tenant_id', tenantId)
+        .single();
+
+      if (cfg?.meta_access_token) {
+        // Tentar campos name, first_name e picture para Instagram DM
+        const profileRes = await fetch(
+          `https://graph.facebook.com/v19.0/${igUserId}?fields=name,first_name,last_name,profile_pic&access_token=${cfg.meta_access_token}`,
+          { signal: AbortSignal.timeout(5000) }
+        );
+        const profile = await profileRes.json() as {
+          name?: string;
+          first_name?: string;
+          last_name?: string;
+          profile_pic?: string;
+          error?: { message: string }
+        };
+
+        if (profileRes.ok && !profile.error) {
+          const nomePerfil = profile.name ||
+            [profile.first_name, profile.last_name].filter(Boolean).join(' ').trim();
+          if (nomePerfil) {
+            igName = nomePerfil;
+            resolvedNameFromApi = true;
+          }
+          if (profile.profile_pic) igAvatar = profile.profile_pic;
+        } else if (profile.error) {
+          console.warn(`[Instagram Webhook] Graph API error para ${igUserId}: ${profile.error.message}`);
+        }
       }
-      // Foto requer Page Access Token — user token não tem acesso ao perfil do remetente
-      // Por enquanto usa nome padrão se não retornar
+    } catch (err) {
+      console.warn(`[Instagram Webhook] Falha ao buscar perfil ${igUserId}:`, err);
     }
-  } catch {
-    // Falha silenciosa — usa nome padrão
+
+    // Fallback: só usar nome de código se cliente não existir
+    if (!igName && !existingClient) {
+      igName = `Instagram ${igUserId.slice(-6)}`;
+    }
   }
 
-  // ── Upsert cliente ──────────────────────────────────────────────────────
-  const { data: client } = await supabase
-    .from('clients')
-    .upsert(
-      {
+  console.log(`[Instagram Webhook] sender=${igUserId} nomeReal=${resolvedNameFromApi} nomeFinal=${igName ?? '(preservado)'} clienteExiste=${!!existingClient}`);
+
+  // ── Upsert cliente — preserva nome real se já existe ────────────────────
+  let client = existingClient;
+  if (!client) {
+    // Novo cliente: criar com nome resolvido (ou fallback)
+    const { data: newClient } = await supabase
+      .from('clients')
+      .insert({
         tenant_id: tenantId,
-        phone: `ig:${igUserId}`,
-        phone_normalized: `ig:${igUserId}`,
-        name: igName,
-        avatar_url: igAvatar || undefined,
+        phone: igPhone,
+        phone_normalized: igPhone,
+        name: igName ?? `Instagram ${igUserId.slice(-6)}`,
+        avatar_url: igAvatar ?? undefined,
         source: 'instagram',
-      },
-      { onConflict: 'tenant_id,phone_normalized', ignoreDuplicates: false }
-    )
-    .select('id, name')
-    .single();
+      })
+      .select('id, name, avatar_url')
+      .single();
+    client = newClient;
+  } else if (igName || igAvatar) {
+    // Cliente existente: atualizar apenas se conseguimos dados reais da API
+    const ec = existingClient!;
+    const updates: Record<string, string> = {};
+    if (igName) updates.name = igName;
+    if (igAvatar && igAvatar !== ec.avatar_url) updates.avatar_url = igAvatar;
+    if (Object.keys(updates).length > 0) {
+      await supabase.from('clients').update(updates).eq('id', ec.id);
+      if (igName) client = { ...ec, name: igName };
+    }
+  }
 
   if (!client) {
     console.error('[Instagram Webhook] Erro ao upsert cliente');

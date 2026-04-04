@@ -155,7 +155,7 @@ export async function GET(request: NextRequest) {
 
     const filteredItems = items || [];
 
-    // 8b. Buscar fotos dos grupos via whatsapp_groups (query separada — conversations não tem avatar_url)
+    // 8b. Buscar fotos dos grupos via whatsapp_groups
     const groupJids = filteredItems
       .map((c: Record<string, unknown>) => c.remote_jid as string)
       .filter((jid: string | undefined): jid is string => !!jid?.includes('@g.us'));
@@ -170,6 +170,42 @@ export async function GET(request: NextRequest) {
       (wGroups || []).forEach((g: { group_jid: string; foto: string | null }) => {
         if (g.foto) groupAvatarMap[g.group_jid] = g.foto;
       });
+    }
+
+    // 8c. Buscar etiquetas das conversas (conversation_labels + cor via whatsapp_labels)
+    const conversationIds = filteredItems.map((c: Record<string, unknown>) => c.id as string);
+    const labelsMap: Record<string, Array<{ id: string; name: string; cor_hex: string }>> = {};
+
+    if (conversationIds.length > 0) {
+      const { data: convLabels } = await supabase
+        .from('conversation_labels')
+        .select('conversation_id, label_id, label_name')
+        .eq('tenant_id', tenantId)
+        .in('conversation_id', conversationIds);
+
+      if (convLabels && convLabels.length > 0) {
+        // Buscar cores das etiquetas em lote
+        const labelIds = [...new Set(convLabels.map((l: Record<string, string>) => l.label_id).filter(Boolean))];
+        const { data: wLabels } = await supabase
+          .from('whatsapp_labels')
+          .select('whatsapp_label_id, cor_hex, nome')
+          .eq('tenant_id', tenantId)
+          .in('whatsapp_label_id', labelIds);
+
+        const corMap: Record<string, string> = {};
+        (wLabels || []).forEach((l: { whatsapp_label_id: string; cor_hex: string | null; nome: string }) => {
+          if (l.cor_hex) corMap[l.whatsapp_label_id] = l.cor_hex;
+        });
+
+        convLabels.forEach((l: { conversation_id: string; label_id: string; label_name: string }) => {
+          if (!labelsMap[l.conversation_id]) labelsMap[l.conversation_id] = [];
+          labelsMap[l.conversation_id].push({
+            id: l.label_id,
+            name: l.label_name,
+            cor_hex: corMap[l.label_id] || '#ABB8C3',
+          });
+        });
+      }
     }
 
     // 9. Transformar no formato esperado pelo ChatList (interface Chat)
@@ -231,6 +267,7 @@ export async function GET(request: NextRequest) {
           assigned_to: (conv.assigned_to as string) || undefined,
           updated_at: (conv.updated_at as string) || (conv.created_at as string) || '',
           _cursor: (conv.last_message_at as string) || (conv.updated_at as string) || (conv.created_at as string) || '',
+          labels: labelsMap[conv.id as string] || [],
         };
       });
 
