@@ -257,24 +257,49 @@ const ChatListItem = memo(function ChatListItem({ chat, isSelected, onSelect }: 
             </span>
           )}
         </div>
-        {/* Badges de etiqueta */}
-        {chat.labels && chat.labels.length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-1">
-            {chat.labels.slice(0, 3).map(label => (
-              <span
-                key={label.id}
-                className="inline-block text-[10px] px-1.5 py-0 rounded-full text-white font-medium leading-4 max-w-20 truncate"
-                style={{ backgroundColor: label.cor_hex || '#ABB8C3' }}
-                title={label.name}
-              >
-                {label.name}
-              </span>
-            ))}
-            {chat.labels.length > 3 && (
-              <span className="text-[10px] text-txt-muted">+{chat.labels.length - 3}</span>
-            )}
-          </div>
-        )}
+
+        {/* Canal + etiquetas */}
+        <div className="flex flex-wrap items-center gap-1 mt-1">
+          {/* Badge de canal */}
+          {(chat as any).canal === 'instagram' ? (
+            <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white leading-none"
+                  style={{ background: 'linear-gradient(135deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888)' }}>
+              <svg width="7" height="7" viewBox="0 0 24 24" fill="white" style={{ flexShrink: 0 }}>
+                <rect x="2" y="2" width="20" height="20" rx="5" ry="5" fill="none" stroke="white" strokeWidth="3"/>
+                <circle cx="12" cy="12" r="4.5" fill="none" stroke="white" strokeWidth="3"/>
+                <circle cx="18" cy="6" r="1.5" fill="white"/>
+              </svg>
+              Direct
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white leading-none bg-[#25d366]">
+              <svg width="7" height="7" viewBox="0 0 24 24" fill="white" style={{ flexShrink: 0 }}>
+                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
+                <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm.029 18.88a9.938 9.938 0 01-4.744-1.21l-3.417.896.913-3.33A9.96 9.96 0 012.07 12c0-5.478 4.452-9.93 9.93-9.93 5.478 0 9.93 4.452 9.93 9.93 0 5.478-4.451 9.88-9.93 9.88z"/>
+              </svg>
+              WhatsApp
+            </span>
+          )}
+
+          {/* Etiquetas do WhatsApp */}
+          {chat.labels && chat.labels.length > 0 && (
+            <>
+              {chat.labels.slice(0, 2).map((label) => (
+                <span
+                  key={label.id}
+                  className="inline-block text-[9px] px-1.5 py-0.5 rounded-full text-white font-medium leading-none max-w-[80px] truncate"
+                  style={{ backgroundColor: label.cor_hex || '#ABB8C3' }}
+                  title={label.name}
+                >
+                  {label.name}
+                </span>
+              ))}
+              {chat.labels.length > 2 && (
+                <span className="text-[9px] text-[#8890a8]">+{chat.labels.length - 2}</span>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </button>
   );
