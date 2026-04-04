@@ -236,6 +236,7 @@ function ClientTab({ client, status, orders, clientId, onNameSaved }: {
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState('');
   const [savingName, setSavingName] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
   const [avatarError, setAvatarError] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -254,6 +255,7 @@ function ClientTab({ client, status, orders, clientId, onNameSaved }: {
     const trimmed = nameInput.trim();
     if (!trimmed || trimmed === c.name) { cancelEdit(); return; }
     setSavingName(true);
+    setNameError(null);
     try {
       const response = await api.patch(`/api/clients/${clientId}`, { name: trimmed });
       if (response.error) throw new Error(response.error);
@@ -261,6 +263,7 @@ function ClientTab({ client, status, orders, clientId, onNameSaved }: {
       setEditingName(false);
     } catch (err) {
       console.error('[CRMSidebar] Erro ao salvar nome:', err);
+      setNameError('Erro ao salvar. Tente novamente.');
     } finally {
       setSavingName(false);
     }
@@ -333,6 +336,8 @@ function ClientTab({ client, status, orders, clientId, onNameSaved }: {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             {editingName ? (
+              <div className="flex flex-col gap-1 w-full">
+              {nameError && <span className="text-[11px] text-red-500">{nameError}</span>}
               <div className="flex items-center gap-1.5 w-full">
                 <input
                   ref={nameInputRef}
@@ -361,6 +366,7 @@ function ClientTab({ client, status, orders, clientId, onNameSaved }: {
                 >
                   <X size={12} />
                 </button>
+              </div>
               </div>
             ) : (
               <>

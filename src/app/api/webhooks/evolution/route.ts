@@ -509,6 +509,29 @@ async function handleNewMessage(
     return;
   }
 
+  // ━━━ DEDUP PARA ECHO DE LEGENDA ━━━
+  // Quando a Evolution envia uma imagem/vídeo com legenda, às vezes dispara dois eventos
+  // messages.upsert: um com imageMessage (correto) e um com conversation=legenda (texto duplicado).
+  // Detectar: fromMe=true, type=text, e já existe mensagem outbound recente na conversa com o mesmo conteúdo.
+  if (fromMe && type === 'text' && text) {
+    const thirtySecsAgo = new Date(Date.now() - 30_000).toISOString();
+    const { data: recentMedia } = await supabase
+      .from('messages')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('conversation_id', conversationId)
+      .eq('direction', 'outbound')
+      .in('type', ['image', 'video'])
+      .eq('content', text)
+      .gte('created_at', thirtySecsAgo)
+      .limit(1);
+
+    if (recentMedia && recentMedia.length > 0) {
+      console.log(`[Webhook] Ignorando echo de legenda (fromMe text duplicado de mídia): "${text.substring(0, 60)}"`);
+      return;
+    }
+  }
+
   // Resolver reply_to_id pelo external_id da mensagem citada
   let replyToId: string | null = null;
   if (quotedMsgId) {

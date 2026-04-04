@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo, memo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Clock,
@@ -66,7 +66,7 @@ function useMoveCard() {
    CARD DE KANBAN
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-function KanbanCardItem({
+const KanbanCardItem = memo(function KanbanCardItem({
   card,
   onMove,
   moving,
@@ -188,7 +188,7 @@ function KanbanCardItem({
       </div>
     </div>
   );
-}
+});
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    AÇÕES DE MOVER CARD
@@ -238,7 +238,7 @@ function MoveActions({
    COLUNA DO KANBAN
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-function KanbanColumnPanel({
+const KanbanColumnPanel = memo(function KanbanColumnPanel({
   column,
   cards,
   onMove,
@@ -289,7 +289,7 @@ function KanbanColumnPanel({
       </div>
     </div>
   );
-}
+});
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    COMPONENTE PRINCIPAL — KanbanBoard
@@ -305,18 +305,18 @@ export function KanbanBoard() {
   const tenantId = useAuthStore(s => s.tenant?.id ?? null);
   useKanbanRealtime(tenantId);
 
-  // Agrupar cards por coluna
-  const cardsByColumn = useCallback(() => {
-    const grouped: Record<KanbanColumn, KanbanCard[]> = {} as Record<KanbanColumn, KanbanCard[]>;
+  // Agrupar cards por coluna — useMemo evita recomputar quando outros estados mudam
+  const grouped = useMemo(() => {
+    const g: Record<KanbanColumn, KanbanCard[]> = {} as Record<KanbanColumn, KanbanCard[]>;
     for (const col of KANBAN_COLUMNS_ORDER) {
-      grouped[col] = [];
+      g[col] = [];
     }
     for (const card of cards) {
-      if (grouped[card.coluna]) {
-        grouped[card.coluna].push(card);
+      if (g[card.coluna]) {
+        g[card.coluna].push(card);
       }
     }
-    return grouped;
+    return g;
   }, [cards]);
 
   const handleMove = useCallback(async (card: KanbanCard, para: KanbanColumn) => {
@@ -338,8 +338,6 @@ export function KanbanBoard() {
       setMovingCardId(null);
     }
   }, [moveMutation]);
-
-  const grouped = cardsByColumn();
 
   if (isLoading) {
     return (

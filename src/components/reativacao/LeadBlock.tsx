@@ -1,10 +1,14 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { ChevronDown, ChevronUp, Send } from 'lucide-react';
+import { ChevronDown, ChevronUp, Send, Layers } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getInitials, getAvatarColor, formatRelativeTime } from '@/lib/utils';
+import { SubgruposModal } from './SubgruposModal';
 import type { Client } from '@/types';
+
+/** Acima deste limite mostra botão de sub-grupos em vez de disparo direto */
+const SUBGROUP_THRESHOLD = 100;
 
 interface BadgeProps {
   texto: string;
@@ -31,12 +35,18 @@ interface LeadBlockProps {
   label: string;
   sublabel: string;
   leads: Client[];
+  totalCount?: number;
+  bucketKey?: string;  // para busca paginada no SubgruposModal
+  isByTag?: boolean;
   cor: string;
   badge: BadgeProps;
   onDisparar: (leads: Client[]) => void;
 }
 
-export function LeadBlock({ label, sublabel, leads, cor, badge, onDisparar }: LeadBlockProps) {
+export function LeadBlock({ label, sublabel, leads, totalCount, bucketKey, isByTag, cor, badge, onDisparar }: LeadBlockProps) {
+  const displayCount = totalCount ?? leads.length;
+  const [subgruposOpen, setSubgruposOpen] = useState(false);
+  const usesSubgrupos = displayCount > SUBGROUP_THRESHOLD && !!bucketKey;
   const [expanded, setExpanded] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -60,7 +70,7 @@ export function LeadBlock({ label, sublabel, leads, cor, badge, onDisparar }: Le
     onDisparar(targets);
   }, [leads, selected, onDisparar]);
 
-  if (leads.length === 0) return null;
+  if (displayCount === 0) return null;
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
@@ -76,7 +86,7 @@ export function LeadBlock({ label, sublabel, leads, cor, badge, onDisparar }: Le
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-gray-900 text-sm">{label}</span>
-            <span className="text-xs text-gray-400">{leads.length} leads · {sublabel}</span>
+            <span className="text-xs text-gray-400">{displayCount.toLocaleString('pt-BR')} leads · {sublabel}</span>
           </div>
         </div>
 
@@ -86,13 +96,23 @@ export function LeadBlock({ label, sublabel, leads, cor, badge, onDisparar }: Le
         </span>
 
         {/* Botão disparar */}
-        <button
-          onClick={e => { e.stopPropagation(); handleDisparar(); }}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1e3a5f] text-white text-xs font-medium rounded-lg hover:bg-[#162d4a] transition-colors shrink-0"
-        >
-          <Send size={11} />
-          Disparar bloco
-        </button>
+        {usesSubgrupos ? (
+          <button
+            onClick={e => { e.stopPropagation(); setSubgruposOpen(true); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1e3a5f] text-white text-xs font-medium rounded-lg hover:bg-[#162d4a] transition-colors shrink-0"
+          >
+            <Layers size={11} />
+            Sub-grupos
+          </button>
+        ) : (
+          <button
+            onClick={e => { e.stopPropagation(); handleDisparar(); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1e3a5f] text-white text-xs font-medium rounded-lg hover:bg-[#162d4a] transition-colors shrink-0"
+          >
+            <Send size={11} />
+            Disparar bloco
+          </button>
+        )}
 
         {/* Chevron */}
         <span className="text-gray-400 shrink-0">
@@ -161,10 +181,21 @@ export function LeadBlock({ label, sublabel, leads, cor, badge, onDisparar }: Le
               onClick={selectAll}
               className="text-xs font-medium text-[#1e3a5f] hover:underline"
             >
-              Selecionar todos os {leads.length} →
+              Selecionar todos os {displayCount.toLocaleString('pt-BR')} →
             </button>
           </div>
         </>
+      )}
+
+      {/* Modal de sub-grupos */}
+      {subgruposOpen && bucketKey && (
+        <SubgruposModal
+          bucketKey={bucketKey}
+          bucketLabel={label}
+          totalCount={displayCount}
+          isByTag={isByTag}
+          onClose={() => setSubgruposOpen(false)}
+        />
       )}
     </div>
   );

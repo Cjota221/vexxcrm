@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as XLSX from 'xlsx';
 import { createServerSupabaseClient, createAuthenticatedClient } from '@/lib/supabase';
 import { PhoneNormalizer } from '@/lib/phone-normalizer';
 
@@ -88,6 +87,7 @@ export async function POST(request: NextRequest) {
     const importTag = (formData.get('tag') as string | null)?.trim() || '';
 
     // ─── 3. Parsear arquivo ───
+    const XLSX = await import('xlsx');
     const buffer = await file.arrayBuffer();
     const workbook = XLSX.read(buffer, { type: 'array', codepage: 65001, cellDates: true });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];

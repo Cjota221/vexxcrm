@@ -68,35 +68,39 @@ export class ContactCenterService {
 
     if (error || !queues) return [];
 
-    // Enriquecer com contadores
-    const enriched = await Promise.all(
-      queues.map(async (q: Record<string, unknown>) => {
-        const { count: waiting } = await this.supabase
-          .from('conversations')
-          .select('*', { count: 'exact', head: true })
-          .eq('queue_id', q.id as string)
-          .eq('status', 'waiting');
+    // Buscar todos os contadores de espera em uma única query (evita N+1)
+    const queueIds = queues.map((q: Record<string, unknown>) => q.id as string);
+    const { data: waitingRows } = await this.supabase
+      .from('conversations')
+      .select('queue_id')
+      .in('queue_id', queueIds)
+      .eq('status', 'waiting');
 
-        const agents = ((q as Record<string, unknown>).agent_assignments as Array<Record<string, unknown>> || []).map(
-          (a) => {
-            const profile = a.profile as Record<string, unknown>;
-            return {
-              profile_id: a.profile_id as string,
-              full_name: (profile?.full_name as string) || '',
-              is_online: (profile?.is_online as boolean) || false,
-              active_chats_count: (profile?.active_chats_count as number) || 0,
-              max_concurrent_chats: (profile?.max_concurrent_chats as number) || 5,
-            };
-          }
-        );
+    const waitingByQueue = new Map<string, number>();
+    for (const row of waitingRows ?? []) {
+      waitingByQueue.set(row.queue_id, (waitingByQueue.get(row.queue_id) ?? 0) + 1);
+    }
 
-        return {
-          ...q,
-          agents,
-          total_waiting: waiting || 0,
-        } as QueueWithAgents;
-      })
-    );
+    const enriched = queues.map((q: Record<string, unknown>) => {
+      const agents = ((q as Record<string, unknown>).agent_assignments as Array<Record<string, unknown>> || []).map(
+        (a) => {
+          const profile = a.profile as Record<string, unknown>;
+          return {
+            profile_id: a.profile_id as string,
+            full_name: (profile?.full_name as string) || '',
+            is_online: (profile?.is_online as boolean) || false,
+            active_chats_count: (profile?.active_chats_count as number) || 0,
+            max_concurrent_chats: (profile?.max_concurrent_chats as number) || 5,
+          };
+        }
+      );
+
+      return {
+        ...q,
+        agents,
+        total_waiting: waitingByQueue.get(q.id as string) ?? 0,
+      } as QueueWithAgents;
+    });
 
     return enriched;
   }

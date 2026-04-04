@@ -135,7 +135,7 @@ Para cada público recomende:
 Contexto CJ Rasteirinhas:
 - Produto: rasteirinhas femininas atacado (mínimo 5 pares, R$25-49,90/par)
 - C4 Franquias: site próprio de revenda, modelo dropshipping
-- Instagram: @cjrasteirinhas
+- Instagram: @cjotarasteirinhas
 
 Dados da base:
 ${JSON.stringify(resumo, null, 2)}

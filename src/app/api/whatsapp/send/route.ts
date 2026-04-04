@@ -46,12 +46,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (type !== 'pix' && type !== 'copy_code' && !content) {
+    const isMediaType = ['image', 'video', 'audio', 'document'].includes(type);
+    if (!isMediaType && type !== 'pix' && type !== 'copy_code' && !content) {
       return NextResponse.json(
         { error: 'Campos obrigatórios: to, content' },
         { status: 400 }
       );
     }
+    // Para mídia sem legenda, usar string vazia como content de fallback
+    if (isMediaType && !content) content = caption || '';
 
     // Detectar Instagram: to começa com "ig:" (PSID armazenado como ig:{senderId})
     const isInstagram = typeof to === 'string' && to.startsWith('ig:');

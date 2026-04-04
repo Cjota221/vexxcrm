@@ -66,14 +66,13 @@ export async function editarTextoAnuncio(params: {
     access_token: params.token,
   };
   if (params.videoId) {
-    creativoBody.object_story_spec = {
-      video_data: {
-        video_id: params.videoId,
-        title: params.titulo,
-        message: params.texto,
-        call_to_action: { type: params.cta || 'LEARN_MORE' },
-      },
+    const videoData: Record<string, unknown> = {
+      video_id:       params.videoId,
+      message:        params.texto || 'Conheça nossos produtos. Qualidade garantida.',
+      call_to_action: { type: params.cta || 'LEARN_MORE' },
     };
+    if (params.imageUrl) videoData.image_url = params.imageUrl;
+    creativoBody.object_story_spec = { video_data: videoData };
   }
 
   const novoCriativo = await metaPost(`${META_BASE}/${actId}/adcreatives`, creativoBody);

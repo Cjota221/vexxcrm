@@ -17,8 +17,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // ─── ROTAS PÚBLICAS ───
-  const isAuthPage = pathname.startsWith('/login') || 
-                     pathname.startsWith('/register') || 
+  const isAuthPage = pathname.startsWith('/login') ||
                      pathname.startsWith('/forgot-password');
   
   const isPublicApiRoute = pathname.startsWith('/api/auth') ||
@@ -33,7 +32,11 @@ export async function middleware(request: NextRequest) {
 
   // ─── PROTEÇÃO APENAS DE ROTAS DE API (não rotas de página) ───
   if (pathname.startsWith('/api') && !isPublicApiRoute) {
-    const token = request.headers.get('Authorization')?.replace('Bearer ', '');
+    // SSE usa query param ?token= pois EventSource não suporta headers customizados
+    const token =
+      request.headers.get('Authorization')?.replace('Bearer ', '') ||
+      request.nextUrl.searchParams.get('token') ||
+      '';
 
     if (!token) {
       return NextResponse.json(

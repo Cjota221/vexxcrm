@@ -44,6 +44,8 @@ export function AvatarImage({
         style={sizeStyle}
         className={cn('object-cover shrink-0', roundedClass, className)}
         onError={() => setFailed(true)}
+        loading="lazy"
+        decoding="async"
       />
     );
   }

@@ -51,7 +51,7 @@ Com base na análise do José, refine e complete a configuração técnica de ca
 Contexto CJ Rasteirinhas:
 - Produto: rasteirinhas femininas atacado (mínimo 5 pares, R$25-49,90/par)
 - C4 Franquias: site próprio de revenda, modelo dropshipping
-- Instagram: @cjrasteirinhas
+- Instagram: @cjotarasteirinhas
 - Público que CONVERTE: mulheres empreendedoras buscando renda extra
 
 REGRAS PARA INTERESSES:

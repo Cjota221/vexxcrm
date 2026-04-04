@@ -157,8 +157,32 @@ export async function POST(request: NextRequest) {
     let lastType = 'text';
     let lastMediaUrl: string | undefined;
 
+    // Budget total: 22s (deixa 4s de margem para o Netlify 26s limit)
+    const BUDGET_MS = 22_000;
+    // Delay máximo por bloco: 2s (evita templates com delay_ms gigante travarem)
+    const MAX_BLOCK_DELAY_MS = 2_000;
+    // Timeout por chamada à Evolution API
+    const EVOLUTION_TIMEOUT_MS = 8_000;
+    const startedAt = Date.now();
+
+    /** Wraps uma Promise com timeout */
+    function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+      return Promise.race([
+        p,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Timeout após ${ms}ms`)), ms)
+        ),
+      ]);
+    }
+
     for (const block of blocks) {
-      const delayMs = block.delay_ms ?? (results.length === 0 ? 0 : 1200);
+      // Se o budget acabou, registrar os blocos restantes como erro e sair
+      if (Date.now() - startedAt > BUDGET_MS) {
+        results.push({ blockId: block.id, messageId: '', status: 'error', error: 'Budget de tempo esgotado' });
+        continue;
+      }
+
+      const delayMs = Math.min(block.delay_ms ?? (results.length === 0 ? 0 : 1200), MAX_BLOCK_DELAY_MS);
       if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
 
       try {
@@ -173,7 +197,7 @@ export async function POST(request: NextRequest) {
             msgContent = interpolate(block.content) || '';
             if (!msgContent.trim()) { results.push({ blockId: block.id, messageId: '', status: 'error', error: 'Bloco vazio' }); continue; }
             msgType = 'text';
-            messageId = await sendTextMessage(config, phoneNormalized, msgContent);
+            messageId = await withTimeout(sendTextMessage(config, phoneNormalized, msgContent), EVOLUTION_TIMEOUT_MS);
             break;
           }
 
@@ -183,7 +207,7 @@ export async function POST(request: NextRequest) {
             msgContent = text;
             msgType = 'copy_code';
             msgMetadata = { copy_code: code };
-            messageId = await sendTextMessage(config, phoneNormalized, `${text}\n\`${code}\``);
+            messageId = await withTimeout(sendTextMessage(config, phoneNormalized, `${text}\n\`${code}\``), EVOLUTION_TIMEOUT_MS);
             break;
           }
 
@@ -197,7 +221,10 @@ export async function POST(request: NextRequest) {
             msgContent = caption;
             msgType = block.type;
             msgMediaUrl = url;
-            messageId = await sendMediaMessage(config, phoneNormalized, url, caption, block.type as 'image' | 'video' | 'audio' | 'document');
+            messageId = await withTimeout(
+              sendMediaMessage(config, phoneNormalized, url, caption, block.type as 'image' | 'video' | 'audio' | 'document'),
+              EVOLUTION_TIMEOUT_MS
+            );
             break;
           }
 
@@ -208,12 +235,11 @@ export async function POST(request: NextRequest) {
             msgContent = label ? `${label}\n${url}` : url;
             if (!msgContent.trim()) { results.push({ blockId: block.id, messageId: '', status: 'error', error: 'Link vazio' }); continue; }
             msgType = 'text';
-            messageId = await sendTextMessage(config, phoneNormalized, msgContent);
+            messageId = await withTimeout(sendTextMessage(config, phoneNormalized, msgContent), EVOLUTION_TIMEOUT_MS);
             break;
           }
 
           case 'link_banner': {
-            // Envia título (negrito) + descrição + URL como mensagem de texto rica
             const titulo = interpolate(block.link_banner_title || block.link_title) || '';
             const descricao = interpolate(block.link_banner_description) || '';
             const url = interpolate(block.media_url || block.link_url) || '';
@@ -225,7 +251,7 @@ export async function POST(request: NextRequest) {
             if (!msgContent.trim()) { results.push({ blockId: block.id, messageId: '', status: 'error', error: 'Link banner vazio' }); continue; }
             msgType = 'text';
             msgMetadata = { link_banner_title: titulo, link_banner_description: descricao, link_banner_image: block.link_banner_image };
-            messageId = await sendTextMessage(config, phoneNormalized, msgContent);
+            messageId = await withTimeout(sendTextMessage(config, phoneNormalized, msgContent), EVOLUTION_TIMEOUT_MS);
             break;
           }
 

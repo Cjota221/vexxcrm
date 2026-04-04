@@ -80,10 +80,12 @@ export function useRealtimeMessages() {
     }, 300);
   }, [queryClient]);
 
-  // FIX: Usar useState em vez de useRef para realtimeFallback.
-  // Refs não causam re-render — quando o canal falha e a flag muda,
-  // o useEffect nunca reexecuta e o canal sem filtro nunca é criado.
-  const [realtimeFallback, setRealtimeFallback] = useState(false);
+  // Persiste o fallback na sessão para não tentar o canal filtrado de novo
+  // após já ter falhado (evita CHANNEL_ERROR → reconnect loop em toda navegação).
+  const FALLBACK_KEY = 'rt_nofilter';
+  const [realtimeFallback, setRealtimeFallback] = useState<boolean>(() => {
+    try { return sessionStorage.getItem(FALLBACK_KEY) === '1'; } catch { return false; }
+  });
   // Contador que incrementa para forçar useEffect a recriar o canal após CHANNEL_ERROR
   const [realtimeVersion, setRealtimeVersion] = useState(0);
 
@@ -269,6 +271,7 @@ export function useRealtimeMessages() {
           // → reconectar SEM filtro, deixando RLS fazer o isolamento
           console.warn('[Realtime] Filtro rejeitado — reconectando sem filtro (fallback RLS)');
           realtimeReconnectAttemptsRef.current = 0; // nova fase, resetar contagem
+          try { sessionStorage.setItem(FALLBACK_KEY, '1'); } catch { /* noop */ }
           setRealtimeFallback(true); // FIX: setState causa re-render → useEffect reexecuta → canal sem filtro é criado
           supabase.removeChannel(channel);
           globalRealtimeChannelRef.current = null;

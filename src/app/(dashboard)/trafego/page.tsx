@@ -8,6 +8,9 @@ import { AddAccountModal } from '@/components/trafego/AddAccountModal';
 import { MetaTokenConfig } from '@/components/meta/MetaTokenConfig';
 import { GaleriaCriativos } from '@/components/meta/GaleriaCriativos';
 import { CriadorCampanha } from '@/components/meta/CriadorCampanha';
+import { AgenteTrafegoPanel } from '@/components/meta/AgenteTrafegoPanel';
+import { FilaAprovacao } from '@/components/meta/FilaAprovacao';
+import { InicializadorPublicos } from '@/components/meta/InicializadorPublicos';
 
 function authFetch(url: string, options?: RequestInit): Promise<Response> {
   const token = useAuthStore.getState().accessToken;
@@ -86,7 +89,7 @@ interface MetricsData {
 }
 
 type Period = '1d' | '7d' | '15d' | '30d';
-type Tab = 'campanhas' | 'criativos' | 'publicos' | 'textos' | 'analise' | 'relatorio' | 'config';
+type Tab = 'campanhas' | 'criativos' | 'publicos' | 'textos' | 'analise' | 'relatorio' | 'config' | 'agente' | 'aprovacoes';
 
 /* ─── Formatadores ─────────────────────────────────────────────────────────── */
 
@@ -927,6 +930,8 @@ function NovaCampanhaModal({ onClose, onCreated }: { onClose: () => void; onCrea
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [verificandoDup, setVerificandoDup] = useState(false);
+  const [avisosDup, setAvisosDup] = useState<Array<{ id: string; nome: string }>>([]);
 
   // Step 1 — Basic
   const [nome, setNome] = useState('');
@@ -1022,6 +1027,33 @@ function NovaCampanhaModal({ onClose, onCreated }: { onClose: () => void; onCrea
           {err && (
             <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-800 flex items-start gap-2">
               <AlertTriangle size={15} className="shrink-0 mt-0.5" /> {err}
+            </div>
+          )}
+
+          {avisosDup.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800 space-y-2">
+              <div className="flex items-start gap-2 font-medium">
+                <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+                Já existe{avisosDup.length > 1 ? 'm' : ''} {avisosDup.length} campanha{avisosDup.length > 1 ? 's' : ''} com nome similar nos últimos 7 dias:
+              </div>
+              <ul className="list-disc list-inside text-xs space-y-0.5 pl-1">
+                {avisosDup.map(d => <li key={d.id}>{d.nome}</li>)}
+              </ul>
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => { setAvisosDup([]); setStep(2); }}
+                  className="text-xs font-medium text-amber-900 underline hover:no-underline"
+                >
+                  Criar mesmo assim
+                </button>
+                <span className="text-amber-400">·</span>
+                <button
+                  onClick={() => setAvisosDup([])}
+                  className="text-xs text-amber-700 hover:text-amber-900"
+                >
+                  Alterar nome
+                </button>
+              </div>
             </div>
           )}
 
@@ -1185,10 +1217,35 @@ function NovaCampanhaModal({ onClose, onCreated }: { onClose: () => void; onCrea
           <div className="flex-1" />
           {step < 3 ? (
             <button
-              onClick={() => setStep(s => (s + 1) as 2 | 3)}
-              disabled={step === 1 ? !canGoStep2 : !canGoStep3}
+              onClick={async () => {
+                if (step === 1) {
+                  // Verificar duplicatas antes de avançar
+                  setVerificandoDup(true);
+                  setAvisosDup([]);
+                  try {
+                    const seteAtras = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                    const res = await authFetch(
+                      `/api/trafego/metrics?campaign_name_filter=${encodeURIComponent(nome.trim())}&since=${seteAtras}`
+                    );
+                    if (res.ok) {
+                      const dados = await res.json() as { campaigns?: Array<{ id: string; nome: string }> };
+                      const iguais = (dados.campaigns ?? []).filter(
+                        c => c.nome.toLowerCase().includes(nome.trim().toLowerCase())
+                      );
+                      if (iguais.length > 0) {
+                        setAvisosDup(iguais);
+                        return; // não avança — mostra aviso
+                      }
+                    }
+                  } catch { /* silencia: se falhar a checagem, avança normalmente */ }
+                  finally { setVerificandoDup(false); }
+                }
+                setStep(s => (s + 1) as 2 | 3);
+              }}
+              disabled={(step === 1 ? !canGoStep2 : !canGoStep3) || verificandoDup}
               className="px-5 py-2.5 rounded-xl bg-crm-primary text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 flex items-center gap-1.5"
             >
+              {verificandoDup ? <Loader2 size={14} className="animate-spin" /> : null}
               Próximo <ChevronRight size={15} />
             </button>
           ) : (
@@ -2305,6 +2362,14 @@ export default function TrafegoPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('campanhas');
+  const [pendentes, setPendentes] = useState(0);
+
+  useEffect(() => {
+    authFetch('/api/meta/campanhas/fila')
+      .then(r => r.json())
+      .then((data: unknown) => setPendentes(Array.isArray(data) ? data.length : 0))
+      .catch(() => {});
+  }, []);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   const [copies, setCopies] = useState<Array<{ id: string; headline: string; texto_principal: string; cta: string; justificativa?: string }>>([]);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
@@ -2656,6 +2721,7 @@ export default function TrafegoPage() {
                   { key: 'analise',   label: 'Análise' },
                   { key: 'relatorio', label: 'Relatório' },
                   { key: 'config',   label: 'Configurações' },
+                  { key: 'agente',   label: '⚡ Agente' },
                 ] as { key: Tab; label: string }[]
               ).map(({ key, label }) => (
                 <button
@@ -2671,6 +2737,22 @@ export default function TrafegoPage() {
                   {label}
                 </button>
               ))}
+              <button
+                onClick={() => setTab('aprovacoes')}
+                className={cn(
+                  'relative px-5 py-3.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
+                  tab === 'aprovacoes'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                )}
+              >
+                Aprovações
+                {pendentes > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                    {pendentes}
+                  </span>
+                )}
+              </button>
             </div>
             {tab === 'publicos' && (
               <button className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 px-4 py-3.5 transition-colors whitespace-nowrap">
@@ -2913,6 +2995,14 @@ export default function TrafegoPage() {
             {/* ── RELATÓRIO ── */}
             {tab === 'relatorio' && <RelatorioTab />}
 
+            {/* ── AGENTE ── */}
+            {tab === 'agente' && (
+              <AgenteTrafegoPanel />
+            )}
+
+            {/* ── APROVAÇÕES ── */}
+            {tab === 'aprovacoes' && <FilaAprovacao />}
+
             {/* ── CONFIG ── */}
             {tab === 'config' && (
               <div className="max-w-lg">
@@ -2921,6 +3011,7 @@ export default function TrafegoPage() {
                   Configure um System User Token para integração permanente sem expiração.
                 </p>
                 <MetaTokenConfig />
+                <InicializadorPublicos />
               </div>
             )}
           </div>

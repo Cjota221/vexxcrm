@@ -86,10 +86,11 @@ export async function GET(request: NextRequest) {
         .order('created_at', { ascending: false })
         .limit(cardIds.length * 5); // heurística: 5 por card
 
-      // Agrupa por chat_id
+      // Índice chat_id → card para evitar O(n²) com .find() dentro do loop
+      const cardByChatId = new Map((cards ?? []).map(c => [c.chat_id, c]));
+
       for (const t of transitions ?? []) {
-        // Mapeia via chat_id → card
-        const card = (cards ?? []).find(c => c.chat_id === t.chat_id);
+        const card = cardByChatId.get(t.chat_id);
         if (!card) continue;
         if (!transitionsByCard[card.id]) transitionsByCard[card.id] = [];
         if (transitionsByCard[card.id].length < 5) {

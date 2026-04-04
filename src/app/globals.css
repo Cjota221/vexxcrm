@@ -20,12 +20,12 @@
   --color-wa-bg-app: #f4f6fa;
 
   --color-wa-bubble-in: #ffffff;
-  --color-wa-bubble-out: #1a5fb4;
+  --color-wa-bubble-out: #d9fdd3;
 
-  --color-wa-text-primary: #1a1f2e;
-  --color-wa-text-secondary: #4a5168;
-  --color-wa-text-bubble: #ffffff;
-  --color-wa-text-time: rgba(255, 255, 255, 0.6);
+  --color-wa-text-primary: #111b21;
+  --color-wa-text-secondary: #667781;
+  --color-wa-text-bubble: #111b21;
+  --color-wa-text-time: rgba(17, 27, 33, 0.5);
 
   --color-wa-accent-green: #1a5fb4;
   --color-wa-accent-blue: #3584e4;
@@ -292,9 +292,10 @@ body {
   border-top: 1px solid #eef0f2;
 }
 
-/* ── Chat Background — VEXX SaaS (neutro, sem padrão bege) ── */
+/* ── Chat Background — WhatsApp style ── */
 .wa-chat-bg {
-  background-color: #f9fafc;
+  background-color: #efeae2;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Ccircle cx='10' cy='10' r='1.2' fill='%23c8bfb0' opacity='0.5'/%3E%3Ccircle cx='40' cy='10' r='1.2' fill='%23c8bfb0' opacity='0.5'/%3E%3Ccircle cx='70' cy='10' r='1.2' fill='%23c8bfb0' opacity='0.5'/%3E%3Ccircle cx='25' cy='25' r='1.2' fill='%23c8bfb0' opacity='0.5'/%3E%3Ccircle cx='55' cy='25' r='1.2' fill='%23c8bfb0' opacity='0.5'/%3E%3Ccircle cx='10' cy='40' r='1.2' fill='%23c8bfb0' opacity='0.5'/%3E%3Ccircle cx='40' cy='40' r='1.2' fill='%23c8bfb0' opacity='0.5'/%3E%3Ccircle cx='70' cy='40' r='1.2' fill='%23c8bfb0' opacity='0.5'/%3E%3Ccircle cx='25' cy='55' r='1.2' fill='%23c8bfb0' opacity='0.5'/%3E%3Ccircle cx='55' cy='55' r='1.2' fill='%23c8bfb0' opacity='0.5'/%3E%3Ccircle cx='10' cy='70' r='1.2' fill='%23c8bfb0' opacity='0.5'/%3E%3Ccircle cx='40' cy='70' r='1.2' fill='%23c8bfb0' opacity='0.5'/%3E%3Ccircle cx='70' cy='70' r='1.2' fill='%23c8bfb0' opacity='0.5'/%3E%3C/svg%3E");
 }
 
 /* ── Skeleton Loading ── */

@@ -401,7 +401,7 @@ function MessageBubbleComponent({ message, onTranscriptionUpdate, onRetry }: Mes
           <>
             <p className={cn(
               'text-sm wrap-break-word leading-relaxed',
-              isFromMe ? 'text-white' : 'text-wa-text-primary'
+              isFromMe ? 'text-wa-text-bubble' : 'text-wa-text-primary'
             )}>
               {parseMessageContent(message.content)}
             </p>
