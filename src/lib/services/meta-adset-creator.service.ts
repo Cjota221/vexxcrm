@@ -203,7 +203,7 @@ async function criarAdset(
 
 /* ─── Criar Ad Creative ──────────────────────────────────────────────────────── */
 
-async function criarAdCreative(
+export async function criarAdCreative(
   token: string,
   actId: string,
   cfg: ConfiguracaoCriativo,
@@ -298,7 +298,7 @@ async function criarAdCreative(
 
 /* ─── Criar Ad ───────────────────────────────────────────────────────────────── */
 
-async function criarAd(
+export async function criarAd(
   token: string,
   actId: string,
   adsetId: string,
@@ -510,15 +510,28 @@ export async function criarCampanhaCompleta(
     const interesses = await buscarInteressesAtacado(token);
     targetingCompleto = targetingFrio(interesses);
   } else if (cfg.tipo === 'quente') {
-    const [audienceId, visitantesId] = await Promise.all([
-      criarPublicoEngajamentoReal(actId, token, tenantId, 30),
-      criarPublicoVisitantesSite(actId, token, tenantId, 30),
-    ]);
-    const customAudiences = [audienceId, visitantesId].filter(Boolean).map(id => ({ id }));
-    targetingCompleto = {
-      ...targetingQuente(audienceId),
-      ...(customAudiences.length > 1 ? { custom_audiences: customAudiences } : {}),
-    };
+    let audienceId: string | null = null;
+    let visitantesId: string | null = null;
+    try {
+      [audienceId, visitantesId] = await Promise.all([
+        criarPublicoEngajamentoReal(actId, token, tenantId, 30),
+        criarPublicoVisitantesSite(actId, token, tenantId, 30),
+      ]);
+    } catch (err) {
+      console.warn('[criarCampanhaCompleta] Públicos quente falharam, usando targeting amplo:', err);
+    }
+    const customAudiences = [audienceId, visitantesId]
+      .filter((id): id is string => Boolean(id))
+      .map(id => ({ id }));
+    if (customAudiences.length === 0) {
+      const interesses = await buscarInteressesAtacado(token);
+      targetingCompleto = targetingFrio(interesses);
+    } else {
+      targetingCompleto = {
+        ...targetingQuente(audienceId ?? visitantesId),
+        custom_audiences: customAudiences,
+      };
+    }
   } else {
     const interesses = await buscarInteressesAtacado(token);
     targetingCompleto = targetingWhatsApp(interesses);

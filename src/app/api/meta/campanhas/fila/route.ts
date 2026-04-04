@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
       ad_creatives (nome, url_preview, classificacao)
     `)
     .eq('tenant_id', tenantId)
-    .not('status', 'in', '("publicado","rejeitado")')
+    .in('status', ['rascunho', 'aprovado', 'publicando', 'erro'])
     .order('created_at', { ascending: false });
 
   return NextResponse.json(data ?? []);
