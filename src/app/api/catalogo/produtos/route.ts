@@ -80,11 +80,21 @@ export async function GET(req: NextRequest) {
         sku: (p.sku as string) || String(p.id),
         nome: (p.name as string) || 'Produto',
         descricao: (p.description as string | null) || undefined,
-        preco: typeof p.price === 'number' ? p.price : Number(p.price) || 0,
-        preco_promocional:
-          typeof p.compare_at_price === 'number' && p.compare_at_price > 0
-            ? p.compare_at_price
-            : undefined,
+        // Normalizer FacilZap: price = preço efetivo (já com desconto se houver),
+        // compare_at_price = preço original (mais alto, riscado).
+        // No catálogo: preco = regular (maior), preco_promocional = desconto (menor).
+        ...((): { preco: number; preco_promocional?: number } => {
+          const price = typeof p.price === 'number' ? p.price : Number(p.price) || 0
+          const compareAt =
+            typeof p.compare_at_price === 'number' && p.compare_at_price > 0
+              ? p.compare_at_price
+              : null
+          const hasDiscount = compareAt !== null && compareAt > price
+          return {
+            preco: hasDiscount ? compareAt : price,
+            preco_promocional: hasDiscount ? price : undefined,
+          }
+        })(),
         foto_url: fotoUrl,
         fotos_urls: images.length > 1 ? images : undefined,
         categoria: (p.category as string | null) || 'Geral',

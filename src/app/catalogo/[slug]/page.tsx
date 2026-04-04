@@ -7,7 +7,7 @@ interface Props {
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { slug } = await params
+  await params // satisfaz o tipo async sem usar slug aqui
   return {
     title: 'Catálogo | CJ Rasteirinhas',
     description: 'Conheça nossa coleção de rasteirinhas e sandálias',
@@ -15,7 +15,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       title: 'Catálogo | CJ Rasteirinhas',
       type: 'website',
     },
-    other: { slug },
   }
 }
 
