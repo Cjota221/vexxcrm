@@ -164,9 +164,9 @@ export async function GET(req: NextRequest) {
             imageUrl:      criativo.url_preview ?? undefined,
             headline:      `${nome} — ${tipoLabel}`,
             texto:         '',
-            cta:           tipo === 'whatsapp' ? 'WHATSAPP_MESSAGE' : 'LEARN_MORE',
+            cta:           tipo === 'whatsapp' || tipo === 'quente' ? 'WHATSAPP_MESSAGE' : 'LEARN_MORE',
             pageId,
-            whatsappNumber: tipo === 'whatsapp' ? '5562993044255' : undefined,
+            whatsappNumber: tipo === 'whatsapp' || tipo === 'quente' ? '5562993044255' : undefined,
           };
 
           try {
@@ -181,20 +181,29 @@ export async function GET(req: NextRequest) {
             });
 
             // Salvar draft para aparecer na fila de aprovação
-            await supabase.from('meta_campaign_drafts').insert({
-              tenant_id:        tenantId,
-              nome:             `${nome} — ${tipoLabel}`,
-              objetivo:         tipo === 'frio' ? 'BRAND_AWARENESS' : 'LINK_CLICKS',
-              status:           'aprovado',
-              criativo_id:      criativo.id,
-              copy_headline:    cfgCriativo.headline,
-              copy_texto:       cfgCriativo.texto || null,
-              copy_cta:         cfgCriativo.cta,
-              orcamento_diario: orcPorTipo[tipo] ?? 5000,
-              meta_campaign_id: resultado.campaignId,
-              meta_adset_id:    resultado.adsetId,
-              meta_ad_id:       resultado.adId,
-            });
+            const { error: draftInsertError } = await supabase
+              .from('meta_campaign_drafts')
+              .insert({
+                tenant_id:        tenantId,
+                nome:             `${nome} — ${tipoLabel}`,
+                objetivo:         tipo === 'frio' ? 'BRAND_AWARENESS' : 'LINK_CLICKS',
+                status:           'aprovado',
+                tipo,
+                criativo_id:      criativo.id,
+                copy_headline:    cfgCriativo.headline,
+                copy_texto:       cfgCriativo.texto || null,
+                copy_cta:         cfgCriativo.cta,
+                orcamento_diario: orcPorTipo[tipo] ?? 5000,
+                meta_campaign_id: resultado.campaignId,
+                meta_adset_id:    resultado.adsetId,
+                meta_ad_id:       resultado.adId,
+              });
+
+            if (draftInsertError) {
+              console.error('[AGENTE STREAM] Erro ao salvar draft:', JSON.stringify(draftInsertError));
+            } else {
+              console.log('[AGENTE STREAM] Draft salvo com sucesso para tipo:', tipo);
+            }
 
             send('step', {
               id: `campanha_${tipo}`,
