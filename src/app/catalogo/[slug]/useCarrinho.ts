@@ -57,6 +57,6 @@ export const useCarrinho = create<CarrinhoState>()(
 
       totalPreco: () => get().itens.reduce((acc, i) => acc + i.preco * i.quantidade, 0),
     }),
-    { name: 'vexx-carrinho' }
+    { name: 'vexx-carrinho', skipHydration: true }
   )
 )
