@@ -20,9 +20,10 @@ export default function CarrinhoFlutuante({ whatsapp, corPrimaria = '#dc2ade' }:
   function gerarMensagem(): string {
     if (itens.length === 0) return ''
     const linhas = itens.map((item) => {
+      const cor = item.cor ? ` | Cor: ${item.cor}` : ''
       const tam = item.tamanho ? ` | Tam: ${item.tamanho}` : ''
       const subtotal = (item.preco * item.quantidade).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
-      return `• ${item.quantidade}x ${item.nome}${tam} — R$ ${subtotal}`
+      return `• ${item.quantidade}x ${item.nome}${cor}${tam} — R$ ${subtotal}`
     })
     const totalFmt = preco.toLocaleString('pt-BR', { minimumFractionDigits: 2 })
     return encodeURIComponent(
@@ -102,7 +103,7 @@ export default function CarrinhoFlutuante({ whatsapp, corPrimaria = '#dc2ade' }:
           ) : (
             itens.map((item, idx) => (
               <div
-                key={`${item.produto_id}-${item.tamanho ?? ''}-${idx}`}
+                key={`${item.produto_id}-${item.cor ?? ''}-${item.tamanho ?? ''}-${idx}`}
                 className="flex gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100"
               >
                 <img
@@ -114,8 +115,12 @@ export default function CarrinhoFlutuante({ whatsapp, corPrimaria = '#dc2ade' }:
                   <p className="text-sm font-medium text-gray-900 leading-tight line-clamp-2">
                     {item.nome}
                   </p>
-                  {item.tamanho && (
-                    <p className="text-[11px] text-gray-400 mt-0.5">Tam {item.tamanho}</p>
+                  {(item.tamanho || item.cor) && (
+                    <p className="text-[11px] text-gray-400 mt-0.5">
+                      {item.cor && <>Cor: {item.cor}</>}
+                      {item.cor && item.tamanho && ' · '}
+                      {item.tamanho && <>Tam: {item.tamanho}</>}
+                    </p>
                   )}
                   <p className="text-sm font-bold mt-1" style={{ color: corPrimaria }}>
                     R$ {(item.preco * item.quantidade).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
@@ -124,7 +129,7 @@ export default function CarrinhoFlutuante({ whatsapp, corPrimaria = '#dc2ade' }:
                   {/* Controles */}
                   <div className="flex items-center gap-2 mt-2">
                     <button
-                      onClick={() => alterarQuantidade(item.produto_id, item.tamanho, item.quantidade - 1)}
+                      onClick={() => alterarQuantidade(item.produto_id, item.cor, item.tamanho, item.quantidade - 1)}
                       className="w-6 h-6 rounded-md bg-gray-200 hover:bg-gray-300 flex items-center justify-center transition-colors"
                     >
                       <Minus className="w-3 h-3 text-gray-600" />
@@ -133,13 +138,13 @@ export default function CarrinhoFlutuante({ whatsapp, corPrimaria = '#dc2ade' }:
                       {item.quantidade}
                     </span>
                     <button
-                      onClick={() => alterarQuantidade(item.produto_id, item.tamanho, item.quantidade + 1)}
+                      onClick={() => alterarQuantidade(item.produto_id, item.cor, item.tamanho, item.quantidade + 1)}
                       className="w-6 h-6 rounded-md bg-gray-200 hover:bg-gray-300 flex items-center justify-center transition-colors"
                     >
                       <Plus className="w-3 h-3 text-gray-600" />
                     </button>
                     <button
-                      onClick={() => removerItem(item.produto_id, item.tamanho)}
+                      onClick={() => removerItem(item.produto_id, item.cor, item.tamanho)}
                       className="ml-auto p-1 rounded-md hover:bg-red-50 text-gray-300 hover:text-red-400 transition-colors"
                     >
                       <Trash2 className="w-3.5 h-3.5" />

@@ -7,12 +7,12 @@ interface Props {
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  await params // satisfaz o tipo async sem usar slug aqui
+  await params
   return {
-    title: 'Catálogo | CJ Rasteirinhas',
-    description: 'Conheça nossa coleção de rasteirinhas e sandálias',
+    title: 'Catálogo',
+    description: 'Conheça nossos produtos',
     openGraph: {
-      title: 'Catálogo | CJ Rasteirinhas',
+      title: 'Catálogo',
       type: 'website',
     },
   }
@@ -22,9 +22,9 @@ export default async function CatalogoPage({ params }: Props) {
   const { slug } = await params
 
   return (
-    <main className="min-h-screen bg-[#0d1117]">
+    <main className="min-h-screen bg-gray-50">
       <Suspense fallback={<CatalogoSkeleton />}>
-        <CatalogoCliente slug={slug} whatsapp="5562981480687" />
+        <CatalogoCliente slug={slug} whatsapp="" />
       </Suspense>
     </main>
   )
@@ -32,10 +32,16 @@ export default async function CatalogoPage({ params }: Props) {
 
 function CatalogoSkeleton() {
   return (
-    <div className="min-h-screen bg-[#0d1117] flex items-center justify-center">
-      <div className="flex flex-col items-center gap-4">
-        <div className="w-12 h-12 rounded-full border-2 border-[#dc2ade] border-t-transparent animate-spin" />
-        <p className="text-white/40 text-sm font-medium">Carregando catálogo...</p>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header skeleton */}
+      <div className="h-14 bg-white border-b border-gray-200 animate-pulse" />
+      {/* Grid skeleton */}
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="rounded-2xl bg-gray-200 animate-pulse aspect-[3/4]" />
+          ))}
+        </div>
       </div>
     </div>
   )

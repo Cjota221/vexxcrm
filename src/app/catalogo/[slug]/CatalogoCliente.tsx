@@ -157,7 +157,7 @@ export default function CatalogoCliente({ slug, whatsapp }: Props) {
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
               {produtosFiltrados.map((produto) => (
-                <ProdutoCard key={produto.id} produto={produto} corPrimaria={corPrimaria} />
+                <ProdutoCard key={produto.id} produto={produto} slug={slug} corPrimaria={corPrimaria} />
               ))}
             </div>
           </>

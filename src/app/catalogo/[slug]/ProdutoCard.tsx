@@ -1,16 +1,18 @@
 'use client'
 
 import { useState } from 'react'
-import { ShoppingBag, AlertCircle } from 'lucide-react'
+import Link from 'next/link'
+import { ShoppingBag, AlertCircle, Plus, Check } from 'lucide-react'
 import { useCarrinho } from './useCarrinho'
 import type { ProdutoCatalogo } from './catalogo.types'
 
 interface Props {
   produto: ProdutoCatalogo
+  slug: string
   corPrimaria?: string
 }
 
-export default function ProdutoCard({ produto, corPrimaria = '#dc2ade' }: Props) {
+export default function ProdutoCard({ produto, slug, corPrimaria = '#dc2ade' }: Props) {
   const [tamanhoSelecionado, setTamanhoSelecionado] = useState('')
   const [adicionado, setAdicionado] = useState(false)
   const adicionarItem = useCarrinho((s) => s.adicionarItem)
@@ -20,7 +22,9 @@ export default function ProdutoCard({ produto, corPrimaria = '#dc2ade' }: Props)
   const temDesconto = !!produto.preco_promocional && produto.preco_promocional < produto.preco
   const precoExibido = temDesconto ? produto.preco_promocional! : produto.preco
 
-  function handleAdicionar() {
+  function handleQuickAdd(e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
     if (semEstoque) return
     adicionarItem({
       produto_id: produto.id,
@@ -43,8 +47,8 @@ export default function ProdutoCard({ produto, corPrimaria = '#dc2ade' }: Props)
           : 'border-gray-200 hover:border-gray-300 hover:shadow-lg'
       }`}
     >
-      {/* Imagem */}
-      <div className="relative aspect-[3/4] overflow-hidden bg-gray-100">
+      {/* Imagem — clicável para detalhe */}
+      <Link href={`/catalogo/${slug}/produto/${produto.id}`} className="block relative aspect-[3/4] overflow-hidden bg-gray-100">
         {produto.foto_url ? (
           <img
             src={produto.foto_url}
@@ -60,6 +64,11 @@ export default function ProdutoCard({ produto, corPrimaria = '#dc2ade' }: Props)
 
         {/* Badges */}
         <div className="absolute top-2 left-2 flex flex-col gap-1">
+          {produto.destaque && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white">
+              DESTAQUE
+            </span>
+          )}
           {temDesconto && (
             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: corPrimaria }}>
               OFERTA
@@ -77,15 +86,29 @@ export default function ProdutoCard({ produto, corPrimaria = '#dc2ade' }: Props)
             </span>
           )}
         </div>
-      </div>
+
+        {/* Botão rápido "+" — aparece no hover */}
+        {!semEstoque && (
+          <button
+            onClick={handleQuickAdd}
+            className="absolute bottom-2 right-2 w-9 h-9 rounded-full flex items-center justify-center text-white shadow-lg opacity-0 group-hover:opacity-100 translate-y-1 group-hover:translate-y-0 transition-all duration-200 active:scale-90"
+            style={{ backgroundColor: adicionado ? '#22c55e' : corPrimaria }}
+            aria-label="Adicionar ao carrinho"
+          >
+            {adicionado ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+          </button>
+        )}
+      </Link>
 
       {/* Info */}
       <div className="p-3 space-y-2.5">
         <div>
           <p className="text-[10px] text-gray-400 uppercase tracking-wider">{produto.categoria}</p>
-          <h3 className="text-sm font-semibold text-gray-900 leading-tight mt-0.5 line-clamp-2">
-            {produto.nome}
-          </h3>
+          <Link href={`/catalogo/${slug}/produto/${produto.id}`} className="block mt-0.5">
+            <h3 className="text-sm font-semibold text-gray-900 leading-tight line-clamp-2 hover:underline decoration-gray-300">
+              {produto.nome}
+            </h3>
+          </Link>
         </div>
 
         {/* Preço */}
@@ -126,9 +149,9 @@ export default function ProdutoCard({ produto, corPrimaria = '#dc2ade' }: Props)
           </div>
         )}
 
-        {/* Botão */}
+        {/* Botão adicionar */}
         <button
-          onClick={handleAdicionar}
+          onClick={handleQuickAdd}
           disabled={semEstoque}
           className={`w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all duration-200 active:scale-95 ${
             semEstoque

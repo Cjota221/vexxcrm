@@ -7,11 +7,15 @@ import type { ItemCarrinho } from './catalogo.types'
 interface CarrinhoState {
   itens: ItemCarrinho[]
   adicionarItem: (item: ItemCarrinho) => void
-  removerItem: (produtoId: string, tamanho?: string) => void
-  alterarQuantidade: (produtoId: string, tamanho: string | undefined, quantidade: number) => void
+  removerItem: (produtoId: string, cor?: string, tamanho?: string) => void
+  alterarQuantidade: (produtoId: string, cor: string | undefined, tamanho: string | undefined, quantidade: number) => void
   limparCarrinho: () => void
   totalItens: () => number
   totalPreco: () => number
+}
+
+function mesmoItem(a: ItemCarrinho, produtoId: string, cor?: string, tamanho?: string) {
+  return a.produto_id === produtoId && a.cor === cor && a.tamanho === tamanho
 }
 
 export const useCarrinho = create<CarrinhoState>()(
@@ -20,13 +24,13 @@ export const useCarrinho = create<CarrinhoState>()(
       itens: [],
 
       adicionarItem: (novoItem) => set((state) => {
-        const existente = state.itens.find(
-          (i) => i.produto_id === novoItem.produto_id && i.tamanho === novoItem.tamanho
+        const existente = state.itens.find((i) =>
+          mesmoItem(i, novoItem.produto_id, novoItem.cor, novoItem.tamanho)
         )
         if (existente) {
           return {
             itens: state.itens.map((i) =>
-              i.produto_id === novoItem.produto_id && i.tamanho === novoItem.tamanho
+              mesmoItem(i, novoItem.produto_id, novoItem.cor, novoItem.tamanho)
                 ? { ...i, quantidade: i.quantidade + novoItem.quantidade }
                 : i
             ),
@@ -35,19 +39,15 @@ export const useCarrinho = create<CarrinhoState>()(
         return { itens: [...state.itens, novoItem] }
       }),
 
-      removerItem: (produtoId, tamanho) => set((state) => ({
-        itens: state.itens.filter(
-          (i) => !(i.produto_id === produtoId && i.tamanho === tamanho)
-        ),
+      removerItem: (produtoId, cor, tamanho) => set((state) => ({
+        itens: state.itens.filter((i) => !mesmoItem(i, produtoId, cor, tamanho)),
       })),
 
-      alterarQuantidade: (produtoId, tamanho, quantidade) => set((state) => ({
+      alterarQuantidade: (produtoId, cor, tamanho, quantidade) => set((state) => ({
         itens: quantidade <= 0
-          ? state.itens.filter((i) => !(i.produto_id === produtoId && i.tamanho === tamanho))
+          ? state.itens.filter((i) => !mesmoItem(i, produtoId, cor, tamanho))
           : state.itens.map((i) =>
-              i.produto_id === produtoId && i.tamanho === tamanho
-                ? { ...i, quantidade }
-                : i
+              mesmoItem(i, produtoId, cor, tamanho) ? { ...i, quantidade } : i
             ),
       })),
 
