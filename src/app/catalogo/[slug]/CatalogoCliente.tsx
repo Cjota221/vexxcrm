@@ -19,6 +19,7 @@ export default function CatalogoCliente({ slug, whatsapp }: Props) {
   const { data: config } = useConfiguracaoCatalogo(slug)
 
   const whatsappFinal = config?.whatsapp || whatsapp
+  const corPrimaria = config?.cor_primaria ?? '#dc2ade'
 
   const categorias = [
     'todas',
@@ -35,8 +36,7 @@ export default function CatalogoCliente({ slug, whatsapp }: Props) {
   })
 
   return (
-    <div className="min-h-screen bg-[#0d1117]" style={{ fontFamily: "'DM Sans', sans-serif" }}>
-      {/* Google Fonts */}
+    <div className="min-h-screen bg-gray-50" style={{ fontFamily: "'DM Sans', sans-serif" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap');
         .scrollbar-none::-webkit-scrollbar { display: none; }
@@ -44,8 +44,8 @@ export default function CatalogoCliente({ slug, whatsapp }: Props) {
       `}</style>
 
       {/* Header */}
-      <header className="sticky top-0 z-40 bg-[#0d1117]/90 backdrop-blur-xl border-b border-white/5">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center gap-4">
+      <header className="sticky top-0 z-40 bg-white border-b border-gray-200 shadow-sm">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-4">
           {/* Logo / Nome */}
           <div className="flex-shrink-0">
             {config?.logo_url ? (
@@ -53,7 +53,7 @@ export default function CatalogoCliente({ slug, whatsapp }: Props) {
             ) : (
               <span
                 className="text-xl font-bold tracking-tight"
-                style={{ fontFamily: 'Syne, sans-serif', color: config?.cor_primaria ?? '#dc2ade' }}
+                style={{ fontFamily: 'Syne, sans-serif', color: corPrimaria }}
               >
                 {config?.nome_loja ?? 'Catálogo'}
               </span>
@@ -62,30 +62,30 @@ export default function CatalogoCliente({ slug, whatsapp }: Props) {
 
           {/* Busca desktop */}
           <div className="flex-1 max-w-md relative hidden sm:block">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
               placeholder="Buscar produtos..."
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#dc2ade]/50 transition-all"
+              className="w-full bg-gray-100 border border-gray-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:bg-white transition-all"
             />
           </div>
 
           <div className="ml-auto">
-            <CarrinhoFlutuante whatsapp={whatsappFinal} />
+            <CarrinhoFlutuante whatsapp={whatsappFinal} corPrimaria={corPrimaria} />
           </div>
         </div>
 
         {/* Busca mobile */}
         <div className="sm:hidden px-4 pb-3 relative">
-          <Search className="absolute left-7 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
+          <Search className="absolute left-7 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
             type="text"
             placeholder="Buscar..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#dc2ade]/50 transition-all"
+            className="w-full bg-gray-100 border border-gray-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-400 transition-all"
           />
         </div>
       </header>
@@ -103,18 +103,19 @@ export default function CatalogoCliente({ slug, whatsapp }: Props) {
 
       {/* Filtros de categoria */}
       {categorias.length > 2 && (
-        <div className="sticky top-[65px] sm:top-[73px] z-30 bg-[#0d1117]/90 backdrop-blur-xl border-b border-white/5">
-          <div className="max-w-6xl mx-auto px-4 py-3">
-            <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
+        <div className="sticky top-[57px] sm:top-[65px] z-30 bg-white border-b border-gray-200">
+          <div className="max-w-6xl mx-auto px-4 py-2.5">
+            <div className="flex gap-2 overflow-x-auto scrollbar-none pb-0.5">
               {categorias.map((cat) => (
                 <button
                   key={cat}
                   onClick={() => setCategoriaAtiva(cat)}
                   className={`flex-shrink-0 px-4 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider transition-all ${
                     categoriaAtiva === cat
-                      ? 'bg-[#dc2ade] text-white shadow-lg shadow-[#dc2ade]/30'
-                      : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white'
+                      ? 'text-white shadow-sm'
+                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700'
                   }`}
+                  style={categoriaAtiva === cat ? { backgroundColor: corPrimaria } : {}}
                 >
                   {cat === 'todas' ? 'Todas' : cat}
                 </button>
@@ -129,34 +130,34 @@ export default function CatalogoCliente({ slug, whatsapp }: Props) {
         {isLoading && (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
             {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="rounded-2xl bg-white/5 animate-pulse aspect-[3/4]" />
+              <div key={i} className="rounded-2xl bg-gray-200 animate-pulse aspect-[3/4]" />
             ))}
           </div>
         )}
 
         {isError && (
           <div className="text-center py-24">
-            <p className="text-white/40 text-lg">Erro ao carregar produtos.</p>
-            <p className="text-white/20 text-sm mt-2">Tente novamente em instantes.</p>
+            <p className="text-gray-400 text-lg">Erro ao carregar produtos.</p>
+            <p className="text-gray-300 text-sm mt-2">Tente novamente em instantes.</p>
           </div>
         )}
 
         {!isLoading && !isError && produtosFiltrados.length === 0 && (
           <div className="text-center py-24">
-            <p className="text-white/40 text-lg">
-              {busca ? 'Nenhum produto encontrado para sua busca.' : 'Nenhum produto disponível.'}
+            <p className="text-gray-400 text-lg">
+              {busca ? 'Nenhum produto encontrado.' : 'Nenhum produto disponível.'}
             </p>
           </div>
         )}
 
         {!isLoading && !isError && produtosFiltrados.length > 0 && (
           <>
-            <p className="text-white/30 text-xs mb-6">
+            <p className="text-gray-400 text-xs mb-6">
               {produtosFiltrados.length} produto{produtosFiltrados.length !== 1 ? 's' : ''}
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
               {produtosFiltrados.map((produto) => (
-                <ProdutoCard key={produto.id} produto={produto} />
+                <ProdutoCard key={produto.id} produto={produto} corPrimaria={corPrimaria} />
               ))}
             </div>
           </>
@@ -164,8 +165,8 @@ export default function CatalogoCliente({ slug, whatsapp }: Props) {
       </div>
 
       {/* Footer */}
-      <footer className="mt-16 border-t border-white/5 py-8 text-center">
-        <p className="text-white/20 text-xs">
+      <footer className="mt-16 border-t border-gray-200 py-8 text-center bg-white">
+        <p className="text-gray-400 text-xs">
           Pedidos via WhatsApp · {config?.nome_loja ?? 'Catálogo'}
         </p>
       </footer>

@@ -7,19 +7,17 @@ import type { ProdutoCatalogo } from './catalogo.types'
 
 interface Props {
   produto: ProdutoCatalogo
+  corPrimaria?: string
 }
 
-export default function ProdutoCard({ produto }: Props) {
+export default function ProdutoCard({ produto, corPrimaria = '#dc2ade' }: Props) {
   const [tamanhoSelecionado, setTamanhoSelecionado] = useState('')
   const [adicionado, setAdicionado] = useState(false)
   const adicionarItem = useCarrinho((s) => s.adicionarItem)
 
   const semEstoque = produto.estoque === 0
   const estoqueBaixo = produto.estoque > 0 && produto.estoque <= 4
-  const temDesconto =
-    !!produto.preco_promocional && produto.preco_promocional < produto.preco
-
-  // Preço exibido: se tem promoção, mostra promo; senão, preço normal
+  const temDesconto = !!produto.preco_promocional && produto.preco_promocional < produto.preco
   const precoExibido = temDesconto ? produto.preco_promocional! : produto.preco
 
   function handleAdicionar() {
@@ -39,14 +37,14 @@ export default function ProdutoCard({ produto }: Props) {
 
   return (
     <div
-      className={`group relative rounded-2xl overflow-hidden border transition-all duration-300 bg-[#161b24] ${
+      className={`group relative rounded-2xl overflow-hidden border transition-all duration-300 bg-white ${
         semEstoque
-          ? 'border-white/5 opacity-60'
-          : 'border-white/8 hover:border-[#dc2ade]/30 hover:shadow-xl hover:shadow-[#dc2ade]/10'
+          ? 'border-gray-100 opacity-70'
+          : 'border-gray-200 hover:border-gray-300 hover:shadow-lg'
       }`}
     >
       {/* Imagem */}
-      <div className="relative aspect-[3/4] overflow-hidden bg-[#1c2333]">
+      <div className="relative aspect-[3/4] overflow-hidden bg-gray-100">
         {produto.foto_url ? (
           <img
             src={produto.foto_url}
@@ -56,25 +54,25 @@ export default function ProdutoCard({ produto }: Props) {
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
-            <ShoppingBag className="w-12 h-12 text-white/10" />
+            <ShoppingBag className="w-12 h-12 text-gray-300" />
           </div>
         )}
 
         {/* Badges */}
         <div className="absolute top-2 left-2 flex flex-col gap-1">
           {temDesconto && (
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#dc2ade] text-white">
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: corPrimaria }}>
               OFERTA
             </span>
           )}
           {estoqueBaixo && !semEstoque && (
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-500/90 text-white flex items-center gap-1">
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-500 text-white flex items-center gap-1">
               <AlertCircle className="w-2.5 h-2.5" />
               Últimas {produto.estoque}
             </span>
           )}
           {semEstoque && (
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/10 text-white/50">
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-400 text-white">
               Indisponível
             </span>
           )}
@@ -84,10 +82,8 @@ export default function ProdutoCard({ produto }: Props) {
       {/* Info */}
       <div className="p-3 space-y-2.5">
         <div>
-          <p className="text-[10px] text-white/30 uppercase tracking-wider">
-            {produto.categoria}
-          </p>
-          <h3 className="text-sm font-semibold text-white leading-tight mt-0.5 line-clamp-2">
+          <p className="text-[10px] text-gray-400 uppercase tracking-wider">{produto.categoria}</p>
+          <h3 className="text-sm font-semibold text-gray-900 leading-tight mt-0.5 line-clamp-2">
             {produto.nome}
           </h3>
         </div>
@@ -96,21 +92,16 @@ export default function ProdutoCard({ produto }: Props) {
         <div className="flex items-baseline gap-2">
           {temDesconto ? (
             <>
-              <span className="text-base font-bold text-[#dc2ade]">
-                R${' '}
-                {produto.preco_promocional!.toLocaleString('pt-BR', {
-                  minimumFractionDigits: 2,
-                })}
+              <span className="text-base font-bold" style={{ color: corPrimaria }}>
+                R$ {produto.preco_promocional!.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
               </span>
-              <span className="text-xs text-white/30 line-through">
-                R${' '}
-                {produto.preco.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+              <span className="text-xs text-gray-400 line-through">
+                R$ {produto.preco.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
               </span>
             </>
           ) : (
-            <span className="text-base font-bold text-white">
-              R${' '}
-              {produto.preco.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            <span className="text-base font-bold text-gray-900">
+              R$ {produto.preco.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
             </span>
           )}
         </div>
@@ -121,14 +112,13 @@ export default function ProdutoCard({ produto }: Props) {
             {produto.tamanhos.map((tam) => (
               <button
                 key={tam}
-                onClick={() =>
-                  setTamanhoSelecionado((prev) => (prev === tam ? '' : tam))
-                }
+                onClick={() => setTamanhoSelecionado((prev) => (prev === tam ? '' : tam))}
                 className={`px-2 py-0.5 rounded-lg text-[11px] font-medium border transition-all ${
                   tamanhoSelecionado === tam
-                    ? 'border-[#dc2ade] bg-[#dc2ade]/10 text-[#dc2ade]'
-                    : 'border-white/10 text-white/50 hover:border-white/30 hover:text-white/80'
+                    ? 'border-transparent text-white'
+                    : 'border-gray-200 text-gray-500 hover:border-gray-400 hover:text-gray-700'
                 }`}
+                style={tamanhoSelecionado === tam ? { backgroundColor: corPrimaria, borderColor: corPrimaria } : {}}
               >
                 {tam}
               </button>
@@ -140,13 +130,14 @@ export default function ProdutoCard({ produto }: Props) {
         <button
           onClick={handleAdicionar}
           disabled={semEstoque}
-          className={`w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all duration-200 ${
+          className={`w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all duration-200 active:scale-95 ${
             semEstoque
-              ? 'bg-white/5 text-white/20 cursor-not-allowed'
+              ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
               : adicionado
-              ? 'bg-[#059669] text-white'
-              : 'bg-[#dc2ade] hover:bg-[#c41fc7] text-white shadow-md shadow-[#dc2ade]/20 active:scale-95'
+              ? 'bg-green-500 text-white'
+              : 'text-white'
           }`}
+          style={!semEstoque && !adicionado ? { backgroundColor: corPrimaria } : {}}
         >
           <ShoppingBag className="w-4 h-4" />
           {semEstoque ? 'Indisponível' : adicionado ? 'Adicionado!' : 'Adicionar'}

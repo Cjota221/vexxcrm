@@ -114,9 +114,10 @@ function AnneGlobalFAB() {
   const pathname = usePathname();
   const { user } = useAuthStore();
 
-  // Não mostrar em rotas de auth
+  // Não mostrar em rotas de auth nem em páginas públicas (catálogo)
   const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/register') || pathname.startsWith('/reset');
-  if (isAuthRoute || !user) return null;
+  const isPublicPage = pathname.startsWith('/catalogo');
+  if (isAuthRoute || isPublicPage || !user) return null;
 
   return <AnneFAB />;
 }
