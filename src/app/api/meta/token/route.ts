@@ -138,11 +138,46 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    // Auto-extrair Page Access Token via /me/accounts
+    // O User Access Token sozinho não tem permissão para Instagram DM send/name lookup.
+    // O Page Access Token retornado por /me/accounts tem as permissões corretas.
+    let pageTokenSalvo = false;
+    try {
+      const accountsRes = await fetch(
+        `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token,instagram_business_account&access_token=${body.access_token}`,
+        { signal: AbortSignal.timeout(8000) }
+      );
+      if (accountsRes.ok) {
+        const accountsData = await accountsRes.json() as {
+          data?: Array<{ id: string; name: string; access_token?: string; instagram_business_account?: { id: string } }>;
+        };
+        const pages = accountsData.data || [];
+        // Usar page_id do body se fornecido, senão primeira página
+        const page = body.page_id
+          ? pages.find((p) => p.id === body.page_id) ?? pages[0]
+          : pages[0];
+        if (page?.access_token) {
+          await supabase
+            .from('ai_provider_config')
+            .update({
+              meta_page_token:    page.access_token,
+              meta_page_id:       page.id,
+              ...(page.instagram_business_account?.id && { meta_instagram_id: page.instagram_business_account.id }),
+            })
+            .eq('tenant_id', tenantId);
+          pageTokenSalvo = true;
+        }
+      }
+    } catch (pageErr) {
+      console.warn('[Meta Token] Falha ao extrair Page Token automaticamente:', pageErr);
+    }
+
     return NextResponse.json({
       ok:       true,
       valido:   status.valido,
       expira_em: status.expira_em,
       scopes:   status.scopes,
+      page_token_salvo: pageTokenSalvo,
     });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
