@@ -25,6 +25,7 @@ interface DraftCampanha {
   copy_cta: string | null;
   meta_campaign_id: string | null;
   criativo_id: string | null;
+  criativo_url_preview: string | null;
   created_at: string;
   // Supabase pode retornar como array ou objeto dependendo da relação
   ad_creatives: AdCreative | AdCreative[] | null;
@@ -143,6 +144,7 @@ export function FilaAprovacao() {
         const criativo = Array.isArray(draft.ad_creatives)
           ? draft.ad_creatives[0]
           : draft.ad_creatives;
+        const thumbUrl = criativo?.url_preview ?? draft.criativo_url_preview;
 
         return (
           <div key={draft.id} className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
@@ -160,10 +162,10 @@ export function FilaAprovacao() {
 
                 {/* Thumbnail */}
                 <div className="w-16 h-16 rounded-xl bg-gray-100 overflow-hidden shrink-0">
-                  {criativo?.url_preview ? (
+                  {thumbUrl ? (
                     <img
-                      src={criativo.url_preview}
-                      alt={criativo.nome ?? draft.nome}
+                      src={thumbUrl}
+                      alt={criativo?.nome ?? draft.nome}
                       className="w-full h-full object-cover"
                     />
                   ) : (
@@ -252,12 +254,12 @@ export function FilaAprovacao() {
                     </button>
                   )}
 
-                  {draft.criativo_id && criativo?.url_preview && (
+                  {draft.criativo_id && thumbUrl && (
                     <div className="mt-3">
                       <p className="text-xs font-medium text-gray-500 mb-2">Criativo selecionado:</p>
                       <div className="relative rounded-xl overflow-hidden bg-gray-100 aspect-video max-w-xs">
                         <img
-                          src={criativo.url_preview}
+                          src={thumbUrl}
                           alt="Thumbnail do criativo"
                           className="w-full h-full object-cover"
                         />

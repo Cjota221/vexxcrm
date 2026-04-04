@@ -194,9 +194,10 @@ export async function GET(req: NextRequest) {
                 copy_texto:       cfgCriativo.texto || null,
                 copy_cta:         cfgCriativo.cta,
                 orcamento_diario: orcPorTipo[tipo] ?? 5000,
-                meta_campaign_id: resultado.campaignId,
-                meta_adset_id:    resultado.adsetId,
-                meta_ad_id:       resultado.adId,
+                meta_campaign_id:      resultado.campaignId,
+                meta_adset_id:         resultado.adsetId,
+                meta_ad_id:            resultado.adId,
+                criativo_url_preview:  criativo.url_preview ?? null,
               });
 
             if (draftInsertError) {
