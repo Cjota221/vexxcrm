@@ -76,36 +76,47 @@ export async function POST(req: NextRequest) {
     let pageId: string;
     let pageName: string;
     let igId: string | null = null;
+    let pageToken: string | null = null;
 
     if (body.page_id) {
-      // Verify the page is accessible
+      // Verify the page is accessible and get its page access token
       const res = await fetch(
-        `${META_BASE}/${body.page_id}?fields=id,name,instagram_business_account&access_token=${token}`
+        `${META_BASE}/${body.page_id}?fields=id,name,access_token,instagram_business_account&access_token=${token}`
       );
       if (!res.ok) return NextResponse.json({ error: 'Página não encontrada ou sem acesso' }, { status: 400 });
-      const page = await res.json() as { id: string; name: string; instagram_business_account?: { id: string } };
+      const page = await res.json() as { id: string; name: string; access_token?: string; instagram_business_account?: { id: string } };
       pageId = page.id;
       pageName = page.name;
       igId = page.instagram_business_account?.id || null;
+      pageToken = page.access_token || null;
     } else {
       // Auto-detect first page
-      const res = await fetch(`${META_BASE}/me/accounts?fields=id,name,instagram_business_account&access_token=${token}`);
+      const res = await fetch(`${META_BASE}/me/accounts?fields=id,name,access_token,instagram_business_account&access_token=${token}`);
       if (!res.ok) return NextResponse.json({ error: 'Erro ao buscar páginas' }, { status: 400 });
-      const data = await res.json() as { data: Array<{ id: string; name: string; instagram_business_account?: { id: string } }> };
+      const data = await res.json() as { data: Array<{ id: string; name: string; access_token?: string; instagram_business_account?: { id: string } }> };
       const pages = data.data || [];
       if (pages.length === 0) return NextResponse.json({ error: 'Nenhuma página encontrada' }, { status: 404 });
       const page = pages[0];
       pageId = page.id;
       pageName = page.name;
       igId = page.instagram_business_account?.id || null;
+      pageToken = page.access_token || null;
     }
+
+    const updatePayload: Record<string, string | null> = {
+      meta_page_id: pageId,
+      meta_instagram_id: igId,
+      updated_at: new Date().toISOString(),
+    };
+    // Salvar o Page Access Token separado (para Instagram DM send + name lookup)
+    if (pageToken) updatePayload.meta_page_token = pageToken;
 
     await supabase
       .from('ai_provider_config')
-      .update({ meta_page_id: pageId, meta_instagram_id: igId, updated_at: new Date().toISOString() })
+      .update(updatePayload)
       .eq('tenant_id', profile.tenant_id);
 
-    return NextResponse.json({ ok: true, pageId, igId, pageName });
+    return NextResponse.json({ ok: true, pageId, igId, pageName, hasPageToken: !!pageToken });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }

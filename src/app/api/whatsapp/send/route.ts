@@ -88,10 +88,11 @@ export async function POST(request: NextRequest) {
       const supabaseForToken = createServerSupabaseClient();
       const { data: metaCfg } = await supabaseForToken
         .from('ai_provider_config')
-        .select('meta_access_token, meta_instagram_id')
+        .select('meta_access_token, meta_page_token, meta_instagram_id')
         .eq('tenant_id', tenantId)
         .single();
-      const pageToken = metaCfg?.meta_access_token || process.env.META_PAGE_TOKEN;
+      // Preferir meta_page_token (Page Access Token) — obrigatório para Instagram DM send
+      const pageToken = metaCfg?.meta_page_token || metaCfg?.meta_access_token || process.env.META_PAGE_TOKEN;
       if (!pageToken) {
         return NextResponse.json(
           { error: 'Token Meta não configurado. Configure em Configurações → Social Mídia.' },

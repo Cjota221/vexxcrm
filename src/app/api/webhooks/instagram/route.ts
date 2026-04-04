@@ -164,12 +164,13 @@ async function processInstagramMessage(
     try {
       const { data: cfg } = await supabase
         .from('ai_provider_config')
-        .select('meta_access_token')
+        .select('meta_access_token, meta_page_token')
         .eq('tenant_id', tenantId)
         .single();
 
-      if (cfg?.meta_access_token) {
-        const token = cfg.meta_access_token;
+      // Preferir Page Access Token — funciona com instagram_manage_messages
+      if (cfg?.meta_page_token || cfg?.meta_access_token) {
+        const token = cfg.meta_page_token || cfg.meta_access_token;
 
         // Tentativa 1: buscar perfil diretamente pelo IGSID
         const profileRes = await fetch(
