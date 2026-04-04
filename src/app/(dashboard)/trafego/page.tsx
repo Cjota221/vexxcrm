@@ -75,6 +75,29 @@ interface Summary {
   totalCpc: number;
 }
 
+interface MetaAdset {
+  id: string;
+  name: string;
+  status: string;
+  effective_status?: string;
+  daily_budget?: string;
+  optimization_goal?: string;
+}
+
+interface MetaAd {
+  id: string;
+  name: string;
+  status: string;
+  effective_status?: string;
+  adset_id?: string;
+  creative?: {
+    id: string;
+    thumbnail_url?: string;
+    title?: string;
+    body?: string;
+  };
+}
+
 interface MetricsData {
   connected: boolean;
   accountName?: string;
@@ -2371,6 +2394,11 @@ export default function TrafegoPage() {
       .catch(() => {});
   }, []);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
+  const [expandedCampaignId, setExpandedCampaignId] = useState<string | null>(null);
+  const [drillAdsets, setDrillAdsets] = useState<MetaAdset[]>([]);
+  const [drillAds, setDrillAds] = useState<MetaAd[]>([]);
+  const [drillLoading, setDrillLoading] = useState(false);
+  const [expandedAdsetId, setExpandedAdsetId] = useState<string | null>(null);
   const [copies, setCopies] = useState<Array<{ id: string; headline: string; texto_principal: string; cta: string; justificativa?: string }>>([]);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -2462,7 +2490,7 @@ export default function TrafegoPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-6xl mx-auto px-4 py-6 space-y-4">
+      <div className="w-full px-4 py-6 space-y-4">
 
         {/* ─── Cabeçalho ─────────────────────────────────────────────────── */}
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
@@ -2842,43 +2870,183 @@ export default function TrafegoPage() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                          {filtered.map((c) => (
-                            <tr key={c.id} className="hover:bg-gray-50 transition-colors group">
-                              <td className="py-3 pr-4">
-                                <div className="font-medium text-gray-800 text-sm">{c.nome}</div>
-                                {c.alerts.length > 0 && (
-                                  <div className="text-xs text-red-400 mt-0.5">
-                                    {c.alerts[0].mensagem.substring(0, 50)}…
-                                  </div>
+                          {filtered.map((c) => {
+                            const isExpanded = expandedCampaignId === c.id;
+                            return (
+                              <React.Fragment key={c.id}>
+                                <tr className="hover:bg-gray-50 transition-colors group">
+                                  <td className="py-3 pr-4">
+                                    <div className="font-medium text-gray-800 text-sm">{c.nome}</div>
+                                    {c.alerts.length > 0 && (
+                                      <div className="text-xs text-red-400 mt-0.5">
+                                        {c.alerts[0].mensagem.substring(0, 50)}…
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="py-3 pr-4">
+                                    <EffectiveStatusBadge status={c.effective_status} />
+                                  </td>
+                                  <td className="py-3 pr-4">
+                                    <HealthBadge health={c.health} />
+                                  </td>
+                                  <td className="py-3 pr-4 text-right text-sm font-medium text-gray-700">
+                                    {brl(c.spend)}
+                                  </td>
+                                  <td className="py-3 pr-4 text-right">
+                                    <div className={cn('text-sm font-medium', c.roas >= 3 ? 'text-emerald-400' : c.roas >= 1.5 ? 'text-amber-400' : 'text-red-400')}>
+                                      {c.roas > 0 ? `${c.roas.toFixed(1)}×` : '—'}
+                                    </div>
+                                  </td>
+                                  <td className="py-3 pr-4 text-right text-sm text-gray-400">
+                                    {c.leads > 0 ? c.leads : '—'}
+                                  </td>
+                                  <td className="py-3">
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        onClick={() => setSelectedCampaign(c)}
+                                        className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 flex items-center gap-1 whitespace-nowrap transition-colors"
+                                      >
+                                        Gerir <ChevronRight size={12} />
+                                      </button>
+                                      <button
+                                        onClick={async () => {
+                                          if (isExpanded) {
+                                            setExpandedCampaignId(null);
+                                            setExpandedAdsetId(null);
+                                            return;
+                                          }
+                                          setExpandedCampaignId(c.id);
+                                          setExpandedAdsetId(null);
+                                          setDrillAdsets([]);
+                                          setDrillAds([]);
+                                          setDrillLoading(true);
+                                          try {
+                                            const [adsetsRes, adsRes] = await Promise.all([
+                                              authFetch(`/api/meta/campanhas/${c.id}/adsets`),
+                                              authFetch(`/api/meta/campanhas/${c.id}/ads`),
+                                            ]);
+                                            const [adsets, ads] = await Promise.all([
+                                              adsetsRes.json() as Promise<MetaAdset[]>,
+                                              adsRes.json() as Promise<MetaAd[]>,
+                                            ]);
+                                            setDrillAdsets(Array.isArray(adsets) ? adsets : []);
+                                            setDrillAds(Array.isArray(ads) ? ads : []);
+                                          } catch { /* silencioso */ }
+                                          setDrillLoading(false);
+                                        }}
+                                        className={cn(
+                                          'p-1.5 rounded-lg border transition-colors',
+                                          isExpanded
+                                            ? 'bg-[#1e3a5f]/10 border-[#1e3a5f]/30 text-[#1e3a5f]'
+                                            : 'border-gray-200 text-gray-400 hover:bg-gray-50 hover:text-gray-600'
+                                        )}
+                                        title="Ver conjuntos e anúncios"
+                                      >
+                                        <ChevronDown size={12} className={cn('transition-transform', isExpanded && 'rotate-180')} />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+
+                                {/* Drill-down row */}
+                                {isExpanded && (
+                                  <tr key={`${c.id}-drill`}>
+                                    <td colSpan={7} className="p-0">
+                                      <div className="bg-[#161b24] border-t border-[#242d40] px-6 py-4">
+                                        {drillLoading ? (
+                                          <div className="flex items-center gap-2 text-gray-400 text-xs py-2">
+                                            <Loader2 size={12} className="animate-spin" />
+                                            Carregando conjuntos e anúncios...
+                                          </div>
+                                        ) : drillAdsets.length === 0 ? (
+                                          <p className="text-gray-500 text-xs py-2">Nenhum conjunto encontrado</p>
+                                        ) : (
+                                          <div className="space-y-3">
+                                            {drillAdsets.map(adset => {
+                                              const adsetAds = drillAds.filter(ad => ad.adset_id === adset.id);
+                                              const adsetExpanded = expandedAdsetId === adset.id;
+                                              return (
+                                                <div key={adset.id}>
+                                                  {/* Adset row */}
+                                                  <button
+                                                    onClick={() => setExpandedAdsetId(adsetExpanded ? null : adset.id)}
+                                                    className="w-full flex items-center justify-between gap-3 text-left group/adset"
+                                                  >
+                                                    <div className="flex items-center gap-2 min-w-0">
+                                                      <ChevronDown
+                                                        size={12}
+                                                        className={cn('shrink-0 text-gray-500 transition-transform', adsetExpanded && 'rotate-180')}
+                                                      />
+                                                      <span className="text-xs font-medium text-gray-200 truncate">{adset.name}</span>
+                                                      <span className={cn(
+                                                        'text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0',
+                                                        (adset.effective_status ?? adset.status) === 'ACTIVE'
+                                                          ? 'bg-emerald-500/20 text-emerald-400'
+                                                          : 'bg-gray-600/40 text-gray-400'
+                                                      )}>
+                                                        {adset.effective_status ?? adset.status}
+                                                      </span>
+                                                    </div>
+                                                    <span className="text-[10px] text-gray-500 shrink-0">
+                                                      {adset.daily_budget ? `R$${(Number(adset.daily_budget) / 100).toFixed(0)}/dia` : ''}
+                                                      {adsetAds.length > 0 && ` · ${adsetAds.length} anúncio${adsetAds.length > 1 ? 's' : ''}`}
+                                                    </span>
+                                                  </button>
+
+                                                  {/* Ads list */}
+                                                  {adsetExpanded && (
+                                                    <div className="mt-2 ml-5 space-y-2">
+                                                      {adsetAds.length === 0 ? (
+                                                        <p className="text-[11px] text-gray-600">Nenhum anúncio neste conjunto</p>
+                                                      ) : adsetAds.map(ad => (
+                                                        <div key={ad.id} className="flex items-center gap-3 bg-[#1c2333] rounded-xl px-3 py-2 border border-[#242d40]">
+                                                          {/* Thumbnail */}
+                                                          <div className="w-10 h-10 rounded-lg overflow-hidden bg-[#242d40] shrink-0 flex items-center justify-center">
+                                                            {ad.creative?.thumbnail_url ? (
+                                                              <img
+                                                                src={ad.creative.thumbnail_url}
+                                                                alt={ad.name}
+                                                                className="w-full h-full object-cover"
+                                                              />
+                                                            ) : (
+                                                              <Play size={14} className="text-gray-600" />
+                                                            )}
+                                                          </div>
+                                                          {/* Info */}
+                                                          <div className="flex-1 min-w-0">
+                                                            <div className="text-xs font-medium text-gray-200 truncate">
+                                                              {ad.creative?.title ?? ad.name}
+                                                            </div>
+                                                            {ad.creative?.body && (
+                                                              <div className="text-[11px] text-gray-500 truncate mt-0.5">
+                                                                {ad.creative.body}
+                                                              </div>
+                                                            )}
+                                                          </div>
+                                                          <span className={cn(
+                                                            'text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0',
+                                                            (ad.effective_status ?? ad.status) === 'ACTIVE'
+                                                              ? 'bg-emerald-500/20 text-emerald-400'
+                                                              : 'bg-gray-600/40 text-gray-400'
+                                                          )}>
+                                                            {ad.effective_status ?? ad.status}
+                                                          </span>
+                                                        </div>
+                                                      ))}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </td>
+                                  </tr>
                                 )}
-                              </td>
-                              <td className="py-3 pr-4">
-                                <EffectiveStatusBadge status={c.effective_status} />
-                              </td>
-                              <td className="py-3 pr-4">
-                                <HealthBadge health={c.health} />
-                              </td>
-                              <td className="py-3 pr-4 text-right text-sm font-medium text-gray-700">
-                                {brl(c.spend)}
-                              </td>
-                              <td className="py-3 pr-4 text-right">
-                                <div className={cn('text-sm font-medium', c.roas >= 3 ? 'text-emerald-400' : c.roas >= 1.5 ? 'text-amber-400' : 'text-red-400')}>
-                                  {c.roas > 0 ? `${c.roas.toFixed(1)}×` : '—'}
-                                </div>
-                              </td>
-                              <td className="py-3 pr-4 text-right text-sm text-gray-400">
-                                {c.leads > 0 ? c.leads : '—'}
-                              </td>
-                              <td className="py-3">
-                                <button
-                                  onClick={() => setSelectedCampaign(c)}
-                                  className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 flex items-center gap-1 whitespace-nowrap transition-colors"
-                                >
-                                  Gerir <ChevronRight size={12} />
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
+                              </React.Fragment>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
