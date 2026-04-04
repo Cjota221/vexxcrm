@@ -168,29 +168,54 @@ async function processInstagramMessage(
         .single();
 
       if (cfg?.meta_access_token) {
-        // Tentar campos name, first_name e picture para Instagram DM
+        const token = cfg.meta_access_token;
+
+        // Tentativa 1: buscar perfil diretamente pelo IGSID
         const profileRes = await fetch(
-          `https://graph.facebook.com/v19.0/${igUserId}?fields=name,first_name,last_name,profile_pic&access_token=${cfg.meta_access_token}`,
+          `https://graph.facebook.com/v19.0/${igUserId}?fields=name,first_name,last_name,profile_pic&access_token=${token}`,
           { signal: AbortSignal.timeout(5000) }
         );
         const profile = await profileRes.json() as {
-          name?: string;
-          first_name?: string;
-          last_name?: string;
-          profile_pic?: string;
-          error?: { message: string }
+          name?: string; first_name?: string; last_name?: string;
+          profile_pic?: string; error?: { code: number; message: string };
         };
 
         if (profileRes.ok && !profile.error) {
           const nomePerfil = profile.name ||
             [profile.first_name, profile.last_name].filter(Boolean).join(' ').trim();
-          if (nomePerfil) {
-            igName = nomePerfil;
-            resolvedNameFromApi = true;
-          }
+          if (nomePerfil) { igName = nomePerfil; resolvedNameFromApi = true; }
           if (profile.profile_pic) igAvatar = profile.profile_pic;
-        } else if (profile.error) {
-          console.warn(`[Instagram Webhook] Graph API error para ${igUserId}: ${profile.error.message}`);
+        } else {
+          if (profile.error) {
+            console.warn(`[Instagram Webhook] Graph API (direto) erro ${profile.error.code} para ${igUserId}: ${profile.error.message}`);
+          }
+
+          // Tentativa 2: buscar via endpoint de conversas (pageId = IG Business Account ID)
+          try {
+            const convRes = await fetch(
+              `https://graph.facebook.com/v19.0/${pageId}/conversations?platform=instagram&user_id=${igUserId}&fields=participants&access_token=${token}`,
+              { signal: AbortSignal.timeout(5000) }
+            );
+            const convData = await convRes.json() as {
+              data?: Array<{ participants: { data: Array<{ id: string; name: string; profile_pic?: string }> } }>;
+              error?: { message: string };
+            };
+
+            if (convRes.ok && convData.data?.[0]?.participants?.data) {
+              const participants = convData.data[0].participants.data;
+              // Participante que NÃO é a conta da empresa (pageId)
+              const sender = participants.find((p) => p.id !== pageId);
+              if (sender?.name) {
+                igName = sender.name;
+                resolvedNameFromApi = true;
+                if (sender.profile_pic) igAvatar = sender.profile_pic;
+              }
+            } else if (convData.error) {
+              console.warn(`[Instagram Webhook] Graph API (conv) erro para ${igUserId}: ${convData.error.message}`);
+            }
+          } catch (convErr) {
+            console.warn(`[Instagram Webhook] Falha endpoint conv para ${igUserId}:`, convErr);
+          }
         }
       }
     } catch (err) {
