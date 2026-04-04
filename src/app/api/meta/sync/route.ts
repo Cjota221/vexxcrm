@@ -23,5 +23,15 @@ export async function POST(req: NextRequest) {
   }
 
   const result = await sincronizarTudoDoMeta(tenantId, config.account_id, config.token);
+
+  // Disparar transcrição em background se há novos vídeos
+  if (result.criativos > 0) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+    fetch(`${appUrl}/api/meta/transcricao/batch`, {
+      method: 'POST',
+      headers: { 'x-tenant-id': tenantId },
+    }).catch(() => {});
+  }
+
   return NextResponse.json(result);
 }

@@ -259,6 +259,23 @@ export async function sincronizarTudoDoMeta(
     }));
     if (rows.length > 0)
       await supabase.from('meta_creatives_cache').upsert(rows, { onConflict: 'id,tenant_id' });
+
+    // Espelhar em ad_creatives para que o pipeline de transcrição os processe
+    if (videos.length > 0) {
+      const adCreativesRows = videos.map((v) => ({
+        tenant_id:        tenantId,
+        nome:             v.title || v.description || `Vídeo Meta ${v.id}`,
+        tipo:             'video',
+        meta_video_id:    v.id,
+        url_preview:      v.thumbnails?.data?.[0]?.uri ?? null,
+        duracao_segundos: Math.round(v.length || 0),
+        status:           'pronto',
+      }));
+      await supabase
+        .from('ad_creatives')
+        .upsert(adCreativesRows, { onConflict: 'tenant_id,meta_video_id' });
+    }
+
     return rows.length;
   }
 
