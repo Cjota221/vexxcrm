@@ -8,6 +8,12 @@ import {
   Users, MessageCircle, TrendingUp, Zap,
 } from 'lucide-react';
 
+interface AdCreative {
+  nome: string;
+  url_preview: string | null;
+  classificacao: Record<string, unknown> | null;
+}
+
 interface DraftCampanha {
   id: string;
   nome: string;
@@ -18,12 +24,10 @@ interface DraftCampanha {
   copy_texto: string | null;
   copy_cta: string | null;
   meta_campaign_id: string | null;
+  criativo_id: string | null;
   created_at: string;
-  ad_creatives: {
-    nome: string;
-    url_preview: string | null;
-    classificacao: Record<string, unknown> | null;
-  } | null;
+  // Supabase pode retornar como array ou objeto dependendo da relação
+  ad_creatives: AdCreative | AdCreative[] | null;
 }
 
 const TIPO_CONFIG = {
@@ -136,6 +140,10 @@ export function FilaAprovacao() {
         const isProcessando = processando === draft.id;
         const fb            = feedback?.id === draft.id ? feedback : null;
 
+        const criativo = Array.isArray(draft.ad_creatives)
+          ? draft.ad_creatives[0]
+          : draft.ad_creatives;
+
         return (
           <div key={draft.id} className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
 
@@ -152,10 +160,10 @@ export function FilaAprovacao() {
 
                 {/* Thumbnail */}
                 <div className="w-16 h-16 rounded-xl bg-gray-100 overflow-hidden shrink-0">
-                  {draft.ad_creatives?.url_preview ? (
+                  {criativo?.url_preview ? (
                     <img
-                      src={draft.ad_creatives.url_preview}
-                      alt={draft.nome}
+                      src={criativo.url_preview}
+                      alt={criativo.nome ?? draft.nome}
                       className="w-full h-full object-cover"
                     />
                   ) : (
@@ -177,7 +185,7 @@ export function FilaAprovacao() {
                   <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
                     <span>R${(draft.orcamento_diario / 100).toFixed(0)}/dia</span>
                     <span>·</span>
-                    <span>{draft.ad_creatives?.nome ?? 'Criativo'}</span>
+                    <span>{criativo?.nome ?? 'Criativo'}</span>
                     <span>·</span>
                     <span className="flex items-center gap-1">
                       <Clock size={11} />
@@ -242,6 +250,27 @@ export function FilaAprovacao() {
                       <Edit2 size={12} />
                       Editar copy antes de aprovar
                     </button>
+                  )}
+
+                  {draft.criativo_id && criativo?.url_preview && (
+                    <div className="mt-3">
+                      <p className="text-xs font-medium text-gray-500 mb-2">Criativo selecionado:</p>
+                      <div className="relative rounded-xl overflow-hidden bg-gray-100 aspect-video max-w-xs">
+                        <img
+                          src={criativo.url_preview}
+                          alt="Thumbnail do criativo"
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
+                          <div className="w-10 h-10 bg-white/90 rounded-full flex items-center justify-center shadow">
+                            <Play size={14} className="text-gray-800 ml-0.5" fill="currentColor" />
+                          </div>
+                        </div>
+                        <div className="absolute bottom-2 left-2 bg-black/60 text-white text-xs px-2 py-0.5 rounded">
+                          {criativo.nome}
+                        </div>
+                      </div>
+                    </div>
                   )}
 
                   {draft.meta_campaign_id && (
