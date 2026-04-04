@@ -1,27 +1,23 @@
 /**
  * GET /api/meta/diagnostico
- * Retorna estrutura de catálogos, campanhas e pixels da conta Meta.
+ * TEMP: sem auth para diagnóstico rápido de catálogos/campanhas/pixels Meta.
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getTenantFromRequest } from '@/lib/auth-helpers';
-import { resolverTokenMeta } from '@/lib/services/meta-token.service';
+import { NextResponse } from 'next/server';
+import { createServerSupabaseClient } from '@/lib/supabase';
 import { META_BASE } from '@/lib/meta-config';
 
-export async function GET(req: NextRequest) {
-  let tenantId: string;
-  try {
-    const auth = await getTenantFromRequest(req);
-    tenantId = auth.tenantId;
-  } catch {
-    return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
-  }
+export async function GET() {
+  const supabase = createServerSupabaseClient();
 
-  const config = await resolverTokenMeta(tenantId);
-  const token = config.token;
-  const actId = config.account_id?.startsWith('act_')
-    ? config.account_id
-    : `act_${config.account_id}`;
+  const { data: config } = await supabase
+    .from('ai_provider_config')
+    .select('meta_access_token, meta_ad_account_id')
+    .eq('tenant_id', '8aa3a7e7-cbb5-4ad5-8e2a-740d914aefdd')
+    .single();
+
+  const token = config?.meta_access_token;
+  const actId = 'act_1244920119465862';
   const businessId = '110009834520002';
 
   const [catalogos, campanhas, pixels] = await Promise.all([
@@ -29,7 +25,7 @@ export async function GET(req: NextRequest) {
       .then(r => r.json()),
     fetch(`${META_BASE}/${actId}/campaigns?fields=id,name,objective,status&limit=10&access_token=${token}`)
       .then(r => r.json()),
-    fetch(`${META_BASE}/${actId}/adspixels?fields=id,name,last_fired_time&access_token=${token}`)
+    fetch(`${META_BASE}/${actId}/adspixels?fields=id,name&access_token=${token}`)
       .then(r => r.json()),
   ]);
 
