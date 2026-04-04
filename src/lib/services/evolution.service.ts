@@ -952,6 +952,61 @@ export async function downloadMediaToStorage(
 }
 
 /**
+ * Baixa mídia do Instagram (URL ephemeral do CDN do Meta) e faz upload
+ * para Supabase Storage. Retorna URL permanente ou null se falhar.
+ *
+ * As URLs do Instagram expiram rapidamente — deve ser chamada no webhook
+ * assim que a mensagem chega, antes que a URL expire.
+ */
+export async function downloadInstagramMediaToStorage(
+  mediaUrl: string,
+  tenantId: string,
+  messageId: string,
+): Promise<string | null> {
+  try {
+    const response = await fetch(mediaUrl, { signal: AbortSignal.timeout(15_000) });
+    if (!response.ok) {
+      console.warn(`[Media Instagram] HTTP ${response.status} ao baixar ${mediaUrl.substring(0, 80)}`);
+      return null;
+    }
+
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    const mimeBase = contentType.split(';')[0].trim();
+    const ext = MIME_TO_EXT[mimeBase] || 'bin';
+    const buffer = Buffer.from(await response.arrayBuffer());
+
+    if (buffer.length > 25 * 1024 * 1024) {
+      console.warn(`[Media Instagram] Arquivo muito grande (${(buffer.length / 1024 / 1024).toFixed(1)}MB), ignorando`);
+      return null;
+    }
+
+    const { createServerSupabaseClient } = await import('@/lib/supabase');
+    const supabase = createServerSupabaseClient();
+
+    const fileName = `${tenantId}/ig-${Date.now()}-${messageId.slice(-8)}.${ext}`;
+    const { data: uploadData, error: uploadErr } = await supabase.storage
+      .from('media')
+      .upload(fileName, buffer, {
+        contentType: mimeBase,
+        cacheControl: '31536000',
+        upsert: false,
+      });
+
+    if (uploadErr) {
+      console.warn('[Media Instagram] Erro no upload Storage:', uploadErr.message);
+      return null;
+    }
+
+    const { data: publicUrlData } = supabase.storage.from('media').getPublicUrl(uploadData.path);
+    console.log(`[Media Instagram] Mídia salva: ${publicUrlData.publicUrl.substring(0, 80)}...`);
+    return publicUrlData.publicUrl;
+  } catch (err) {
+    console.warn('[Media Instagram] Erro ao baixar/upload:', err);
+    return null;
+  }
+}
+
+/**
  * Encaminha mídia recebida para o webhook do n8n para processamento
  * (transcrição de áudio, visão computacional de imagens, etc).
  */
