@@ -359,11 +359,30 @@ function VideoPreviewModal({
 /* ─── Card criativo do cache Meta ───────────────────────────────────────── */
 
 function CardCriativoCache({ item }: { item: CacheCreativo }) {
+  const [analisando, setAnalisando] = useState(false);
+  const [analisado, setAnalisado]   = useState(false);
+
   function formatDuracao(s: number | null) {
     if (!s) return '';
     const m = Math.floor(s / 60);
     const sec = Math.floor(s % 60);
     return `${m}:${sec.toString().padStart(2, '0')}`;
+  }
+
+  async function analisar() {
+    if (!item.url_thumb) return;
+    setAnalisando(true);
+    try {
+      const auth = await getAuthHeader();
+      await fetch('/api/meta/analisar-imagem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: auth },
+        body: JSON.stringify({ criativoId: item.id, imageUrl: item.url_thumb, fonte: 'meta_creatives_cache' }),
+      });
+      setAnalisado(true);
+    } finally {
+      setAnalisando(false);
+    }
   }
 
   return (
@@ -397,6 +416,16 @@ function CardCriativoCache({ item }: { item: CacheCreativo }) {
         <p className="text-xs text-gray-400 mt-0.5 truncate">
           ID: {item.id.substring(0, 12)}…
         </p>
+        {item.tipo === 'imagem' && item.url_thumb && (
+          <button
+            onClick={analisar}
+            disabled={analisando || analisado}
+            className="w-full mt-1.5 py-1 text-xs bg-[#1e3a5f]/10 hover:bg-[#1e3a5f]/20 text-[#1e3a5f] rounded-lg transition-colors disabled:opacity-50"
+          >
+            {analisando ? <Loader2 size={10} className="animate-spin inline mr-1" /> : null}
+            {analisado ? '✓ Analisado' : analisando ? 'Analisando...' : '🔍 Analisar'}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -587,6 +616,15 @@ function CardCriativo({
                 className="text-xs text-red-500 hover:text-red-700 underline"
               >
                 Erro — tentar novamente
+              </button>
+            )}
+
+            {(!criativo.transcricao_status || criativo.transcricao_status === 'pendente') && (
+              <button
+                onClick={onRetranscrever}
+                className="w-full mt-1.5 py-1 text-xs bg-[#1e3a5f]/10 hover:bg-[#1e3a5f]/20 text-[#1e3a5f] rounded-lg transition-colors"
+              >
+                ▶ Transcrever
               </button>
             )}
           </div>
