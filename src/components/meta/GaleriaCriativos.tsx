@@ -50,7 +50,7 @@ export function GaleriaCriativos() {
       const res = await fetch('/api/meta/sync', { method: 'POST', headers: { Authorization: auth } });
       const data = await res.json() as { criativos?: number; errors?: string[] };
       const total = data.criativos ?? 0;
-      setSyncMsg(`${total} criativo${total !== 1 ? 's' : ''} sincronizado${total !== 1 ? 's' : ''} do Meta`);
+      setSyncMsg(`${total} criativo${total !== 1 ? 's' : ''} sincronizado${total !== 1 ? 's' : ''} do Meta. Clique em Atualizar para ver todos.`);
       // Recarregar cache
       const cacheRes = await fetch('/api/meta/criativos-cache', { headers: { Authorization: auth } });
       if (cacheRes.ok) setCacheItems(await cacheRes.json() as CacheCreativo[]);

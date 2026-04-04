@@ -249,7 +249,7 @@ export async function sincronizarTudoDoMeta(
   async function syncVideos() {
     const videos = await metaGetAll<MetaVideoRaw>(
       `${META_BASE}/${actId}/advideos?fields=id,title,description,thumbnails,length,created_time` +
-      `&limit=100&sort=created_time_descending&access_token=${token}`
+      `&limit=25&sort=created_time_descending&access_token=${token}`
     );
     const rows = videos.map((v) => ({
       id: v.id, tenant_id: tenantId, ad_account_id: actId, tipo: 'video',
@@ -282,12 +282,12 @@ export async function sincronizarTudoDoMeta(
   async function syncImagens() {
     const images = await metaGetAll<MetaImageRaw>(
       `${META_BASE}/${actId}/adimages?fields=hash,name,url,url_128,created_time` +
-      `&limit=100&access_token=${token}`
+      `&limit=25&access_token=${token}`
     );
     const rows = images.map((img) => ({
       id: img.hash, tenant_id: tenantId, ad_account_id: actId, tipo: 'imagem',
       nome: img.name || `Imagem ${img.hash?.substring(0, 8)}`,
-      url_thumb: img.url_128 || img.url || '',
+      url_thumb: img.url || img.url_128 || '',
       url_full: img.url || '', sincronizado_em: now,
     }));
     if (rows.length > 0)
