@@ -86,6 +86,14 @@ const CONFIG_POR_TIPO = {
       publisher_platforms: ['facebook', 'instagram'],
     },
   },
+  catalogo: {
+    objetivo:          'OUTCOME_SALES',
+    optimization_goal: 'OFFSITE_CONVERSIONS',
+    billing_event:     'IMPRESSIONS',
+    placements: {
+      publisher_platforms: ['facebook', 'instagram'],
+    },
+  },
 } as const;
 
 export type TipoCampanha = keyof typeof CONFIG_POR_TIPO;
@@ -203,7 +211,7 @@ async function criarAdset(
 
 /* ─── Criar Ad Creative ──────────────────────────────────────────────────────── */
 
-async function criarAdCreative(
+export async function criarAdCreative(
   token: string,
   actId: string,
   cfg: ConfiguracaoCriativo,
@@ -216,8 +224,9 @@ async function criarAdCreative(
 
   if (cfg.cta === 'WHATSAPP_MESSAGE' && cfg.whatsappNumber) {
     callToAction.value = { whatsapp_number: cfg.whatsappNumber };
-  } else if (cfg.urlDestino) {
-    callToAction.value = { link: cfg.urlDestino };
+  } else {
+    // LEARN_MORE e outros CTAs exigem link — usa urlDestino ou fallback para a página do Facebook
+    callToAction.value = { link: cfg.urlDestino ?? `https://www.facebook.com/${cfg.pageId}` };
   }
 
   if (cfg.tipo === 'video' && cfg.metaVideoId) {
@@ -298,7 +307,7 @@ async function criarAdCreative(
 
 /* ─── Criar Ad ───────────────────────────────────────────────────────────────── */
 
-async function criarAd(
+export async function criarAd(
   token: string,
   actId: string,
   adsetId: string,
@@ -445,6 +454,7 @@ const TIPO_LABEL: Record<TipoCampanha, string> = {
   frio:      'Público Frio',
   quente:    'Público Quente',
   whatsapp:  'WhatsApp',
+  catalogo:  'Catálogo',
 };
 
 /**
@@ -479,12 +489,15 @@ export interface ConfigCampanhaCompleta {
   genero?: 'all' | 'male' | 'female';
   interesses?: InteresseTargeting[];
   criativo: ConfiguracaoCriativo;
+  /** ID de público salvo no Meta — ignora targeting automático quando fornecido */
+  publico_meta_id?: string;
 }
 
 const TIPO_OBJETIVO: Record<TipoCampanha, ConfiguracaoAdset['objetivo']> = {
   frio:     'BRAND_AWARENESS',
   quente:   'LINK_CLICKS',
   whatsapp: 'LINK_CLICKS',
+  catalogo: 'CONVERSIONS',
 };
 
 /**
@@ -506,19 +519,40 @@ export async function criarCampanhaCompleta(
 
   // Montar targeting de alta performance para cada tipo de campanha
   let targetingCompleto: Record<string, unknown>;
-  if (cfg.tipo === 'frio') {
+  if (cfg.publico_meta_id) {
+    // Público IA selecionado manualmente — usa direto, sem criar targeting automático
+    targetingCompleto = {
+      age_min: cfg.idadeMin ?? 18,
+      age_max: cfg.idadeMax ?? 65,
+      geo_locations: { countries: cfg.paises ?? ['BR'] },
+      custom_audiences: [{ id: cfg.publico_meta_id }],
+    };
+  } else if (cfg.tipo === 'frio') {
     const interesses = await buscarInteressesAtacado(token);
     targetingCompleto = targetingFrio(interesses);
   } else if (cfg.tipo === 'quente') {
-    const [audienceId, visitantesId] = await Promise.all([
-      criarPublicoEngajamentoReal(actId, token, tenantId, 30),
-      criarPublicoVisitantesSite(actId, token, tenantId, 30),
-    ]);
-    const customAudiences = [audienceId, visitantesId].filter(Boolean).map(id => ({ id }));
-    targetingCompleto = {
-      ...targetingQuente(audienceId),
-      ...(customAudiences.length > 1 ? { custom_audiences: customAudiences } : {}),
-    };
+    let audienceId: string | null = null;
+    let visitantesId: string | null = null;
+    try {
+      [audienceId, visitantesId] = await Promise.all([
+        criarPublicoEngajamentoReal(actId, token, tenantId, 30),
+        criarPublicoVisitantesSite(actId, token, tenantId, 30),
+      ]);
+    } catch (err) {
+      console.warn('[criarCampanhaCompleta] Públicos quente falharam, usando targeting amplo:', err);
+    }
+    const customAudiences = [audienceId, visitantesId]
+      .filter((id): id is string => Boolean(id))
+      .map(id => ({ id }));
+    if (customAudiences.length === 0) {
+      const interesses = await buscarInteressesAtacado(token);
+      targetingCompleto = targetingFrio(interesses);
+    } else {
+      targetingCompleto = {
+        ...targetingQuente(audienceId ?? visitantesId),
+        custom_audiences: customAudiences,
+      };
+    }
   } else {
     const interesses = await buscarInteressesAtacado(token);
     targetingCompleto = targetingWhatsApp(interesses);
@@ -539,6 +573,283 @@ export async function criarCampanhaCompleta(
     targetingCompleto,
   });
   const creativeId = await criarAdCreative(token, actId, cfg.criativo);
+  const adId = await criarAd(token, actId, adsetId, creativeId, cfg.nome);
+
+  return { campaignId, adsetId, adId };
+}
+
+/* ─── criarCampanhaMultiplosConjuntos ────────────────────────────────────────── */
+
+export interface ConfigConjunto {
+  tipo: TipoCampanha;
+  orcamentoDiario: number; // centavos
+  criativos: Array<{
+    id: string;
+    meta_video_id?: string;
+    meta_image_hash?: string;
+    url_preview?: string;
+    tipo: 'video' | 'imagem';
+  }>;
+}
+
+export interface ConfigCampanhaAvancada {
+  nome: string;
+  conjuntos: ConfigConjunto[];
+  paises?: string[];
+  idadeMin?: number;
+  idadeMax?: number;
+  pageId: string;
+  whatsappNumber?: string;
+  urlDestino?: string;
+}
+
+/**
+ * Cria 1 campanha → N adsets (por tipo de público) → N ads por adset.
+ */
+export async function criarCampanhaMultiplosConjuntos(
+  tenantId: string,
+  cfg: ConfigCampanhaAvancada,
+): Promise<{
+  campaignId: string;
+  conjuntos: Array<{
+    tipo: TipoCampanha;
+    adsetId: string;
+    ads: Array<{ adId: string; criativoNome: string }>;
+  }>;
+}> {
+  const config = await resolverTokenMeta(tenantId);
+  const token = config.token;
+  if (!config.account_id) throw new Error('Ad Account ID não configurado');
+  const actId = config.account_id.startsWith('act_')
+    ? config.account_id
+    : `act_${config.account_id}`;
+
+  // 1. Determinar objetivo da campanha
+  const objetivo = cfg.conjuntos.some(c => c.tipo === 'whatsapp')
+    ? 'OUTCOME_TRAFFIC'
+    : cfg.conjuntos[0].tipo === 'frio'
+      ? 'OUTCOME_AWARENESS'
+      : 'OUTCOME_TRAFFIC';
+
+  const campanha = await metaPost(`${META_BASE}/${actId}/campaigns`, {
+    name: cfg.nome,
+    objective: objetivo,
+    status: 'PAUSED',
+    special_ad_categories: '[]',
+    is_adset_budget_sharing_enabled: false,
+  }, token);
+  if (!campanha.id) throw new Error(`Erro campanha: ${campanha.error?.message}`);
+
+  const resultadoConjuntos: Array<{
+    tipo: TipoCampanha;
+    adsetId: string;
+    ads: Array<{ adId: string; criativoNome: string }>;
+  }> = [];
+
+  // 2. Para cada conjunto, criar adset + N ads
+  for (const conjunto of cfg.conjuntos) {
+    // Buscar targeting para o tipo
+    let targetingCompleto: Record<string, unknown>;
+    if (conjunto.tipo === 'frio') {
+      const interesses = await buscarInteressesAtacado(token);
+      targetingCompleto = targetingFrio(interesses);
+    } else if (conjunto.tipo === 'quente') {
+      let audienceId: string | null = null;
+      try {
+        audienceId = await criarPublicoEngajamentoReal(actId, token, tenantId, 30);
+      } catch (err) {
+        console.warn('[criarCampanhaMultiplosConjuntos] Público quente falhou:', err);
+      }
+      if (audienceId) {
+        targetingCompleto = targetingQuente(audienceId);
+      } else {
+        const interesses = await buscarInteressesAtacado(token);
+        targetingCompleto = targetingFrio(interesses);
+      }
+    } else {
+      const interesses = await buscarInteressesAtacado(token);
+      targetingCompleto = targetingWhatsApp(interesses);
+    }
+
+    const tipoLabel = conjunto.tipo === 'frio'
+      ? 'Público Frio' : conjunto.tipo === 'quente'
+        ? 'Público Quente' : 'WhatsApp';
+
+    // Criar adset
+    const adset = await metaPost(`${META_BASE}/${actId}/adsets`, {
+      name: `${cfg.nome} — ${tipoLabel}`,
+      campaign_id: campanha.id,
+      daily_budget: String(conjunto.orcamentoDiario),
+      optimization_goal: conjunto.tipo === 'frio' ? 'REACH' : 'LINK_CLICKS',
+      billing_event: 'IMPRESSIONS',
+      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+      targeting: {
+        ...targetingCompleto,
+        targeting_automation: { advantage_audience: 0 },
+      },
+      status: 'PAUSED',
+    }, token);
+    if (!adset.id) throw new Error(`Erro adset ${tipoLabel}: ${adset.error?.message}`);
+
+    // Criar um ad para cada criativo
+    const ads: Array<{ adId: string; criativoNome: string }> = [];
+    for (const criativo of conjunto.criativos) {
+      try {
+        const cfgCriativo: ConfiguracaoCriativo = {
+          tipo: criativo.tipo,
+          metaVideoId: criativo.meta_video_id,
+          metaImageHash: criativo.meta_image_hash,
+          imageUrl: criativo.url_preview,
+          headline: `${cfg.nome} — ${tipoLabel}`,
+          texto: 'Conheça nossas rasteirinhas. Qualidade garantida.',
+          cta: conjunto.tipo === 'whatsapp' ? 'WHATSAPP_MESSAGE' : 'LEARN_MORE',
+          pageId: cfg.pageId,
+          whatsappNumber: conjunto.tipo === 'whatsapp' ? cfg.whatsappNumber : undefined,
+          urlDestino: conjunto.tipo !== 'whatsapp' ? cfg.urlDestino : undefined,
+        };
+
+        const creativeId = await criarAdCreative(token, actId, cfgCriativo);
+        const adName = `${cfg.nome} — ${tipoLabel} — Criativo ${ads.length + 1}`;
+        const adId = await criarAd(token, actId, adset.id, creativeId, adName);
+        ads.push({ adId, criativoNome: `Criativo ${ads.length + 1}` });
+      } catch (err) {
+        console.error(`[AGENTE] Erro no criativo ${criativo.id}:`, err);
+        // Continua para o próximo criativo sem parar tudo
+      }
+    }
+
+    resultadoConjuntos.push({
+      tipo: conjunto.tipo,
+      adsetId: adset.id,
+      ads,
+    });
+  }
+
+  return { campaignId: campanha.id, conjuntos: resultadoConjuntos };
+}
+
+/* ─── criarCampanhaCatalogo ──────────────────────────────────────────────────── */
+
+export interface ConfigCampanhaCatalogo {
+  nome: string;
+  catalogoId: string;
+  /** Orçamento diário em centavos */
+  orcamentoDiario: number;
+  pageId: string;
+  paises?: string[];
+  idadeMin?: number;
+  idadeMax?: number;
+}
+
+/**
+ * Cria campanha de catálogo (Dynamic Product Ads) no Meta.
+ * Busca automaticamente o primeiro product set do catálogo informado.
+ */
+export async function criarCampanhaCatalogo(
+  tenantId: string,
+  cfg: ConfigCampanhaCatalogo,
+): Promise<ResultadoPublicacao> {
+  const config = await resolverTokenMeta(tenantId);
+  const token = config.token;
+  if (!config.account_id) throw new Error('Ad Account ID não configurado');
+  const actId = config.account_id.startsWith('act_')
+    ? config.account_id
+    : `act_${config.account_id}`;
+
+  // 1. Criar campanha OUTCOME_SALES
+  const campaignData = await metaPost(`${META_BASE}/${actId}/campaigns`, {
+    name:              cfg.nome,
+    objective:         'OUTCOME_SALES',
+    status:            'PAUSED',
+    special_ad_categories: '[]',
+    is_adset_budget_sharing_enabled: false,
+  }, token);
+  if (!campaignData.id) {
+    throw new Error(`Erro ao criar campanha catálogo: ${campaignData.error?.message ?? 'sem ID'}`);
+  }
+  const campaignId = campaignData.id;
+
+  // 2. Buscar product sets do catálogo para obter product_set_id
+  const psRes = await fetch(
+    `${META_BASE}/${cfg.catalogoId}/product_sets?fields=id,name&limit=5&access_token=${token}`,
+    { signal: AbortSignal.timeout(10_000) },
+  );
+  const psData = await psRes.json() as {
+    data?: Array<{ id: string; name: string }>;
+    error?: { message: string };
+  };
+  const productSetId = psData.data?.[0]?.id;
+  if (!productSetId) {
+    throw new Error(
+      `Nenhum product set encontrado no catálogo ${cfg.catalogoId}` +
+      (psData.error ? `: ${psData.error.message}` : ''),
+    );
+  }
+  console.log('[CATALOGO] product_set_id:', productSetId, 'catalogo:', cfg.catalogoId);
+
+  // 3. Criar adset com promoted_object apontando para o catálogo
+  const adsetPayload: Record<string, unknown> = {
+    name:              `[VEXX] ${cfg.nome} — Catálogo`,
+    campaign_id:       campaignId,
+    daily_budget:      String(cfg.orcamentoDiario),
+    optimization_goal: 'OFFSITE_CONVERSIONS',
+    billing_event:     'IMPRESSIONS',
+    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
+    promoted_object: {
+      product_catalog_id: cfg.catalogoId,
+      product_set_id:     productSetId,
+    },
+    targeting: {
+      age_min:       cfg.idadeMin ?? 18,
+      age_max:       cfg.idadeMax ?? 65,
+      geo_locations: { countries: cfg.paises ?? ['BR'] },
+      targeting_automation: { advantage_audience: 0 },
+    },
+    status: 'PAUSED',
+  };
+  console.log('[CATALOGO ADSET PAYLOAD]', JSON.stringify(adsetPayload, null, 2));
+  const adsetData = await metaPost(`${META_BASE}/${actId}/adsets`, adsetPayload, token);
+  console.log('[CATALOGO ADSET RESPONSE]', JSON.stringify(adsetData));
+  if (!adsetData.id) {
+    throw new Error(`Erro ao criar adset catálogo: ${adsetData.error?.message ?? 'sem ID'}`);
+  }
+  const adsetId = adsetData.id;
+
+  // 4. Criar criativo dinâmico (DPA template)
+  const creativePayload = {
+    name: `[VEXX] ${cfg.nome} — DPA`,
+    object_story_spec: {
+      page_id: cfg.pageId,
+      template_data: {
+        call_to_action: {
+          type:  'SHOP_NOW',
+          value: { link: '{{product.url}}' },
+        },
+        link:    '{{product.url}}',
+        message: '{{product.name}} — Aproveite!',
+        name:    '{{product.name}}',
+      },
+    },
+    product_set_id: productSetId,
+  };
+  console.log('[CATALOGO CREATIVE PAYLOAD]', JSON.stringify(creativePayload, null, 2));
+
+  const creativeUrlObj = new URL(`${META_BASE}/${actId}/adcreatives`);
+  creativeUrlObj.searchParams.set('access_token', token);
+  const creativeRes = await fetch(creativeUrlObj.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(creativePayload),
+    signal:  AbortSignal.timeout(20_000),
+  });
+  const creativeData = await creativeRes.json() as { id?: string; error?: { message: string } };
+  console.log('[CATALOGO CREATIVE RESPONSE]', JSON.stringify(creativeData));
+  if (!creativeRes.ok || !creativeData.id) {
+    throw new Error(`Erro ao criar criativo catálogo: ${creativeData.error?.message ?? 'sem ID'}`);
+  }
+  const creativeId = creativeData.id;
+
+  // 5. Criar ad
   const adId = await criarAd(token, actId, adsetId, creativeId, cfg.nome);
 
   return { campaignId, adsetId, adId };
