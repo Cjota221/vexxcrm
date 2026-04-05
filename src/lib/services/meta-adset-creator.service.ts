@@ -224,8 +224,9 @@ export async function criarAdCreative(
 
   if (cfg.cta === 'WHATSAPP_MESSAGE' && cfg.whatsappNumber) {
     callToAction.value = { whatsapp_number: cfg.whatsappNumber };
-  } else if (cfg.urlDestino) {
-    callToAction.value = { link: cfg.urlDestino };
+  } else {
+    // LEARN_MORE e outros CTAs exigem link — usa urlDestino ou fallback para a página do Facebook
+    callToAction.value = { link: cfg.urlDestino ?? `https://www.facebook.com/${cfg.pageId}` };
   }
 
   if (cfg.tipo === 'video' && cfg.metaVideoId) {
