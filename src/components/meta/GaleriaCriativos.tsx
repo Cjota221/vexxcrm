@@ -421,6 +421,23 @@ function CardCriativoCache({ item }: { item: CacheCreativo }) {
   const [erroAcao, setErroAcao]       = useState<string | null>(null);
   const [classificacao, setClassificacao] = useState<Record<string, unknown> | null>(null);
 
+  // Verificar se já foi transcrito anteriormente
+  useEffect(() => {
+    if (item.tipo !== 'video') return;
+    getAuthHeader().then(auth =>
+      fetch(`/api/meta/transcricao/status-por-meta?meta_video_id=${item.id}`, {
+        headers: { Authorization: auth },
+      }).then(r => r.ok ? r.json() : null).then((data: { transcricao_status?: string; classificacao?: Record<string, unknown> } | null) => {
+        if (data?.transcricao_status === 'concluida') {
+          setTranscrito('concluido');
+          if (data.classificacao) setClassificacao(data.classificacao);
+        } else if (data?.transcricao_status === 'processando') {
+          setTranscrito('processando');
+        }
+      }).catch(() => {})
+    );
+  }, [item.id, item.tipo]);
+
   function formatDuracao(s: number | null) {
     if (!s) return '';
     const m = Math.floor(s / 60);
