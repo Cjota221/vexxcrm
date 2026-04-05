@@ -294,7 +294,7 @@ export function AgenteTrafegoPanel() {
       const rankados = [...lista]
         .filter(c => c.classificacao) // só classificados
         .sort((a, b) => scoreParaTipo(b, conjunto.tipo) - scoreParaTipo(a, conjunto.tipo));
-      const top3 = rankados.slice(0, 3).map(c => c.id);
+      const top3 = rankados.slice(0, MAX_CRIATIVOS_POR_CONJUNTO).map(c => c.id);
       return { ...conjunto, criativoIds: top3 };
     }));
   }
@@ -357,7 +357,7 @@ export function AgenteTrafegoPanel() {
     const rankados = [...criativos]
       .filter(c => c.classificacao)
       .sort((a, b) => scoreParaTipo(b, proximo) - scoreParaTipo(a, proximo));
-    const top3 = rankados.slice(0, 3).map(c => c.id);
+    const top3 = rankados.slice(0, MAX_CRIATIVOS_POR_CONJUNTO).map(c => c.id);
     setConjuntos(prev => [...prev, { id: novoId, tipo: proximo, criativoIds: top3 }]);
   }
 

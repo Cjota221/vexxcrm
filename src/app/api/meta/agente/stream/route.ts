@@ -144,12 +144,22 @@ export async function GET(req: NextRequest) {
             return;
           }
 
+          // Buscar criativos pelos IDs exatos selecionados (não limita por recência)
+          const todosIds = [...new Set(conjuntosParsed.flatMap(cj => cj.criativoIds))];
+          const { data: criativosSelecionados } = await supabase
+            .from('ad_creatives')
+            .select('id, nome, tipo, meta_video_id, meta_image_hash, url_preview')
+            .eq('tenant_id', tenantId)
+            .in('id', todosIds);
+
+          const criativosMap = new Map((criativosSelecionados ?? []).map(c => [c.id, c]));
+
           // Montar ConfigConjunto[] com os criativos selecionados
           const conjuntosConfig: ConfigConjunto[] = conjuntosParsed.map(cj => ({
             tipo: cj.tipo,
             orcamentoDiario: cj.orcamentoDiario,
             criativos: cj.criativoIds
-              .map(id => criativos!.find((c: { id: string }) => c.id === id))
+              .map(id => criativosMap.get(id))
               .filter((c): c is NonNullable<typeof c> => c != null)
               .map(c => ({
                 id: c.id,
@@ -183,16 +193,23 @@ export async function GET(req: NextRequest) {
               const tipoLabel = TIPO_LABEL_MULTI[cj.tipo] ?? cj.tipo;
               const adIds = cj.ads.map(a => a.adId);
 
+              // Pegar preview do primeiro criativo do conjunto
+              const conjParsed = conjuntosParsed.find(c => c.tipo === cj.tipo);
+              const primeiroId = conjParsed?.criativoIds?.[0];
+              const primeiroThumb = primeiroId ? criativosMap.get(primeiroId)?.url_preview ?? null : null;
+
               await supabase.from('meta_campaign_drafts').insert({
                 tenant_id: tenantId,
                 nome: `${nome} — ${tipoLabel}`,
                 objetivo: cj.tipo === 'frio' ? 'BRAND_AWARENESS' : 'LINK_CLICKS',
                 status: 'aprovado',
                 tipo: cj.tipo,
-                orcamento_diario: conjuntosParsed.find(c => c.tipo === cj.tipo)?.orcamentoDiario ?? 5000,
+                orcamento_diario: conjParsed?.orcamentoDiario ?? 5000,
                 meta_campaign_id: resultado.campaignId,
                 meta_adset_id: cj.adsetId,
                 meta_ad_id: adIds[0] ?? null,
+                criativo_url_preview: primeiroThumb,
+                copy_headline: `${adIds.length} criativo(s) criado(s)${cj.erros?.length ? ` · ${cj.erros.length} com erro` : ''}`,
               });
 
               const errosDetalhe = cj.erros?.length ? ` | ⚠️ ${cj.erros.length} falhou: ${cj.erros[0]}` : '';
