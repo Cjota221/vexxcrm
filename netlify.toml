@@ -62,6 +62,18 @@
 [functions."api/ai-team/create-audiences"]
   timeout = 26
 
+[functions."api/trafego/export"]
+  timeout = 26
+
+[functions."api/trafego/consolidado"]
+  timeout = 26
+
+[functions."api/trafego/abtest"]
+  timeout = 26
+
+[functions."api/meta/catalog"]
+  timeout = 26
+
 [functions."api/meta/upload"]
   timeout = 26
 

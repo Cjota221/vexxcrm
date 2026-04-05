@@ -157,7 +157,7 @@ interface MetricsData {
 }
 
 type Period = '1d' | '7d' | '15d' | '30d';
-type Tab = 'campanhas' | 'criativos' | 'publicos' | 'textos' | 'analise' | 'relatorio' | 'config' | 'agente' | 'aprovacoes' | 'leads' | 'regras';
+type Tab = 'campanhas' | 'criativos' | 'publicos' | 'textos' | 'analise' | 'relatorio' | 'config' | 'agente' | 'aprovacoes' | 'leads' | 'regras' | 'consolidado' | 'abtest' | 'catalogo';
 
 /* ─── Formatadores ─────────────────────────────────────────────────────────── */
 
@@ -3076,6 +3076,13 @@ function RelatorioTab() {
               </button>
             ))}
           </div>
+          <a
+            href={`/api/trafego/export?format=csv&period=${periodo === 'last_7d' ? '7d' : periodo === 'last_14d' ? '15d' : '30d'}`}
+            download
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700"
+          >
+            <CloudDownload size={13} /> Exportar CSV
+          </a>
           <button
             onClick={() => gerarRelatorio(periodo)}
             disabled={loading}
@@ -3183,6 +3190,501 @@ function RelatorioTab() {
         <div className="text-center py-8 bg-gray-50 rounded-2xl border border-gray-100">
           <BarChart3 size={32} className="text-gray-300 mx-auto mb-3" />
           <p className="text-gray-500 text-sm">Clique em atualizar para gerar o relatório</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Aba Multi-conta Consolidado ─────────────────────────────────────────── */
+
+interface ConsolidadoContaSummary {
+  spend: number; revenue: number; leads: number; clicks: number; roas: number; cpl: number; ativas: number; pausadas: number;
+}
+interface ConsolidadoConta {
+  accountId: string; accountName: string; currency: string;
+  campaigns: Array<{ id: string; nome: string; status: string; spend: number; revenue: number; leads: number; roas: number; cpl: number }>;
+  summary: ConsolidadoContaSummary | null;
+  error?: string;
+}
+
+function ConsolidadoTab() {
+  const [accountIds, setAccountIds] = useState('');
+  const [period, setPeriod]         = useState<'7d' | '15d' | '30d'>('7d');
+  const [loading, setLoading]       = useState(false);
+  const [result, setResult]         = useState<{ contas: ConsolidadoConta[]; grand: ConsolidadoContaSummary & { roas: number; cpl: number } } | null>(null);
+  const [error, setError]           = useState<string | null>(null);
+
+  async function buscar() {
+    const ids = accountIds.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
+    if (!ids.length) { setError('Informe ao menos uma conta (act_XXXXXXXX)'); return; }
+    setLoading(true); setError(null);
+    try {
+      const res = await authFetch('/api/trafego/consolidado', {
+        method: 'POST',
+        body: JSON.stringify({ account_ids: ids, period }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setError(json.error || 'Erro desconhecido'); return; }
+      setResult(json);
+    } catch (e) { setError(String(e)); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="font-bold text-gray-900">Dashboard Multi-conta</h2>
+        <p className="text-xs text-gray-400 mt-0.5">Compare métricas de várias contas Meta lado a lado</p>
+      </div>
+
+      {/* Inputs */}
+      <div className="bg-gray-50 rounded-2xl border border-gray-100 p-4 space-y-3">
+        <div>
+          <label className="text-xs font-semibold text-gray-700 uppercase tracking-wide">IDs das contas (act_XXXX)</label>
+          <textarea
+            value={accountIds}
+            onChange={e => setAccountIds(e.target.value)}
+            placeholder={'act_123456789\nact_987654321'}
+            rows={3}
+            className="mt-1 w-full text-sm border border-gray-200 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex bg-white border border-gray-200 rounded-xl p-1 gap-1">
+            {(['7d', '15d', '30d'] as const).map(p => (
+              <button key={p} onClick={() => setPeriod(p)}
+                className={cn('px-3 py-1 rounded-lg text-xs font-medium transition-all', period === p ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100')}>
+                {p}
+              </button>
+            ))}
+          </div>
+          <button onClick={buscar} disabled={loading}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <BarChart3 size={14} />}
+            {loading ? 'Buscando...' : 'Consolidar'}
+          </button>
+        </div>
+        {error && <div className="text-red-600 text-xs">{error}</div>}
+      </div>
+
+      {/* Grand total */}
+      {result && (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { label: 'Gasto total',   value: brl(result.grand.spend) },
+              { label: 'Retorno',       value: brl(result.grand.revenue) },
+              { label: 'ROAS',          value: result.grand.roas.toFixed(2) + 'x' },
+              { label: 'Leads',         value: n0(result.grand.leads) },
+            ].map(m => (
+              <div key={m.label} className="bg-white rounded-2xl border border-gray-100 p-4 text-center">
+                <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{m.label}</div>
+                <div className="text-2xl font-bold text-gray-900 mt-1">{m.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Per-account cards */}
+          <div className="space-y-3">
+            {result.contas.map(conta => (
+              <div key={conta.accountId} className="bg-white rounded-2xl border border-gray-100 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <div className="font-semibold text-gray-900 text-sm">{conta.accountName}</div>
+                    <div className="text-[11px] text-gray-400">{conta.accountId}</div>
+                  </div>
+                  {conta.error ? (
+                    <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded-lg">{conta.error}</span>
+                  ) : (
+                    <div className="flex gap-3 text-xs text-gray-500">
+                      <span>{conta.summary?.ativas || 0} ativas</span>
+                      <span>{conta.summary?.pausadas || 0} pausadas</span>
+                    </div>
+                  )}
+                </div>
+                {conta.summary && (
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                    {[
+                      { l: 'Gasto',   v: brl(conta.summary.spend) },
+                      { l: 'Retorno', v: brl(conta.summary.revenue) },
+                      { l: 'ROAS',    v: conta.summary.roas.toFixed(2) + 'x' },
+                      { l: 'Leads',   v: n0(conta.summary.leads) },
+                      { l: 'Cliques', v: n0(conta.summary.clicks) },
+                      { l: 'CPL',     v: brl(conta.summary.cpl) },
+                    ].map(m => (
+                      <div key={m.l} className="text-center bg-gray-50 rounded-xl py-2">
+                        <div className="text-[10px] text-gray-500 uppercase">{m.l}</div>
+                        <div className="text-sm font-bold text-gray-900 mt-0.5">{m.v}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {!result && !loading && (
+        <div className="text-center py-12 text-gray-300">
+          <Globe size={40} className="mx-auto mb-3" />
+          <p className="text-sm text-gray-500">Informe os IDs das contas e clique em Consolidar</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Aba A/B Test ─────────────────────────────────────────────────────────── */
+
+interface ABMetric { vencedor: 'a' | 'b' | 'tie'; diff_pct?: number }
+interface ABResult {
+  a: Record<string, unknown> & { nome: string; spend: number; roas: number; cpl: number; ctr: number; cpm: number; leads: number; thruplay: number };
+  b: Record<string, unknown> & { nome: string; spend: number; roas: number; cpl: number; ctr: number; cpm: number; leads: number; thruplay: number };
+  comparativo: { roas: ABMetric; cpl: ABMetric; ctr: ABMetric; cpm: ABMetric; thruplay: ABMetric; leads: ABMetric } | null;
+  vencedor_geral: 'a' | 'b' | 'empate';
+  score: { a: number; b: number };
+  period: string;
+}
+
+function ABTestTab() {
+  const [campaignA, setCampaignA] = useState('');
+  const [campaignB, setCampaignB] = useState('');
+  const [period, setPeriod]       = useState<'7d' | '15d' | '30d'>('7d');
+  const [loading, setLoading]     = useState(false);
+  const [result, setResult]       = useState<ABResult | null>(null);
+  const [error, setError]         = useState<string | null>(null);
+
+  async function comparar() {
+    if (!campaignA.trim() || !campaignB.trim()) { setError('Informe os IDs das duas campanhas'); return; }
+    setLoading(true); setError(null);
+    try {
+      const res = await authFetch(`/api/trafego/abtest?campaign_a=${encodeURIComponent(campaignA.trim())}&campaign_b=${encodeURIComponent(campaignB.trim())}&period=${period}`);
+      const json = await res.json();
+      if (!res.ok) { setError(json.error || 'Erro desconhecido'); return; }
+      setResult(json);
+    } catch (e) { setError(String(e)); }
+    finally { setLoading(false); }
+  }
+
+  const METRICAS = [
+    { key: 'roas',     label: 'ROAS',   fmt: (v: number) => v.toFixed(2) + 'x', lowerIsBetter: false },
+    { key: 'cpl',      label: 'CPL',    fmt: brl2,                               lowerIsBetter: true  },
+    { key: 'ctr',      label: 'CTR',    fmt: (v: number) => pct(v),              lowerIsBetter: false },
+    { key: 'cpm',      label: 'CPM',    fmt: brl2,                               lowerIsBetter: true  },
+    { key: 'leads',    label: 'Leads',  fmt: n0,                                 lowerIsBetter: false },
+    { key: 'thruplay', label: 'ThruPlay', fmt: n0,                               lowerIsBetter: false },
+  ] as const;
+
+  function winnerColor(w: 'a' | 'b' | 'tie', side: 'a' | 'b') {
+    if (w === 'tie') return '';
+    return w === side ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-100 text-red-700';
+  }
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="font-bold text-gray-900">Comparador A/B</h2>
+        <p className="text-xs text-gray-400 mt-0.5">Compare métricas de duas campanhas lado a lado</p>
+      </div>
+
+      {/* Inputs */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Campanha A — ID</label>
+          <input value={campaignA} onChange={e => setCampaignA(e.target.value)} placeholder="123456789"
+            className="mt-1 w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Campanha B — ID</label>
+          <input value={campaignB} onChange={e => setCampaignB(e.target.value)} placeholder="987654321"
+            className="mt-1 w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <div className="flex bg-gray-100 rounded-xl p-1 gap-1">
+          {(['7d', '15d', '30d'] as const).map(p => (
+            <button key={p} onClick={() => setPeriod(p)}
+              className={cn('px-3 py-1.5 rounded-lg text-xs font-medium transition-all', period === p ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100')}>
+              {p}
+            </button>
+          ))}
+        </div>
+        <button onClick={comparar} disabled={loading}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
+          {loading ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
+          {loading ? 'Comparando...' : 'Comparar'}
+        </button>
+        {error && <span className="text-red-600 text-xs">{error}</span>}
+      </div>
+
+      {result && (
+        <div className="space-y-4">
+          {/* Vencedor */}
+          <div className={cn('rounded-2xl border p-4 text-center',
+            result.vencedor_geral === 'a' ? 'bg-green-50 border-green-200' :
+            result.vencedor_geral === 'b' ? 'bg-blue-50 border-blue-200' :
+            'bg-gray-50 border-gray-200')}>
+            <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Vencedor geral</div>
+            <div className="text-2xl font-bold text-gray-900">
+              {result.vencedor_geral === 'empate' ? 'Empate' :
+               result.vencedor_geral === 'a' ? `Campanha A — ${result.a.nome}` : `Campanha B — ${result.b.nome}`}
+            </div>
+            <div className="text-sm text-gray-500 mt-1">Score: A {result.score.a} × B {result.score.b}</div>
+          </div>
+
+          {/* Tabela de métricas */}
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50">
+                  <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase w-24">Métrica</th>
+                  <th className="text-center px-4 py-3 text-xs font-bold text-blue-600 uppercase">A — {result.a.nome.slice(0, 20)}</th>
+                  <th className="text-center px-4 py-3 text-xs font-bold text-purple-600 uppercase">B — {result.b.nome.slice(0, 20)}</th>
+                  <th className="text-center px-4 py-3 text-xs font-bold text-gray-500 uppercase">Δ%</th>
+                </tr>
+              </thead>
+              <tbody>
+                {METRICAS.map(m => {
+                  const comp = result.comparativo?.[m.key];
+                  const valA = result.a[m.key] as number;
+                  const valB = result.b[m.key] as number;
+                  const winner = comp?.vencedor || 'tie';
+                  return (
+                    <tr key={m.key} className="border-b border-gray-50 last:border-0">
+                      <td className="px-4 py-3 font-medium text-gray-700 text-xs uppercase tracking-wide">{m.label}</td>
+                      <td className={cn('px-4 py-3 text-center rounded-none font-semibold border', winnerColor(winner, 'a'))}>
+                        {m.fmt(valA)}
+                        {winner === 'a' && <span className="ml-1 text-[10px]">✓</span>}
+                      </td>
+                      <td className={cn('px-4 py-3 text-center font-semibold border', winnerColor(winner, 'b'))}>
+                        {m.fmt(valB)}
+                        {winner === 'b' && <span className="ml-1 text-[10px]">✓</span>}
+                      </td>
+                      <td className="px-4 py-3 text-center text-xs text-gray-500">
+                        {comp?.diff_pct !== undefined ? (comp.diff_pct > 0 ? '+' : '') + comp.diff_pct.toFixed(1) + '%' : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+                <tr>
+                  <td className="px-4 py-3 font-medium text-gray-700 text-xs uppercase tracking-wide">Gasto</td>
+                  <td className="px-4 py-3 text-center font-semibold text-gray-800">{brl2(result.a.spend)}</td>
+                  <td className="px-4 py-3 text-center font-semibold text-gray-800">{brl2(result.b.spend)}</td>
+                  <td className="px-4 py-3 text-center text-xs text-gray-500">—</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {!result && !loading && (
+        <div className="text-center py-12 text-gray-300">
+          <Zap size={40} className="mx-auto mb-3" />
+          <p className="text-sm text-gray-500">Informe os IDs das campanhas para comparar</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Aba Catálogo / DPA ───────────────────────────────────────────────────── */
+
+interface CatalogItem {
+  id: string; nome: string; total_produtos: number; total_feeds: number; vertical: string;
+}
+interface ProductItem {
+  id: string; nome: string; descricao: string; preco: number; preco_oferta: number | null;
+  disponivel: boolean; url: string; imagem: string; marca: string; categoria: string;
+}
+
+function CatalogoTab() {
+  const [catalogs, setCatalogs]           = useState<CatalogItem[]>([]);
+  const [catalogsLoading, setCatalogsLoading] = useState(false);
+  const [catalogsLoaded, setCatalogsLoaded]   = useState(false);
+  const [selectedCatalog, setSelectedCatalog] = useState<CatalogItem | null>(null);
+  const [products, setProducts]           = useState<ProductItem[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [dpaForm, setDpaForm]             = useState(false);
+  const [dpaName, setDpaName]             = useState('');
+  const [dpaBudget, setDpaBudget]         = useState('50');
+  const [dpaLoading, setDpaLoading]       = useState(false);
+  const [dpaResult, setDpaResult]         = useState<string | null>(null);
+  const [error, setError]                 = useState<string | null>(null);
+
+  async function loadCatalogs() {
+    setCatalogsLoading(true); setError(null);
+    try {
+      const res = await authFetch('/api/meta/catalog');
+      const json = await res.json() as { catalogs?: CatalogItem[]; error?: string };
+      if (!res.ok) { setError(json.error || 'Erro ao carregar catálogos'); return; }
+      setCatalogs(json.catalogs || []);
+      setCatalogsLoaded(true);
+    } catch (e) { setError(String(e)); }
+    finally { setCatalogsLoading(false); }
+  }
+
+  async function loadProducts(catalog: CatalogItem) {
+    setSelectedCatalog(catalog); setProducts([]); setProductsLoading(true);
+    try {
+      const res = await authFetch(`/api/meta/catalog?catalog_id=${catalog.id}`);
+      const json = await res.json() as { products?: ProductItem[] };
+      setProducts(json.products || []);
+    } catch { /* silencioso */ }
+    finally { setProductsLoading(false); }
+  }
+
+  async function criarDPA() {
+    if (!selectedCatalog) return;
+    setDpaLoading(true); setDpaResult(null); setError(null);
+    try {
+      const res = await authFetch('/api/meta/catalog', {
+        method: 'POST',
+        body: JSON.stringify({
+          catalog_id:  selectedCatalog.id,
+          adset_name:  dpaName || 'Conjunto DPA',
+          ad_name:     dpaName || 'Anúncio dinâmico',
+          daily_budget: parseFloat(dpaBudget) || 50,
+        }),
+      });
+      const json = await res.json() as { ok?: boolean; campaign_id?: string; aviso?: string; error?: string };
+      if (!res.ok || !json.ok) { setError(json.error || 'Erro ao criar DPA'); return; }
+      setDpaResult(`Campanha DPA criada! ID: ${json.campaign_id}. ${json.aviso || ''}`);
+      setDpaForm(false);
+    } catch (e) { setError(String(e)); }
+    finally { setDpaLoading(false); }
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-bold text-gray-900">Catálogos de Produtos</h2>
+          <p className="text-xs text-gray-400 mt-0.5">Gerencie catálogos e crie anúncios dinâmicos (DPA)</p>
+        </div>
+        <button onClick={loadCatalogs} disabled={catalogsLoading}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-50">
+          {catalogsLoading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+          {catalogsLoaded ? 'Atualizar' : 'Carregar catálogos'}
+        </button>
+      </div>
+
+      {error && <div className="text-red-600 text-xs bg-red-50 px-4 py-3 rounded-xl border border-red-200">{error}</div>}
+      {dpaResult && <div className="text-green-800 text-xs bg-green-50 px-4 py-3 rounded-xl border border-green-200">{dpaResult}</div>}
+
+      {!catalogsLoaded && !catalogsLoading && (
+        <div className="text-center py-12 text-gray-300">
+          <ImageIcon size={40} className="mx-auto mb-3" />
+          <p className="text-sm text-gray-500">Clique em "Carregar catálogos" para ver seus catálogos do Meta</p>
+        </div>
+      )}
+
+      {catalogsLoaded && catalogs.length === 0 && (
+        <div className="text-center py-12 text-gray-300">
+          <ImageIcon size={40} className="mx-auto mb-3" />
+          <p className="text-sm text-gray-500">Nenhum catálogo encontrado nesta conta.</p>
+        </div>
+      )}
+
+      {catalogs.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {catalogs.map(cat => (
+            <div key={cat.id}
+              onClick={() => loadProducts(cat)}
+              className={cn('cursor-pointer rounded-2xl border p-4 transition-all hover:shadow-md',
+                selectedCatalog?.id === cat.id ? 'border-blue-400 bg-blue-50' : 'border-gray-100 bg-white')}>
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="font-semibold text-gray-900 text-sm">{cat.nome}</div>
+                  <div className="text-xs text-gray-400 mt-0.5 capitalize">{cat.vertical}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xl font-bold text-gray-900">{n0(cat.total_produtos)}</div>
+                  <div className="text-[10px] text-gray-400">produtos</div>
+                </div>
+              </div>
+              {selectedCatalog?.id === cat.id && (
+                <button
+                  onClick={e => { e.stopPropagation(); setDpaForm(true); }}
+                  className="mt-3 w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700"
+                >
+                  <Wand2 size={12} /> Criar anúncio dinâmico (DPA)
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* DPA form */}
+      {dpaForm && selectedCatalog && (
+        <div className="bg-gray-50 rounded-2xl border border-gray-200 p-4 space-y-3">
+          <div className="font-semibold text-gray-900 text-sm">Criar campanha DPA — {selectedCatalog.nome}</div>
+          <div>
+            <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Nome do conjunto / anúncio</label>
+            <input value={dpaName} onChange={e => setDpaName(e.target.value)} placeholder="Ex: Rasteirinhas Verão"
+              className="mt-1 w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Orçamento diário (R$)</label>
+            <input value={dpaBudget} onChange={e => setDpaBudget(e.target.value)} type="number" min="5" placeholder="50"
+              className="mt-1 w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+            A campanha será criada com status <strong>PAUSADA</strong>. Revise e ative no Gerenciador de Anúncios.
+          </div>
+          <div className="flex gap-2">
+            <button onClick={criarDPA} disabled={dpaLoading}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
+              {dpaLoading ? <Loader2 size={13} className="animate-spin" /> : <Wand2 size={13} />}
+              {dpaLoading ? 'Criando...' : 'Criar DPA'}
+            </button>
+            <button onClick={() => setDpaForm(false)} className="px-4 py-2 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-100">Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {/* Products grid */}
+      {selectedCatalog && productsLoading && (
+        <div className="text-center py-6 text-gray-400"><Loader2 size={24} className="animate-spin mx-auto mb-2" /><p className="text-sm">Carregando produtos...</p></div>
+      )}
+      {selectedCatalog && !productsLoading && products.length > 0 && (
+        <div>
+          <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">
+            {products.length} produtos — {selectedCatalog.nome}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            {products.slice(0, 24).map(p => (
+              <div key={p.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+                {p.imagem && (
+                  <img src={p.imagem} alt={p.nome} className="w-full h-28 object-cover bg-gray-100" />
+                )}
+                {!p.imagem && (
+                  <div className="w-full h-28 bg-gray-100 flex items-center justify-center">
+                    <ImageIcon size={24} className="text-gray-300" />
+                  </div>
+                )}
+                <div className="p-2">
+                  <div className="text-xs font-semibold text-gray-800 truncate">{p.nome}</div>
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    {p.preco_oferta ? (
+                      <><span className="line-through text-gray-300">{brl2(p.preco)}</span> <span className="text-green-700 font-semibold">{brl2(p.preco_oferta)}</span></>
+                    ) : brl2(p.preco)}
+                  </div>
+                  <span className={cn('text-[10px] px-1.5 py-0.5 rounded mt-1 inline-block font-medium',
+                    p.disponivel ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600')}>
+                    {p.disponivel ? 'Disponível' : 'Indisponível'}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+          {products.length > 24 && (
+            <p className="text-xs text-gray-400 text-center mt-3">Exibindo 24 de {products.length} produtos</p>
+          )}
         </div>
       )}
     </div>
@@ -4042,6 +4544,39 @@ export default function TrafegoPage() {
               >
                 Regras
               </button>
+              <button
+                onClick={() => setTab('consolidado')}
+                className={cn(
+                  'px-5 py-3.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
+                  tab === 'consolidado'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                )}
+              >
+                Multi-conta
+              </button>
+              <button
+                onClick={() => setTab('abtest')}
+                className={cn(
+                  'px-5 py-3.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
+                  tab === 'abtest'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                )}
+              >
+                A/B Test
+              </button>
+              <button
+                onClick={() => setTab('catalogo')}
+                className={cn(
+                  'px-5 py-3.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
+                  tab === 'catalogo'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                )}
+              >
+                Catálogo
+              </button>
             </div>
             {tab === 'publicos' && (
               <button className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 px-4 py-3.5 transition-colors whitespace-nowrap">
@@ -4437,6 +4972,15 @@ export default function TrafegoPage() {
 
             {/* ── REGRAS ── */}
             {tab === 'regras' && <RulesPanel />}
+
+            {/* ── MULTI-CONTA ── */}
+            {tab === 'consolidado' && <ConsolidadoTab />}
+
+            {/* ── A/B TEST ── */}
+            {tab === 'abtest' && <ABTestTab />}
+
+            {/* ── CATÁLOGO ── */}
+            {tab === 'catalogo' && <CatalogoTab />}
 
             {/* ── CONFIG ── */}
             {tab === 'config' && (
