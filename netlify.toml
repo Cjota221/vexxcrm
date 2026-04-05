@@ -40,6 +40,16 @@
 [functions."api/meta/leads/forms"]
   timeout = 26
 
+[functions."api/trafego/rules"]
+  timeout = 26
+
+[functions."api/cron/rules-evaluate"]
+  timeout = 26
+
+[scheduled-functions."rules-evaluate-cron"]
+  schedule = "0 */6 * * *"
+  function = "api/cron/rules-evaluate"
+
 [functions."api/cron/campaign-dispatcher"]
   timeout = 26
 

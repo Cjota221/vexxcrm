@@ -157,7 +157,7 @@ interface MetricsData {
 }
 
 type Period = '1d' | '7d' | '15d' | '30d';
-type Tab = 'campanhas' | 'criativos' | 'publicos' | 'textos' | 'analise' | 'relatorio' | 'config' | 'agente' | 'aprovacoes' | 'leads';
+type Tab = 'campanhas' | 'criativos' | 'publicos' | 'textos' | 'analise' | 'relatorio' | 'config' | 'agente' | 'aprovacoes' | 'leads' | 'regras';
 
 /* ─── Formatadores ─────────────────────────────────────────────────────────── */
 
@@ -1951,6 +1951,34 @@ function PublicosTab() {
   // Modal de detalhes
   const [modalPublico, setModalPublico] = useState<IAPublico | null>(null);
 
+  // Lookalike creator
+  const [showLookalike, setShowLookalike] = useState(false);
+  const [lalSeedId, setLalSeedId]         = useState('');
+  const [lalSeedNome, setLalSeedNome]     = useState('');
+  const [lalRatio, setLalRatio]           = useState(1);
+  const [criandoLal, setCriandoLal]       = useState(false);
+
+  const handleCriarLookalike = async () => {
+    if (!lalSeedId) return;
+    setCriandoLal(true);
+    setFormFeedback(null);
+    try {
+      const res = await authFetch('/api/trafego/publicos/lookalike', {
+        method: 'POST',
+        body: JSON.stringify({ origin_audience_id: lalSeedId, origin_audience_name: lalSeedNome, ratio: lalRatio / 100 }),
+      });
+      const json = await res.json() as { ok?: boolean; meta_audience_id?: string; nome?: string; error?: string };
+      if (json.ok) {
+        setFormFeedback(`✅ Lookalike ${lalRatio}% criado! ID: ${json.meta_audience_id} — ficará disponível em até 24h no Meta.`);
+        setShowLookalike(false);
+        carregarDados();
+      } else {
+        setFormFeedback(json.error || 'Erro ao criar Lookalike');
+      }
+    } catch (e) { setFormFeedback(String(e)); }
+    finally { setCriandoLal(false); }
+  };
+
   // Criação manual de público
   const [formManual, setFormManual] = useState(false);
   const [formNome, setFormNome] = useState('');
@@ -2403,29 +2431,101 @@ function PublicosTab() {
         </div>
       )}
 
-      {/* Públicos Personalizados no Meta */}
+      {/* Públicos Personalizados no Meta — com saúde e botão Lookalike */}
       {!loading && customAudiences.length > 0 && (
         <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Públicos Personalizados ({customAudiences.length})</h3>
-          {customAudiences.map(a => (
-            <div key={a.id} className="bg-white rounded-2xl border border-gray-100 p-4">
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="font-semibold text-gray-900">{a.name}</div>
-                  {a.description && <div className="text-sm text-gray-500 mt-0.5">{a.description}</div>}
-                  <div className="flex items-center gap-2 mt-1 flex-wrap">
-                    <span className="text-xs text-gray-400">
-                      {formatAudienceSize(a.approximate_count_lower_bound, a.approximate_count_upper_bound)}
-                    </span>
-                    {a.subtype && (
-                      <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-mono">{a.subtype}</span>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Públicos Personalizados ({customAudiences.length})</h3>
+          </div>
+          {customAudiences.map(a => {
+            const lower = a.approximate_count_lower_bound || 0;
+            const isLookalike = a.subtype === 'LOOKALIKE';
+            const MIN_VIAVEL  = isLookalike ? 1000 : 100;
+            const saude: 'ok' | 'baixo' | 'desconhecido' =
+              lower === 0 ? 'desconhecido' : lower >= MIN_VIAVEL ? 'ok' : 'baixo';
+            return (
+              <div key={a.id} className="bg-white rounded-2xl border border-gray-100 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-gray-900 text-sm leading-tight">{a.name}</div>
+                    {a.description && <div className="text-xs text-gray-500 mt-0.5 line-clamp-1">{a.description}</div>}
+                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                      <span className={cn('text-xs font-medium flex items-center gap-1',
+                        saude === 'ok' ? 'text-green-600' : saude === 'baixo' ? 'text-red-500' : 'text-gray-400')}>
+                        <span className={cn('w-1.5 h-1.5 rounded-full inline-block',
+                          saude === 'ok' ? 'bg-green-500' : saude === 'baixo' ? 'bg-red-400' : 'bg-gray-300')} />
+                        {formatAudienceSize(a.approximate_count_lower_bound, a.approximate_count_upper_bound)}
+                      </span>
+                      {saude === 'baixo' && (
+                        <span className="text-xs text-red-500 bg-red-50 px-1.5 py-0.5 rounded-md">abaixo do mínimo</span>
+                      )}
+                      {a.subtype && (
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-mono">{a.subtype}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1.5 shrink-0">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 font-medium">Personalizado</span>
+                    {!isLookalike && saude !== 'desconhecido' && (
+                      <button
+                        onClick={() => {
+                          setLalSeedId(a.id);
+                          setLalSeedNome(a.name);
+                          setShowLookalike(true);
+                        }}
+                        className="text-xs text-blue-500 hover:underline flex items-center gap-1"
+                      >
+                        <Wand2 size={10} /> Criar Lookalike
+                      </button>
                     )}
                   </div>
                 </div>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 font-medium shrink-0">Personalizado</span>
               </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ─── Criador de Lookalike ─────────────────────────────────────────── */}
+      {showLookalike && (
+        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-blue-900 text-sm">Criar Lookalike</h3>
+            <button onClick={() => setShowLookalike(false)} className="text-blue-400 hover:text-blue-600"><X size={16} /></button>
+          </div>
+          <div>
+            <div className="text-xs text-blue-700 mb-1">Semente</div>
+            <div className="bg-white rounded-xl px-3 py-2 border border-blue-200 text-sm text-gray-800 font-medium truncate">{lalSeedNome || lalSeedId}</div>
+          </div>
+          <div>
+            <div className="text-xs text-blue-700 mb-2">Percentual do público ({lalRatio}%)</div>
+            <div className="flex gap-2 flex-wrap">
+              {[1, 2, 3, 5, 10].map(p => (
+                <button key={p} onClick={() => setLalRatio(p)}
+                  className={cn('px-3 py-1.5 rounded-xl border text-xs font-medium transition-all',
+                    lalRatio === p ? 'bg-blue-600 text-white border-blue-600' : 'border-blue-200 text-blue-700 bg-white hover:bg-blue-100')}>
+                  {p}%
+                </button>
+              ))}
             </div>
-          ))}
+            <div className="text-xs text-blue-500 mt-1.5">
+              {lalRatio <= 2 ? 'Mais parecido com a semente — menor alcance' : lalRatio >= 5 ? 'Maior alcance — menos similar à semente' : 'Equilíbrio entre alcance e similaridade'}
+            </div>
+          </div>
+          <div className="bg-amber-50 rounded-xl px-3 py-2 text-xs text-amber-700">
+            A semente precisa ter pelo menos 100 pessoas. O Lookalike ficará disponível no Meta em até 24h.
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setShowLookalike(false)}
+              className="flex-1 px-3 py-2 rounded-xl border border-blue-200 text-blue-700 text-sm hover:bg-blue-100">
+              Cancelar
+            </button>
+            <button onClick={handleCriarLookalike} disabled={criandoLal || !lalSeedId}
+              className="flex-1 px-3 py-2 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2">
+              {criandoLal ? <Loader2 size={13} className="animate-spin" /> : null}
+              Criar Lookalike {lalRatio}%
+            </button>
+          </div>
         </div>
       )}
 
@@ -3113,6 +3213,257 @@ function getSazonalidade(): { status: string; recomendacao: string; proximaData:
   };
 }
 
+/* ─── Painel de Regras Automáticas ────────────────────────────────────────── */
+
+interface AutoRule {
+  id: string; nome: string; ativa: boolean;
+  condicao: { metrica: string; operador: string; valor: number; janela_dias: number };
+  acao: { tipo: string; incremento_pct?: number };
+  vezes_executada: number; ultima_execucao?: string;
+}
+
+const METRICA_LABELS: Record<string, string> = {
+  cpl: 'CPL (custo por lead)', roas: 'ROAS', ctr: 'CTR (%)',
+  cpm: 'CPM', frequencia: 'Frequência', gasto: 'Gasto diário (R$)',
+};
+const ACAO_LABELS: Record<string, string> = {
+  pausar_campanha:  'Pausar campanha',
+  escalar_orcamento: 'Escalar orçamento',
+  notificar:        'Notificar (sem ação)',
+};
+
+function RulesPanel() {
+  const [rules, setRules]       = useState<AutoRule[]>([]);
+  const [loading, setLoading]   = useState(false);
+  const [loaded, setLoaded]     = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving]     = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  // Form state
+  const [nome, setNome]           = useState('');
+  const [metrica, setMetrica]     = useState<string>('cpl');
+  const [operador, setOperador]   = useState<string>('maior_que');
+  const [valor, setValor]         = useState('');
+  const [janela, setJanela]       = useState('2');
+  const [acao, setAcao]           = useState<string>('pausar_campanha');
+  const [incremento, setIncremento] = useState('20');
+
+  async function loadRules() {
+    setLoading(true);
+    try {
+      const res = await authFetch('/api/trafego/rules');
+      if (res.ok) { const j = await res.json() as { rules: AutoRule[] }; setRules(j.rules || []); setLoaded(true); }
+    } catch { /* silencioso */ }
+    finally { setLoading(false); }
+  }
+
+  async function toggleRule(rule: AutoRule) {
+    const res = await authFetch('/api/trafego/rules', {
+      method: 'PATCH',
+      body: JSON.stringify({ id: rule.id, ativa: !rule.ativa }),
+    });
+    if (res.ok) setRules(prev => prev.map(r => r.id === rule.id ? { ...r, ativa: !r.ativa } : r));
+  }
+
+  async function deleteRule(id: string) {
+    const res = await authFetch(`/api/trafego/rules?id=${id}`, { method: 'DELETE' });
+    if (res.ok) setRules(prev => prev.filter(r => r.id !== id));
+  }
+
+  async function saveRule() {
+    if (!nome.trim() || !valor) { setFeedback('Preencha todos os campos'); return; }
+    setSaving(true); setFeedback(null);
+    try {
+      const res = await authFetch('/api/trafego/rules', {
+        method: 'POST',
+        body: JSON.stringify({
+          nome: nome.trim(), ativa: true,
+          condicao: { metrica, operador, valor: parseFloat(valor), janela_dias: parseInt(janela) || 1 },
+          acao: { tipo: acao, ...(acao === 'escalar_orcamento' ? { incremento_pct: parseFloat(incremento) / 100 } : {}) },
+        }),
+      });
+      const j = await res.json() as { ok?: boolean; rule?: AutoRule; error?: string };
+      if (j.ok && j.rule) {
+        setRules(prev => [j.rule!, ...prev]);
+        setFeedback('✅ Regra criada!');
+        setShowForm(false); setNome(''); setValor('');
+      } else { setFeedback(j.error || 'Erro ao salvar'); }
+    } catch (e) { setFeedback(String(e)); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-bold text-gray-900">Regras automáticas</h2>
+          <p className="text-xs text-gray-500 mt-0.5">Pausar, escalar ou notificar quando métricas atingirem limites</p>
+        </div>
+        <div className="flex gap-2">
+          {!loaded && (
+            <button onClick={loadRules} disabled={loading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 text-gray-600 text-xs font-medium hover:bg-gray-50 disabled:opacity-50">
+              {loading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+              {loading ? 'Carregando...' : 'Carregar regras'}
+            </button>
+          )}
+          {loaded && (
+            <button onClick={() => setShowForm(f => !f)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700">
+              <Plus size={12} /> Nova regra
+            </button>
+          )}
+        </div>
+      </div>
+
+      {feedback && (
+        <div className={cn('px-4 py-3 rounded-xl text-sm border',
+          feedback.startsWith('✅') ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800')}>
+          {feedback}
+          <button onClick={() => setFeedback(null)} className="ml-2 opacity-60 hover:opacity-100">✕</button>
+        </div>
+      )}
+
+      {/* Formulário nova regra */}
+      {showForm && (
+        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-blue-900 text-sm">Nova regra</h3>
+            <button onClick={() => setShowForm(false)} className="text-blue-400 hover:text-blue-600"><X size={16} /></button>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-blue-800 mb-1">Nome da regra</label>
+            <input type="text" value={nome} onChange={e => setNome(e.target.value)} placeholder="Ex: Pausar CPL alto"
+              className="w-full border border-blue-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-blue-800 mb-1">Métrica</label>
+              <select value={metrica} onChange={e => setMetrica(e.target.value)}
+                className="w-full border border-blue-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none appearance-none">
+                {Object.entries(METRICA_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-blue-800 mb-1">Condição</label>
+              <select value={operador} onChange={e => setOperador(e.target.value)}
+                className="w-full border border-blue-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none appearance-none">
+                <option value="maior_que">maior que</option>
+                <option value="menor_que">menor que</option>
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-blue-800 mb-1">Valor</label>
+              <input type="number" value={valor} onChange={e => setValor(e.target.value)} placeholder="Ex: 30"
+                className="w-full border border-blue-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-blue-800 mb-1">Por quantos dias</label>
+              <select value={janela} onChange={e => setJanela(e.target.value)}
+                className="w-full border border-blue-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none appearance-none">
+                {[1,2,3,7].map(d => <option key={d} value={d}>{d} {d === 1 ? 'dia' : 'dias'}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-blue-800 mb-1">Ação</label>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(ACAO_LABELS).map(([k, v]) => (
+                <button key={k} onClick={() => setAcao(k)}
+                  className={cn('px-3 py-1.5 rounded-xl border text-xs font-medium transition-all',
+                    acao === k ? 'bg-blue-600 text-white border-blue-600' : 'border-blue-200 text-blue-700 bg-white hover:bg-blue-100')}>
+                  {v}
+                </button>
+              ))}
+            </div>
+          </div>
+          {acao === 'escalar_orcamento' && (
+            <div>
+              <label className="block text-xs font-medium text-blue-800 mb-1">Incremento (%)</label>
+              <div className="flex gap-2">
+                {[10, 20, 25, 30].map(p => (
+                  <button key={p} onClick={() => setIncremento(String(p))}
+                    className={cn('px-3 py-1.5 rounded-xl border text-xs font-medium',
+                      incremento === String(p) ? 'bg-green-600 text-white border-green-600' : 'border-blue-200 text-blue-700 bg-white')}>
+                    +{p}%
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="flex gap-2">
+            <button onClick={() => setShowForm(false)}
+              className="flex-1 px-3 py-2 rounded-xl border border-blue-200 text-blue-700 text-sm hover:bg-blue-100">Cancelar</button>
+            <button onClick={saveRule} disabled={saving}
+              className="flex-1 px-3 py-2 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2">
+              {saving && <Loader2 size={13} className="animate-spin" />} Salvar regra
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!loaded && !loading && (
+        <div className="text-center py-10 text-gray-400">
+          <Zap size={32} className="mx-auto mb-3 opacity-30" />
+          <p className="text-sm">Clique em "Carregar regras" para ver e gerenciar suas automações</p>
+        </div>
+      )}
+
+      {loaded && rules.length === 0 && !showForm && (
+        <div className="text-center py-10 text-gray-400">
+          <Zap size={32} className="mx-auto mb-3 opacity-30" />
+          <p className="text-sm">Nenhuma regra criada ainda</p>
+          <p className="text-xs mt-1">Crie regras para pausar campanhas ou escalar orçamento automaticamente</p>
+        </div>
+      )}
+
+      {rules.length > 0 && (
+        <div className="space-y-3">
+          {rules.map(rule => (
+            <div key={rule.id} className={cn('bg-white rounded-2xl border p-4 space-y-2',
+              rule.ativa ? 'border-gray-100' : 'border-gray-100 opacity-60')}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1">
+                  <div className="font-semibold text-gray-900 text-sm">{rule.nome}</div>
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    Se <strong>{METRICA_LABELS[rule.condicao.metrica] || rule.condicao.metrica}</strong>{' '}
+                    {rule.condicao.operador === 'maior_que' ? '>' : '<'}{' '}
+                    <strong>{rule.condicao.valor}</strong> por{' '}
+                    <strong>{rule.condicao.janela_dias}</strong> {rule.condicao.janela_dias === 1 ? 'dia' : 'dias'}{' '}
+                    → <strong>{ACAO_LABELS[rule.acao.tipo] || rule.acao.tipo}</strong>
+                    {rule.acao.tipo === 'escalar_orcamento' && rule.acao.incremento_pct
+                      ? ` (+${Math.round(rule.acao.incremento_pct * 100)}%)`
+                      : ''}
+                  </div>
+                  {rule.ultima_execucao && (
+                    <div className="text-xs text-gray-400 mt-0.5">
+                      Última execução: {formatDateTime(rule.ultima_execucao)} · {rule.vezes_executada}x executada
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button onClick={() => toggleRule(rule)}
+                    className={cn('px-2.5 py-1 rounded-lg text-xs font-medium border transition-all',
+                      rule.ativa ? 'border-green-200 text-green-600 bg-green-50' : 'border-gray-200 text-gray-500 bg-gray-50')}>
+                    {rule.ativa ? 'Ativa' : 'Pausada'}
+                  </button>
+                  <button onClick={() => deleteRule(rule.id)}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors">
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── Painel de Leads ──────────────────────────────────────────────────────── */
 
 function LeadsPanel() {
@@ -3680,6 +4031,17 @@ export default function TrafegoPage() {
               >
                 Leads
               </button>
+              <button
+                onClick={() => setTab('regras')}
+                className={cn(
+                  'px-5 py-3.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
+                  tab === 'regras'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                )}
+              >
+                Regras
+              </button>
             </div>
             {tab === 'publicos' && (
               <button className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 px-4 py-3.5 transition-colors whitespace-nowrap">
@@ -4072,6 +4434,9 @@ export default function TrafegoPage() {
 
             {/* ── LEADS ── */}
             {tab === 'leads' && <LeadsPanel />}
+
+            {/* ── REGRAS ── */}
+            {tab === 'regras' && <RulesPanel />}
 
             {/* ── CONFIG ── */}
             {tab === 'config' && (
