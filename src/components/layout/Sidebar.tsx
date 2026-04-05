@@ -4,7 +4,6 @@ import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
-  MessageCircle,
   Users,
   Megaphone,
   ShoppingBag,
@@ -15,13 +14,12 @@ import {
   ChevronRight,
   Brain,
   Headset,
-  Bot,
   Tag,
-  Sparkles,
   TrendingUp,
   Share2,
   BookOpen,
   UserX,
+  Zap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/store/ui';
@@ -33,20 +31,19 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard', href: '/', icon: <LayoutDashboard size={20} /> },
-  { label: 'Central de Atendimento', href: '/central', icon: <Headset size={20} /> },
-  { label: 'Clientes', href: '/clientes', icon: <Users size={20} /> },
-  { label: 'Reativação', href: '/reativacao', icon: <UserX size={20} /> },
-  { label: 'Pedidos', href: '/pedidos', icon: <Package size={20} /> },
-  { label: 'Produtos', href: '/produtos', icon: <ShoppingBag size={20} /> },
-  { label: 'Campanhas', href: '/campanhas', icon: <Megaphone size={20} /> },
-  { label: 'Etiquetas', href: '/etiquetas', icon: <Tag size={20} /> },
-  { label: 'Tráfego Pago', href: '/trafego', icon: <TrendingUp size={20} /> },
-  { label: 'Social Mídia', href: '/social', icon: <Share2 size={20} /> },
-  { label: 'Catálogo', href: '/catalog', icon: <BookOpen size={20} /> },
+  { label: 'Dashboard',    href: '/',            icon: <LayoutDashboard size={20} /> },
+  { label: 'Clientes',     href: '/clientes',    icon: <Users size={20} /> },
+  { label: 'Reativação',   href: '/reativacao',  icon: <UserX size={20} /> },
+  { label: 'Pedidos',      href: '/pedidos',     icon: <Package size={20} /> },
+  { label: 'Produtos',     href: '/produtos',    icon: <ShoppingBag size={20} /> },
+  { label: 'Campanhas',    href: '/campanhas',   icon: <Megaphone size={20} /> },
+  { label: 'Etiquetas',    href: '/etiquetas',   icon: <Tag size={20} /> },
+  { label: 'Jarvis',       href: '/jarvis',      icon: <Zap size={20} /> },
+  { label: 'Atendimento',  href: '/atendimento', icon: <Headset size={20} /> },
+  { label: 'Tráfego Pago', href: '/trafego',     icon: <TrendingUp size={20} /> },
+  { label: 'Social Mídia', href: '/social',      icon: <Share2 size={20} /> },
+  { label: 'Catálogo',     href: '/catalog',     icon: <BookOpen size={20} /> },
   { label: 'Inteligência', href: '/intelligence', icon: <Brain size={20} /> },
-  { label: 'Anne IA', href: '/configuracoes/anne', icon: <Bot size={20} /> },
-  { label: 'Time de IAs', href: '/time-ia', icon: <Sparkles size={20} /> },
   { label: 'Configurações', href: '/configuracoes', icon: <Settings size={20} /> },
 ];
 
