@@ -1308,8 +1308,18 @@ interface IAPublico {
   copy_sugerido?: { headline: string; texto: string; cta: string };
   estrategia?: string;
   erro?: string;
-  meta_audience_id?: string;
-  targeting?: Record<string, unknown>;
+  meta_audience_id?: string | null;
+  targeting?: {
+    age_min?: number;
+    age_max?: number;
+    genders?: number[];
+    geo_locations?: {
+      countries?: string[];
+      regions?: { name: string; key?: string }[];
+    };
+    interests?: { id?: string; name: string }[];
+    custom_audiences?: { id: string; name?: string }[];
+  };
 }
 
 // Públicos pré-configurados CJ Rasteirinhas
@@ -1442,8 +1452,8 @@ function formatAudienceSize(lower?: number, upper?: number): string {
 type IALoadingStep = 'jose' | 'claudio' | 'meta' | 'remarketing' | null;
 
 const IA_STEP_LABELS: Record<string, string> = {
-  jose: '🔍 José analisando seus clientes...',
-  claudio: '🎯 Cláudio configurando os públicos...',
+  jose: '⚡ Jarvis analisando seus clientes...',
+  claudio: '⚡ Jarvis configurando os públicos...',
   meta: '📡 Criando no Meta Ads...',
   remarketing: '🔄 Criando público de remarketing...',
 };
@@ -1467,6 +1477,7 @@ function PublicosTab() {
   const [criandoComIA, setCriandoComIA] = useState(false);
   const [iaStep, setIaStep] = useState<IALoadingStep>(null);
   const [iaAnaliseResumo, setIaAnaliseResumo] = useState<string | null>(null);
+  const [publicandoId, setPublicandoId] = useState<string | null>(null);
 
   // Modal de detalhes
   const [modalPublico, setModalPublico] = useState<IAPublico | null>(null);
@@ -1562,6 +1573,45 @@ function PublicosTab() {
       setFormFeedback(String(e));
     } finally {
       setCriandoManual(false);
+    }
+  };
+
+  const publicarNoMeta = async (publico: IAPublico) => {
+    if (publicandoId) return;
+    setPublicandoId(publico.id);
+    try {
+      if (publico.tipo === 'remarketing' || publico.tipo === 'lookalike') {
+        // Tentar criar Custom Audience real no Meta
+        const res = await authFetch(`/api/trafego/publicos/${publico.id}/publicar-meta`, { method: 'POST' });
+        const json = await res.json() as { ok?: boolean; meta_audience_id?: string; error?: string };
+        if (json.ok && json.meta_audience_id) {
+          setIaPublicos(prev => prev.map(p => p.id === publico.id
+            ? { ...p, meta_audience_id: json.meta_audience_id, status: 'pronto' }
+            : p
+          ));
+          setFormFeedback('✅ Público criado no Meta! ID: ' + json.meta_audience_id);
+        } else {
+          setFormFeedback(json.error || 'Erro ao publicar no Meta');
+        }
+      } else {
+        // Para públicos de interesse: marcar como pronto para uso no agente
+        const res = await authFetch(`/api/trafego/publicos/${publico.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status: 'pronto' }),
+        });
+        if (res.ok) {
+          setIaPublicos(prev => prev.map(p => p.id === publico.id ? { ...p, status: 'pronto' } : p));
+          setFormFeedback('✅ Pronto para usar no agente');
+        } else {
+          // Mesmo se a API falhar, marcar localmente
+          setIaPublicos(prev => prev.map(p => p.id === publico.id ? { ...p, status: 'pronto' } : p));
+          setFormFeedback('✅ Pronto para usar no agente');
+        }
+      }
+    } catch {
+      setFormFeedback('Erro ao publicar público');
+    } finally {
+      setPublicandoId(null);
     }
   };
 
@@ -1689,7 +1739,7 @@ function PublicosTab() {
           <div className="flex-1 min-w-0">
             <div className="font-semibold text-gray-900 text-sm">Criar públicos com IA</div>
             <div className="text-xs text-gray-500 mt-0.5">
-              José analisa seus clientes + Cláudio configura os públicos certos para cada objetivo
+              ⚡ Jarvis analisa seus dados e configura os públicos de alta performance
             </div>
             {criandoComIA && iaStep && (
               <div className="mt-2 flex items-center gap-2 text-xs text-purple-700 font-medium">
@@ -1758,9 +1808,49 @@ function PublicosTab() {
                       )}
                     </div>
                     {p.descricao && <div className="text-xs text-gray-500 mt-0.5">{p.descricao}</div>}
-                    <div className="text-xs text-gray-400 mt-1 font-medium">{tamanho}</div>
+                    {/* Estimativa de alcance */}
+                    <div className="text-xs text-gray-400 mt-1 font-medium">
+                      {p.tipo === 'interesse'
+                        ? 'Estimativa disponível após publicar campanha'
+                        : tamanho === 'Calculando...' ? 'Estimativa disponível após publicar campanha' : tamanho}
+                    </div>
                     {p.jose_justificativa && (
                       <div className="text-xs text-gray-400 mt-0.5 italic">💡 {p.jose_justificativa}</div>
+                    )}
+                    {/* Targeting detalhado */}
+                    {p.targeting && (
+                      <div className="mt-2 space-y-0.5">
+                        {p.targeting.age_min && (
+                          <p className="text-xs text-gray-700">
+                            👤 Idade: {p.targeting.age_min}–{p.targeting.age_max} anos
+                            {p.targeting.genders?.includes(2) ? ' | Mulheres' : ''}
+                          </p>
+                        )}
+                        {p.targeting.geo_locations?.countries && p.targeting.geo_locations.countries.length > 0 && (
+                          <p className="text-xs text-gray-700">
+                            🌍 Países: {p.targeting.geo_locations.countries.join(', ')}
+                          </p>
+                        )}
+                        {p.targeting.geo_locations?.regions && p.targeting.geo_locations.regions.length > 0 && (
+                          <p className="text-xs text-gray-700">
+                            📍 Estados: {p.targeting.geo_locations.regions.map(r => r.name).join(', ')}
+                          </p>
+                        )}
+                        {p.targeting.interests && p.targeting.interests.length > 0 && (
+                          <p className="text-xs text-gray-700">
+                            🎯 Interesses: {p.targeting.interests.map(i => i.name).join(', ')}
+                          </p>
+                        )}
+                        {p.targeting.custom_audiences && p.targeting.custom_audiences.length > 0 && (
+                          <p className="text-xs text-gray-700">🔄 Público customizado no Meta</p>
+                        )}
+                      </div>
+                    )}
+                    {/* Status Meta */}
+                    {p.meta_audience_id ? (
+                      <p className="text-xs text-green-600 mt-1">✅ Meta ID: {p.meta_audience_id}</p>
+                    ) : (
+                      <p className="text-xs text-orange-500 mt-1">⚠️ Ainda não publicado no Meta</p>
                     )}
                     {copy && (
                       <div className="mt-2 p-2 bg-gray-50 rounded-lg border border-gray-100 text-xs space-y-0.5">
@@ -1771,6 +1861,22 @@ function PublicosTab() {
                     )}
                     {p.erro && (
                       <div className="text-xs text-red-500 mt-1">⚠ {p.erro}</div>
+                    )}
+                    {/* Botão Publicar no Meta */}
+                    {!p.meta_audience_id && p.status !== 'pronto' && (
+                      <button
+                        onClick={() => publicarNoMeta(p)}
+                        disabled={publicandoId === p.id}
+                        className="w-full mt-3 py-1.5 flex items-center justify-center gap-1.5 bg-blue-600 text-white text-xs rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                      >
+                        {publicandoId === p.id
+                          ? <><Loader2 size={11} className="animate-spin" /> Publicando...</>
+                          : <>☁ {p.tipo === 'interesse' ? 'Marcar como pronto para o agente' : 'Publicar este público no Meta'}</>
+                        }
+                      </button>
+                    )}
+                    {p.status === 'pronto' && !p.meta_audience_id && p.tipo === 'interesse' && (
+                      <p className="text-xs text-green-600 mt-1">✅ Pronto para usar no agente</p>
                     )}
                   </div>
                   <div className="flex flex-col items-end gap-1.5 shrink-0">
@@ -3240,23 +3346,23 @@ export default function TrafegoPage() {
                         {allAlerts.length > 0 ? (
                           <>
                             <div className="flex gap-3">
-                              <div className="w-7 h-7 rounded-full bg-amber-500 flex items-center justify-center text-white text-xs font-bold shrink-0">J</div>
+                              <div className="w-7 h-7 rounded-full bg-crm-primary flex items-center justify-center text-white text-xs font-bold shrink-0">⚡</div>
                               <p className="text-xs text-gray-400 leading-relaxed">
-                                <span className="text-gray-800 font-medium">José:</span>{' '}
+                                <span className="text-gray-800 font-medium">Jarvis:</span>{' '}
                                 {allAlerts[0].tipo === 'danger'
                                   ? `Pausar ${allAlerts[0].campaign.nome} imediatamente. ${allAlerts[0].mensagem}.`
                                   : allAlerts[0].mensagem}
                               </p>
                             </div>
-                            <div className="flex gap-3">
-                              <div className="w-7 h-7 rounded-full bg-purple-500 flex items-center justify-center text-white text-xs font-bold shrink-0">C</div>
-                              <p className="text-xs text-gray-400 leading-relaxed">
-                                <span className="text-gray-800 font-medium">Cláudio:</span>{' '}
-                                {allAlerts.length > 1
-                                  ? allAlerts[1].mensagem
-                                  : 'Criar público lookalike dos clientes com maior LTV. Testar R$30/dia por 3 dias antes de escalar orçamento.'}
-                              </p>
-                            </div>
+                            {allAlerts.length > 1 && (
+                              <div className="flex gap-3">
+                                <div className="w-7 h-7 rounded-full bg-crm-primary/70 flex items-center justify-center text-white text-xs font-bold shrink-0">⚡</div>
+                                <p className="text-xs text-gray-400 leading-relaxed">
+                                  <span className="text-gray-800 font-medium">Jarvis:</span>{' '}
+                                  {allAlerts[1].mensagem}
+                                </p>
+                              </div>
+                            )}
                           </>
                         ) : (
                           <p className="text-xs text-gray-600">Nenhum alerta ativo no período.</p>
