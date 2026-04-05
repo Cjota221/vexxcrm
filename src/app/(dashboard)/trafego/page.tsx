@@ -2113,14 +2113,14 @@ function TextosTab({ copies }: { copies: Array<{ headline: string; texto_princip
       <div className="flex items-center justify-between">
         <h2 className="font-bold text-gray-900">Textos para Anúncios</h2>
         <a href="/time-ia" className="text-sm text-crm-primary hover:underline">
-          Pedir novo ao Cláudio →
+          Pedir novo ao Jarvis →
         </a>
       </div>
 
       {/* Copies gerados pelo Cláudio */}
       {copies.length > 0 && (
         <div className="space-y-4">
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Do Cláudio (aguardando uso)</h3>
+          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Do Jarvis (aguardando uso)</h3>
           {copies.map((copy) => (
             <div key={copy.id} className="bg-white rounded-2xl border border-gray-100 p-4">
               <div className="font-semibold text-gray-900">{copy.headline}</div>

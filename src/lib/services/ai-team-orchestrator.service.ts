@@ -421,7 +421,7 @@ export async function getAgentStatus(tenantId: string): Promise<{
       model: config?.auto_reply_model || 'llama-3.3-70b-versatile',
     },
     jarvis: {
-      active: config?.analysis_enabled || false,
+      active: !!(process.env.ANTHROPIC_API_KEY || config?.anthropic_api_key),
       metaConnected: metaStatus.ok,
       accountName: metaStatus.accountName,
       lastRun: lastRun?.created_at,
