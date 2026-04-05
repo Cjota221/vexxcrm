@@ -773,7 +773,7 @@ function CardCriativo({
               </div>
             )}
 
-            {criativo.transcricao_status === 'concluida' && criativo.classificacao && (
+            {criativo.transcricao_status === 'concluida' && criativo.classificacao?.tipo_conteudo && (
               <div className="space-y-1">
                 <div className="flex items-center gap-1 flex-wrap">
                   <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-md capitalize">
@@ -825,7 +825,7 @@ function CardCriativo({
               </div>
             )}
 
-            {criativo.transcricao_status === 'concluida' && !criativo.classificacao && (
+            {criativo.transcricao_status === 'concluida' && !criativo.classificacao?.tipo_conteudo && (
               <div className="mt-1 space-y-1">
                 <p className="text-[10px] text-amber-600">
                   ⚠ Transcrito, sem classificação
