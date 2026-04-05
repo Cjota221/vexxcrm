@@ -68,6 +68,7 @@ export function GaleriaCriativos() {
   }
 
   // Pendentes = sem transcrição + erros + transcritos mas sem classificação
+  // sem_audio e DCO são excluídos — não têm como ser processados
   const qtdPendentes = criativos.filter(c =>
     c.tipo === 'video' && (
       !c.transcricao_status ||
@@ -75,6 +76,9 @@ export function GaleriaCriativos() {
       c.transcricao_status === 'erro' ||
       (c.transcricao_status === 'concluida' && !c.classificacao)
     )
+  ).length;
+  const qtdDCO = criativos.filter(c =>
+    c.tipo === 'video' && c.transcricao_status === 'sem_audio'
   ).length;
 
   async function transcreverTodos() {
@@ -174,8 +178,10 @@ export function GaleriaCriativos() {
             {transcrevendo
               ? 'Transcrevendo...'
               : qtdPendentes > 0
-                ? `Transcrever próximos 10 (${qtdPendentes} pendentes)`
-                : 'Transcrever próximos 10'
+                ? `Transcrever próximos 10 (${qtdPendentes} pendentes${qtdDCO > 0 ? ` · ${qtdDCO} DCO ignorados` : ''})`
+                : qtdDCO > 0
+                  ? `Transcrever (${qtdDCO} DCO ignorados)`
+                  : 'Transcrever próximos 10'
             }
           </button>
           <button
@@ -716,6 +722,16 @@ function CardCriativo({
         {/* Transcrição / Classificação */}
         {criativo.tipo === 'video' && (
           <div className="mt-1.5">
+            {criativo.transcricao_status === 'sem_audio' && (
+              <div className="flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 rounded-md" title={criativo.transcricao_erro ?? ''}>
+                <span className="text-xs text-gray-400">
+                  {/dco|auto.?crop/i.test(criativo.transcricao_erro ?? '')
+                    ? '🔒 DCO — sem download'
+                    : '🔇 Sem fala detectada'}
+                </span>
+              </div>
+            )}
+
             {criativo.transcricao_status === 'processando' && (
               <div className="flex items-center gap-1 px-1.5 py-0.5 bg-yellow-50 rounded-md">
                 <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse" />

@@ -260,17 +260,28 @@ export async function sincronizarTudoDoMeta(
     if (rows.length > 0)
       await supabase.from('meta_creatives_cache').upsert(rows, { onConflict: 'id,tenant_id' });
 
-    // Espelhar em ad_creatives para que o pipeline de transcrição os processe
+    // Espelhar em ad_creatives para que o pipeline de transcrição os processe.
+    // Vídeos DCO/Auto-Crop gerados pelo Meta não têm source URL disponível —
+    // são marcados imediatamente como 'sem_audio' para não queimar retries.
     if (videos.length > 0) {
-      const adCreativesRows = videos.map((v) => ({
-        tenant_id:        tenantId,
-        nome:             v.title || v.description || `Vídeo Meta ${v.id}`,
-        tipo:             'video',
-        meta_video_id:    v.id,
-        url_preview:      v.thumbnails?.data?.[0]?.uri ?? null,
-        duracao_segundos: Math.round(v.length || 0),
-        status:           'pronto',
-      }));
+      const adCreativesRows = videos.map((v) => {
+        const nome = v.title || v.description || `Vídeo Meta ${v.id}`;
+        const isDCO = /auto.?crop|_dco_|auto_crop/i.test(nome);
+        const row: Record<string, unknown> = {
+          tenant_id:         tenantId,
+          nome,
+          tipo:              'video',
+          meta_video_id:     v.id,
+          url_preview:       v.thumbnails?.data?.[0]?.uri ?? null,
+          duracao_segundos:  Math.round(v.length || 0),
+          status:            'pronto',
+        };
+        if (isDCO) {
+          row.transcricao_status = 'sem_audio';
+          row.transcricao_erro   = 'Vídeo gerado automaticamente pelo Meta (DCO/Auto-Crop) — arquivo original não disponível via API';
+        }
+        return row;
+      });
       await supabase
         .from('ad_creatives')
         .upsert(adCreativesRows, { onConflict: 'tenant_id,meta_video_id' });

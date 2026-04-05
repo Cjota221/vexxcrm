@@ -172,7 +172,20 @@ export async function processarCriativo(
 
     const videoData = await videoRes.json() as { source?: string; error?: { message: string } };
     if (videoData.error) throw new Error(videoData.error.message);
-    if (!videoData.source) throw new Error('URL de vídeo não disponível ainda — tente novamente em alguns minutos');
+    if (!videoData.source) {
+      // Vídeos DCO/Auto-Crop do Meta nunca têm source URL → marcar como sem_audio permanente
+      const isDCO = /auto.?crop|_dco_|auto_crop/i.test(criativo.nome);
+      await supabase
+        .from('ad_creatives')
+        .update({
+          transcricao_status: 'sem_audio',
+          transcricao_erro: isDCO
+            ? 'Vídeo gerado pelo Meta (DCO/Auto-Crop) — sem download disponível'
+            : 'URL de vídeo não disponível via API Meta',
+        })
+        .eq('id', criativoId);
+      return { ok: false, erro: isDCO ? 'DCO — sem_audio' : 'URL não disponível' };
+    }
 
     // Baixar o vídeo
     const videoBlob = await fetch(videoData.source, { signal: AbortSignal.timeout(30_000) })
