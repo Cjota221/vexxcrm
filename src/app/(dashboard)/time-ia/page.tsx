@@ -26,9 +26,7 @@ function authFetch(url: string, options?: RequestInit): Promise<Response> {
 
 interface AgentStatus {
   anne: { active: boolean; provider: string; model: string };
-  jose: { active: boolean; metaConnected: boolean; accountName?: string; lastRun?: string; metaError?: string };
-  claudio: { active: boolean; hasApiKey: boolean };
-  pedro: { active: boolean; hasApiKey: boolean };
+  jarvis: { active: boolean; metaConnected: boolean; accountName?: string; lastRun?: string; metaError?: string };
   judite: { active: boolean; hasApiKey: boolean };
 }
 
@@ -449,50 +447,33 @@ export default function TimeIAPage() {
       )}
 
       {/* Cards dos agentes */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <AgentCard
           icon={<MessageCircle size={20} className="text-emerald-500" />}
           nome="Anne"
-          funcao="Atendimento WhatsApp"
+          funcao="Atendimento WhatsApp + Instagram"
           modelo={agentStatus?.anne.model || 'llama-3.3-70b-versatile'}
           ativo={agentStatus?.anne.active ?? true}
           configurado={true}
           metrica="Sempre ativa"
         />
         <AgentCard
-          icon={<BarChart2 size={20} className="text-blue-500" />}
-          nome="José"
-          funcao="Análise de métricas"
-          modelo="gpt-4o-mini"
-          ativo={agentStatus?.jose.active ?? false}
-          configurado={agentStatus?.jose.metaConnected ?? false}
-          metrica={agentStatus?.jose.accountName
-            ? `Conta: ${agentStatus.jose.accountName}`
-            : agentStatus?.jose.lastRun
-              ? `Últ: ${new Date(agentStatus.jose.lastRun).toLocaleDateString('pt-BR')}`
-              : undefined}
-        />
-        <AgentCard
-          icon={<Brain size={20} className="text-purple-500" />}
-          nome="Cláudio"
-          funcao="Estratégia + Copies"
-          modelo="gpt-4o-mini"
-          ativo={agentStatus?.claudio.active ?? false}
-          configurado={agentStatus?.claudio.hasApiKey ?? false}
-          metrica={copies.length > 0 ? `${copies.length} copies prontos` : undefined}
-        />
-        <AgentCard
-          icon={<Search size={20} className="text-orange-500" />}
-          nome="Pedro"
-          funcao="Tendências de mercado"
-          modelo="gpt-4o-mini"
-          ativo={agentStatus?.pedro.active ?? false}
-          configurado={agentStatus?.pedro.hasApiKey ?? false}
+          icon={<Zap size={20} className="text-[#1e3a5f]" />}
+          nome="JARVIS"
+          funcao="Análise + Estratégia + Públicos + Campanhas"
+          modelo="claude-haiku-4-5"
+          ativo={agentStatus?.jarvis.active ?? false}
+          configurado={agentStatus?.jarvis.metaConnected ?? false}
+          metrica={agentStatus?.jarvis.accountName
+            ? `Conta: ${agentStatus.jarvis.accountName}`
+            : agentStatus?.jarvis.lastRun
+              ? `Últ: ${new Date(agentStatus.jarvis.lastRun).toLocaleDateString('pt-BR')}`
+              : copies.length > 0 ? `${copies.length} copies prontos` : undefined}
         />
         <AgentCard
           icon={<Palette size={20} className="text-pink-500" />}
           nome="Judite"
-          funcao="Avaliação de criativos"
+          funcao="Avaliação visual de criativos"
           modelo="gpt-4o-mini (visão)"
           ativo={agentStatus?.judite.active ?? false}
           configurado={agentStatus?.judite.hasApiKey ?? false}
@@ -626,9 +607,9 @@ export default function TimeIAPage() {
             <div className="flex items-center justify-between">
               <h3 className="font-semibold text-gray-900 flex items-center gap-2"><BarChart2 size={16} className="text-blue-500" /> Conta de Anúncios (Meta Ads)</h3>
               <span className="text-xs">
-                {agentStatus?.jose.metaConnected
-                  ? <span className="flex items-center gap-1.5 text-green-600"><span className="w-2 h-2 rounded-full bg-green-500" />{agentStatus.jose.accountName || 'Conectado'}</span>
-                  : <span className="flex items-center gap-1.5 text-red-500"><span className="w-2 h-2 rounded-full bg-red-500" />Não conectado{agentStatus?.jose.metaError ? ` — ${agentStatus.jose.metaError}` : ''}</span>}
+                {agentStatus?.jarvis.metaConnected
+                  ? <span className="flex items-center gap-1.5 text-green-600"><span className="w-2 h-2 rounded-full bg-green-500" />{agentStatus.jarvis.accountName || 'Conectado'}</span>
+                  : <span className="flex items-center gap-1.5 text-red-500"><span className="w-2 h-2 rounded-full bg-red-500" />Não conectado{agentStatus?.jarvis.metaError ? ` — ${agentStatus.jarvis.metaError}` : ''}</span>}
               </span>
             </div>
 

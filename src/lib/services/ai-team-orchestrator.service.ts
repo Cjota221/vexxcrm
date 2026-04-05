@@ -1,18 +1,15 @@
 // ANTES: não existia orquestrador de múltiplas IAs.
-// DEPOIS: ORQUESTRADOR CENTRAL — coordena o Time de IAs (José, Cláudio, Pedro, Judite).
-//         É o único ponto de entrada para análise completa. Todos os agentes são
-//         independentes — se um falhar, os outros continuam.
+// DEPOIS: ORQUESTRADOR CENTRAL — coordena o Jarvis + Anne + Judite.
+//         É o único ponto de entrada para análise completa.
 //         REGRA DE OURO: nenhuma ação é executada sem aprovação em ai_action_queue.
 
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { fetchCampaignMetrics, testMetaConnection, pauseAd } from './meta-ads.service';
 import { mudarOrcamento } from './meta-editor.service';
-import { joseAnalyzeMetrics } from './jose-analyst.service';
-import { claudioGenerateStrategy, type BrandContext } from './claudio-strategist.service';
-import { pedroResearchTrends } from './pedro-researcher.service';
+import { jarvisAnalisarCampanhas, jarvisGerarEstrategia } from './jarvis-trafego.service';
+import type { BrandContext } from './claudio-strategist.service';
 import type { JoseAnalysis } from './jose-analyst.service';
 import type { ClaudioStrategy, AIAction, GeneratedCopy } from './claudio-strategist.service';
-import type { PedroResearch } from './pedro-researcher.service';
 
 /* ─── Tipos ────────────────────────────────────────────────────────────────── */
 
@@ -21,7 +18,7 @@ export interface AITeamRunResult {
   tenantId: string;
   joseAnalysis: JoseAnalysis | null;
   claudioStrategy: ClaudioStrategy | null;
-  pedroResearch: PedroResearch | null;
+  pedroResearch: null;
   actionsCreated: number;
   copiesCreated: number;
   errors: string[];
@@ -215,7 +212,6 @@ export async function runFullAnalysis(
   const errors: string[] = [];
   let joseAnalysis: JoseAnalysis | null = null;
   let claudioStrategy: ClaudioStrategy | null = null;
-  let pedroResearch: PedroResearch | null = null;
   let actionsCreated = 0;
   let copiesCreated = 0;
 
@@ -227,44 +223,34 @@ export async function runFullAnalysis(
     if (!config) {
       errors.push('Tenant sem configuração de IA (ai_provider_config não encontrado)');
       await updateRunRecord(runId, { status: 'failed', error_message: errors[0] });
-      return { runId, tenantId, joseAnalysis, claudioStrategy, pedroResearch, actionsCreated, copiesCreated, errors, durationMs: Date.now() - t0 };
+      return { runId, tenantId, joseAnalysis, claudioStrategy, pedroResearch: null, actionsCreated, copiesCreated, errors, durationMs: Date.now() - t0 };
     }
 
-    // ── 2. José: buscar métricas + analisar ──────────────────────────────
+    // ── 2. Jarvis: buscar métricas + analisar ────────────────────────────
     let metrics;
     try {
       metrics = await fetchCampaignMetrics(dateRange);
-      joseAnalysis = await joseAnalyzeMetrics(metrics, config.analyticsApiKey);
+      joseAnalysis = await jarvisAnalisarCampanhas(metrics, config.analyticsApiKey);
     } catch (err) {
-      errors.push(`José (análise): ${String(err)}`);
-      console.error('[Orchestrator] José falhou:', err);
+      errors.push(`Jarvis (análise): ${String(err)}`);
+      console.error('[Orchestrator] Jarvis análise falhou:', err);
     }
 
-    // ── 3+4. Cláudio + Pedro em paralelo ─────────────────────────────────
-    const [claudioResult, pedroResult] = await Promise.allSettled([
-      // Cláudio só roda se José retornou análise
-      joseAnalysis
-        ? claudioGenerateStrategy(joseAnalysis, config.brand, config.strategyApiKey)
-        : Promise.reject(new Error('José não disponível')),
-      // Pedro roda independentemente (tendências não dependem de métricas)
-      config.researchEnabled
-        ? pedroResearchTrends(config.brand.produto, config.brand.publico, config.researchApiKey)
-        : Promise.reject(new Error('Pedro desabilitado (research_enabled=false)')),
-    ]);
-
-    if (claudioResult.status === 'fulfilled') {
-      claudioStrategy = claudioResult.value;
-    } else {
-      errors.push(`Cláudio (estratégia): ${claudioResult.reason}`);
+    // ── 3. Jarvis: gerar estratégia + copies ─────────────────────────────
+    if (joseAnalysis) {
+      try {
+        claudioStrategy = await jarvisGerarEstrategia(
+          joseAnalysis,
+          config.brand,
+          config.strategyApiKey,
+        );
+      } catch (err) {
+        errors.push(`Jarvis (estratégia): ${String(err)}`);
+        console.error('[Orchestrator] Jarvis estratégia falhou:', err);
+      }
     }
 
-    if (pedroResult.status === 'fulfilled') {
-      pedroResearch = pedroResult.value;
-    } else if (config.researchEnabled) {
-      errors.push(`Pedro (tendências): ${pedroResult.reason}`);
-    }
-
-    // ── 5. Salvar ações na fila de aprovação ─────────────────────────────
+    // ── 4. Salvar ações na fila de aprovação ─────────────────────────────
     if (claudioStrategy?.acoes) {
       try {
         actionsCreated = await saveActionsToQueue(tenantId, runId, claudioStrategy.acoes);
@@ -273,7 +259,7 @@ export async function runFullAnalysis(
       }
     }
 
-    // ── 6. Salvar copies ─────────────────────────────────────────────────
+    // ── 5. Salvar copies ─────────────────────────────────────────────────
     if (claudioStrategy?.copies_novos) {
       try {
         copiesCreated = await saveCopies(tenantId, runId, claudioStrategy.copies_novos);
@@ -282,19 +268,19 @@ export async function runFullAnalysis(
       }
     }
 
-    // ── 7. Atualizar registro do run ─────────────────────────────────────
+    // ── 6. Atualizar registro do run ─────────────────────────────────────
     await updateRunRecord(runId, {
       metrics_snapshot: metrics,
       analyst_output: joseAnalysis,
       strategist_output: claudioStrategy,
-      researcher_output: pedroResearch,
+      researcher_output: null,
       actions_generated: actionsCreated,
       copies_generated: copiesCreated,
       status: errors.length === 0 || (joseAnalysis && claudioStrategy) ? 'completed' : 'failed',
       duration_ms: Date.now() - t0,
     });
 
-    // ── 8. Notificar operadora ───────────────────────────────────────────
+    // ── 7. Notificar operadora ───────────────────────────────────────────
     await notifyOperator(tenantId, {
       actionsCount: actionsCreated,
       copiesCount: copiesCreated,
@@ -308,7 +294,7 @@ export async function runFullAnalysis(
     console.error('[Orchestrator] Erro fatal:', err);
   }
 
-  return { runId, tenantId, joseAnalysis, claudioStrategy, pedroResearch, actionsCreated, copiesCreated, errors, durationMs: Date.now() - t0 };
+  return { runId, tenantId, joseAnalysis, claudioStrategy, pedroResearch: null, actionsCreated, copiesCreated, errors, durationMs: Date.now() - t0 };
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
@@ -400,9 +386,7 @@ export async function executeApprovedAction(actionId: string): Promise<{
  */
 export async function getAgentStatus(tenantId: string): Promise<{
   anne: { active: boolean; provider: string; model: string };
-  jose: { active: boolean; metaConnected: boolean; accountName?: string; lastRun?: string; metaError?: string };
-  claudio: { active: boolean; hasApiKey: boolean };
-  pedro: { active: boolean; hasApiKey: boolean };
+  jarvis: { active: boolean; metaConnected: boolean; accountName?: string; lastRun?: string; metaError?: string };
   judite: { active: boolean; hasApiKey: boolean };
 }> {
   const supabase = createServerSupabaseClient();
@@ -432,24 +416,16 @@ export async function getAgentStatus(tenantId: string): Promise<{
 
   return {
     anne: {
-      active: true,  // Anne sempre ativa (usa openai_api_key da tabela tenants)
+      active: true,
       provider: config?.auto_reply_provider || 'groq',
       model: config?.auto_reply_model || 'llama-3.3-70b-versatile',
     },
-    jose: {
+    jarvis: {
       active: config?.analysis_enabled || false,
       metaConnected: metaStatus.ok,
       accountName: metaStatus.accountName,
       lastRun: lastRun?.created_at,
       metaError: metaStatus.error,
-    },
-    claudio: {
-      active: config?.analysis_enabled || false,
-      hasApiKey: !!(config?.strategy_api_key || process.env.OPENAI_API_KEY),
-    },
-    pedro: {
-      active: config?.research_enabled || false,
-      hasApiKey: !!(config?.research_api_key || process.env.OPENAI_API_KEY),
     },
     judite: {
       active: config?.visual_enabled || false,
