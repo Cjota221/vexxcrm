@@ -17,8 +17,10 @@ import {
   distribuirOrcamento,
   criarCampanhaCompleta,
   criarCampanhaCatalogo,
+  criarCampanhaMultiplosConjuntos,
   type TipoCampanha,
   type ConfiguracaoCriativo,
+  type ConfigConjunto,
 } from '@/lib/services/meta-adset-creator.service';
 
 export const maxDuration = 60;
@@ -47,6 +49,7 @@ export async function GET(req: NextRequest) {
   const tipos      = tiposRaw.split(',').filter(Boolean) as TipoCampanha[];
   const nome       = url.searchParams.get('nome') || `Agente ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`;
   const catalogoId = url.searchParams.get('catalogoId') ?? '';
+  const conjuntosRaw = url.searchParams.get('conjuntos') ?? '';
 
   const encoder = new TextEncoder();
 
@@ -113,6 +116,110 @@ export async function GET(req: NextRequest) {
           label: `${criativos.length} criativo(s) encontrado(s)`,
           detalhe: criativos.slice(0, 3).map((c: { nome: string }) => c.nome).join(', '),
         });
+
+        // ─── Modo avançado: múltiplos conjuntos em 1 campanha ─────────────
+        if (conjuntosRaw) {
+          let conjuntosParsed: Array<{
+            tipo: TipoCampanha;
+            orcamentoDiario: number;
+            criativoIds: string[];
+          }>;
+          try {
+            conjuntosParsed = JSON.parse(conjuntosRaw);
+          } catch {
+            send('done', { ok: false, erro: 'Erro ao parsear conjuntos' });
+            controller.close();
+            return;
+          }
+
+          // Montar ConfigConjunto[] com os criativos selecionados
+          const conjuntosConfig: ConfigConjunto[] = conjuntosParsed.map(cj => ({
+            tipo: cj.tipo,
+            orcamentoDiario: cj.orcamentoDiario,
+            criativos: cj.criativoIds
+              .map(id => criativos!.find((c: { id: string }) => c.id === id))
+              .filter(Boolean)
+              .map((c: { id: string; tipo: string; meta_video_id: string | null; meta_image_hash: string | null; url_preview: string | null }) => ({
+                id: c.id,
+                meta_video_id: c.meta_video_id ?? undefined,
+                meta_image_hash: c.meta_image_hash ?? undefined,
+                url_preview: c.url_preview ?? undefined,
+                tipo: (c.tipo as 'video' | 'imagem') ?? (c.meta_video_id ? 'video' : 'imagem'),
+              })),
+          }));
+
+          send('step', { id: 'multi', status: 'running', label: `Criando campanha com ${conjuntosConfig.length} conjunto(s)...` });
+
+          try {
+            const resultado = await criarCampanhaMultiplosConjuntos(tenantId, {
+              nome,
+              conjuntos: conjuntosConfig,
+              paises: ['BR'],
+              idadeMin: 18,
+              idadeMax: 65,
+              pageId,
+              whatsappNumber: '5562993044255',
+            });
+
+            const TIPO_LABEL_MULTI: Record<string, string> = {
+              frio: 'Público Frio', quente: 'Público Quente', whatsapp: 'WhatsApp',
+            };
+
+            // Salvar um draft por conjunto
+            for (const cj of resultado.conjuntos) {
+              const tipoLabel = TIPO_LABEL_MULTI[cj.tipo] ?? cj.tipo;
+              const adIds = cj.ads.map(a => a.adId);
+
+              await supabase.from('meta_campaign_drafts').insert({
+                tenant_id: tenantId,
+                nome: `${nome} — ${tipoLabel}`,
+                objetivo: cj.tipo === 'frio' ? 'BRAND_AWARENESS' : 'LINK_CLICKS',
+                status: 'aprovado',
+                tipo: cj.tipo,
+                orcamento_diario: conjuntosParsed.find(c => c.tipo === cj.tipo)?.orcamentoDiario ?? 5000,
+                meta_campaign_id: resultado.campaignId,
+                meta_adset_id: cj.adsetId,
+                meta_ad_id: adIds[0] ?? null,
+              });
+
+              send('step', {
+                id: `conjunto_${cj.tipo}`,
+                status: 'ok',
+                label: `${tipoLabel} — ${cj.ads.length} criativo(s) ✓`,
+                detalhe: `Adset: ${cj.adsetId}`,
+              });
+            }
+
+            // Jarvis memória
+            supabase.from('jarvis_memoria').insert({
+              tenant_id: tenantId,
+              tipo: 'campanha_resultado',
+              referencia_id: resultado.campaignId,
+              titulo: nome,
+              contexto: {
+                modo: 'multiplos_conjuntos',
+                nome_campanha: nome,
+                campaign_id: resultado.campaignId,
+                conjuntos: resultado.conjuntos.map(c => ({ tipo: c.tipo, adsetId: c.adsetId, totalAds: c.ads.length })),
+                criado_em: new Date().toISOString(),
+              },
+              resultado: null,
+              aprendizado: null,
+            }).then(({ error: memErr }) => { if (memErr) console.warn('[Jarvis] Erro memória multi:', memErr.message); });
+
+            send('step', { id: 'multi', status: 'ok', label: `Campanha criada com ${resultado.conjuntos.length} conjunto(s) ✓` });
+            send('done', {
+              ok: true,
+              resumo: `1 campanha com ${resultado.conjuntos.length} conjunto(s) e ${resultado.conjuntos.reduce((a, c) => a + c.ads.length, 0)} criativo(s) — tudo pausado`,
+            });
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            send('step', { id: 'multi', status: 'error', label: 'Erro ao criar campanha', detalhe: msg });
+            send('done', { ok: false, erro: msg });
+          }
+        } else {
+
+        // ─── Modo original: 1 campanha por tipo ──────────────────────────
 
         // 5. Distribuir orçamento
         send('step', { id: 'orcamento', status: 'running', label: 'Calculando distribuição de orçamento...' });
@@ -303,6 +410,8 @@ export async function GET(req: NextRequest) {
             ? `${sucessos} campanha(s) criada(s) — todas pausadas aguardando aprovação`
             : `${sucessos} de ${tipos.length} campanha(s) criada(s)`,
         });
+
+        } // fim else modo original
       } catch (err) {
         send('done', { ok: false, erro: String(err) });
       } finally {

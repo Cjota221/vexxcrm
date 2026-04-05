@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuthStore } from '@/store/auth';
 import {
   Bot, DollarSign, Users, MessageCircle,
   TrendingUp, CheckCircle, XCircle, Loader2,
   Sparkles, ChevronRight, Play, AlertCircle, ShoppingBag,
+  Plus, Trash2, Image as ImageIcon,
 } from 'lucide-react';
 import type { TipoCampanha } from '@/lib/services/meta-adset-creator.service';
 import { cn } from '@/lib/utils';
@@ -28,6 +29,23 @@ interface DoneEvent {
 
 type Fase = 'config' | 'confirmacao' | 'executando' | 'concluido';
 
+type TipoConjunto = 'frio' | 'quente' | 'whatsapp';
+
+interface Conjunto {
+  id: string;
+  tipo: TipoConjunto;
+  criativoIds: string[];
+}
+
+interface CriativoDisponivel {
+  id: string;
+  nome: string;
+  tipo: 'video' | 'imagem';
+  url_preview: string | null;
+  meta_video_id: string | null;
+  meta_image_hash: string | null;
+}
+
 const TIPOS_CONFIG = {
   frio:     { label: 'Público frio',   icon: Users,         desc: 'Novos clientes por interesse' },
   quente:   { label: 'Público quente', icon: TrendingUp,    desc: 'Remarketing — já te conhecem' },
@@ -35,12 +53,20 @@ const TIPOS_CONFIG = {
   catalogo: { label: 'Catálogo',       icon: ShoppingBag,   desc: 'Anúncios dinâmicos de produtos' },
 } as const;
 
+const TIPOS_CONJUNTO: Record<TipoConjunto, { label: string; icon: typeof Users }> = {
+  frio:     { label: 'Público Frio',   icon: Users },
+  quente:   { label: 'Público Quente', icon: TrendingUp },
+  whatsapp: { label: 'WhatsApp',       icon: MessageCircle },
+};
+
 const CATALOGOS = [
   { id: '740174445143215', nome: 'CJ Rasteirinhas Atacado' },
   { id: '860022402952098', nome: 'Fácilzap 2024' },
 ] as const;
 
 const PESOS: Record<TipoCampanha, number> = { frio: 0.3, quente: 0.2, whatsapp: 0.5, catalogo: 0.4 };
+const MAX_CONJUNTOS = 5;
+const MAX_CRIATIVOS_POR_CONJUNTO = 5;
 
 /* ─── Componente ─────────────────────────────────────────────────────────── */
 
@@ -54,13 +80,80 @@ export function AgenteTrafegoPanel() {
   const [done, setDone]             = useState<DoneEvent | null>(null);
   const esRef                       = useRef<EventSource | null>(null);
 
+  // Modo avançado (múltiplos conjuntos)
+  const [modoAvancado, setModoAvancado] = useState(false);
+  const [conjuntos, setConjuntos]       = useState<Conjunto[]>([
+    { id: '1', tipo: 'frio', criativoIds: [] },
+  ]);
+  const [criativos, setCriativos]       = useState<CriativoDisponivel[]>([]);
+  const [loadingCriativos, setLoadingCriativos] = useState(false);
+
+  // Buscar criativos quando entrar no modo avançado
+  const fetchCriativos = useCallback(async () => {
+    setLoadingCriativos(true);
+    try {
+      const accessToken = useAuthStore.getState().accessToken ?? '';
+      const res = await fetch('/api/meta/criativos?limit=20', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCriativos(data.criativos ?? data ?? []);
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setLoadingCriativos(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (modoAvancado && criativos.length === 0) fetchCriativos();
+  }, [modoAvancado, criativos.length, fetchCriativos]);
+
   function calcOrc(tipo: TipoCampanha): number {
     const totalPeso = tipos.reduce((a, t) => a + PESOS[t], 0);
     return Math.round((orcamento * PESOS[tipo]) / totalPeso);
   }
 
+  function calcOrcConjunto(): number {
+    if (conjuntos.length === 0) return 0;
+    return Math.floor(orcamento / conjuntos.length);
+  }
+
+  function calcOrcConjuntoResto(idx: number): number {
+    const base = calcOrcConjunto();
+    const resto = orcamento - base * conjuntos.length;
+    return idx < resto ? base + 1 : base;
+  }
+
   function toggleTipo(tipo: TipoCampanha) {
     setTipos(prev => prev.includes(tipo) ? prev.filter(t => t !== tipo) : [...prev, tipo]);
+  }
+
+  function adicionarConjunto() {
+    if (conjuntos.length >= MAX_CONJUNTOS) return;
+    const usados = conjuntos.map(c => c.tipo);
+    const proximo = (['frio', 'quente', 'whatsapp'] as TipoConjunto[]).find(t => !usados.includes(t)) ?? 'frio';
+    setConjuntos(prev => [...prev, { id: String(Date.now()), tipo: proximo, criativoIds: [] }]);
+  }
+
+  function removerConjunto(id: string) {
+    setConjuntos(prev => prev.filter(c => c.id !== id));
+  }
+
+  function atualizarConjunto(id: string, updates: Partial<Conjunto>) {
+    setConjuntos(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+  }
+
+  function toggleCriativo(conjuntoId: string, criativoId: string) {
+    setConjuntos(prev => prev.map(c => {
+      if (c.id !== conjuntoId) return c;
+      const has = c.criativoIds.includes(criativoId);
+      if (has) return { ...c, criativoIds: c.criativoIds.filter(id => id !== criativoId) };
+      if (c.criativoIds.length >= MAX_CRIATIVOS_POR_CONJUNTO) return c;
+      return { ...c, criativoIds: [...c.criativoIds, criativoId] };
+    }));
   }
 
   function voltar() {
@@ -70,19 +163,40 @@ export function AgenteTrafegoPanel() {
     setSteps([]);
   }
 
+  function podeExecutar(): boolean {
+    if (modoAvancado) {
+      return conjuntos.length > 0 && conjuntos.every(c => c.criativoIds.length >= 1);
+    }
+    return tipos.length > 0;
+  }
+
   function executar() {
     setFase('executando');
     setSteps([]);
     setDone(null);
 
     const accessToken = useAuthStore.getState().accessToken ?? '';
+    const nomeBase = nome || `Agente ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`;
+
     const params = new URLSearchParams({
       token:      accessToken,
       orcamento:  String(orcamento),
-      tipos:      tipos.join(','),
-      nome:       nome || `Agente ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`,
+      nome:       nomeBase,
       catalogoId,
     });
+
+    if (modoAvancado) {
+      // Modo avançado: enviar conjuntos como JSON
+      const conjuntosPayload = conjuntos.map((c, idx) => ({
+        tipo: c.tipo,
+        orcamentoDiario: calcOrcConjuntoResto(idx) * 100, // reais → centavos
+        criativoIds: c.criativoIds,
+      }));
+      params.set('conjuntos', JSON.stringify(conjuntosPayload));
+      params.set('tipos', conjuntos.map(c => c.tipo).join(','));
+    } else {
+      params.set('tipos', tipos.join(','));
+    }
 
     const es = new EventSource(`/api/meta/agente/stream?${params}`);
     esRef.current = es;
@@ -156,63 +270,203 @@ export function AgenteTrafegoPanel() {
         </div>
       </div>
 
-      {/* Tipos */}
-      <div>
-        <label className="block text-xs font-medium text-gray-600 mb-2">Tipos de campanha</label>
-        <div className="space-y-2">
-          {(Object.entries(TIPOS_CONFIG) as [TipoCampanha, typeof TIPOS_CONFIG[TipoCampanha]][]).map(([tipo, cfg]) => {
-            const ativo = tipos.includes(tipo);
-            const Icon = cfg.icon;
-            return (
-              <button key={tipo} onClick={() => toggleTipo(tipo)}
-                className={cn(
-                  'w-full flex items-center justify-between p-3 rounded-xl border transition-all text-left',
-                  ativo ? 'border-[#1e3a5f] bg-[#1e3a5f]/5' : 'border-gray-200 hover:border-gray-300',
-                )}
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className={cn(
-                    'w-8 h-8 rounded-lg flex items-center justify-center',
-                    ativo ? 'bg-[#1e3a5f] text-white' : 'bg-gray-100 text-gray-400',
-                  )}>
-                    <Icon size={14} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-700">{cfg.label}</p>
-                    <p className="text-xs text-gray-400">{cfg.desc}</p>
-                  </div>
-                </div>
-                {ativo && (
-                  <span className="text-sm font-medium text-[#1e3a5f] shrink-0">
-                    R${calcOrc(tipo)}/dia
-                  </span>
-                )}
-              </button>
-            );
-          })}
+      {/* Toggle modo avançado */}
+      <div className="flex items-center justify-between p-3 bg-purple-50 border border-purple-200 rounded-xl">
+        <div>
+          <p className="text-sm font-medium text-gray-800">Configuração avançada</p>
+          <p className="text-xs text-gray-500">Múltiplos conjuntos com criativos selecionados</p>
         </div>
+        <button
+          onClick={() => setModoAvancado(!modoAvancado)}
+          className={cn(
+            'relative w-11 h-6 rounded-full transition-colors',
+            modoAvancado ? 'bg-[#1e3a5f]' : 'bg-gray-300',
+          )}
+        >
+          <div className={cn(
+            'absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform',
+            modoAvancado ? 'translate-x-[22px]' : 'translate-x-0.5',
+          )} />
+        </button>
       </div>
 
-      {/* Seletor de catálogo — aparece quando 'catalogo' está selecionado */}
-      {tipos.includes('catalogo') && (
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Catálogo de produtos</label>
-          <select
-            value={catalogoId}
-            onChange={e => setCatalogoId(e.target.value)}
-            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/30 bg-white"
-          >
-            {CATALOGOS.map(c => (
-              <option key={c.id} value={c.id}>{c.nome}</option>
-            ))}
-          </select>
-          <p className="text-xs text-gray-400 mt-1">ID: {catalogoId}</p>
+      {/* ── Modo Simples ──────────────────────────────────────────────── */}
+      {!modoAvancado && (
+        <>
+          {/* Tipos */}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-2">Tipos de campanha</label>
+            <div className="space-y-2">
+              {(Object.entries(TIPOS_CONFIG) as [TipoCampanha, typeof TIPOS_CONFIG[TipoCampanha]][]).map(([tipo, cfg]) => {
+                const ativo = tipos.includes(tipo);
+                const Icon = cfg.icon;
+                return (
+                  <button key={tipo} onClick={() => toggleTipo(tipo)}
+                    className={cn(
+                      'w-full flex items-center justify-between p-3 rounded-xl border transition-all text-left',
+                      ativo ? 'border-[#1e3a5f] bg-[#1e3a5f]/5' : 'border-gray-200 hover:border-gray-300',
+                    )}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className={cn(
+                        'w-8 h-8 rounded-lg flex items-center justify-center',
+                        ativo ? 'bg-[#1e3a5f] text-white' : 'bg-gray-100 text-gray-400',
+                      )}>
+                        <Icon size={14} />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-700">{cfg.label}</p>
+                        <p className="text-xs text-gray-400">{cfg.desc}</p>
+                      </div>
+                    </div>
+                    {ativo && (
+                      <span className="text-sm font-medium text-[#1e3a5f] shrink-0">
+                        R${calcOrc(tipo)}/dia
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Seletor de catálogo */}
+          {tipos.includes('catalogo') && (
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Catálogo de produtos</label>
+              <select
+                value={catalogoId}
+                onChange={e => setCatalogoId(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/30 bg-white"
+              >
+                {CATALOGOS.map(c => (
+                  <option key={c.id} value={c.id}>{c.nome}</option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-400 mt-1">ID: {catalogoId}</p>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Modo Avançado ─────────────────────────────────────────────── */}
+      {modoAvancado && (
+        <div className="space-y-4">
+          <label className="block text-xs font-medium text-gray-600">Conjuntos de anúncio</label>
+
+          {loadingCriativos && (
+            <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-xl">
+              <Loader2 size={14} className="text-blue-500 animate-spin" />
+              <span className="text-sm text-blue-700">Carregando criativos...</span>
+            </div>
+          )}
+
+          {conjuntos.map((conjunto, idx) => {
+            const tipoCfg = TIPOS_CONJUNTO[conjunto.tipo];
+            const Icon = tipoCfg.icon;
+            const orcConjunto = calcOrcConjuntoResto(idx);
+
+            return (
+              <div key={conjunto.id} className="border border-gray-200 rounded-xl overflow-hidden">
+                {/* Header do conjunto */}
+                <div className="flex items-center justify-between p-3 bg-gray-50 border-b border-gray-100">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-[#1e3a5f] flex items-center justify-center">
+                      <Icon size={13} className="text-white" />
+                    </div>
+                    <select
+                      value={conjunto.tipo}
+                      onChange={e => atualizarConjunto(conjunto.id, { tipo: e.target.value as TipoConjunto })}
+                      className="text-sm font-medium text-gray-800 bg-transparent border-none focus:outline-none cursor-pointer"
+                    >
+                      <option value="frio">Público Frio</option>
+                      <option value="quente">Público Quente</option>
+                      <option value="whatsapp">WhatsApp</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-[#1e3a5f]">R${orcConjunto}/dia</span>
+                    {conjuntos.length > 1 && (
+                      <button onClick={() => removerConjunto(conjunto.id)} className="p-1 text-gray-400 hover:text-red-500 transition-colors">
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Grid de criativos */}
+                <div className="p-3">
+                  <p className="text-xs text-gray-500 mb-2">
+                    Criativos ({conjunto.criativoIds.length}/{MAX_CRIATIVOS_POR_CONJUNTO})
+                    {conjunto.criativoIds.length === 0 && <span className="text-red-400 ml-1">— selecione ao menos 1</span>}
+                  </p>
+                  {criativos.length === 0 && !loadingCriativos ? (
+                    <p className="text-xs text-gray-400 italic">Nenhum criativo disponível</p>
+                  ) : (
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                      {criativos.map(criativo => {
+                        const selecionado = conjunto.criativoIds.includes(criativo.id);
+                        return (
+                          <button
+                            key={criativo.id}
+                            onClick={() => toggleCriativo(conjunto.id, criativo.id)}
+                            className={cn(
+                              'relative aspect-square rounded-lg border-2 overflow-hidden transition-all group',
+                              selecionado
+                                ? 'border-[#1e3a5f] ring-2 ring-[#1e3a5f]/20'
+                                : 'border-gray-200 hover:border-gray-300',
+                            )}
+                          >
+                            {criativo.url_preview ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={criativo.url_preview}
+                                alt={criativo.nome}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+                                <ImageIcon size={16} className="text-gray-400" />
+                              </div>
+                            )}
+                            {selecionado && (
+                              <div className="absolute inset-0 bg-[#1e3a5f]/30 flex items-center justify-center">
+                                <CheckCircle size={20} className="text-white drop-shadow" />
+                              </div>
+                            )}
+                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-1">
+                              <p className="text-[10px] text-white truncate">{criativo.nome}</p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Botão adicionar conjunto */}
+          {conjuntos.length < MAX_CONJUNTOS && (
+            <button
+              onClick={adicionarConjunto}
+              className="w-full flex items-center justify-center gap-2 p-3 border-2 border-dashed border-gray-200 rounded-xl text-sm text-gray-500 hover:border-[#1e3a5f] hover:text-[#1e3a5f] transition-colors"
+            >
+              <Plus size={14} /> Adicionar conjunto
+            </button>
+          )}
+
+          <div className="flex items-center justify-between text-xs text-gray-500 px-1">
+            <span>Total: R${orcamento}/dia</span>
+            <span>{conjuntos.length} conjunto(s) · {conjuntos.reduce((a, c) => a + c.criativoIds.length, 0)} criativo(s)</span>
+          </div>
         </div>
       )}
 
       <button
         onClick={() => setFase('confirmacao')}
-        disabled={tipos.length === 0}
+        disabled={!podeExecutar()}
         className="w-full py-3 bg-[#1e3a5f] text-white text-sm font-medium rounded-xl hover:bg-[#16304f] disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
       >
         Ver plano do agente <ChevronRight size={16} />
@@ -230,25 +484,67 @@ export function AgenteTrafegoPanel() {
 
       <div className="bg-gray-50 rounded-2xl border border-gray-100 p-4 space-y-3">
         <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">O agente vai executar:</p>
-        {tipos.map(tipo => {
-          const cfg = TIPOS_CONFIG[tipo];
-          const Icon = cfg.icon;
-          return (
-            <div key={tipo} className="flex items-center gap-3 py-2 border-b border-gray-100 last:border-0">
-              <div className="w-7 h-7 rounded-lg bg-[#1e3a5f]/10 flex items-center justify-center shrink-0">
-                <Icon size={13} className="text-[#1e3a5f]" />
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-gray-800">Campanha {cfg.label}</p>
-                <p className="text-xs text-gray-400">{cfg.desc} · R${calcOrc(tipo)}/dia</p>
-              </div>
-              <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">PAUSADA</span>
-            </div>
-          );
-        })}
+
+        {modoAvancado ? (
+          <>
+            <p className="text-sm text-gray-700 font-medium">1 campanha com {conjuntos.length} conjunto(s):</p>
+            {conjuntos.map((conjunto, idx) => {
+              const tipoCfg = TIPOS_CONJUNTO[conjunto.tipo];
+              const Icon = tipoCfg.icon;
+              const orcConjunto = calcOrcConjuntoResto(idx);
+              const criativosSelecionados = criativos.filter(c => conjunto.criativoIds.includes(c.id));
+
+              return (
+                <div key={conjunto.id} className="py-2 border-b border-gray-100 last:border-0">
+                  <div className="flex items-center gap-3">
+                    <div className="w-7 h-7 rounded-lg bg-[#1e3a5f]/10 flex items-center justify-center shrink-0">
+                      <Icon size={13} className="text-[#1e3a5f]" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-800">{tipoCfg.label}</p>
+                      <p className="text-xs text-gray-400">R${orcConjunto}/dia · {criativosSelecionados.length} criativo(s)</p>
+                    </div>
+                    <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">PAUSADA</span>
+                  </div>
+                  {criativosSelecionados.length > 0 && (
+                    <div className="mt-2 ml-10 flex flex-wrap gap-1">
+                      {criativosSelecionados.map(c => (
+                        <span key={c.id} className="text-[10px] bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">{c.nome}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </>
+        ) : (
+          <>
+            {tipos.map(tipo => {
+              const cfg = TIPOS_CONFIG[tipo];
+              const Icon = cfg.icon;
+              return (
+                <div key={tipo} className="flex items-center gap-3 py-2 border-b border-gray-100 last:border-0">
+                  <div className="w-7 h-7 rounded-lg bg-[#1e3a5f]/10 flex items-center justify-center shrink-0">
+                    <Icon size={13} className="text-[#1e3a5f]" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-800">Campanha {cfg.label}</p>
+                    <p className="text-xs text-gray-400">{cfg.desc} · R${calcOrc(tipo)}/dia</p>
+                  </div>
+                  <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">PAUSADA</span>
+                </div>
+              );
+            })}
+          </>
+        )}
+
         <div className="pt-1 flex items-center justify-between">
           <span className="text-xs text-gray-500">Total: R${orcamento}/dia</span>
-          <span className="text-xs text-gray-400">{tipos.length} campanha{tipos.length > 1 ? 's' : ''}</span>
+          <span className="text-xs text-gray-400">
+            {modoAvancado
+              ? `${conjuntos.length} conjunto(s)`
+              : `${tipos.length} campanha${tipos.length > 1 ? 's' : ''}`}
+          </span>
         </div>
       </div>
 
