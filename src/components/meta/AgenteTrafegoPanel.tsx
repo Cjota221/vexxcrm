@@ -97,6 +97,7 @@ export function AgenteTrafegoPanel() {
   const [orcamento, setOrcamento]   = useState(50);
   const [tipos, setTipos]           = useState<TipoCampanha[]>(['frio', 'whatsapp']);
   const [nome, setNome]             = useState('');
+  const [urlDestino, setUrlDestino] = useState('');
   const [catalogoId, setCatalogoId] = useState<string>(CATALOGOS[0].id);
   const [steps, setSteps]           = useState<Step[]>([]);
   const [done, setDone]             = useState<DoneEvent | null>(null);
@@ -285,6 +286,8 @@ export function AgenteTrafegoPanel() {
       catalogoId,
     });
 
+    if (urlDestino) params.set('urlDestino', urlDestino);
+
     // Públicos IA selecionados por tipo
     const audienciasAtivas = Object.entries(audienciasPorTipo).filter(([, v]) => v);
     if (audienciasAtivas.length > 0) {
@@ -354,6 +357,18 @@ export function AgenteTrafegoPanel() {
           value={nome}
           onChange={e => setNome(e.target.value)}
           placeholder={`Agente ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`}
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/30"
+        />
+      </div>
+
+      {/* URL de destino */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">URL de destino do anúncio</label>
+        <input
+          type="url"
+          value={urlDestino}
+          onChange={e => setUrlDestino(e.target.value)}
+          placeholder="https://seusite.com.br"
           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/30"
         />
       </div>

@@ -600,6 +600,7 @@ export interface ConfigCampanhaAvancada {
   idadeMax?: number;
   pageId: string;
   whatsappNumber?: string;
+  urlDestino?: string;
 }
 
 /**
@@ -704,6 +705,7 @@ export async function criarCampanhaMultiplosConjuntos(
           cta: conjunto.tipo === 'whatsapp' ? 'WHATSAPP_MESSAGE' : 'LEARN_MORE',
           pageId: cfg.pageId,
           whatsappNumber: conjunto.tipo === 'whatsapp' ? cfg.whatsappNumber : undefined,
+          urlDestino: conjunto.tipo !== 'whatsapp' ? cfg.urlDestino : undefined,
         };
 
         const creativeId = await criarAdCreative(token, actId, cfgCriativo);

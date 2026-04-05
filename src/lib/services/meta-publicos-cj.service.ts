@@ -11,21 +11,23 @@
 import { META_BASE } from '@/lib/meta-config';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { buscarInterestId } from './meta-audiences.service';
+import { resolverTokenMeta } from './meta-token.service';
 
-const PAGE_ID  = '110009834520002';
+const PAGE_ID  = '101337882545607'; // CJ Rasteirinhas — Page ID (não Business ID)
 const PIXEL_ID = '518376893062766';
 
 /* ─── Interesses de alta performance ────────────────────────────────────── */
 
+// Termos em inglês/neutro que a Meta API pt_BR consegue resolver com confiança
 const INTERESSES_ATACADO = [
-  'Atacado de moda',
-  'Revenda de roupas',
-  'Empreendedorismo feminino',
-  'Renda extra',
-  'Sacoleira',
   'Moda feminina',
   'Calçados femininos',
   'Sandálias',
+  'Empreendedorismo',
+  'Renda extra',
+  'Pequenos negócios',
+  'Atacado',
+  'Revenda',
 ];
 
 /* ─── Targeting por tipo ─────────────────────────────────────────────────── */
@@ -77,15 +79,29 @@ export function targetingQuente(customAudienceId: string | null) {
 
 /* ─── Buscar interesses reais no Meta ────────────────────────────────────── */
 
+// Fallback com IDs conhecidos caso a busca dinâmica retorne poucos resultados
+const INTERESSES_FALLBACK: Array<{ id: string; name: string }> = [
+  { id: '6003107902433', name: 'Moda feminina' },
+  { id: '6003200790972', name: 'Calçados femininos' },
+  { id: '6003349442438', name: 'Empreendedorismo' },
+  { id: '6003483890484', name: 'Negócio próprio' },
+];
+
 export async function buscarInteressesAtacado(
   token: string,
 ): Promise<Array<{ id: string; name: string }>> {
-  const resultados = await Promise.all(
-    INTERESSES_ATACADO.map(nome => buscarInterestId(nome, token))
-  );
-  return resultados
-    .filter((r): r is NonNullable<typeof r> => r !== null)
-    .map(r => ({ id: r.id, name: r.name }));
+  try {
+    const resultados = await Promise.all(
+      INTERESSES_ATACADO.map(nome => buscarInterestId(nome, token))
+    );
+    const encontrados = resultados
+      .filter((r): r is NonNullable<typeof r> => r !== null)
+      .map(r => ({ id: r.id, name: r.name }));
+    // Se encontrou pelo menos 3 interesses, usa os dinâmicos; senão usa fallback
+    return encontrados.length >= 3 ? encontrados : INTERESSES_FALLBACK;
+  } catch {
+    return INTERESSES_FALLBACK;
+  }
 }
 
 /* ─── Público de engajamento com a página (quente) ───────────────────────── */
@@ -559,20 +575,23 @@ export async function inicializarTodosPublicos(
   tenantId: string,
   igAccountId?: string,
 ): Promise<Record<string, string | null>> {
-  const supabase = createServerSupabaseClient();
-  const { data: config } = await supabase
-    .from('ai_provider_config')
-    .select('meta_access_token, meta_ad_account_id, meta_ig_account_id')
-    .eq('tenant_id', tenantId)
-    .single();
-
-  if (!config?.meta_access_token || !config?.meta_ad_account_id) {
-    throw new Error('Meta Ads nao configurado');
+  // Usa resolverTokenMeta — mesma lógica que funciona para criar campanhas
+  const metaConfig = await resolverTokenMeta(tenantId);
+  if (!metaConfig.account_id) {
+    throw new Error('Ad Account ID não configurado. Configure em Configurações → Time de IAs.');
   }
 
-  const token = config.meta_access_token;
-  const actId = config.meta_ad_account_id.replace('act_', '');
-  const igId  = igAccountId ?? (config as Record<string, unknown>).meta_ig_account_id as string ?? '';
+  const token = metaConfig.token;
+  const actId = metaConfig.account_id.replace('act_', '');
+
+  // ig_account_id: parâmetro > DB
+  const supabase = createServerSupabaseClient();
+  const { data: extra } = await supabase
+    .from('ai_provider_config')
+    .select('meta_ig_account_id')
+    .eq('tenant_id', tenantId)
+    .single();
+  const igId = igAccountId ?? (extra?.meta_ig_account_id as string | undefined) ?? '';
 
   const resultados: Record<string, string | null> = {};
 

@@ -7,6 +7,7 @@ import {
   alterarStatus,
   duplicarCampanha,
 } from '@/lib/services/meta-editor.service';
+import { META_BASE } from '@/lib/meta-config';
 
 /**
  * POST /api/trafego/editor
@@ -36,11 +37,27 @@ export async function POST(req: NextRequest) {
 
     switch (action) {
       case 'editar_texto': {
+        // Resolver o ad_id real a partir do campaign_id
+        const campaignId = body.campaign_id as string;
+        const adsetRes = await fetch(
+          `${META_BASE}/${campaignId}/adsets?fields=id&limit=1&access_token=${token}`
+        );
+        const adsetData = await adsetRes.json() as { data: Array<{ id: string }> };
+        const adsetId = adsetData.data?.[0]?.id;
+        if (!adsetId) return NextResponse.json({ error: 'Nenhum conjunto encontrado nesta campanha' }, { status: 404 });
+
+        const adsRes = await fetch(
+          `${META_BASE}/${adsetId}/ads?fields=id&limit=1&access_token=${token}`
+        );
+        const adsData = await adsRes.json() as { data: Array<{ id: string }> };
+        const adId = adsData.data?.[0]?.id;
+        if (!adId) return NextResponse.json({ error: 'Nenhum anúncio encontrado neste conjunto' }, { status: 404 });
+
         const result = await editarTextoAnuncio({
-          adId: body.adId as string,
+          adId,
           accountId,
           titulo: body.titulo as string,
-          texto: body.texto as string,
+          texto: body.texto_principal as string,
           cta: body.cta as string,
           imageUrl: body.imageUrl as string | undefined,
           videoId: body.videoId as string | undefined,
@@ -51,9 +68,9 @@ export async function POST(req: NextRequest) {
 
       case 'mudar_orcamento': {
         const result = await mudarOrcamento({
-          campaignId: body.campaignId as string,
-          novoOrcamentoCentavos: body.novoOrcamentoCentavos as number,
-          orcamentoAtualCentavos: body.orcamentoAtualCentavos as number,
+          campaignId: body.campaign_id as string,
+          novoOrcamentoCentavos: body.novo_orcamento_diario as number,
+          orcamentoAtualCentavos: (body.orcamento_atual_centavos as number) ?? 0,
           token,
         });
         return NextResponse.json(result);
@@ -61,8 +78,8 @@ export async function POST(req: NextRequest) {
 
       case 'alterar_status': {
         const result = await alterarStatus({
-          id: body.id as string,
-          novoStatus: body.novoStatus as 'ACTIVE' | 'PAUSED',
+          id: body.campaign_id as string,
+          novoStatus: body.status as 'ACTIVE' | 'PAUSED',
           token,
         });
         return NextResponse.json(result);
@@ -70,7 +87,7 @@ export async function POST(req: NextRequest) {
 
       case 'duplicar': {
         const result = await duplicarCampanha({
-          campaignId: body.campaignId as string,
+          campaignId: body.campaign_id as string,
           token,
         });
         return NextResponse.json(result);

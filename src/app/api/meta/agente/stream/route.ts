@@ -49,6 +49,7 @@ export async function GET(req: NextRequest) {
   const tipos      = tiposRaw.split(',').filter(Boolean) as TipoCampanha[];
   const nome       = url.searchParams.get('nome') || `Agente ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`;
   const catalogoId = url.searchParams.get('catalogoId') ?? '';
+  const urlDestino  = url.searchParams.get('urlDestino') ?? '';
   const conjuntosRaw = url.searchParams.get('conjuntos') ?? '';
   // Públicos IA por tipo: {"frio": "audience_id", "quente": "audience_id"}
   let audienciasPorTipo: Partial<Record<TipoCampanha, string>> = {};
@@ -165,6 +166,7 @@ export async function GET(req: NextRequest) {
               idadeMax: 65,
               pageId,
               whatsappNumber: '5562993044255',
+              urlDestino: urlDestino || undefined,
             });
 
             const TIPO_LABEL_MULTI: Record<string, string> = {
@@ -332,16 +334,24 @@ export async function GET(req: NextRequest) {
                 url_preview: string | null;
               };
 
+              const textoPorTipo: Record<TipoCampanha, string> = {
+                frio:     'Rasteirinhas direto da fábrica. Mínimo 5 pares. Entrega para todo o Brasil.',
+                quente:   'Você já nos conhece. Aproveite as novidades da coleção.',
+                whatsapp: 'Fale com a gente agora e conheça nossas condições de atacado.',
+                catalogo: 'Confira nosso catálogo completo de rasteirinhas.',
+              };
+
               const cfgCriativo: ConfiguracaoCriativo = {
                 tipo:           (criativo.tipo as 'video' | 'imagem') ?? (criativo.meta_video_id ? 'video' : 'imagem'),
                 metaVideoId:    criativo.meta_video_id ?? undefined,
                 metaImageHash:  criativo.meta_image_hash ?? undefined,
                 imageUrl:       criativo.url_preview ?? undefined,
                 headline:       `${nome} — ${tipoLabel}`,
-                texto:          '',
+                texto:          textoPorTipo[tipo] || 'CJ Rasteirinhas — direto da fábrica para você.',
                 cta:            tipo === 'whatsapp' || tipo === 'quente' ? 'WHATSAPP_MESSAGE' : 'LEARN_MORE',
                 pageId,
                 whatsappNumber: tipo === 'whatsapp' || tipo === 'quente' ? '5562993044255' : undefined,
+                urlDestino:     urlDestino || undefined,
               };
 
               resultado = await criarCampanhaCompleta(tenantId, {
