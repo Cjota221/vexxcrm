@@ -12,6 +12,7 @@
   "author": "VEXX CRM Team",
   "license": "UNLICENSED",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.82.0",
     "@supabase/ssr": "^0.10.0",
     "@supabase/supabase-js": "^2.95.3",
     "@tailwindcss/postcss": "^4.1.18",

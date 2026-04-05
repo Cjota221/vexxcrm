@@ -183,6 +183,16 @@ export async function GET(req: NextRequest) {
                 });
               if (draftInsertError) {
                 console.error('[AGENTE STREAM] Erro ao salvar draft catálogo:', JSON.stringify(draftInsertError));
+              } else {
+                // Jarvis: salvar memória do catálogo
+                supabase.from('jarvis_memoria').insert({
+                  tenant_id: tenantId,
+                  tipo: 'campanha_resultado',
+                  referencia_id: resultado.campaignId,
+                  titulo: `${nome} — ${tipoLabel}`,
+                  contexto: { tipo_campanha: tipo, nome_campanha: nome, orcamento_diario: orcPorTipo[tipo] ?? 5000, catalogo_id: catalogoId, campaign_id: resultado.campaignId, adset_id: resultado.adsetId, ad_id: resultado.adId, criado_em: new Date().toISOString() },
+                  resultado: null, aprendizado: null,
+                }).then(({ error: memErr }) => { if (memErr) console.warn('[Jarvis] Erro ao salvar memória catálogo:', memErr.message); });
               }
 
               send('step', {
@@ -253,6 +263,15 @@ export async function GET(req: NextRequest) {
                 console.error('[AGENTE STREAM] Erro ao salvar draft:', JSON.stringify(draftInsertError));
               } else {
                 console.log('[AGENTE STREAM] Draft salvo com sucesso para tipo:', tipo);
+                // Jarvis: salvar memória da campanha (fire-and-forget)
+                supabase.from('jarvis_memoria').insert({
+                  tenant_id: tenantId,
+                  tipo: 'campanha_resultado',
+                  referencia_id: resultado.campaignId,
+                  titulo: `${nome} — ${tipoLabel}`,
+                  contexto: { tipo_campanha: tipo, nome_campanha: nome, orcamento_diario: orcPorTipo[tipo] ?? 5000, criativo_id: criativo.id, criativo_nome: criativo.nome, campaign_id: resultado.campaignId, adset_id: resultado.adsetId, ad_id: resultado.adId, criado_em: new Date().toISOString() },
+                  resultado: null, aprendizado: null,
+                }).then(({ error: memErr }) => { if (memErr) console.warn('[Jarvis] Erro ao salvar memória:', memErr.message); });
               }
 
               send('step', {
