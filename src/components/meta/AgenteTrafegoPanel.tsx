@@ -68,6 +68,108 @@ interface CriativoDisponivel {
   transcricao_status?: string | null;
 }
 
+/* ─── Card individual de criativo (com refresh de thumb expirada) ─────────── */
+
+interface CardCriativoBtnProps {
+  criativo: CriativoDisponivel;
+  selecionado: boolean;
+  score: number;
+  temClassificacao: boolean;
+  onToggle: () => void;
+  onPreview: () => void;
+}
+
+function CardCriativoBtn({ criativo, selecionado, score, temClassificacao, onToggle, onPreview }: CardCriativoBtnProps) {
+  const [thumbUrl, setThumbUrl] = useState<string | null>(criativo.url_preview);
+  const [thumbFailed, setThumbFailed] = useState(false);
+
+  // Correção 1 + 2: quando a URL expira (thumbFailed) ou não existe,
+  // e o criativo é um vídeo do Meta, busca uma thumb fresca via API.
+  useEffect(() => {
+    const semThumb = !thumbUrl || thumbFailed;
+    if (!semThumb) return;
+    if (criativo.tipo !== 'video' || !criativo.meta_video_id) return;
+
+    const token = useAuthStore.getState().accessToken ?? '';
+    fetch(`/api/meta/criativo-url?id=${criativo.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { thumb?: string | null } | null) => {
+        if (data?.thumb) { setThumbUrl(data.thumb); setThumbFailed(false); }
+      })
+      .catch(() => {});
+  }, [thumbFailed, thumbUrl, criativo.id, criativo.tipo, criativo.meta_video_id]);
+
+  return (
+    <button
+      onClick={onToggle}
+      title={criativo.classificacao?.resumo ?? criativo.nome}
+      className={cn(
+        'relative aspect-square rounded-lg border-2 overflow-hidden transition-all group',
+        selecionado ? 'border-[#1e3a5f] ring-2 ring-[#1e3a5f]/20' : 'border-gray-200 hover:border-gray-300',
+      )}
+    >
+      {/* Thumbnail — fallback automático para ícone se URL expirar */}
+      {thumbUrl && !thumbFailed ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={thumbUrl}
+          alt={criativo.nome}
+          className="w-full h-full object-cover"
+          onError={() => setThumbFailed(true)}
+        />
+      ) : (
+        <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+          {criativo.tipo === 'video'
+            ? <Video size={20} className="text-gray-400" />
+            : <ImageIcon size={20} className="text-gray-400" />
+          }
+        </div>
+      )}
+
+      {/* Score badge — topo direito */}
+      {temClassificacao && (
+        <div className={cn(
+          'absolute top-1 right-1 text-[9px] font-bold px-1 py-0.5 rounded',
+          score >= 7 ? 'bg-green-500 text-white'
+          : score >= 4 ? 'bg-yellow-400 text-yellow-900'
+          : 'bg-gray-200 text-gray-600',
+        )}>
+          {score}/10
+        </div>
+      )}
+
+      {/* Botão preview vídeo */}
+      {criativo.tipo === 'video' && (
+        <button
+          onClick={e => { e.stopPropagation(); onPreview(); }}
+          className="absolute top-1 left-1 p-1 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+        >
+          <Eye size={10} className="text-white" />
+        </button>
+      )}
+
+      {/* Overlay aprovado */}
+      {selecionado && (
+        <div className="absolute inset-0 bg-[#1e3a5f]/30 flex items-center justify-center">
+          <CheckCircle size={20} className="text-white drop-shadow" />
+        </div>
+      )}
+
+      {/* Nome + tipo na parte de baixo */}
+      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1">
+        <p className="text-[9px] text-white truncate leading-tight">{criativo.nome}</p>
+        {criativo.classificacao && (
+          <p className="text-[8px] text-white/70 truncate capitalize">
+            {criativo.classificacao.tipo_conteudo} · {criativo.classificacao.tom}
+          </p>
+        )}
+      </div>
+    </button>
+  );
+}
+
 const TIPOS_CONFIG = {
   frio:     { label: 'Público frio',   icon: Users,         desc: 'Novos clientes por interesse' },
   quente:   { label: 'Público quente', icon: TrendingUp,    desc: 'Remarketing — já te conhecem' },
@@ -568,74 +670,15 @@ export function AgenteTrafegoPanel() {
                           const score = scoreParaTipo(criativo, conjunto.tipo);
                           const temClassificacao = !!criativo.classificacao;
                           return (
-                            <button
+                            <CardCriativoBtn
                               key={criativo.id}
-                              onClick={() => toggleCriativo(conjunto.id, criativo.id)}
-                              title={criativo.classificacao?.resumo ?? criativo.nome}
-                              className={cn(
-                                'relative aspect-square rounded-lg border-2 overflow-hidden transition-all group',
-                                selecionado
-                                  ? 'border-[#1e3a5f] ring-2 ring-[#1e3a5f]/20'
-                                  : 'border-gray-200 hover:border-gray-300',
-                              )}
-                            >
-                              {criativo.url_preview ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img
-                                  src={criativo.url_preview}
-                                  alt={criativo.nome}
-                                  className="w-full h-full object-cover"
-                                  onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                                />
-                              ) : null}
-                              {!criativo.url_preview && (
-                                <div className="w-full h-full bg-gray-100 flex items-center justify-center">
-                                  {criativo.tipo === 'video'
-                                    ? <Video size={20} className="text-gray-400" />
-                                    : <ImageIcon size={20} className="text-gray-400" />
-                                  }
-                                </div>
-                              )}
-
-                              {/* Score badge — topo direito */}
-                              {temClassificacao && (
-                                <div className={cn(
-                                  'absolute top-1 right-1 text-[9px] font-bold px-1 py-0.5 rounded',
-                                  score >= 7 ? 'bg-green-500 text-white'
-                                  : score >= 4 ? 'bg-yellow-400 text-yellow-900'
-                                  : 'bg-gray-200 text-gray-600',
-                                )}>
-                                  {score}/10
-                                </div>
-                              )}
-
-                              {/* Botão preview vídeo */}
-                              {criativo.tipo === 'video' && (
-                                <button
-                                  onClick={e => { e.stopPropagation(); abrirPreview(criativo); }}
-                                  className="absolute top-1 left-1 p-1 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                                >
-                                  <Eye size={10} className="text-white" />
-                                </button>
-                              )}
-
-                              {/* Overlay aprovado */}
-                              {selecionado && (
-                                <div className="absolute inset-0 bg-[#1e3a5f]/30 flex items-center justify-center">
-                                  <CheckCircle size={20} className="text-white drop-shadow" />
-                                </div>
-                              )}
-
-                              {/* Nome + tipo na parte de baixo */}
-                              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1">
-                                <p className="text-[9px] text-white truncate leading-tight">{criativo.nome}</p>
-                                {criativo.classificacao && (
-                                  <p className="text-[8px] text-white/70 truncate capitalize">
-                                    {criativo.classificacao.tipo_conteudo} · {criativo.classificacao.tom}
-                                  </p>
-                                )}
-                              </div>
-                            </button>
+                              criativo={criativo}
+                              selecionado={selecionado}
+                              score={score}
+                              temClassificacao={temClassificacao}
+                              onToggle={() => toggleCriativo(conjunto.id, criativo.id)}
+                              onPreview={() => abrirPreview(criativo)}
+                            />
                           );
                       })}
                     </div>
