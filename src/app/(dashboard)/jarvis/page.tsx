@@ -50,11 +50,7 @@ const CATEGORIAS = [
 /* ─── Componente ─────────────────────────────────────────────────────────── */
 
 export default function JarvisPage() {
-  const [mensagens, setMensagens]     = useState<Mensagem[]>([{
-    role:      'assistant',
-    content:   'Olá! Sou o **JARVIS**, motor de inteligência do VEXX CRM.\n\nPosso analisar campanhas, criar estratégias, gerar copies e identificar oportunidades. Como posso ajudar?',
-    timestamp: new Date(),
-  }]);
+  const [mensagens, setMensagens]     = useState<Mensagem[]>([]);
   const [input, setInput]             = useState('');
   const [carregando, setCarregando]   = useState(false);
 
@@ -79,6 +75,15 @@ export default function JarvisPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef       = useRef<HTMLTextAreaElement>(null);
   const { accessToken } = useAuthStore();
+
+  // Mensagem de boas-vindas só no cliente (evita hydration mismatch com new Date())
+  useEffect(() => {
+    setMensagens([{
+      role:      'assistant',
+      content:   'Olá! Sou o **JARVIS**, motor de inteligência do VEXX CRM.\n\nPosso analisar campanhas, criar estratégias, gerar copies e identificar oportunidades. Como posso ajudar?',
+      timestamp: new Date(),
+    }]);
+  }, []);
 
   useEffect(() => {
     // Verificar se já tem key configurada
