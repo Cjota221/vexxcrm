@@ -70,13 +70,41 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ catalog_id: catalogId, products, total: products.length });
     }
 
-    // Listar todos os catálogos da conta
+    // Listar todos os catálogos via Business Manager
+    // Catálogos pertencem ao Business, não diretamente à conta de anúncios.
+    // Fluxo: act_XXXX → business.id → owned_product_catalogs
     if (!accountId) {
       return NextResponse.json({ error: 'meta_ad_account_id não configurado' }, { status: 400 });
     }
 
+    // 1. Buscar o business_id vinculado à conta de anúncios
+    const accountRes = await fetch(
+      `${META_BASE}/${accountId}?fields=business&access_token=${token}`
+    );
+    const accountData = await accountRes.json() as {
+      business?: { id: string; name?: string };
+      error?: { message?: string };
+    };
+
+    if (!accountData.business?.id) {
+      // Sem Business Manager — tentar via /me/businesses como fallback
+      const meRes = await fetch(`${META_BASE}/me/businesses?fields=id,name,owned_product_catalogs{id,name,product_count,feed_count,vertical}&access_token=${token}`);
+      if (!meRes.ok) {
+        const err = await meRes.json().catch(() => ({})) as { error?: { message?: string } };
+        return NextResponse.json({ error: err.error?.message || 'Nenhum Business Manager encontrado para esta conta' }, { status: 400 });
+      }
+      const meData = await meRes.json() as {
+        data: Array<{ id: string; name: string; owned_product_catalogs?: { data: Array<{ id: string; name: string; product_count?: number; feed_count?: number; vertical?: string }> } }>;
+      };
+      const allCatalogs = (meData.data || []).flatMap(b => b.owned_product_catalogs?.data || []);
+      return NextResponse.json({ catalogs: allCatalogs.map(c => ({ id: c.id, nome: c.name, total_produtos: c.product_count || 0, total_feeds: c.feed_count || 0, vertical: c.vertical || 'commerce' })) });
+    }
+
+    const businessId = accountData.business.id;
+
+    // 2. Listar catálogos do Business
     const res = await fetch(
-      `${META_BASE}/${accountId}/product_catalogs` +
+      `${META_BASE}/${businessId}/owned_product_catalogs` +
       `?fields=id,name,product_count,feed_count,vertical&access_token=${token}`
     );
 
