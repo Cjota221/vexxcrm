@@ -182,7 +182,7 @@ async function criarAdset(
     daily_budget:      String(cfg.orcamentoDiario),
     optimization_goal: tipoCfg.optimization_goal,
     billing_event:     tipoCfg.billing_event,
-    bid_strategy:      'LOWEST_COST_WITHOUT_BID_CAP',  // sobrescreve padrão da conta (BID_CAP/ROAS)
+    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',  // sobrescreve padrão da conta (BID_CAP/ROAS)
     targeting: {
       ...(cfg.targetingCompleto ?? {
         age_min:       cfg.idadeMin,
@@ -682,7 +682,7 @@ export async function criarCampanhaMultiplosConjuntos(
       daily_budget: String(conjunto.orcamentoDiario),
       optimization_goal: conjunto.tipo === 'frio' ? 'REACH' : 'LINK_CLICKS',
       billing_event: 'IMPRESSIONS',
-      bid_strategy: 'LOWEST_COST_WITHOUT_BID_CAP',
+      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
       targeting: {
         ...targetingCompleto,
         targeting_automation: { advantage_audience: 0 },
@@ -794,7 +794,7 @@ export async function criarCampanhaCatalogo(
     daily_budget:      String(cfg.orcamentoDiario),
     optimization_goal: 'OFFSITE_CONVERSIONS',
     billing_event:     'IMPRESSIONS',
-    bid_strategy:      'LOWEST_COST_WITHOUT_BID_CAP',
+    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
     promoted_object: {
       product_catalog_id: cfg.catalogoId,
       product_set_id:     productSetId,
