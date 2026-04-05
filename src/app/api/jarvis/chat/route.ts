@@ -174,7 +174,7 @@ async function executarTool(
       .gte('created_at', String(input.data_inicio))
       .lte('created_at', `${String(input.data_fim)}T23:59:59`)
       .order('created_at', { ascending: false })
-      .limit((input.limite as number) || 100);
+      .limit((input.limite as number) || 20);
 
     const total_faturamento = data?.reduce((sum, o) => sum + ((o.total as number) || 0), 0) ?? 0;
     const ticket_medio = data?.length ? total_faturamento / data.length : 0;
@@ -192,7 +192,7 @@ async function executarTool(
       .from('clients')
       .select('id, name, phone, email, created_at, tags, source')
       .eq('tenant_id', tenantId)
-      .limit((input.limite as number) || 50);
+      .limit((input.limite as number) || 20);
 
     if (input.filtro === 'vip')         query = query.contains('tags', ['vip']);
     if (input.filtro === 'risco_churn') query = query.contains('tags', ['risco_churn']);
@@ -222,7 +222,7 @@ async function executarTool(
       .eq('tenant_id', tenantId)
       .gte('created_at', since)
       .order('created_at', { ascending: false })
-      .limit(200);
+      .limit(50);
 
     if (input.data_fim) query = query.lte('created_at', `${String(input.data_fim)}T23:59:59`);
     if (input.intent)   query = query.eq('intent', String(input.intent));
@@ -339,7 +339,7 @@ async function chamarAnthropic(
     },
     body: JSON.stringify({
       model:      'claude-sonnet-4-6',
-      max_tokens: 4096,
+      max_tokens: 1024,
       system:     systemPrompt,
       tools:      TOOLS,
       messages,
@@ -421,7 +421,8 @@ Você tem acesso a tools que buscam dados reais do VEXX CRM.
 Sempre que o usuário pedir uma análise, use as tools para buscar dados reais antes de responder.
 Quando pedir para criar campanha, você executa.
 Você é direto, estratégico e fala português brasileiro.
-Você nunca diz "não posso" — você encontra uma forma.${knowledgeBlock}`;
+Você nunca diz "não posso" — você encontra uma forma.
+Seja conciso. Máximo 3 parágrafos por resposta. Use bullet points. Vá direto ao ponto.${knowledgeBlock}`;
 
   try {
     // Montar histórico de mensagens
