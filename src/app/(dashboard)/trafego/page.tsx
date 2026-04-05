@@ -1308,6 +1308,8 @@ interface IAPublico {
   copy_sugerido?: { headline: string; texto: string; cta: string };
   estrategia?: string;
   erro?: string;
+  meta_audience_id?: string;
+  targeting?: Record<string, unknown>;
 }
 
 // Públicos pré-configurados CJ Rasteirinhas
@@ -1465,6 +1467,9 @@ function PublicosTab() {
   const [criandoComIA, setCriandoComIA] = useState(false);
   const [iaStep, setIaStep] = useState<IALoadingStep>(null);
   const [iaAnaliseResumo, setIaAnaliseResumo] = useState<string | null>(null);
+
+  // Modal de detalhes
+  const [modalPublico, setModalPublico] = useState<IAPublico | null>(null);
 
   // Criação manual de público
   const [formManual, setFormManual] = useState(false);
@@ -1768,14 +1773,22 @@ function PublicosTab() {
                       <div className="text-xs text-red-500 mt-1">⚠ {p.erro}</div>
                     )}
                   </div>
-                  <span className={cn(
-                    'text-xs px-2 py-0.5 rounded-full font-medium shrink-0',
-                    p.status === 'pronto' ? 'bg-green-50 text-green-700' :
-                    p.status === 'falhou' ? 'bg-red-50 text-red-600' :
-                    'bg-gray-100 text-gray-500'
-                  )}>
-                    {p.status === 'pronto' ? 'Pronto' : p.status === 'falhou' ? 'Falhou' : p.status}
-                  </span>
+                  <div className="flex flex-col items-end gap-1.5 shrink-0">
+                    <span className={cn(
+                      'text-xs px-2 py-0.5 rounded-full font-medium',
+                      p.status === 'pronto' ? 'bg-green-50 text-green-700' :
+                      p.status === 'falhou' ? 'bg-red-50 text-red-600' :
+                      'bg-gray-100 text-gray-500'
+                    )}>
+                      {p.status === 'pronto' ? 'Pronto' : p.status === 'falhou' ? 'Falhou' : p.status}
+                    </span>
+                    <button
+                      onClick={() => setModalPublico(p)}
+                      className="text-xs text-crm-primary hover:underline font-medium"
+                    >
+                      Ver detalhes
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -1839,6 +1852,126 @@ function PublicosTab() {
       )}
 
       {/* Sugestões estáticas CJ como referência (só se não houver públicos IA) */}
+      {/* Modal de detalhes do público */}
+      {modalPublico && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+          onClick={() => setModalPublico(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between p-5 border-b border-gray-100">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="font-bold text-gray-900">{modalPublico.nome}</h3>
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 font-medium">
+                    {modalPublico.tipo === 'remarketing' ? '🔄 Remarketing' : modalPublico.tipo === 'lookalike' ? '👥 Lookalike' : '🎯 Interesse'}
+                  </span>
+                </div>
+                {modalPublico.descricao && (
+                  <p className="text-sm text-gray-500 mt-1">{modalPublico.descricao}</p>
+                )}
+              </div>
+              <button onClick={() => setModalPublico(null)} className="text-gray-400 hover:text-gray-600 ml-3 shrink-0 text-xl leading-none">✕</button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {/* Alcance estimado */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <p className="text-xs text-gray-400 mb-0.5">Alcance estimado</p>
+                  <p className="font-semibold text-gray-800 text-sm">
+                    {formatTamanhoEstimado(modalPublico.estimativa_alcance_min, modalPublico.estimativa_alcance_max, modalPublico.tamanho_estimado)}
+                  </p>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <p className="text-xs text-gray-400 mb-0.5">Criado em</p>
+                  <p className="font-semibold text-gray-800 text-sm">
+                    {new Date(modalPublico.created_at).toLocaleDateString('pt-BR')}
+                  </p>
+                </div>
+              </div>
+
+              {/* Meta Audience ID */}
+              {modalPublico.meta_audience_id && (
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
+                  <p className="text-xs text-blue-500 font-medium mb-1">ID no Meta Ads</p>
+                  <p className="font-mono text-xs text-blue-700 break-all">{modalPublico.meta_audience_id}</p>
+                </div>
+              )}
+
+              {/* Justificativa do José */}
+              {modalPublico.jose_justificativa && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                    💡 Análise do José
+                  </p>
+                  <p className="text-sm text-gray-700 bg-amber-50 border border-amber-100 rounded-xl p-3">
+                    {modalPublico.jose_justificativa}
+                  </p>
+                </div>
+              )}
+
+              {/* Estratégia */}
+              {modalPublico.estrategia && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Estratégia</p>
+                  <p className="text-sm text-gray-600">{modalPublico.estrategia}</p>
+                </div>
+              )}
+
+              {/* Copy do Cláudio */}
+              {(modalPublico.claudio_copy || modalPublico.copy_sugerido) && (() => {
+                const copy = modalPublico.claudio_copy || modalPublico.copy_sugerido!;
+                return (
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                      ✍️ Copy sugerido pelo Cláudio
+                    </p>
+                    <div className="bg-gray-50 rounded-xl border border-gray-100 p-3 space-y-1.5 text-sm">
+                      <div><span className="font-medium text-gray-700">Headline:</span> <span className="text-gray-600">{copy.headline}</span></div>
+                      <div><span className="font-medium text-gray-700">Texto:</span> <span className="text-gray-600">{copy.texto}</span></div>
+                      <div><span className="font-medium text-gray-700">CTA:</span> <span className="text-gray-600">{copy.cta}</span></div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Targeting JSON */}
+              {modalPublico.targeting && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Targeting completo</p>
+                  <pre className="bg-gray-900 text-green-400 text-[11px] rounded-xl p-3 overflow-x-auto">
+                    {JSON.stringify(modalPublico.targeting, null, 2)}
+                  </pre>
+                </div>
+              )}
+
+              {/* Botão usar no agente */}
+              {modalPublico.meta_audience_id && (
+                <button
+                  onClick={() => {
+                    sessionStorage.setItem('agente_publico_ia', JSON.stringify({
+                      id: modalPublico.meta_audience_id,
+                      nome: modalPublico.nome,
+                      tipo: modalPublico.tipo,
+                    }));
+                    setModalPublico(null);
+                    alert(`Público "${modalPublico.nome}" selecionado. Abra a aba Agente e ele aparecerá como opção.`);
+                  }}
+                  className="w-full py-2.5 bg-[#1e3a5f] text-white text-sm font-medium rounded-xl hover:bg-[#16304f] transition-colors"
+                >
+                  Usar este público no próximo agente
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {!loading && iaPublicos.length === 0 && (
         <div className="space-y-3">
           <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Sugestões para CJ Rasteirinhas</h3>

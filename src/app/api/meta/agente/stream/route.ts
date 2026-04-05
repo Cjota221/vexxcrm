@@ -50,6 +50,12 @@ export async function GET(req: NextRequest) {
   const nome       = url.searchParams.get('nome') || `Agente ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`;
   const catalogoId = url.searchParams.get('catalogoId') ?? '';
   const conjuntosRaw = url.searchParams.get('conjuntos') ?? '';
+  // Públicos IA por tipo: {"frio": "audience_id", "quente": "audience_id"}
+  let audienciasPorTipo: Partial<Record<TipoCampanha, string>> = {};
+  try {
+    const raw = url.searchParams.get('audiencias');
+    if (raw) audienciasPorTipo = JSON.parse(raw);
+  } catch { /* ignora */ }
 
   const encoder = new TextEncoder();
 
@@ -346,6 +352,7 @@ export async function GET(req: NextRequest) {
                 idadeMin:        18,
                 idadeMax:        65,
                 criativo:        cfgCriativo,
+                publico_meta_id: audienciasPorTipo[tipo],
               });
 
               const { error: draftInsertError } = await supabase

@@ -13,6 +13,16 @@ import { cn } from '@/lib/utils';
 
 /* ─── Tipos ──────────────────────────────────────────────────────────────── */
 
+interface IAPublicoPicker {
+  id: string;
+  nome: string;
+  tipo: string;
+  meta_audience_id?: string;
+  tamanho_estimado?: string;
+  estimativa_alcance_min?: number;
+  estimativa_alcance_max?: number;
+}
+
 interface Step {
   id: string;
   status: 'pending' | 'running' | 'ok' | 'error';
@@ -80,6 +90,10 @@ export function AgenteTrafegoPanel() {
   const [done, setDone]             = useState<DoneEvent | null>(null);
   const esRef                       = useRef<EventSource | null>(null);
 
+  // Públicos IA disponíveis
+  const [publicosIA, setPublicosIA]           = useState<IAPublicoPicker[]>([]);
+  const [audienciasPorTipo, setAudienciasPorTipo] = useState<Partial<Record<TipoCampanha, string>>>({});
+
   // Modo avançado (múltiplos conjuntos)
   const [modoAvancado, setModoAvancado] = useState(false);
   const [conjuntos, setConjuntos]       = useState<Conjunto[]>([
@@ -111,6 +125,27 @@ export function AgenteTrafegoPanel() {
     if (modoAvancado && criativos.length === 0) fetchCriativos();
   }, [modoAvancado, criativos.length, fetchCriativos]);
 
+  // Carregar públicos IA + ler seleção prévia do sessionStorage
+  useEffect(() => {
+    const accessToken = useAuthStore.getState().accessToken ?? '';
+    fetch('/api/ai-team/create-audiences', { headers: { Authorization: `Bearer ${accessToken}` } })
+      .then(r => r.json())
+      .then((d: { publicos?: IAPublicoPicker[] }) => {
+        const lista = (d.publicos ?? []).filter(p => p.meta_audience_id);
+        setPublicosIA(lista);
+        // Ler seleção prévia gravada na aba Públicos
+        try {
+          const saved = sessionStorage.getItem('agente_publico_ia');
+          if (saved) {
+            const { id, tipo } = JSON.parse(saved) as { id: string; tipo: string };
+            const tipoMapped = tipo === 'remarketing' ? 'quente' : 'frio';
+            setAudienciasPorTipo({ [tipoMapped as TipoCampanha]: id });
+          }
+        } catch { /* ignora */ }
+      })
+      .catch(() => {});
+  }, []);
+
   function calcOrc(tipo: TipoCampanha): number {
     const totalPeso = tipos.reduce((a, t) => a + PESOS[t], 0);
     return Math.round((orcamento * PESOS[tipo]) / totalPeso);
@@ -129,6 +164,10 @@ export function AgenteTrafegoPanel() {
 
   function toggleTipo(tipo: TipoCampanha) {
     setTipos(prev => prev.includes(tipo) ? prev.filter(t => t !== tipo) : [...prev, tipo]);
+  }
+
+  function setAudiencia(tipo: TipoCampanha, audienceId: string) {
+    setAudienciasPorTipo(prev => ({ ...prev, [tipo]: audienceId || undefined }));
   }
 
   function adicionarConjunto() {
@@ -184,6 +223,12 @@ export function AgenteTrafegoPanel() {
       nome:       nomeBase,
       catalogoId,
     });
+
+    // Públicos IA selecionados por tipo
+    const audienciasAtivas = Object.entries(audienciasPorTipo).filter(([, v]) => v);
+    if (audienciasAtivas.length > 0) {
+      params.set('audiencias', JSON.stringify(Object.fromEntries(audienciasAtivas)));
+    }
 
     if (modoAvancado) {
       // Modo avançado: enviar conjuntos como JSON
@@ -300,31 +345,61 @@ export function AgenteTrafegoPanel() {
               {(Object.entries(TIPOS_CONFIG) as [TipoCampanha, typeof TIPOS_CONFIG[TipoCampanha]][]).map(([tipo, cfg]) => {
                 const ativo = tipos.includes(tipo);
                 const Icon = cfg.icon;
+                // Públicos IA compatíveis com este tipo
+                const publicosCompativeis = publicosIA.filter(p => {
+                  if (tipo === 'quente') return p.tipo === 'remarketing' || p.tipo === 'engagement';
+                  if (tipo === 'frio')   return p.tipo === 'interesse' || p.tipo === 'interest';
+                  return false;
+                });
+                const audienciaSelecionada = audienciasPorTipo[tipo];
                 return (
-                  <button key={tipo} onClick={() => toggleTipo(tipo)}
-                    className={cn(
-                      'w-full flex items-center justify-between p-3 rounded-xl border transition-all text-left',
-                      ativo ? 'border-[#1e3a5f] bg-[#1e3a5f]/5' : 'border-gray-200 hover:border-gray-300',
-                    )}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <div className={cn(
-                        'w-8 h-8 rounded-lg flex items-center justify-center',
-                        ativo ? 'bg-[#1e3a5f] text-white' : 'bg-gray-100 text-gray-400',
-                      )}>
-                        <Icon size={14} />
+                  <div key={tipo}>
+                    <button onClick={() => toggleTipo(tipo)}
+                      className={cn(
+                        'w-full flex items-center justify-between p-3 rounded-xl border transition-all text-left',
+                        ativo ? 'border-[#1e3a5f] bg-[#1e3a5f]/5' : 'border-gray-200 hover:border-gray-300',
+                      )}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className={cn(
+                          'w-8 h-8 rounded-lg flex items-center justify-center',
+                          ativo ? 'bg-[#1e3a5f] text-white' : 'bg-gray-100 text-gray-400',
+                        )}>
+                          <Icon size={14} />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">{cfg.label}</p>
+                          <p className="text-xs text-gray-400">{cfg.desc}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-700">{cfg.label}</p>
-                        <p className="text-xs text-gray-400">{cfg.desc}</p>
+                      {ativo && (
+                        <span className="text-sm font-medium text-[#1e3a5f] shrink-0">
+                          R${calcOrc(tipo)}/dia
+                        </span>
+                      )}
+                    </button>
+                    {/* Seletor de público IA (só tipos com públicos disponíveis e ativo) */}
+                    {ativo && publicosCompativeis.length > 0 && (
+                      <div className="mt-1 ml-3 pl-3 border-l-2 border-[#1e3a5f]/20">
+                        <p className="text-[10px] text-gray-400 mb-1">Público para este tipo:</p>
+                        <select
+                          value={audienciaSelecionada ?? ''}
+                          onChange={e => setAudiencia(tipo, e.target.value)}
+                          className="w-full text-xs px-2.5 py-1.5 border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-[#1e3a5f]/30"
+                        >
+                          <option value="">🤖 Agente cria targeting do zero</option>
+                          {publicosCompativeis.map(p => (
+                            <option key={p.meta_audience_id} value={p.meta_audience_id}>
+                              👥 {p.nome}
+                            </option>
+                          ))}
+                        </select>
+                        {audienciaSelecionada && (
+                          <p className="text-[10px] text-green-600 mt-0.5">✓ Público da IA será usado neste conjunto</p>
+                        )}
                       </div>
-                    </div>
-                    {ativo && (
-                      <span className="text-sm font-medium text-[#1e3a5f] shrink-0">
-                        R${calcOrc(tipo)}/dia
-                      </span>
                     )}
-                  </button>
+                  </div>
                 );
               })}
             </div>

@@ -488,6 +488,8 @@ export interface ConfigCampanhaCompleta {
   genero?: 'all' | 'male' | 'female';
   interesses?: InteresseTargeting[];
   criativo: ConfiguracaoCriativo;
+  /** ID de público salvo no Meta — ignora targeting automático quando fornecido */
+  publico_meta_id?: string;
 }
 
 const TIPO_OBJETIVO: Record<TipoCampanha, ConfiguracaoAdset['objetivo']> = {
@@ -516,7 +518,15 @@ export async function criarCampanhaCompleta(
 
   // Montar targeting de alta performance para cada tipo de campanha
   let targetingCompleto: Record<string, unknown>;
-  if (cfg.tipo === 'frio') {
+  if (cfg.publico_meta_id) {
+    // Público IA selecionado manualmente — usa direto, sem criar targeting automático
+    targetingCompleto = {
+      age_min: cfg.idadeMin ?? 18,
+      age_max: cfg.idadeMax ?? 65,
+      geo_locations: { countries: cfg.paises ?? ['BR'] },
+      custom_audiences: [{ id: cfg.publico_meta_id }],
+    };
+  } else if (cfg.tipo === 'frio') {
     const interesses = await buscarInteressesAtacado(token);
     targetingCompleto = targetingFrio(interesses);
   } else if (cfg.tipo === 'quente') {
