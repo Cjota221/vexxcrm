@@ -16,8 +16,8 @@ export const CONHECIMENTO_INICIAL: KnowledgeSeed[] = [
       Rede de franquias digitais: C4 Franquias.
       CRM utilizado: VEXX CRM v2.0.
       Integração principal: FacilZap (ERP), Evolution API (WhatsApp).
-      Meta Ads: conta act_1244920119465862, página 101337882545607.
-      Pixel CJ: 518376893062766.
+      Meta Ads: conta e página configuradas no painel de integrações.
+      Pixel configurado no painel de tráfego pago.
     `.trim(),
   },
   {
