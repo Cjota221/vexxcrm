@@ -183,13 +183,10 @@ async function criarAdset(
     optimization_goal: tipoCfg.optimization_goal,
     billing_event:     tipoCfg.billing_event,
     bid_strategy:      'LOWEST_COST_WITHOUT_CAP',  // sobrescreve padrão da conta (BID_CAP/ROAS)
-    targeting: {
-      ...(cfg.targetingCompleto ?? {
-        age_min:       cfg.idadeMin,
-        age_max:       cfg.idadeMax,
-        geo_locations: { countries: cfg.paises },
-      }),
-      targeting_automation: { advantage_audience: 0 },
+    targeting: cfg.targetingCompleto ?? {
+      age_min:       cfg.idadeMin,
+      age_max:       cfg.idadeMax,
+      geo_locations: { countries: cfg.paises },
     },
     status: 'PAUSED',
   };
@@ -685,10 +682,7 @@ export async function criarCampanhaMultiplosConjuntos(
       optimization_goal: conjunto.tipo === 'frio' ? 'REACH' : 'LINK_CLICKS',
       billing_event: conjunto.tipo === 'frio' ? 'IMPRESSIONS' : 'LINK_CLICKS',
       bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
-      targeting: {
-        ...targetingCompleto,
-        targeting_automation: { advantage_audience: 0 },
-      },
+      targeting: targetingCompleto,
       status: 'PAUSED',
     }, token);
     if (!adset.id) throw new Error(`Erro adset ${tipoLabel}: ${adset.error?.message}`);
