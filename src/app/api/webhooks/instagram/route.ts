@@ -174,7 +174,7 @@ async function processInstagramMessage(
 
         // Tentativa 1: buscar perfil diretamente pelo IGSID
         const profileRes = await fetch(
-          `https://graph.facebook.com/v19.0/${igUserId}?fields=name,first_name,last_name,profile_pic&access_token=${token}`,
+          `https://graph.facebook.com/v21.0/${igUserId}?fields=name,first_name,last_name,profile_pic&access_token=${token}`,
           { signal: AbortSignal.timeout(5000) }
         );
         const profile = await profileRes.json() as {
@@ -195,7 +195,7 @@ async function processInstagramMessage(
           // Tentativa 2: buscar via endpoint de conversas (pageId = IG Business Account ID)
           try {
             const convRes = await fetch(
-              `https://graph.facebook.com/v19.0/${pageId}/conversations?platform=instagram&user_id=${igUserId}&fields=participants&access_token=${token}`,
+              `https://graph.facebook.com/v21.0/${pageId}/conversations?platform=instagram&user_id=${igUserId}&fields=participants&access_token=${token}`,
               { signal: AbortSignal.timeout(5000) }
             );
             const convData = await convRes.json() as {

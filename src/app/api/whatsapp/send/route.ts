@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
       // Usar meta_instagram_id em vez de /me — /me não funciona com user access token
       const igAccountId = metaCfg?.meta_instagram_id || 'me';
       const igRes = await fetch(
-        `https://graph.facebook.com/v19.0/${igAccountId}/messages?access_token=${pageToken}`,
+        `https://graph.facebook.com/v21.0/${igAccountId}/messages?access_token=${pageToken}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

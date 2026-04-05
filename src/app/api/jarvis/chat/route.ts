@@ -319,19 +319,26 @@ async function executarTool(
 
   if (toolName === 'criar_campanha') {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
-    const res = await fetch(`${appUrl}/api/meta/agente/stream`, {
+    const instrucao = [
+      input.nome ? `Nome: ${input.nome}.` : '',
+      input.tipo ? `Tipo: ${input.tipo}.` : '',
+      input.orcamento_diario_reais ? `Orçamento diário: R$ ${input.orcamento_diario_reais}.` : '',
+    ].filter(Boolean).join(' ') || 'Criar campanha com configurações padrão.';
+
+    const res = await fetch(`${appUrl}/api/meta/agente`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-tenant-id': tenantId,
       },
-      body: JSON.stringify({
-        orcamento: input.orcamento_diario_reais,
-        tipos: [input.tipo],
-        nome: input.nome,
-      }),
+      body: JSON.stringify({ instrucao }),
     });
-    return { ok: res.ok, mensagem: 'Campanha criada e pausada para sua aprovação' };
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { error?: string };
+      return { ok: false, mensagem: err.error || 'Erro ao criar campanha' };
+    }
+    const data = await res.json() as { resumo?: string };
+    return { ok: true, mensagem: data.resumo || 'Campanha criada e pausada para sua aprovação' };
   }
 
   if (toolName === 'gerar_relatorio') {

@@ -138,7 +138,7 @@ async function criarCampanha(
     name:              nome,
     objective:         CONFIG_POR_TIPO[tipo].objetivo,
     status:            'PAUSED',
-    special_ad_categories: '[]',
+    special_ad_categories: [],
     is_adset_budget_sharing_enabled: false,
   }, token);
 
@@ -182,7 +182,7 @@ async function criarAdset(
     daily_budget:      String(cfg.orcamentoDiario),
     optimization_goal: tipoCfg.optimization_goal,
     billing_event:     tipoCfg.billing_event,
-    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',  // sobrescreve padrão da conta (BID_CAP/ROAS)
+    bid_strategy:      'LOWEST_COST_WITHOUT_BID_CAP',  // sobrescreve padrão da conta (BID_CAP/ROAS)
     targeting: {
       ...(cfg.targetingCompleto ?? {
         age_min:       cfg.idadeMin,
@@ -635,7 +635,7 @@ export async function criarCampanhaMultiplosConjuntos(
     name: cfg.nome,
     objective: objetivo,
     status: 'PAUSED',
-    special_ad_categories: '[]',
+    special_ad_categories: [],
     is_adset_budget_sharing_enabled: false,
   }, token);
   if (!campanha.id) throw new Error(`Erro campanha: ${campanha.error?.message}`);
@@ -682,7 +682,7 @@ export async function criarCampanhaMultiplosConjuntos(
       daily_budget: String(conjunto.orcamentoDiario),
       optimization_goal: conjunto.tipo === 'frio' ? 'REACH' : 'LINK_CLICKS',
       billing_event: 'IMPRESSIONS',
-      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+      bid_strategy: 'LOWEST_COST_WITHOUT_BID_CAP',
       targeting: {
         ...targetingCompleto,
         targeting_automation: { advantage_audience: 0 },
@@ -761,7 +761,7 @@ export async function criarCampanhaCatalogo(
     name:              cfg.nome,
     objective:         'OUTCOME_SALES',
     status:            'PAUSED',
-    special_ad_categories: '[]',
+    special_ad_categories: [],
     is_adset_budget_sharing_enabled: false,
   }, token);
   if (!campaignData.id) {
@@ -794,7 +794,7 @@ export async function criarCampanhaCatalogo(
     daily_budget:      String(cfg.orcamentoDiario),
     optimization_goal: 'OFFSITE_CONVERSIONS',
     billing_event:     'IMPRESSIONS',
-    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
+    bid_strategy:      'LOWEST_COST_WITHOUT_BID_CAP',
     promoted_object: {
       product_catalog_id: cfg.catalogoId,
       product_set_id:     productSetId,

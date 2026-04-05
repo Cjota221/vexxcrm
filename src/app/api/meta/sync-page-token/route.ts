@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     }
 
     const res = await fetch(
-      `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token,instagram_business_account&access_token=${config.meta_access_token}`,
+      `https://graph.facebook.com/v21.0/me/accounts?fields=id,name,access_token,instagram_business_account&access_token=${config.meta_access_token}`,
       { signal: AbortSignal.timeout(8000) }
     );
 

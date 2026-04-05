@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
     let pageTokenSalvo = false;
     try {
       const accountsRes = await fetch(
-        `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token,instagram_business_account&access_token=${body.access_token}`,
+        `https://graph.facebook.com/v21.0/me/accounts?fields=id,name,access_token,instagram_business_account&access_token=${body.access_token}`,
         { signal: AbortSignal.timeout(8000) }
       );
       if (accountsRes.ok) {

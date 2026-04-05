@@ -4,7 +4,7 @@
 
 import { createServerSupabaseClient } from '@/lib/supabase';
 
-const META_TOKEN_DEBUG = 'https://graph.facebook.com/v19.0/debug_token';
+const META_TOKEN_DEBUG = 'https://graph.facebook.com/v21.0/debug_token';
 
 /* ─── Tipos ────────────────────────────────────────────────────────────────── */
 
