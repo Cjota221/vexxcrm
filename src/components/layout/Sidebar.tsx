@@ -20,6 +20,7 @@ import {
   BookOpen,
   UserX,
   Zap,
+  Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/store/ui';
@@ -40,6 +41,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Etiquetas',    href: '/etiquetas',   icon: <Tag size={20} /> },
   { label: 'Jarvis',       href: '/jarvis',      icon: <Zap size={20} /> },
   { label: 'Atendimento',  href: '/atendimento', icon: <Headset size={20} /> },
+  { label: 'Time de IAs',  href: '/time-ia',     icon: <Sparkles size={20} /> },
   { label: 'Tráfego Pago', href: '/trafego',     icon: <TrendingUp size={20} /> },
   { label: 'Social Mídia', href: '/social',      icon: <Share2 size={20} /> },
   { label: 'Catálogo',     href: '/catalog',     icon: <BookOpen size={20} /> },
