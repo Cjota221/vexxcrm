@@ -269,7 +269,7 @@ export default function JarvisPage() {
         </div>
 
         {/* ── COLUNA DIREITA — Chat (70%) ──────────────────────────────────── */}
-        <Card className="flex-1 flex flex-col overflow-hidden" style={{ height: 'calc(100vh - 200px)' }}>
+        <Card className="flex-1 flex flex-col overflow-hidden h-[calc(100vh-200px)]">
 
           {/* Header do chat */}
           <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3 shrink-0">
