@@ -670,6 +670,30 @@ function CardCriativo({
   onPreview: () => void;
 }) {
   const [confirmando, setConfirmando] = useState(false);
+  const [thumbUrl, setThumbUrl] = useState<string | null>(criativo.url_preview ?? null);
+  const [thumbFailed, setThumbFailed] = useState(false);
+
+  // Se não tem thumbnail ou ela expirou, busca fresca via API
+  useEffect(() => {
+    if (thumbUrl && !thumbFailed) return;
+    if (!criativo.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token ?? '';
+        const res = await fetch(`/api/meta/criativo-url?id=${criativo.id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok || cancelled) return;
+        const json = await res.json() as { url?: string; thumb?: string };
+        const fresh = json.thumb ?? json.url;
+        if (fresh && !cancelled) setThumbUrl(fresh);
+      } catch { /* silencioso */ }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [criativo.id, thumbFailed]);
 
   const statusIcon = {
     pronto:      <CheckCircle size={11} className="text-green-500" />,
@@ -698,11 +722,12 @@ function CardCriativo({
 
       {/* Thumbnail */}
       <div className="aspect-video bg-gray-100 relative">
-        {criativo.url_preview ? (
+        {thumbUrl && !thumbFailed ? (
           <img
-            src={criativo.url_preview}
+            src={thumbUrl}
             alt={criativo.nome}
             className="w-full h-full object-cover"
+            onError={() => setThumbFailed(true)}
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">

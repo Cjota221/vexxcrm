@@ -45,6 +45,15 @@ export async function GET(req: NextRequest) {
 
     const thumb = data.thumbnails?.data?.find(t => t.is_preferred)?.uri ?? data.thumbnails?.data?.[0]?.uri;
 
+    // Salva a thumbnail no banco para não buscar toda vez
+    if (thumb) {
+      supabase
+        .from('ad_creatives')
+        .update({ url_preview: thumb })
+        .eq('id', id)
+        .then(() => {/* background */});
+    }
+
     return NextResponse.json({ url: data.source ?? null, thumb: thumb ?? null });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
