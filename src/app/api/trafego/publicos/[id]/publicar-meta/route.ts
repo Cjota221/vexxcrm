@@ -12,8 +12,9 @@ import { criarLookalikeClientes } from '@/lib/services/meta-publicos-cj.service'
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
+  const params = await context.params;
   let tenantId: string;
   try {
     const auth = await getTenantFromRequest(req);

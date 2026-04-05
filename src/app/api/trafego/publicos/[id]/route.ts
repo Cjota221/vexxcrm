@@ -9,8 +9,9 @@ import { getTenantFromRequest } from '@/lib/auth-helpers';
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
+  const params = await context.params;
   let tenantId: string;
   try {
     const auth = await getTenantFromRequest(req);
