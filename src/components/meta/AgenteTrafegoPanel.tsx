@@ -6,7 +6,7 @@ import {
   Bot, DollarSign, Users, MessageCircle,
   TrendingUp, CheckCircle, XCircle, Loader2,
   Sparkles, ChevronRight, Play, AlertCircle, ShoppingBag,
-  Plus, Trash2, Image as ImageIcon, Video,
+  Plus, Trash2, Image as ImageIcon, Video, Eye, X,
 } from 'lucide-react';
 import type { TipoCampanha } from '@/lib/services/meta-adset-creator.service';
 import { cn } from '@/lib/utils';
@@ -113,6 +113,23 @@ export function AgenteTrafegoPanel() {
   ]);
   const [criativos, setCriativos]       = useState<CriativoDisponivel[]>([]);
   const [loadingCriativos, setLoadingCriativos] = useState(false);
+  const [previewCriativo, setPreviewCriativo]   = useState<{ id: string; nome: string; url: string | null } | null>(null);
+  const [loadingPreview, setLoadingPreview]     = useState(false);
+
+  async function abrirPreview(criativo: CriativoDisponivel) {
+    if (criativo.tipo !== 'video') return;
+    setLoadingPreview(true);
+    setPreviewCriativo({ id: criativo.id, nome: criativo.nome, url: null });
+    try {
+      const accessToken = useAuthStore.getState().accessToken ?? '';
+      const res = await fetch(`/api/meta/criativo-url?id=${criativo.id}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await res.json() as { url?: string | null };
+      setPreviewCriativo({ id: criativo.id, nome: criativo.nome, url: data.url ?? null });
+    } catch { /* mantém url null */ }
+    finally { setLoadingPreview(false); }
+  }
 
   // Buscar criativos quando entrar no modo avançado
   const fetchCriativos = useCallback(async () => {
@@ -577,6 +594,16 @@ export function AgenteTrafegoPanel() {
                                 </div>
                               )}
 
+                              {/* Botão preview vídeo */}
+                              {criativo.tipo === 'video' && (
+                                <button
+                                  onClick={e => { e.stopPropagation(); abrirPreview(criativo); }}
+                                  className="absolute top-1 left-1 p-1 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                                >
+                                  <Eye size={10} className="text-white" />
+                                </button>
+                              )}
+
                               {/* Overlay aprovado */}
                               {selecionado && (
                                 <div className="absolute inset-0 bg-[#1e3a5f]/30 flex items-center justify-center">
@@ -809,6 +836,33 @@ export function AgenteTrafegoPanel() {
       <button onClick={voltar} className="w-full py-2.5 border border-gray-200 text-gray-700 text-sm rounded-xl hover:bg-gray-50">
         Criar outra campanha
       </button>
+    </div>
+  );
+
+  /* ── Modal preview vídeo ─────────────────────────────────────────────── */
+  if (previewCriativo) return (
+    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => setPreviewCriativo(null)}>
+      <div className="relative w-full max-w-lg bg-black rounded-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-3 bg-black/60">
+          <p className="text-white text-xs truncate max-w-[80%]">{previewCriativo.nome}</p>
+          <button onClick={() => setPreviewCriativo(null)} className="text-white/70 hover:text-white">
+            <X size={18} />
+          </button>
+        </div>
+        {loadingPreview ? (
+          <div className="aspect-video flex items-center justify-center">
+            <Loader2 size={32} className="text-white animate-spin" />
+          </div>
+        ) : previewCriativo.url ? (
+          // eslint-disable-next-line jsx-a11y/media-has-caption
+          <video src={previewCriativo.url} controls autoPlay className="w-full aspect-video bg-black" />
+        ) : (
+          <div className="aspect-video flex flex-col items-center justify-center gap-2">
+            <Video size={32} className="text-white/40" />
+            <p className="text-white/50 text-xs">Vídeo não disponível para preview</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 
