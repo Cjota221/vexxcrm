@@ -48,6 +48,26 @@ export async function POST(req: NextRequest) {
       ? config.meta_ad_account_id : `act_${config.meta_ad_account_id}`;
     const pageId = body.page_id || config.meta_page_id;
 
+    // Resolver ad_id real — o frontend pode passar campaign_id em vez de ad_id
+    let realAdId = body.ad_id;
+    try {
+      const adsetRes = await fetch(
+        `${META_BASE}/${body.ad_id}/adsets?fields=id&limit=1&access_token=${token}`
+      );
+      if (adsetRes.ok) {
+        const adsetData = await adsetRes.json() as { data?: Array<{ id: string }> };
+        if (adsetData.data?.[0]?.id) {
+          const adRes = await fetch(
+            `${META_BASE}/${adsetData.data[0].id}/ads?fields=id&limit=1&access_token=${token}`
+          );
+          if (adRes.ok) {
+            const adData = await adRes.json() as { data?: Array<{ id: string }> };
+            if (adData.data?.[0]?.id) realAdId = adData.data[0].id;
+          }
+        }
+      }
+    } catch { /* usa o ad_id original como fallback */ }
+
     const linkData: Record<string, unknown> = {
       message: body.texto,
       link: body.url_destino,
@@ -77,7 +97,7 @@ export async function POST(req: NextRequest) {
     adParams.set('access_token', token);
     adParams.set('creative', JSON.stringify({ creative_id: creativeData.id }));
 
-    const adRes = await fetch(`${META_BASE}/${body.ad_id}`, {
+    const adRes = await fetch(`${META_BASE}/${realAdId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: adParams.toString(),

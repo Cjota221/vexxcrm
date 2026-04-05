@@ -1246,10 +1246,7 @@ function NovaCampanhaModal({ onClose, onCreated }: { onClose: () => void; onCrea
                   setVerificandoDup(true);
                   setAvisosDup([]);
                   try {
-                    const seteAtras = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-                    const res = await authFetch(
-                      `/api/trafego/metrics?campaign_name_filter=${encodeURIComponent(nome.trim())}&since=${seteAtras}`
-                    );
+                    const res = await authFetch(`/api/trafego/metrics?period=7d`);
                     if (res.ok) {
                       const dados = await res.json() as { campaigns?: Array<{ id: string; nome: string }> };
                       const iguais = (dados.campaigns ?? []).filter(
@@ -1601,6 +1598,7 @@ function PublicosTab() {
         });
         if (res.ok) {
           setIaPublicos(prev => prev.map(p => p.id === publico.id ? { ...p, status: 'pronto' } : p));
+          sessionStorage.setItem('agente_publico_ia', JSON.stringify({ id: publico.meta_audience_id || publico.id, tipo: publico.tipo }));
           setFormFeedback('✅ Pronto para usar no agente');
         } else {
           // Mesmo se a API falhar, marcar localmente
@@ -1881,7 +1879,7 @@ function PublicosTab() {
                     {/* Usar no agente */}
                     <button
                       onClick={() => {
-                        localStorage.setItem('agente_publico_selecionado', p.id);
+                        sessionStorage.setItem('agente_publico_ia', JSON.stringify({ id: p.meta_audience_id || p.id, tipo: p.tipo }));
                         setFormFeedback(`✅ Público "${p.nome}" selecionado — abra a aba Agente`);
                         setModalPublico(null);
                       }}
@@ -2093,7 +2091,7 @@ function PublicosTab() {
               {/* Botão usar no agente */}
               <button
                 onClick={() => {
-                  localStorage.setItem('agente_publico_selecionado', modalPublico.id);
+                  sessionStorage.setItem('agente_publico_ia', JSON.stringify({ id: modalPublico.meta_audience_id || modalPublico.id, tipo: modalPublico.tipo }));
                   setModalPublico(null);
                   setFormFeedback(`✅ Público "${modalPublico.nome}" selecionado — abra a aba Agente`);
                 }}
@@ -2673,6 +2671,13 @@ export default function TrafegoPage() {
   const [novaCampanhaOpen, setNovaCampanhaOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'all' | 'ACTIVE' | 'PAUSED' | 'WITH_ISSUES' | 'PENDING_REVIEW'>('all');
   const [showAddAccount, setShowAddAccount] = useState(false);
+  const [metaPageId, setMetaPageId] = useState('');
+  useEffect(() => {
+    authFetch('/api/trafego/config/page-id')
+      .then(r => r.json())
+      .then((d: { page_id?: string }) => { if (d.page_id) setMetaPageId(d.page_id); })
+      .catch(() => {});
+  }, []);
 
   const { accounts, activeAccount, setActiveAccount, addAccount, loading: accountsLoading } = useMetaAccounts();
 
@@ -3325,7 +3330,7 @@ export default function TrafegoPage() {
             {/* ── CRIADOR DE CAMPANHA ── */}
             {tab === 'campanhas' && (
               <div className="mt-6 pt-6 border-t border-gray-100">
-                <CriadorCampanha pageId="110009834520002" whatsappNumber="5562993044255" />
+                <CriadorCampanha pageId={metaPageId || '101337882545607'} whatsappNumber="5562981480687" />
               </div>
             )}
 

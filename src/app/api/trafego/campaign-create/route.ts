@@ -100,6 +100,9 @@ export async function POST(req: NextRequest) {
       ? config.meta_ad_account_id
       : `act_${config.meta_ad_account_id}`;
     const pageId = body.page_id || config.meta_page_id;
+    if (!pageId) {
+      return NextResponse.json({ error: 'Page ID não configurado. Configure em Tráfego → Configurações.' }, { status: 400 });
+    }
 
     const orcamentoCentavos = Math.round(body.orcamento_diario * 100);
 
@@ -148,9 +151,9 @@ export async function POST(req: NextRequest) {
       campaign_id: campaign.id,
       billing_event: 'IMPRESSIONS',
       optimization_goal: optimizationGoal,
-      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',  // sobrescreve padrão da conta (BID_CAP/ROAS)
       daily_budget: String(orcamentoCentavos),
       targeting,
+      targeting_automation: { advantage_audience: 0 },
       start_time: new Date(body.data_inicio).toISOString(),
       ...(body.data_fim ? { end_time: new Date(body.data_fim).toISOString() } : {}),
       status: 'PAUSED',
@@ -168,6 +171,9 @@ export async function POST(req: NextRequest) {
       },
     };
     if (body.criativo.image_url) linkData.picture = body.criativo.image_url;
+    else if (!body.criativo.image_url) {
+      console.warn('[campaign-create] Criativo sem imagem — pode ser rejeitado pela Meta API');
+    }
 
     const creative = await metaPost<{ id: string }>(`${META_BASE}/${accountId}/adcreatives`, {
       name: `${body.nome} — Criativo`,

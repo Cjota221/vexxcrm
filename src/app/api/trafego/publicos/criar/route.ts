@@ -49,21 +49,18 @@ async function estimarAlcance(
   try {
     const params = new URLSearchParams({
       targeting_spec: JSON.stringify(targeting),
-      optimization_goal: 'REACH',
+      optimization_goal: 'LINK_CLICKS',
       access_token: token,
     });
     const res = await fetch(
-      `${META_BASE}/act_${accountId.replace('act_', '')}/reachestimate?${params.toString()}`
+      `${META_BASE}/act_${accountId.replace('act_', '')}/delivery_estimate?${params.toString()}`
     );
     if (!res.ok) return null;
     const data = await res.json() as {
-      data?: { users_lower_bound: number; users_upper_bound: number };
-      users_lower_bound?: number;
-      users_upper_bound?: number;
+      data?: Array<{ daily_outcomes_curve?: Array<{ reach?: number }> }>;
     };
-    const lower = data.data?.users_lower_bound ?? data.users_lower_bound ?? 0;
-    const upper = data.data?.users_upper_bound ?? data.users_upper_bound ?? 0;
-    return lower > 0 ? { min: lower, max: upper } : null;
+    const reach = data.data?.[0]?.daily_outcomes_curve?.[0]?.reach ?? 0;
+    return reach > 0 ? { min: Math.round(reach * 0.8), max: Math.round(reach * 1.2) } : null;
   } catch {
     return null;
   }
@@ -143,11 +140,8 @@ export async function POST(req: NextRequest) {
       localizacao.length === 0
         ? { countries: ['BR'] }
         : localizacao[0].length === 2
-        ? { countries: localizacao } // código de país
-        : {
-            countries: ['BR'],
-            regions: localizacao.map((r) => ({ name: r })),
-          };
+        ? { countries: localizacao }
+        : { countries: ['BR'] }; // fallback seguro: estados por nome sem key não são aceitos
 
     // Montar targeting
     const targeting: Record<string, unknown> = {
