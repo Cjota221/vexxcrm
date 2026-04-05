@@ -691,8 +691,9 @@ export async function criarCampanhaMultiplosConjuntos(
       status: 'PAUSED',
     }, token);
     if (!adset.id) throw new Error(`Erro adset ${tipoLabel}: ${adset.error?.message}`);
+    const adsetId: string = adset.id;
 
-    // Criar ads em paralelo (lotes de 3) para caber no timeout do Netlify
+    // Criar ads em paralelo para caber no timeout do Netlify
     const errosCriativos: string[] = [];
     const adResults = await Promise.all(
       conjunto.criativos.map(async (criativo, idx) => {
@@ -711,7 +712,7 @@ export async function criarCampanhaMultiplosConjuntos(
           };
           const creativeId = await criarAdCreative(token, actId, cfgCriativo);
           const adName = `${cfg.nome} — ${tipoLabel} — Criativo ${idx + 1}`;
-          const adId = await criarAd(token, actId, adset.id, creativeId, adName);
+          const adId = await criarAd(token, actId, adsetId, creativeId, adName);
           return { adId, criativoNome: `Criativo ${idx + 1}` };
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
