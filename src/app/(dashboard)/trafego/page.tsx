@@ -40,6 +40,49 @@ interface CampaignAlert {
   acao?: string;
 }
 
+interface VideoMetrics {
+  p25: number;
+  p50: number;
+  p75: number;
+  p95: number;
+  p100: number;
+  thruplay: number;
+  avg_watch: number;
+  cost_per_thruplay: number;
+}
+
+interface DailyMetric {
+  date: string;
+  spend: number;
+  revenue: number;
+  leads: number;
+  clicks: number;
+  impressions: number;
+  reach: number;
+  cpc: number;
+  cpm: number;
+  ctr: number;
+  frequency: number;
+  roas: number;
+  cpl: number;
+}
+
+interface BreakdownRow {
+  segment: string;
+  spend: number;
+  revenue: number;
+  leads: number;
+  clicks: number;
+  impressions: number;
+  reach: number;
+  cpc: number;
+  cpm: number;
+  ctr: number;
+  frequency: number;
+  roas: number;
+  cpl: number;
+}
+
 interface Campaign {
   id: string;
   nome: string;
@@ -58,6 +101,8 @@ interface Campaign {
   roas: number;
   cpl: number;
   frequency: number;
+  landing_page_views?: number;
+  video?: VideoMetrics;
   orcamento_diario: number | null;
   date_start?: string;
   date_stop?: string;
@@ -287,6 +332,47 @@ function CampaignDetailPanel({
   const [swapCta, setSwapCta] = useState('LEARN_MORE');
   const [swapUrl, setSwapUrl] = useState('');
   const [swapImg, setSwapImg] = useState('');
+
+  // Daily history state
+  const [dailyData, setDailyData] = useState<DailyMetric[]>([]);
+  const [dailyLoading, setDailyLoading] = useState(false);
+  const [dailyLoaded, setDailyLoaded] = useState(false);
+  const [dailyMetric, setDailyMetric] = useState<'spend' | 'roas' | 'leads' | 'cpl'>('spend');
+
+  // Breakdown state
+  const [breakdownData, setBreakdownData] = useState<BreakdownRow[]>([]);
+  const [breakdownLoading, setBreakdownLoading] = useState(false);
+  const [breakdownLoaded, setBreakdownLoaded] = useState(false);
+  const [breakdownBy, setBreakdownBy] = useState<'publisher_platform' | 'age' | 'gender' | 'impression_device'>('publisher_platform');
+
+  async function loadDaily() {
+    if (dailyLoaded) return;
+    setDailyLoading(true);
+    try {
+      const res = await authFetch(`/api/trafego/metrics/daily?campaign_id=${campaign.id}`);
+      if (res.ok) {
+        const json = await res.json() as { days: DailyMetric[] };
+        setDailyData(json.days || []);
+        setDailyLoaded(true);
+      }
+    } catch { /* silencioso */ }
+    finally { setDailyLoading(false); }
+  }
+
+  async function loadBreakdown(by: typeof breakdownBy) {
+    setBreakdownBy(by);
+    setBreakdownLoading(true);
+    setBreakdownLoaded(false);
+    try {
+      const res = await authFetch(`/api/trafego/metrics/breakdown?campaign_id=${campaign.id}&by=${by}`);
+      if (res.ok) {
+        const json = await res.json() as { rows: BreakdownRow[] };
+        setBreakdownData(json.rows || []);
+        setBreakdownLoaded(true);
+      }
+    } catch { /* silencioso */ }
+    finally { setBreakdownLoading(false); }
+  }
 
   async function callEditor(body: Record<string, unknown>) {
     setActionLoading(true);
@@ -579,6 +665,206 @@ function CampaignDetailPanel({
               {formatDate(campaign.date_start)} — {campaign.date_stop ? formatDate(campaign.date_stop) : 'hoje'}
             </div>
           )}
+
+          {/* ─── Métricas de Vídeo ──────────────────────────────────────── */}
+          {campaign.video && campaign.video.p25 > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Retenção de vídeo</h3>
+              <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
+                {/* Barra de retenção */}
+                {([
+                  { label: '25%', value: campaign.video.p25, color: 'bg-blue-400' },
+                  { label: '50%', value: campaign.video.p50, color: 'bg-blue-500' },
+                  { label: '75%', value: campaign.video.p75, color: 'bg-violet-500' },
+                  { label: '95%', value: campaign.video.p95, color: 'bg-violet-600' },
+                  { label: '100%', value: campaign.video.p100, color: 'bg-green-500' },
+                ] as const).map(({ label, value, color }) => {
+                  const pct = campaign.video!.p25 > 0 ? Math.round((value / campaign.video!.p25) * 100) : 0;
+                  return (
+                    <div key={label} className="flex items-center gap-3">
+                      <span className="text-xs text-gray-500 w-8 text-right">{label}</span>
+                      <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div className={cn('h-full rounded-full', color)} style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="text-xs font-medium text-gray-700 w-12 text-right">{n0(value)}</span>
+                    </div>
+                  );
+                })}
+                <div className="grid grid-cols-3 gap-2 pt-1 border-t border-gray-200 mt-1">
+                  <div className="text-center">
+                    <div className="text-xs text-gray-500">ThruPlay</div>
+                    <div className="font-bold text-gray-900 text-sm">{n0(campaign.video.thruplay)}</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-xs text-gray-500">Tempo médio</div>
+                    <div className="font-bold text-gray-900 text-sm">{campaign.video.avg_watch.toFixed(1)}s</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-xs text-gray-500">Custo/ThruPlay</div>
+                    <div className="font-bold text-gray-900 text-sm">
+                      {campaign.video.cost_per_thruplay > 0 ? brl2(campaign.video.cost_per_thruplay) : '—'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ─── Histórico Diário ────────────────────────────────────────── */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Histórico dia a dia</h3>
+              {!dailyLoaded && (
+                <button onClick={loadDaily} disabled={dailyLoading}
+                  className="text-xs text-crm-primary hover:underline flex items-center gap-1">
+                  {dailyLoading ? <Loader2 size={11} className="animate-spin" /> : null}
+                  {dailyLoading ? 'Carregando...' : 'Ver gráfico'}
+                </button>
+              )}
+              {dailyLoaded && (
+                <button onClick={() => { setDailyLoaded(false); setDailyData([]); }}
+                  className="text-xs text-gray-400 hover:underline">Ocultar</button>
+              )}
+            </div>
+            {dailyLoaded && dailyData.length > 0 && (
+              <div className="bg-gray-50 rounded-2xl p-4">
+                {/* Seletor de métrica */}
+                <div className="flex gap-1 mb-3">
+                  {([
+                    { key: 'spend', label: 'Gasto' },
+                    { key: 'roas',  label: 'ROAS' },
+                    { key: 'leads', label: 'Leads' },
+                    { key: 'cpl',   label: 'CPL' },
+                  ] as const).map(({ key, label }) => (
+                    <button key={key} onClick={() => setDailyMetric(key)}
+                      className={cn('px-2 py-1 rounded-lg text-xs font-medium transition-all',
+                        dailyMetric === key ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-800')}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {/* Sparkline SVG */}
+                {(() => {
+                  const vals = dailyData.map(d => d[dailyMetric]);
+                  const max = Math.max(...vals, 0.01);
+                  const W = 340; const H = 60; const pad = 4;
+                  const points = vals.map((v, i) => {
+                    const x = pad + (i / Math.max(vals.length - 1, 1)) * (W - pad * 2);
+                    const y = H - pad - ((v / max) * (H - pad * 2));
+                    return `${x},${y}`;
+                  }).join(' ');
+                  const totalSpend = dailyData.reduce((s, d) => s + d.spend, 0);
+                  const totalLeads = dailyData.reduce((s, d) => s + d.leads, 0);
+                  const avgRoas = totalSpend > 0
+                    ? dailyData.reduce((s, d) => s + d.revenue, 0) / totalSpend
+                    : 0;
+                  return (
+                    <>
+                      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-16" preserveAspectRatio="none">
+                        <polyline fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinejoin="round" points={points} />
+                        {vals.map((v, i) => {
+                          const x = pad + (i / Math.max(vals.length - 1, 1)) * (W - pad * 2);
+                          const y = H - pad - ((v / max) * (H - pad * 2));
+                          return <circle key={i} cx={x} cy={y} r="3" fill="#3b82f6" />;
+                        })}
+                      </svg>
+                      <div className="flex justify-between text-xs text-gray-400 mt-1">
+                        <span>{dailyData[0]?.date ? formatDate(dailyData[0].date) : ''}</span>
+                        <span>{dailyData[dailyData.length - 1]?.date ? formatDate(dailyData[dailyData.length - 1].date) : ''}</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 mt-3 pt-2 border-t border-gray-200">
+                        <div className="text-center">
+                          <div className="text-xs text-gray-500">Gasto total</div>
+                          <div className="font-bold text-sm text-gray-900">{brl(totalSpend)}</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-xs text-gray-500">Leads total</div>
+                          <div className="font-bold text-sm text-gray-900">{n0(totalLeads)}</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-xs text-gray-500">ROAS médio</div>
+                          <div className="font-bold text-sm text-gray-900">{avgRoas.toFixed(1)}x</div>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+
+          {/* ─── Breakdown por Posicionamento / Público ─────────────────── */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Breakdown</h3>
+              {!breakdownLoaded && !breakdownLoading && (
+                <button onClick={() => loadBreakdown('publisher_platform')}
+                  className="text-xs text-crm-primary hover:underline">Ver por plataforma</button>
+              )}
+              {breakdownLoaded && (
+                <button onClick={() => { setBreakdownLoaded(false); setBreakdownData([]); }}
+                  className="text-xs text-gray-400 hover:underline">Ocultar</button>
+              )}
+            </div>
+            {(breakdownLoaded || breakdownLoading) && (
+              <div className="bg-gray-50 rounded-2xl p-4">
+                {/* Seletor de tipo de breakdown */}
+                <div className="flex flex-wrap gap-1 mb-3">
+                  {([
+                    { key: 'publisher_platform', label: 'Plataforma' },
+                    { key: 'age',                label: 'Idade' },
+                    { key: 'gender',             label: 'Gênero' },
+                    { key: 'impression_device',  label: 'Dispositivo' },
+                  ] as const).map(({ key, label }) => (
+                    <button key={key} onClick={() => loadBreakdown(key)}
+                      className={cn('px-2 py-1 rounded-lg text-xs font-medium transition-all',
+                        breakdownBy === key ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-800')}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {breakdownLoading ? (
+                  <div className="flex items-center justify-center py-4 text-gray-400 gap-2 text-sm">
+                    <Loader2 size={14} className="animate-spin" /> Carregando...
+                  </div>
+                ) : breakdownData.length === 0 ? (
+                  <p className="text-xs text-gray-400">Nenhum dado de segmentação encontrado.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {breakdownData.map((row) => {
+                      const totalSpendBd = breakdownData.reduce((s, r) => s + r.spend, 0);
+                      const pctSpend = totalSpendBd > 0 ? (row.spend / totalSpendBd) * 100 : 0;
+                      const segLabel: Record<string, string> = {
+                        facebook: 'Facebook', instagram: 'Instagram',
+                        messenger: 'Messenger', audience_network: 'Audience Network',
+                        male: 'Homens', female: 'Mulheres', unknown: 'Desconhecido',
+                        mobile_feed: 'Mobile Feed', desktop_feed: 'Desktop Feed',
+                        iphone: 'iPhone', android: 'Android', ipad: 'iPad',
+                      };
+                      const label = segLabel[row.segment] || row.segment;
+                      return (
+                        <div key={row.segment} className="space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-medium text-gray-800">{label}</span>
+                            <span className="text-gray-500">{brl(row.spend)} · {pctSpend.toFixed(0)}%</span>
+                          </div>
+                          <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                            <div className="h-full bg-blue-500 rounded-full" style={{ width: `${pctSpend}%` }} />
+                          </div>
+                          <div className="flex gap-3 text-xs text-gray-400">
+                            <span>CTR {pct(row.ctr)}</span>
+                            <span>CPM {brl2(row.cpm)}</span>
+                            {row.leads > 0 && <span>CPL {brl2(row.cpl)}</span>}
+                            {row.roas > 0 && <span>ROAS {row.roas.toFixed(1)}x</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* ─── Editor de Texto ────────────────────────────────────────── */}
           {editMode === 'texto' ? (

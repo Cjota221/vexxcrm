@@ -28,6 +28,12 @@
 [functions."api/trafego/metrics"]
   timeout = 26
 
+[functions."api/trafego/metrics/daily"]
+  timeout = 26
+
+[functions."api/trafego/metrics/breakdown"]
+  timeout = 26
+
 [functions."api/cron/campaign-dispatcher"]
   timeout = 26
 

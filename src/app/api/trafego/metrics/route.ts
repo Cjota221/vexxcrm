@@ -127,6 +127,11 @@ export async function GET(req: NextRequest) {
     const insightFields = [
       'spend', 'impressions', 'clicks', 'reach', 'cpc', 'cpm', 'ctr',
       'frequency', 'actions', 'action_values',
+      'outbound_clicks', 'landing_page_view',
+      'video_p25_watched_actions', 'video_p50_watched_actions',
+      'video_p75_watched_actions', 'video_p95_watched_actions',
+      'video_p100_watched_actions', 'video_thruplay_watched_actions',
+      'video_avg_time_watched_actions', 'cost_per_thruplay',
     ].join(',');
 
     const campaignFields = [
@@ -221,6 +226,16 @@ export async function GET(req: NextRequest) {
           cpc: string; cpm: string; ctr: string; frequency: string;
           actions?: Array<{ action_type: string; value: string }>;
           action_values?: Array<{ action_type: string; value: string }>;
+          outbound_clicks?: Array<{ action_type: string; value: string }>;
+          landing_page_view?: string;
+          video_p25_watched_actions?: Array<{ action_type: string; value: string }>;
+          video_p50_watched_actions?: Array<{ action_type: string; value: string }>;
+          video_p75_watched_actions?: Array<{ action_type: string; value: string }>;
+          video_p95_watched_actions?: Array<{ action_type: string; value: string }>;
+          video_p100_watched_actions?: Array<{ action_type: string; value: string }>;
+          video_thruplay_watched_actions?: Array<{ action_type: string; value: string }>;
+          video_avg_time_watched_actions?: Array<{ action_type: string; value: string }>;
+          cost_per_thruplay?: Array<{ action_type: string; value: string }>;
           date_start: string; date_stop: string;
         }> };
       }>;
@@ -240,6 +255,17 @@ export async function GET(req: NextRequest) {
       const frequency = n(insight?.frequency) || (reach > 0 ? impressions / reach : 0);
       const roas     = spend > 0 ? revenue / spend : 0;
       const cpl      = leads > 0 ? spend / leads : 0;
+
+      // Métricas de vídeo
+      const video_p25   = Math.round(n(insight?.video_p25_watched_actions?.[0]?.value));
+      const video_p50   = Math.round(n(insight?.video_p50_watched_actions?.[0]?.value));
+      const video_p75   = Math.round(n(insight?.video_p75_watched_actions?.[0]?.value));
+      const video_p95   = Math.round(n(insight?.video_p95_watched_actions?.[0]?.value));
+      const video_p100  = Math.round(n(insight?.video_p100_watched_actions?.[0]?.value));
+      const thruplay    = Math.round(n(insight?.video_thruplay_watched_actions?.[0]?.value));
+      const avg_watch   = n(insight?.video_avg_time_watched_actions?.[0]?.value);
+      const cost_per_thruplay = n(insight?.cost_per_thruplay?.[0]?.value);
+      const landing_page_views = Math.round(n(insight?.outbound_clicks?.[0]?.value || insight?.landing_page_view));
 
       const alerts = computeAlerts({
         campaign_name: campaign.name, spend, cpm, ctr, cpl, roas,
@@ -264,6 +290,8 @@ export async function GET(req: NextRequest) {
         roas,
         cpl,
         frequency,
+        landing_page_views,
+        video: { p25: video_p25, p50: video_p50, p75: video_p75, p95: video_p95, p100: video_p100, thruplay, avg_watch, cost_per_thruplay },
         orcamento_diario: campaign.daily_budget ? n(campaign.daily_budget) / 100 : null,
         date_start: insight?.date_start,
         date_stop:  insight?.date_stop,
