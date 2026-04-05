@@ -39,6 +39,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Token Anthropic não configurado. Adicione sua API key na página do Jarvis.' }, { status: 400 });
   }
 
+  // Buscar base de conhecimento do tenant
+  const { data: knowledgeDocs } = await supabase
+    .from('jarvis_knowledge')
+    .select('titulo, conteudo, categoria')
+    .eq('tenant_id', tenantId)
+    .eq('ativo', true)
+    .order('criado_em', { ascending: false })
+    .limit(20);
+
+  const knowledgeBlock = knowledgeDocs && knowledgeDocs.length > 0
+    ? `\n\n## BASE DE CONHECIMENTO DO NEGÓCIO\nAs informações abaixo foram cadastradas pelo usuário. Use-as sempre que relevante para responder:\n\n${
+        knowledgeDocs
+          .map(doc => `### [${doc.categoria.toUpperCase()}] ${doc.titulo}\n${doc.conteudo}`)
+          .join('\n\n---\n\n')
+      }`
+    : '';
+
   const JARVIS_SYSTEM = `Você é o JARVIS, motor de inteligência central do VEXX CRM.
 Você foi criado para a ${config?.brand_name ?? 'CJ Rasteirinhas'}.
 
@@ -49,16 +66,10 @@ Suas responsabilidades:
 - Identificar oportunidades e alertar sobre problemas
 - Aprender com cada campanha para melhorar continuamente
 
-Contexto do negócio:
-- Produto: rasteirinhas femininas para revenda (atacado)
-- Público: mulheres 25-55 anos, empreendedoras, Brasil
-- Ad Account: act_1244920119465862
-- Objetivo: gerar revendedoras e aumentar ROAS
-
 Você é direto, estratégico e fala português brasileiro.
 Quando o usuário pedir análise de campanhas, você busca os dados reais.
 Quando pedir para criar campanha, você executa.
-Você nunca diz "não posso" — você encontra uma forma.`;
+Você nunca diz "não posso" — você encontra uma forma.${knowledgeBlock}`;
 
   try {
     const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [

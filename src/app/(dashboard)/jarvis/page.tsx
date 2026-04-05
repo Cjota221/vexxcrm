@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   Zap, Send, Mic, Bot, TrendingUp, Users, Target,
   BarChart2, ChevronRight, Loader2, BookOpen, Plus,
-  CheckCircle, Eye, EyeOff, Save, Settings, AlertCircle,
+  CheckCircle, Eye, EyeOff, Save, Settings, AlertCircle, Trash2,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
 import { cn } from '@/lib/utils';
@@ -18,6 +18,15 @@ interface Mensagem {
   timestamp: Date;
 }
 
+interface KnowledgeDoc {
+  id: string;
+  titulo: string;
+  conteudo: string;
+  categoria: string;
+  fonte?: string;
+  criado_em: string;
+}
+
 /* ─── Constantes ─────────────────────────────────────────────────────────── */
 
 const ACOES_RAPIDAS = [
@@ -27,11 +36,15 @@ const ACOES_RAPIDAS = [
   { label: 'Otimizar copy',       prompt: 'Analise os copies dos anúncios atuais e sugira melhorias para aumentar CTR e conversão.' },
 ];
 
-const BASE_CONHECIMENTO = [
-  'Catálogo CJ Rasteirinhas 2024',
-  'Histórico de campanhas Q1/2025',
-  'Público-alvo: perfis revendedoras',
-  'Playbook de tráfego pago',
+const CATEGORIAS = [
+  { value: 'negocio',     label: 'Negócio' },
+  { value: 'produto',     label: 'Produto' },
+  { value: 'publico',     label: 'Público' },
+  { value: 'campanha',    label: 'Campanha' },
+  { value: 'vendas',      label: 'Vendas' },
+  { value: 'mercado',     label: 'Mercado' },
+  { value: 'aprendizado', label: 'Aprendizado' },
+  { value: 'geral',       label: 'Geral' },
 ];
 
 /* ─── Componente ─────────────────────────────────────────────────────────── */
@@ -53,6 +66,15 @@ export default function JarvisPage() {
   const [erroConfig, setErroConfig]   = useState('');
   const [keyConfigurada, setKeyConfigurada] = useState(false);
 
+  // Base de conhecimento
+  const [docs, setDocs]               = useState<KnowledgeDoc[]>([]);
+  const [loadingDocs, setLoadingDocs] = useState(false);
+  const [showForm, setShowForm]       = useState(false);
+  const [docForm, setDocForm]         = useState({ titulo: '', conteudo: '', categoria: 'geral', fonte: '' });
+  const [savingDoc, setSavingDoc]     = useState(false);
+  const [docError, setDocError]       = useState('');
+  const [docSuccess, setDocSuccess]   = useState('');
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef       = useRef<HTMLTextAreaElement>(null);
   const { accessToken } = useAuthStore();
@@ -66,6 +88,58 @@ export default function JarvisPage() {
       .then((d: { configurado?: boolean }) => setKeyConfigurada(d.configurado ?? false))
       .catch(() => {});
   }, [accessToken]);
+
+  useEffect(() => { loadDocs(); }, [accessToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadDocs() {
+    setLoadingDocs(true);
+    try {
+      const res = await fetch('/api/jarvis/knowledge', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const json = await res.json() as { data?: KnowledgeDoc[] };
+      setDocs(json.data ?? []);
+    } catch { /* silencia */ }
+    finally { setLoadingDocs(false); }
+  }
+
+  async function saveDoc() {
+    if (!docForm.titulo.trim() || !docForm.conteudo.trim()) {
+      setDocError('Título e conteúdo são obrigatórios');
+      return;
+    }
+    setSavingDoc(true);
+    setDocError('');
+    try {
+      const res = await fetch('/api/jarvis/knowledge', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body:    JSON.stringify(docForm),
+      });
+      const data = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? 'Erro ao salvar');
+      setDocSuccess('Documento salvo! O Jarvis já vai usar esse contexto.');
+      setDocForm({ titulo: '', conteudo: '', categoria: 'geral', fonte: '' });
+      setShowForm(false);
+      await loadDocs();
+      setTimeout(() => setDocSuccess(''), 4000);
+    } catch (err) {
+      setDocError(err instanceof Error ? err.message : 'Erro ao salvar');
+    } finally {
+      setSavingDoc(false);
+    }
+  }
+
+  async function deleteDoc(id: string) {
+    if (!confirm('Remover este documento da base de conhecimento?')) return;
+    try {
+      await fetch(`/api/jarvis/knowledge?id=${id}`, {
+        method:  'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      await loadDocs();
+    } catch { /* silencia */ }
+  }
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -246,25 +320,125 @@ export default function JarvisPage() {
           {/* Base de conhecimento */}
           <Card className="p-4">
             <div className="flex items-center justify-between mb-3">
-              <p className="text-xs font-semibold text-txt-secondary uppercase tracking-wide">
-                Base de conhecimento
-              </p>
-              <button className="text-gray-400 hover:text-crm-primary transition-colors">
+              <div className="flex items-center gap-1.5">
+                <p className="text-xs font-semibold text-txt-secondary uppercase tracking-wide">
+                  Base de conhecimento
+                </p>
+                {!loadingDocs && (
+                  <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">
+                    {docs.length}
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={() => { setShowForm(v => !v); setDocError(''); }}
+                className="text-gray-400 hover:text-crm-primary transition-colors"
+                title="Adicionar documento"
+              >
                 <Plus size={14} />
               </button>
             </div>
-            <div className="space-y-1.5">
-              {BASE_CONHECIMENTO.map((doc) => (
-                <div key={doc} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-50 border border-gray-100">
-                  <BookOpen size={12} className="text-gray-400 shrink-0" />
-                  <span className="text-xs text-txt-secondary truncate">{doc}</span>
-                  <CheckCircle size={10} className="text-green-500 shrink-0 ml-auto" />
+
+            {/* Feedback */}
+            {docError && (
+              <p className="text-[11px] text-red-500 mb-2">{docError}</p>
+            )}
+            {docSuccess && (
+              <p className="text-[11px] text-green-600 mb-2">✅ {docSuccess}</p>
+            )}
+
+            {/* Formulário de adição */}
+            {showForm && (
+              <div className="mb-3 space-y-2 p-3 bg-gray-50 border border-gray-200 rounded-xl">
+                <input
+                  type="text"
+                  placeholder="Título do documento"
+                  value={docForm.titulo}
+                  onChange={e => setDocForm(f => ({ ...f, titulo: e.target.value }))}
+                  className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-crm-primary/40"
+                />
+                <select
+                  value={docForm.categoria}
+                  onChange={e => setDocForm(f => ({ ...f, categoria: e.target.value }))}
+                  className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-crm-primary/40 bg-white"
+                >
+                  {CATEGORIAS.map(c => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
+                <textarea
+                  placeholder="Conteúdo — scripts, estratégias, informações do negócio..."
+                  value={docForm.conteudo}
+                  onChange={e => setDocForm(f => ({ ...f, conteudo: e.target.value }))}
+                  rows={4}
+                  className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-crm-primary/40 resize-none"
+                />
+                <input
+                  type="text"
+                  placeholder="Fonte (opcional)"
+                  value={docForm.fonte}
+                  onChange={e => setDocForm(f => ({ ...f, fonte: e.target.value }))}
+                  className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-crm-primary/40"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={saveDoc}
+                    disabled={savingDoc}
+                    className="flex-1 py-1.5 bg-crm-primary text-white text-xs font-medium rounded-lg hover:bg-crm-primary/90 disabled:opacity-50 transition-colors"
+                  >
+                    {savingDoc ? 'Salvando...' : 'Salvar'}
+                  </button>
+                  <button
+                    onClick={() => setShowForm(false)}
+                    className="px-3 py-1.5 bg-gray-200 text-gray-600 text-xs rounded-lg hover:bg-gray-300 transition-colors"
+                  >
+                    Cancelar
+                  </button>
                 </div>
-              ))}
-            </div>
-            <button className="w-full mt-2 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-dashed border-gray-200 text-gray-400 hover:text-crm-primary hover:border-crm-primary/30 transition-all text-xs">
-              <Plus size={12} /> Adicionar documento
-            </button>
+              </div>
+            )}
+
+            {/* Lista de documentos */}
+            {loadingDocs ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 size={14} className="animate-spin text-gray-400" />
+              </div>
+            ) : docs.length === 0 ? (
+              <div className="text-center py-4">
+                <BookOpen size={20} className="text-gray-300 mx-auto mb-1.5" />
+                <p className="text-xs text-gray-400">Nenhum documento ainda.</p>
+                <p className="text-[11px] text-gray-300 mt-0.5">Adicione contexto para o Jarvis usar.</p>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {docs.map((doc) => (
+                  <div key={doc.id} className="flex items-start gap-2 px-3 py-2 rounded-lg bg-gray-50 border border-gray-100 group">
+                    <BookOpen size={12} className="text-gray-400 shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <span className="text-xs text-txt-secondary truncate block">{doc.titulo}</span>
+                      <span className="text-[10px] text-gray-400">
+                        {CATEGORIAS.find(c => c.value === doc.categoria)?.label ?? doc.categoria}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => deleteDoc(doc.id)}
+                      className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all shrink-0"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {!showForm && (
+              <button
+                onClick={() => { setShowForm(true); setDocError(''); }}
+                className="w-full mt-2 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-dashed border-gray-200 text-gray-400 hover:text-crm-primary hover:border-crm-primary/30 transition-all text-xs"
+              >
+                <Plus size={12} /> Adicionar documento
+              </button>
+            )}
           </Card>
         </div>
 
