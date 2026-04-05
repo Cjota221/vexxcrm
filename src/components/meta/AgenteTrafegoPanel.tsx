@@ -47,6 +47,16 @@ interface Conjunto {
   criativoIds: string[];
 }
 
+interface CriativoClassificacao {
+  adequacao_publico_frio: number;
+  adequacao_publico_quente: number;
+  adequacao_whatsapp: number;
+  tipo_conteudo: string;
+  tom: string;
+  tem_cta: boolean;
+  resumo?: string;
+}
+
 interface CriativoDisponivel {
   id: string;
   nome: string;
@@ -54,6 +64,8 @@ interface CriativoDisponivel {
   url_preview: string | null;
   meta_video_id: string | null;
   meta_image_hash: string | null;
+  classificacao?: CriativoClassificacao | null;
+  transcricao_status?: string | null;
 }
 
 const TIPOS_CONFIG = {
@@ -107,19 +119,45 @@ export function AgenteTrafegoPanel() {
     setLoadingCriativos(true);
     try {
       const accessToken = useAuthStore.getState().accessToken ?? '';
-      const res = await fetch('/api/meta/criativos?limit=20', {
+      // meses=12 — só últimos 12 meses; com classificacao retornada
+      const res = await fetch('/api/meta/criativos?limit=50&meses=12', {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (res.ok) {
-        const data = await res.json();
-        setCriativos(data.criativos ?? data ?? []);
+        const data = await res.json() as { criativos?: CriativoDisponivel[] };
+        const lista = data.criativos ?? [];
+        setCriativos(lista);
+        // Auto-selecionar top criativos para cada conjunto pelo score Jarvis
+        autoSelecionarJarvis(lista);
       }
     } catch {
       // silently fail
     } finally {
       setLoadingCriativos(false);
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Score relevante por tipo de conjunto
+  function scoreParaTipo(c: CriativoDisponivel, tipo: TipoConjunto): number {
+    if (!c.classificacao) return 0;
+    if (tipo === 'frio')     return c.classificacao.adequacao_publico_frio;
+    if (tipo === 'quente')   return c.classificacao.adequacao_publico_quente;
+    if (tipo === 'whatsapp') return c.classificacao.adequacao_whatsapp;
+    return 0;
+  }
+
+  // Jarvis auto-seleciona os 3 melhores criativos para cada conjunto
+  function autoSelecionarJarvis(lista: CriativoDisponivel[]) {
+    setConjuntos(prev => prev.map(conjunto => {
+      // Só auto-seleciona se o conjunto ainda não tem seleção manual
+      if (conjunto.criativoIds.length > 0) return conjunto;
+      const rankados = [...lista]
+        .filter(c => c.classificacao) // só classificados
+        .sort((a, b) => scoreParaTipo(b, conjunto.tipo) - scoreParaTipo(a, conjunto.tipo));
+      const top3 = rankados.slice(0, 3).map(c => c.id);
+      return { ...conjunto, criativoIds: top3 };
+    }));
+  }
 
   useEffect(() => {
     if (modoAvancado && criativos.length === 0) fetchCriativos();
@@ -174,7 +212,13 @@ export function AgenteTrafegoPanel() {
     if (conjuntos.length >= MAX_CONJUNTOS) return;
     const usados = conjuntos.map(c => c.tipo);
     const proximo = (['frio', 'quente', 'whatsapp'] as TipoConjunto[]).find(t => !usados.includes(t)) ?? 'frio';
-    setConjuntos(prev => [...prev, { id: String(Date.now()), tipo: proximo, criativoIds: [] }]);
+    const novoId = String(Date.now());
+    // Auto-selecionar top 3 para o novo conjunto imediatamente
+    const rankados = [...criativos]
+      .filter(c => c.classificacao)
+      .sort((a, b) => scoreParaTipo(b, proximo) - scoreParaTipo(a, proximo));
+    const top3 = rankados.slice(0, 3).map(c => c.id);
+    setConjuntos(prev => [...prev, { id: novoId, tipo: proximo, criativoIds: top3 }]);
   }
 
   function removerConjunto(id: string) {
@@ -469,53 +513,92 @@ export function AgenteTrafegoPanel() {
                   </div>
                 </div>
 
-                {/* Grid de criativos */}
+                {/* Grid de criativos — Jarvis ranqueia, você aprova */}
                 <div className="p-3">
-                  <p className="text-xs text-gray-500 mb-2">
-                    Criativos ({conjunto.criativoIds.length}/{MAX_CRIATIVOS_POR_CONJUNTO})
-                    {conjunto.criativoIds.length === 0 && <span className="text-red-400 ml-1">— selecione ao menos 1</span>}
-                  </p>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs text-gray-500">
+                      Criativos ({conjunto.criativoIds.length}/{MAX_CRIATIVOS_POR_CONJUNTO})
+                      {conjunto.criativoIds.length === 0 && <span className="text-red-400 ml-1">— ao menos 1</span>}
+                    </p>
+                    <span className="text-[10px] text-indigo-600 font-medium flex items-center gap-0.5">
+                      <Sparkles size={10} /> Jarvis ranqueou por score
+                    </span>
+                  </div>
                   {criativos.length === 0 && !loadingCriativos ? (
-                    <p className="text-xs text-gray-400 italic">Nenhum criativo disponível</p>
+                    <p className="text-xs text-gray-400 italic">Nenhum criativo nos últimos 12 meses</p>
                   ) : (
                     <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                      {criativos.map(criativo => {
-                        const selecionado = conjunto.criativoIds.includes(criativo.id);
-                        return (
-                          <button
-                            key={criativo.id}
-                            onClick={() => toggleCriativo(conjunto.id, criativo.id)}
-                            className={cn(
-                              'relative aspect-square rounded-lg border-2 overflow-hidden transition-all group',
-                              selecionado
-                                ? 'border-[#1e3a5f] ring-2 ring-[#1e3a5f]/20'
-                                : 'border-gray-200 hover:border-gray-300',
-                            )}
-                          >
-                            {criativo.url_preview ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={criativo.url_preview}
-                                alt={criativo.nome}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <div className="w-full h-full bg-gray-100 flex items-center justify-center">
-                                <ImageIcon size={16} className="text-gray-400" />
+                      {/* Criativos ordenados pelo score do tipo */}
+                      {[...criativos]
+                        .sort((a, b) => scoreParaTipo(b, conjunto.tipo) - scoreParaTipo(a, conjunto.tipo))
+                        .map(criativo => {
+                          const selecionado = conjunto.criativoIds.includes(criativo.id);
+                          const score = scoreParaTipo(criativo, conjunto.tipo);
+                          const temClassificacao = !!criativo.classificacao;
+                          return (
+                            <button
+                              key={criativo.id}
+                              onClick={() => toggleCriativo(conjunto.id, criativo.id)}
+                              title={criativo.classificacao?.resumo ?? criativo.nome}
+                              className={cn(
+                                'relative aspect-square rounded-lg border-2 overflow-hidden transition-all group',
+                                selecionado
+                                  ? 'border-[#1e3a5f] ring-2 ring-[#1e3a5f]/20'
+                                  : 'border-gray-200 hover:border-gray-300',
+                              )}
+                            >
+                              {criativo.url_preview ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={criativo.url_preview}
+                                  alt={criativo.nome}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+                                  <ImageIcon size={16} className="text-gray-400" />
+                                </div>
+                              )}
+
+                              {/* Score badge — topo direito */}
+                              {temClassificacao && (
+                                <div className={cn(
+                                  'absolute top-1 right-1 text-[9px] font-bold px-1 py-0.5 rounded',
+                                  score >= 7 ? 'bg-green-500 text-white'
+                                  : score >= 4 ? 'bg-yellow-400 text-yellow-900'
+                                  : 'bg-gray-200 text-gray-600',
+                                )}>
+                                  {score}/10
+                                </div>
+                              )}
+
+                              {/* Overlay aprovado */}
+                              {selecionado && (
+                                <div className="absolute inset-0 bg-[#1e3a5f]/30 flex items-center justify-center">
+                                  <CheckCircle size={20} className="text-white drop-shadow" />
+                                </div>
+                              )}
+
+                              {/* Nome + tipo na parte de baixo */}
+                              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1">
+                                <p className="text-[9px] text-white truncate leading-tight">{criativo.nome}</p>
+                                {criativo.classificacao && (
+                                  <p className="text-[8px] text-white/70 truncate capitalize">
+                                    {criativo.classificacao.tipo_conteudo} · {criativo.classificacao.tom}
+                                  </p>
+                                )}
                               </div>
-                            )}
-                            {selecionado && (
-                              <div className="absolute inset-0 bg-[#1e3a5f]/30 flex items-center justify-center">
-                                <CheckCircle size={20} className="text-white drop-shadow" />
-                              </div>
-                            )}
-                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-1">
-                              <p className="text-[10px] text-white truncate">{criativo.nome}</p>
-                            </div>
-                          </button>
-                        );
+                            </button>
+                          );
                       })}
                     </div>
+                  )}
+
+                  {/* Legenda de aprovação */}
+                  {conjunto.criativoIds.length > 0 && (
+                    <p className="text-[10px] text-gray-400 mt-2 text-center">
+                      Clique para aprovar ✓ ou remover um criativo da seleção do Jarvis
+                    </p>
                   )}
                 </div>
               </div>

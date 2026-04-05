@@ -1,13 +1,14 @@
 /**
- * Transcrição de vídeos via Whisper (Groq) + classificação via GPT-4o-mini.
+ * Transcrição de vídeos via Whisper (Groq) + classificação via Claude Haiku (Jarvis).
  *
  * Fluxo:
  *   1. Buscar URL de download do vídeo via Meta Graph API
  *   2. Baixar o vídeo e enviar para Groq Whisper large-v3
- *   3. Classificar o texto transcrito via GPT-4o-mini
+ *   3. Classificar o texto transcrito via Claude Haiku
  *   4. Salvar resultado em ad_creatives
  */
 
+import Anthropic from '@anthropic-ai/sdk';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { META_BASE } from '@/lib/meta-config';
 import { resolverTokenMeta } from './meta-token.service';
@@ -62,16 +63,18 @@ export async function transcreverAudio(
   }
 }
 
-/* ─── Classificação via GPT-4o-mini ─────────────────────────────────────── */
+/* ─── Classificação via Claude Haiku (Jarvis) ────────────────────────────── */
 
 export async function classificarCriativo(
   transcricao: string,
   nomeCriativo: string,
 ): Promise<{ ok: boolean; classificacao?: ClassificacaoCriativo; erro?: string }> {
-  const openaiKey = process.env.OPENAI_API_KEY;
-  if (!openaiKey) return { ok: false, erro: 'OPENAI_API_KEY não configurada' };
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (!anthropicKey) return { ok: false, erro: 'ANTHROPIC_API_KEY não configurada' };
 
-  const prompt = `Você é um especialista em marketing digital e tráfego pago para moda feminina e calçados no Brasil.
+  const client = new Anthropic({ apiKey: anthropicKey });
+
+  const prompt = `Você é um especialista em marketing digital e tráfego pago para moda feminina e calçados no Brasil (CJ Rasteirinhas — atacado de rasteirinhas).
 
 Analise a transcrição deste vídeo criativo para anúncios e retorne um JSON com a classificação.
 
@@ -104,29 +107,14 @@ Critérios:
 - tutorial: como usar, como revender, como funciona`;
 
   try {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${openaiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 500,
-        temperature: 0.3,
-      }),
-      signal: AbortSignal.timeout(15_000),
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 600,
+      messages: [{ role: 'user', content: prompt }],
     });
 
-    if (!res.ok) return { ok: false, erro: `OpenAI HTTP ${res.status}` };
-
-    const data = await res.json() as {
-      choices: Array<{ message: { content: string } }>;
-    };
-
-    const content = data.choices[0]?.message?.content?.trim() ?? '';
-    const clean = content.replace(/```json|```/g, '').trim();
+    const text = response.content[0]?.type === 'text' ? response.content[0].text.trim() : '';
+    const clean = text.replace(/```json|```/g, '').trim();
     const classificacao = JSON.parse(clean) as ClassificacaoCriativo;
 
     return { ok: true, classificacao };
@@ -222,7 +210,7 @@ export async function processarCriativo(
         transcricao_status:   'concluida',
         transcricao_modelo:   'whisper-large-v3',
         classificacao:        classificacaoResult.ok ? classificacaoResult.classificacao : null,
-        classificacao_modelo: classificacaoResult.ok ? 'gpt-4o-mini' : null,
+        classificacao_modelo: classificacaoResult.ok ? 'claude-haiku-4-5' : null,
         transcricao_erro:     null,
       })
       .eq('id', criativoId);
