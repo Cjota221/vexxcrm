@@ -243,7 +243,19 @@ export async function criarPublicoRemarketing(
     signal: AbortSignal.timeout(15000),
   });
 
-  const resData = await res.json() as { id?: string; error?: { message?: string } };
+  const resData = await res.json() as { id?: string; error?: { message?: string; code?: number; type?: string } };
+
+  console.log('[REMARKETING] Status HTTP:', res.status);
+  console.log('[REMARKETING] Resposta Meta:', JSON.stringify(resData, null, 2));
+  console.log('[REMARKETING] accountId:', accountId);
+  console.log('[REMARKETING] token inicio:', token.substring(0, 20));
+
+  if (!resData.id) {
+    console.error('[REMARKETING] Meta não retornou ID:', resData.error);
+    throw new Error(
+      `Meta não retornou ID: ${resData.error?.message ?? JSON.stringify(resData)}`
+    );
+  }
 
   const metaAudienceId = resData.id || null;
   const errorMsg = resData.error?.message;
