@@ -6,7 +6,7 @@ import {
   Bot, DollarSign, Users, MessageCircle,
   TrendingUp, CheckCircle, XCircle, Loader2,
   Sparkles, ChevronRight, Play, AlertCircle, ShoppingBag,
-  Plus, Trash2, Image as ImageIcon,
+  Plus, Trash2, Image as ImageIcon, Video,
 } from 'lucide-react';
 import type { TipoCampanha } from '@/lib/services/meta-adset-creator.service';
 import { cn } from '@/lib/utils';
@@ -553,10 +553,15 @@ export function AgenteTrafegoPanel() {
                                   src={criativo.url_preview}
                                   alt={criativo.nome}
                                   className="w-full h-full object-cover"
+                                  onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
                                 />
-                              ) : (
+                              ) : null}
+                              {!criativo.url_preview && (
                                 <div className="w-full h-full bg-gray-100 flex items-center justify-center">
-                                  <ImageIcon size={16} className="text-gray-400" />
+                                  {criativo.tipo === 'video'
+                                    ? <Video size={20} className="text-gray-400" />
+                                    : <ImageIcon size={20} className="text-gray-400" />
+                                  }
                                 </div>
                               )}
 
