@@ -1,16 +1,12 @@
 /**
  * POST /api/jarvis/chat
  * Chat com o Jarvis — motor de inteligência central do VEXX CRM.
+ * Usa a Anthropic API diretamente via fetch (sem SDK).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { createServerSupabaseClient } from '@/lib/supabase';
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
 
 export async function POST(req: NextRequest) {
   let tenantId: string;
@@ -30,11 +26,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Mensagem vazia' }, { status: 400 });
   }
 
-  const supabase = createServerSupabaseClient();
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    return NextResponse.json({ error: 'ANTHROPIC_API_KEY não configurada' }, { status: 500 });
+  }
 
+  const supabase = createServerSupabaseClient();
   const { data: config } = await supabase
     .from('ai_provider_config')
-    .select('*')
+    .select('brand_name')
     .eq('tenant_id', tenantId)
     .single();
 
@@ -65,18 +65,34 @@ Você nunca diz "não posso" — você encontra uma forma.`;
       { role: 'user', content: mensagem },
     ];
 
-    const response = await anthropic.messages.create({
-      model:      'claude-sonnet-4-6',
-      max_tokens: 1024,
-      system:     JARVIS_SYSTEM,
-      messages,
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type':         'application/json',
+        'x-api-key':            apiKey,
+        'anthropic-version':    '2023-06-01',
+      },
+      body: JSON.stringify({
+        model:      'claude-sonnet-4-6',
+        max_tokens: 1024,
+        system:     JARVIS_SYSTEM,
+        messages,
+      }),
+      signal: AbortSignal.timeout(30_000),
     });
 
-    const resposta = response.content[0].type === 'text'
-      ? response.content[0].text
-      : '';
+    const data = await res.json() as {
+      content?: Array<{ type: string; text: string }>;
+      error?:   { message: string };
+    };
 
+    if (!res.ok || data.error) {
+      return NextResponse.json({ error: data.error?.message ?? `Anthropic HTTP ${res.status}` }, { status: 500 });
+    }
+
+    const resposta = data.content?.find(c => c.type === 'text')?.text ?? '';
     return NextResponse.json({ resposta, role: 'assistant' });
+
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: msg }, { status: 500 });
