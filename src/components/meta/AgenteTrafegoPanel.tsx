@@ -49,7 +49,7 @@ export function AgenteTrafegoPanel() {
   const [orcamento, setOrcamento]   = useState(50);
   const [tipos, setTipos]           = useState<TipoCampanha[]>(['frio', 'whatsapp']);
   const [nome, setNome]             = useState('');
-  const [catalogoId, setCatalogoId] = useState(CATALOGOS[0].id);
+  const [catalogoId, setCatalogoId] = useState<string>(CATALOGOS[0].id);
   const [steps, setSteps]           = useState<Step[]>([]);
   const [done, setDone]             = useState<DoneEvent | null>(null);
   const esRef                       = useRef<EventSource | null>(null);
