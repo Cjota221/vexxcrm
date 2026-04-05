@@ -126,8 +126,8 @@ export async function criarPublicoEngajamentoReal(
   };
 
   const formParams = new URLSearchParams();
-  formParams.set('name', `Cjota Rasteirinhas — Engajamento ${dias}d`);
-  formParams.set('description', `Pessoas que interagiram com @cjotarasteirinhas nos últimos ${dias} dias`);
+  formParams.set('name', `Cjota Rasteirinhas - Engajamento ${dias}d`);
+  formParams.set('description', `Pessoas que interagiram com cjotarasteirinhas nos ultimos ${dias} dias`);
   formParams.set('subtype', 'ENGAGEMENT');
   formParams.set('rule', JSON.stringify(rule));
   formParams.set('access_token', token);
@@ -147,8 +147,8 @@ export async function criarPublicoEngajamentoReal(
     if (data.id) {
       await supabase.from('meta_audiences').insert({
         tenant_id: tenantId,
-        nome: `Cjota Rasteirinhas — Engajamento ${dias}d`,
-        descricao: `Quem interagiu com @cjotarasteirinhas nos últimos ${dias} dias`,
+        nome: `Cjota Rasteirinhas - Engajamento ${dias}d`,
+        descricao: `Quem interagiu com cjotarasteirinhas nos ultimos ${dias} dias`,
         meta_audience_id: data.id,
         targeting: { custom_audiences: [{ id: data.id }] },
         criado_por_ia: true,
