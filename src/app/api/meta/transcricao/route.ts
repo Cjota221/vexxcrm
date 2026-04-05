@@ -1,17 +1,17 @@
 /**
- * POST /api/meta/transcricao  — dispara transcrição de um criativo
+ * POST /api/meta/transcricao  — dispara transcrição via n8n (assíncrono)
  * GET  /api/meta/transcricao?id=xxx — consulta status
  *
- * IMPORTANTE: roda de forma síncrona (não em background) para garantir
- * que o resultado seja persistido antes de a função serverless encerrar.
- * maxDuration = 120s para suportar o pipeline completo (download + Groq + GPT).
+ * O n8n processa em background e chama /api/meta/transcricao/callback quando termina.
  */
-export const maxDuration = 120;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { createServerSupabaseClient } from '@/lib/supabase';
-import { processarCriativo } from '@/lib/services/meta-transcricao.service';
+import { resolverTokenMeta } from '@/lib/services/meta-token.service';
+
+const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL ?? '';
+const N8N_CALLBACK_SECRET = process.env.N8N_CALLBACK_SECRET ?? 'vexx-n8n-2026';
 
 export async function POST(req: NextRequest) {
   let tenantId: string;
@@ -25,14 +25,84 @@ export async function POST(req: NextRequest) {
   const { criativoId } = await req.json() as { criativoId: string };
   if (!criativoId) return NextResponse.json({ error: 'criativoId obrigatório' }, { status: 400 });
 
-  // Roda síncrono — a função aguarda o resultado antes de retornar.
-  // Sem isso, a Netlify mata o processo assim que o response é enviado.
-  const resultado = await processarCriativo(criativoId, tenantId);
+  if (!N8N_WEBHOOK_URL) {
+    return NextResponse.json({ error: 'N8N_WEBHOOK_URL não configurada' }, { status: 500 });
+  }
+
+  const supabase = createServerSupabaseClient();
+
+  const { data: criativo } = await supabase
+    .from('ad_creatives')
+    .select('nome, meta_video_id, tipo, transcricao_status')
+    .eq('id', criativoId)
+    .eq('tenant_id', tenantId)
+    .single();
+
+  if (!criativo) {
+    return NextResponse.json({ error: 'Criativo não encontrado' }, { status: 404 });
+  }
+  if (criativo.tipo !== 'video') {
+    return NextResponse.json({ error: 'Não é um vídeo' }, { status: 400 });
+  }
+  if (!criativo.meta_video_id) {
+    return NextResponse.json({ error: 'meta_video_id não disponível' }, { status: 400 });
+  }
+  if (criativo.transcricao_status === 'processando') {
+    return NextResponse.json({ ok: true, status: 'processando', mensagem: 'Já em processamento' });
+  }
+
+  // Marcar como processando
+  await supabase
+    .from('ad_creatives')
+    .update({ transcricao_status: 'processando', transcricao_erro: null })
+    .eq('id', criativoId)
+    .eq('tenant_id', tenantId);
+
+  // Buscar token Meta do tenant
+  let tokenMeta: string;
+  try {
+    const tokenConfig = await resolverTokenMeta(tenantId);
+    tokenMeta = tokenConfig.token;
+  } catch (err) {
+    await supabase
+      .from('ad_creatives')
+      .update({ transcricao_status: 'erro', transcricao_erro: String(err) })
+      .eq('id', criativoId);
+    return NextResponse.json({ error: String(err) }, { status: 400 });
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+  const callbackUrl = `${appUrl}/api/meta/transcricao/callback`;
+
+  // Fire-and-forget — não aguarda o n8n processar
+  fetch(N8N_WEBHOOK_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      criativoId,
+      tenantId,
+      meta_video_id: criativo.meta_video_id,
+      nome: criativo.nome,
+      meta_token: tokenMeta,
+      groq_key: process.env.GROQ_API_KEY ?? '',
+      anthropic_key: process.env.ANTHROPIC_API_KEY ?? '',
+      callback_url: callbackUrl,
+      callback_secret: N8N_CALLBACK_SECRET,
+    }),
+    signal: AbortSignal.timeout(10_000),
+  }).catch(err => {
+    console.error('[Transcrição] Erro ao acionar n8n:', err);
+    supabase
+      .from('ad_creatives')
+      .update({ transcricao_status: 'erro', transcricao_erro: `Falha ao acionar n8n: ${String(err)}` })
+      .eq('id', criativoId)
+      .then(() => {});
+  });
 
   return NextResponse.json({
-    ok: resultado.ok,
-    status: resultado.ok ? 'concluida' : 'erro',
-    erro: resultado.erro,
+    ok: true,
+    status: 'processando',
+    mensagem: 'Transcrição iniciada — aguarde alguns segundos',
   });
 }
 

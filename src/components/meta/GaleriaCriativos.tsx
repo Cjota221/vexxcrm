@@ -417,7 +417,7 @@ function CardCriativoCache({ item }: { item: CacheCreativo }) {
   const [analisando, setAnalisando]   = useState(false);
   const [analisado, setAnalisado]     = useState(false);
   const [transcrevendo, setTranscrevendo] = useState(false);
-  const [transcrito, setTranscrito]   = useState(false);
+  const [transcrito, setTranscrito]   = useState<'idle' | 'processando' | 'concluido'>('idle');
   const [erroAcao, setErroAcao]       = useState<string | null>(null);
   const [classificacao, setClassificacao] = useState<Record<string, unknown> | null>(null);
 
@@ -458,9 +458,41 @@ function CardCriativoCache({ item }: { item: CacheCreativo }) {
         headers: { 'Content-Type': 'application/json', Authorization: auth },
         body: JSON.stringify({ criativoId: upsertData.id }),
       });
-      const transcData = await transcRes.json() as { ok?: boolean; error?: string };
-      if (transcData.ok) {
-        setTranscrito(true);
+      const transcData = await transcRes.json() as { ok?: boolean; status?: string; error?: string };
+      if (transcData.ok || transcData.status === 'processando') {
+        setTranscrito('processando');
+        // Polling: verificar status a cada 5s por até 3 minutos
+        let tentativas = 0;
+        const maxTentativas = 36; // 36 × 5s = 3 minutos
+        const intervalo = setInterval(async () => {
+          tentativas++;
+          try {
+            const authPoll = await getAuthHeader();
+            const statusRes = await fetch(`/api/meta/transcricao?id=${upsertData.id}`, {
+              headers: { Authorization: authPoll },
+            });
+            const statusData = await statusRes.json() as { transcricao_status?: string; transcricao_erro?: string };
+
+            if (statusData.transcricao_status === 'concluida') {
+              clearInterval(intervalo);
+              setTranscrito('concluido');
+            } else if (statusData.transcricao_status === 'erro') {
+              clearInterval(intervalo);
+              setTranscrito('idle');
+              setErroAcao(statusData.transcricao_erro ?? 'Erro na transcrição');
+            } else if (tentativas >= maxTentativas) {
+              clearInterval(intervalo);
+              setTranscrito('idle');
+              setErroAcao('Tempo limite excedido — tente novamente');
+            }
+          } catch {
+            if (tentativas >= maxTentativas) {
+              clearInterval(intervalo);
+              setTranscrito('idle');
+              setErroAcao('Erro ao verificar status');
+            }
+          }
+        }, 5000);
       } else {
         setErroAcao(transcData.error ?? 'Erro ao transcrever');
       }
@@ -531,14 +563,16 @@ function CardCriativoCache({ item }: { item: CacheCreativo }) {
         {item.tipo === 'video' ? (
           <button
             onClick={transcrever}
-            disabled={transcrevendo || transcrito}
+            disabled={transcrevendo || transcrito === 'processando' || transcrito === 'concluido'}
             className="w-full mt-1.5 py-1 text-xs bg-[#1e3a5f]/10 hover:bg-[#1e3a5f]/20 text-[#1e3a5f] rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-1"
           >
             {transcrevendo
-              ? <><Loader2 size={10} className="animate-spin" /> Transcrevendo áudio...</>
-              : transcrito
-                ? <><CheckCircle size={10} className="text-green-500" /> Transcrito</>
-                : <>▶ Transcrever vídeo</>
+              ? <><Loader2 size={10} className="animate-spin" /> Enviando para fila...</>
+              : transcrito === 'processando'
+                ? <><Loader2 size={10} className="animate-spin" /> Transcrevendo (aguarde)...</>
+                : transcrito === 'concluido'
+                  ? <><CheckCircle size={10} className="text-green-500" /> Transcrito</>
+                  : <>▶ Transcrever vídeo</>
             }
           </button>
         ) : (item.url_thumb || item.url_full) ? (
