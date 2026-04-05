@@ -187,7 +187,7 @@ async function executarTool(
       total_faturamento: total_faturamento.toFixed(2),
       ticket_medio: data?.length ? (total_faturamento / data.length).toFixed(2) : '0',
       por_status,
-      aviso: 'Dados do banco VEXX — podem divergir do FacilZap pois o sync é dos últimos 30 dias',
+      nota: `Dados VEXX — ${data?.length ?? 0} pedidos encontrados no período. FacilZap pode divergir por filtros diferentes de data/status.`,
       pedidos: data?.slice(0, 20) ?? [],
     };
   }
@@ -438,7 +438,9 @@ Sempre que o usuário pedir uma análise, use as tools para buscar dados reais a
 Quando pedir para criar campanha, você executa.
 Você é direto, estratégico e fala português brasileiro.
 Você nunca diz "não posso" — você encontra uma forma.
-Seja conciso. Máximo 3 parágrafos por resposta. Use bullet points. Vá direto ao ponto.${knowledgeBlock}`;
+Seja conciso. Máximo 3 parágrafos por resposta. Use bullet points. Vá direto ao ponto.
+
+Dados de pedidos vêm da tabela orders do VEXX. Status válidos: shipped (entregue pelo transportador), confirmed (pagamento confirmado), delivered (entregue ao cliente), processing (em processamento). O FacilZap pode mostrar números diferentes por usar filtros de data distintos — explique isso quando perguntado.${knowledgeBlock}`;
 
   try {
     // Montar histórico de mensagens
