@@ -164,26 +164,31 @@ async function executarTool(
       .from('orders')
       .select(`
         id, created_at, total, status,
-        client:client_id (name, phone),
-        items:order_items (
-          quantity, unit_price,
-          product:product_id (name)
-        )
+        client_id,
+        facilzap_id
       `)
       .eq('tenant_id', tenantId)
-      .gte('created_at', String(input.data_inicio))
-      .lte('created_at', `${String(input.data_fim)}T23:59:59`)
+      .gte('created_at', String(input.data_inicio) + 'T00:00:00+00')
+      .lte('created_at', String(input.data_fim) + 'T23:59:59+00')
+      .in('status', ['confirmed', 'shipped', 'delivered', 'processing'])
       .order('created_at', { ascending: false })
-      .limit((input.limite as number) || 20);
+      .limit((input.limite as number) || 50);
 
-    const total_faturamento = data?.reduce((sum, o) => sum + ((o.total as number) || 0), 0) ?? 0;
-    const ticket_medio = data?.length ? total_faturamento / data.length : 0;
+    const total_faturamento = data?.reduce((sum, o) => sum + (parseFloat(String(o.total)) || 0), 0) ?? 0;
+
+    const por_status: Record<string, number> = {};
+    for (const o of data ?? []) {
+      const k = String(o.status);
+      por_status[k] = (por_status[k] ?? 0) + 1;
+    }
 
     return {
       total_pedidos: data?.length ?? 0,
-      total_faturamento,
-      ticket_medio: ticket_medio.toFixed(2),
-      pedidos: data ?? [],
+      total_faturamento: total_faturamento.toFixed(2),
+      ticket_medio: data?.length ? (total_faturamento / data.length).toFixed(2) : '0',
+      por_status,
+      aviso: 'Dados do banco VEXX — podem divergir do FacilZap pois o sync é dos últimos 30 dias',
+      pedidos: data?.slice(0, 20) ?? [],
     };
   }
 
