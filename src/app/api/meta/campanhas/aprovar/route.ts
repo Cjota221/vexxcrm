@@ -8,6 +8,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { resolverTokenMeta } from '@/lib/services/meta-token.service';
 import { META_BASE } from '@/lib/meta-config';
+import {
+  criarAdCreative,
+  criarAd,
+  type ConfiguracaoCriativo,
+} from '@/lib/services/meta-adset-creator.service';
 
 async function getTenantId(req: NextRequest): Promise<string | null> {
   const tenantId = req.headers.get('x-tenant-id');
@@ -68,6 +73,55 @@ export async function POST(req: NextRequest) {
   }
 
   if (body.acao === 'aprovar') {
+    // Se o ad não foi criado (agente criou campanha+adset mas falhou no ad), criar agora
+    if (!draft.meta_ad_id && draft.meta_adset_id && draft.criativo_id) {
+      try {
+        const adAccountId = tokenConfig.account_id?.startsWith('act_')
+          ? tokenConfig.account_id!
+          : `act_${tokenConfig.account_id}`;
+
+        const { data: creativeData } = await supabase
+          .from('ad_creatives')
+          .select('tipo, meta_video_id, meta_image_hash, url_preview')
+          .eq('id', draft.criativo_id)
+          .single();
+
+        const { data: aiCfg } = await supabase
+          .from('ai_provider_config')
+          .select('meta_page_id')
+          .eq('tenant_id', tenantId)
+          .single();
+        const pageId = aiCfg?.meta_page_id ?? '110009834520002';
+
+        if (creativeData) {
+          const cfgCriativo: ConfiguracaoCriativo = {
+            tipo:          creativeData.tipo as 'video' | 'imagem',
+            metaVideoId:   creativeData.meta_video_id ?? undefined,
+            metaImageHash: creativeData.meta_image_hash ?? undefined,
+            imageUrl:      creativeData.url_preview ?? undefined,
+            headline:      draft.copy_headline ?? draft.nome,
+            texto:         draft.copy_texto || 'Conheça nossos produtos. Qualidade garantida.',
+            cta:           draft.copy_cta ?? 'LEARN_MORE',
+            urlDestino:    draft.url_destino ?? undefined,
+            pageId,
+            whatsappNumber: draft.copy_cta === 'WHATSAPP_MESSAGE' ? '5562993044255' : undefined,
+          };
+          const creativeId = await criarAdCreative(accessToken, adAccountId, cfgCriativo);
+          const adId = await criarAd(accessToken, adAccountId, draft.meta_adset_id, creativeId, draft.nome);
+
+          await supabase
+            .from('meta_campaign_drafts')
+            .update({ meta_ad_id: adId })
+            .eq('id', body.draftId);
+
+          draft.meta_ad_id = adId;
+        }
+      } catch (adErr) {
+        console.error('[aprovar] Erro ao criar ad ausente:', adErr);
+        // Continua — ativa campanha e adset mesmo sem o ad
+      }
+    }
+
     // Se editou o copy, atualizar criativo antes de ativar
     if ((body.novoHeadline || body.novoBody) && draft.meta_ad_id) {
       const adAccountId = tokenConfig.account_id?.startsWith('act_')

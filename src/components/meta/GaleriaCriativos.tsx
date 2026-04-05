@@ -3,10 +3,20 @@
 import { useRef, useState, useEffect } from 'react';
 import {
   Upload, Video, Image, Trash2, CheckCircle,
-  Clock, AlertCircle, Play, RefreshCw, X, Loader2,
+  Clock, AlertCircle, Play, RefreshCw, X, Loader2, CloudDownload, Search,
 } from 'lucide-react';
 import { useAdCreatives, type AdCreative } from '@/hooks/useAdCreatives';
 import { supabase } from '@/lib/supabase';
+
+interface CacheCreativo {
+  id: string;
+  nome: string;
+  tipo: string;
+  url_thumb: string | null;
+  url_full: string | null;
+  duracao: number | null;
+  sincronizado_em: string;
+}
 
 async function getAuthHeader(): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession();
@@ -14,30 +24,88 @@ async function getAuthHeader(): Promise<string> {
 }
 
 export function GaleriaCriativos() {
-  const { criativos, loading, uploading, uploadProgress, uploadArquivo, arquivar, retranscrever, recarregar } = useAdCreatives();
+  const { criativos, total, hasMore, loading, loadingMore, uploading, uploadProgress, uploadArquivo, arquivar, retranscrever, recarregar, carregarMais } = useAdCreatives();
   const inputRef = useRef<HTMLInputElement>(null);
   const [erro, setErro]             = useState<string | null>(null);
   const [filtro, setFiltro]         = useState<'todos' | 'video' | 'imagem'>('todos');
   const [preview, setPreview]       = useState<{ id: string; nome: string } | null>(null);
   const [transcrevendo, setTranscrevendo] = useState(false);
+  const [batchResultado, setBatchResultado] = useState<{
+    processados: number;
+    falhas: number;
+    detalhes: Array<{ nome: string; ok: boolean; modo: string; erro?: string }>;
+  } | null>(null);
+  const [sincronizando, setSincronizando] = useState(false);
+  const [syncMsg, setSyncMsg]       = useState<string | null>(null);
+  const [cacheItems, setCacheItems] = useState<CacheCreativo[]>([]);
 
-  const qtdPendentes = criativos.filter(
-    c => c.tipo === 'video' && (!c.transcricao_status || c.transcricao_status === 'pendente' || c.transcricao_status === 'erro')
+  useEffect(() => {
+    (async () => {
+      const auth = await getAuthHeader();
+      const res = await fetch('/api/meta/criativos-cache', { headers: { Authorization: auth } });
+      if (res.ok) setCacheItems(await res.json() as CacheCreativo[]);
+    })();
+  }, []);
+
+  async function sincronizarDoMeta() {
+    setSincronizando(true);
+    setSyncMsg(null);
+    try {
+      const auth = await getAuthHeader();
+      const res = await fetch('/api/meta/sync', { method: 'POST', headers: { Authorization: auth } });
+      const data = await res.json() as { criativos?: number; errors?: string[] };
+      const total = data.criativos ?? 0;
+      setSyncMsg(`${total} criativo${total !== 1 ? 's' : ''} sincronizado${total !== 1 ? 's' : ''} do Meta. Clique em Atualizar para ver todos.`);
+      // Recarregar cache
+      const cacheRes = await fetch('/api/meta/criativos-cache', { headers: { Authorization: auth } });
+      if (cacheRes.ok) setCacheItems(await cacheRes.json() as CacheCreativo[]);
+      await recarregar();
+    } catch {
+      setSyncMsg('Erro ao sincronizar');
+    } finally {
+      setSincronizando(false);
+    }
+  }
+
+  // Pendentes = sem transcrição + erros + transcritos mas sem classificação
+  // sem_audio e DCO são excluídos — não têm como ser processados
+  const qtdPendentes = criativos.filter(c =>
+    c.tipo === 'video' && (
+      !c.transcricao_status ||
+      c.transcricao_status === 'pendente' ||
+      c.transcricao_status === 'erro' ||
+      (c.transcricao_status === 'concluida' && !c.classificacao)
+    )
+  ).length;
+  const qtdDCO = criativos.filter(c =>
+    c.tipo === 'video' && c.transcricao_status === 'sem_audio'
   ).length;
 
   async function transcreverTodos() {
     setTranscrevendo(true);
+    setBatchResultado(null);
     try {
       const auth = await getAuthHeader();
-      await fetch('/api/meta/transcricao/batch', {
+      const res = await fetch('/api/meta/transcricao/batch', {
         method: 'POST',
-        headers: { Authorization: auth },
+        headers: { 'Content-Type': 'application/json', Authorization: auth },
+        body: JSON.stringify({ limite: 10 }),
+      });
+      const data = await res.json() as {
+        processados?: number;
+        falhas?: number;
+        detalhes?: Array<{ nome: string; ok: boolean; modo: string; erro?: string }>;
+      };
+      setBatchResultado({
+        processados: data.processados ?? 0,
+        falhas: data.falhas ?? 0,
+        detalhes: data.detalhes ?? [],
       });
       // Polling para atualizar os cards
       let i = 0;
       const poll = setInterval(async () => {
         await recarregar();
-        if (++i >= 10) clearInterval(poll);
+        if (++i >= 6) clearInterval(poll);
       }, 3000);
     } finally {
       setTranscrevendo(false);
@@ -101,17 +169,32 @@ export function GaleriaCriativos() {
           ))}
         </div>
         <div className="flex items-center gap-2">
-          {qtdPendentes > 0 && (
-            <button
-              onClick={transcreverTodos}
-              disabled={transcrevendo}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[#1e3a5f] rounded-xl hover:bg-[#1e3a5f] hover:text-white text-[#1e3a5f] disabled:opacity-50 transition-colors"
-            >
-              <Loader2 size={12} className={transcrevendo ? 'animate-spin' : 'hidden'} />
-              {!transcrevendo && <Play size={12} />}
-              Transcrever todos ({qtdPendentes})
-            </button>
-          )}
+          <button
+            onClick={transcreverTodos}
+            disabled={transcrevendo}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[#1e3a5f] rounded-xl hover:bg-[#1e3a5f] hover:text-white text-[#1e3a5f] disabled:opacity-50 transition-colors"
+          >
+            {transcrevendo ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+            {transcrevendo
+              ? 'Transcrevendo...'
+              : qtdPendentes > 0
+                ? `Transcrever próximos 10 (${qtdPendentes} pendentes${qtdDCO > 0 ? ` · ${qtdDCO} DCO ignorados` : ''})`
+                : qtdDCO > 0
+                  ? `Transcrever (${qtdDCO} DCO ignorados)`
+                  : 'Transcrever próximos 10'
+            }
+          </button>
+          <button
+            onClick={sincronizarDoMeta}
+            disabled={sincronizando}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[#1e3a5f] rounded-xl hover:bg-[#1e3a5f] hover:text-white text-[#1e3a5f] disabled:opacity-50 transition-colors"
+          >
+            {sincronizando
+              ? <Loader2 size={12} className="animate-spin" />
+              : <CloudDownload size={12} />
+            }
+            {sincronizando ? 'Sincronizando...' : 'Sincronizar do Meta'}
+          </button>
           <button
             onClick={recarregar}
             disabled={loading}
@@ -122,6 +205,39 @@ export function GaleriaCriativos() {
           </button>
         </div>
       </div>
+
+      {syncMsg && (
+        <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
+          <span>{syncMsg}</span>
+          <button onClick={() => setSyncMsg(null)} className="text-blue-400 hover:text-blue-600 text-xs">✕</button>
+        </div>
+      )}
+
+      {/* Resultado do batch de transcrição */}
+      {batchResultado && (
+        <div className={`rounded-xl border p-3 space-y-2 ${batchResultado.falhas === 0 ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-gray-800">
+              Resultado: {batchResultado.processados} ok · {batchResultado.falhas} falha{batchResultado.falhas !== 1 ? 's' : ''}
+            </span>
+            <button onClick={() => setBatchResultado(null)} className="text-gray-400 hover:text-gray-600 text-xs">✕</button>
+          </div>
+          {batchResultado.detalhes.filter(d => !d.ok).map((d, i) => (
+            <div key={i} className="flex items-start gap-2 p-2 bg-white/70 rounded-lg border border-red-100">
+              <AlertCircle size={13} className="text-red-500 mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-gray-700 truncate">{d.nome}</p>
+                <p className="text-xs text-red-600 break-words">{d.erro ?? 'Erro desconhecido'}</p>
+              </div>
+            </div>
+          ))}
+          {batchResultado.detalhes.filter(d => d.ok && d.modo === 'so_classificacao').length > 0 && (
+            <p className="text-xs text-gray-500">
+              ✓ {batchResultado.detalhes.filter(d => d.ok && d.modo === 'so_classificacao').length} classificados sem re-download (já tinham transcrição)
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Área de drop / upload */}
       <div
@@ -189,17 +305,40 @@ export function GaleriaCriativos() {
             : 'Nenhum criativo com este filtro.'}
         </div>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-          {visiveis.map(criativo => (
-            <CardCriativo
-              key={criativo.id}
-              criativo={criativo}
-              onArquivar={() => arquivar(criativo.id)}
-              onRetranscrever={() => retranscrever(criativo.id)}
-              onPreview={() => setPreview({ id: criativo.id, nome: criativo.nome })}
-            />
-          ))}
-        </div>
+        <>
+          <p className="text-xs text-gray-400">
+            Exibindo {visiveis.length} de {total} criativo{total !== 1 ? 's' : ''}
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            {visiveis.map(criativo => (
+              <CardCriativo
+                key={criativo.id}
+                criativo={criativo}
+                onArquivar={() => arquivar(criativo.id)}
+                onRetranscrever={() => retranscrever(criativo.id)}
+                onPreview={() => setPreview({ id: criativo.id, nome: criativo.nome })}
+              />
+            ))}
+            {cacheItems
+              .filter(c => filtro === 'todos' || c.tipo === filtro)
+              .map(c => (
+                <CardCriativoCache key={`cache-${c.id}`} item={c} />
+              ))
+            }
+          </div>
+          {hasMore && (
+            <div className="flex items-center justify-center pt-2">
+              <button
+                onClick={carregarMais}
+                disabled={loadingMore}
+                className="flex items-center gap-2 px-4 py-2 text-sm border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-500 disabled:opacity-50 transition-colors"
+              >
+                {loadingMore ? <Loader2 size={14} className="animate-spin" /> : null}
+                {loadingMore ? 'Carregando...' : `Carregar mais 20`}
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
     </>
@@ -267,6 +406,251 @@ function VideoPreviewModal({
             />
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Card criativo do cache Meta ───────────────────────────────────────── */
+
+function CardCriativoCache({ item }: { item: CacheCreativo }) {
+  const [analisando, setAnalisando]   = useState(false);
+  const [analisado, setAnalisado]     = useState(false);
+  const [transcrevendo, setTranscrevendo] = useState(false);
+  const [transcrito, setTranscrito]   = useState<'idle' | 'processando' | 'concluido'>('idle');
+  const [erroAcao, setErroAcao]       = useState<string | null>(null);
+  const [classificacao, setClassificacao] = useState<Record<string, unknown> | null>(null);
+
+  // Verificar se já foi transcrito anteriormente
+  useEffect(() => {
+    if (item.tipo !== 'video') return;
+    getAuthHeader().then(auth =>
+      fetch(`/api/meta/transcricao/status-por-meta?meta_video_id=${item.id}`, {
+        headers: { Authorization: auth },
+      }).then(r => r.ok ? r.json() : null).then((data: { transcricao_status?: string; classificacao?: Record<string, unknown> } | null) => {
+        if (data?.transcricao_status === 'concluida') {
+          setTranscrito('concluido');
+          if (data.classificacao) setClassificacao(data.classificacao);
+        } else if (data?.transcricao_status === 'processando') {
+          setTranscrito('processando');
+        }
+      }).catch(() => {})
+    );
+  }, [item.id, item.tipo]);
+
+  function formatDuracao(s: number | null) {
+    if (!s) return '';
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  }
+
+  async function transcrever() {
+    setTranscrevendo(true);
+    setErroAcao(null);
+    try {
+      const auth = await getAuthHeader();
+
+      // Passo 1: garantir que o criativo existe em ad_creatives (retorna ID existente ou cria)
+      const upsertRes = await fetch('/api/meta/upload/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: auth },
+        body: JSON.stringify({
+          nome:            item.nome || `Vídeo Meta ${item.id}`,
+          tipo:            'video',
+          metaVideoId:     item.id,
+          thumbUrl:        item.url_thumb ?? undefined,
+          duracaoSegundos: item.duracao ?? undefined,
+        }),
+      });
+      const upsertData = await upsertRes.json() as { ok?: boolean; id?: string; error?: string };
+      if (!upsertData.ok || !upsertData.id) {
+        setErroAcao(upsertData.error ?? 'Erro ao registrar criativo');
+        return;
+      }
+
+      // Passo 2: transcrever usando o UUID de ad_creatives
+      const transcRes = await fetch('/api/meta/transcricao', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: auth },
+        body: JSON.stringify({ criativoId: upsertData.id }),
+      });
+      const transcData = await transcRes.json() as { ok?: boolean; status?: string; error?: string };
+      if (transcData.ok || transcData.status === 'processando') {
+        setTranscrito('processando');
+        // Polling: verificar status a cada 5s por até 3 minutos
+        let tentativas = 0;
+        const maxTentativas = 36; // 36 × 5s = 3 minutos
+        const intervalo = setInterval(async () => {
+          tentativas++;
+          try {
+            const authPoll = await getAuthHeader();
+            const statusRes = await fetch(`/api/meta/transcricao?id=${upsertData.id}`, {
+              headers: { Authorization: authPoll },
+            });
+            const statusData = await statusRes.json() as { transcricao_status?: string; transcricao_erro?: string; classificacao?: Record<string, unknown> };
+
+            if (statusData.transcricao_status === 'concluida') {
+              clearInterval(intervalo);
+              setTranscrito('concluido');
+              if (statusData.classificacao) setClassificacao(statusData.classificacao);
+            } else if (statusData.transcricao_status === 'erro') {
+              clearInterval(intervalo);
+              setTranscrito('idle');
+              setErroAcao(statusData.transcricao_erro ?? 'Erro na transcrição');
+            } else if (tentativas >= maxTentativas) {
+              clearInterval(intervalo);
+              setTranscrito('idle');
+              setErroAcao('Tempo limite excedido — tente novamente');
+            }
+          } catch {
+            if (tentativas >= maxTentativas) {
+              clearInterval(intervalo);
+              setTranscrito('idle');
+              setErroAcao('Erro ao verificar status');
+            }
+          }
+        }, 5000);
+      } else {
+        setErroAcao(transcData.error ?? 'Erro ao transcrever');
+      }
+    } catch {
+      setErroAcao('Erro de conexão');
+    } finally {
+      setTranscrevendo(false);
+    }
+  }
+
+  async function analisar() {
+    const imageUrl = item.url_thumb || item.url_full;
+    if (!imageUrl) return;
+    setAnalisando(true);
+    setErroAcao(null);
+    try {
+      const auth = await getAuthHeader();
+      const res = await fetch('/api/meta/analisar-imagem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: auth },
+        body: JSON.stringify({ criativoId: item.id, imageUrl, fonte: 'meta_creatives_cache' }),
+      });
+      const data = await res.json() as { ok?: boolean; classificacao?: Record<string, unknown>; error?: string };
+      if (data.ok && data.classificacao) {
+        setClassificacao(data.classificacao);
+        setAnalisado(true);
+      } else {
+        setErroAcao(data.error?.includes('downloading') ? 'URL expirada — re-sincronize os criativos' : (data.error ?? 'Erro ao analisar'));
+      }
+    } catch {
+      setErroAcao('Erro de conexão');
+    } finally {
+      setAnalisando(false);
+    }
+  }
+
+  return (
+    <div className="group relative bg-white border border-blue-100 rounded-2xl overflow-hidden hover:shadow-md transition-shadow">
+      {/* Thumbnail */}
+      <div className="aspect-video bg-gray-100 relative">
+        {item.url_thumb ? (
+          <img src={item.url_thumb} alt={item.nome} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            {item.tipo === 'video'
+              ? <Video size={24} className="text-gray-300" />
+              : <Image size={24} className="text-gray-300" />
+            }
+          </div>
+        )}
+        {item.duracao && (
+          <span className="absolute bottom-1.5 right-1.5 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded-md font-mono">
+            {formatDuracao(item.duracao)}
+          </span>
+        )}
+        <span className="absolute top-1.5 right-1.5 bg-blue-600 text-white text-[10px] px-1.5 py-0.5 rounded font-semibold">
+          Meta
+        </span>
+      </div>
+
+      {/* Info */}
+      <div className="p-2.5">
+        <p className="text-xs font-medium text-gray-700 truncate">{item.nome}</p>
+        <p className="text-xs text-gray-400 mt-0.5 truncate">
+          ID: {item.id.substring(0, 12)}…
+        </p>
+
+        {item.tipo === 'video' ? (
+          <button
+            onClick={transcrever}
+            disabled={transcrevendo || transcrito === 'processando' || transcrito === 'concluido'}
+            className="w-full mt-1.5 py-1 text-xs bg-[#1e3a5f]/10 hover:bg-[#1e3a5f]/20 text-[#1e3a5f] rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-1"
+          >
+            {transcrevendo
+              ? <><Loader2 size={10} className="animate-spin" /> Enviando para fila...</>
+              : transcrito === 'processando'
+                ? <><Loader2 size={10} className="animate-spin" /> Transcrevendo (aguarde)...</>
+                : transcrito === 'concluido'
+                  ? <><CheckCircle size={10} className="text-green-500" /> Transcrito</>
+                  : <>▶ Transcrever vídeo</>
+            }
+          </button>
+        ) : null}
+        {transcrito === 'concluido' && classificacao && (
+          <div className="mt-1.5 space-y-0.5">
+            {([
+              { label: 'Frio',   valor: classificacao.adequacao_publico_frio as number },
+              { label: 'Quente', valor: classificacao.adequacao_publico_quente as number },
+              { label: 'WA',     valor: classificacao.adequacao_whatsapp as number },
+            ]).map(({ label, valor }) => (
+              <div key={label} className="flex items-center gap-1">
+                <span className="text-[10px] text-gray-500 w-10">{label}</span>
+                <div className="flex-1 h-1 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-[#1e3a5f] rounded-full" style={{ width: `${(valor ?? 0) * 10}%` }} />
+                </div>
+                <span className="text-[10px] text-gray-600 w-3">{valor}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {item.tipo !== 'video' && (item.url_thumb || item.url_full) ? (
+          <>
+            <button
+              onClick={analisar}
+              disabled={analisando || analisado}
+              className="w-full mt-1.5 py-1 text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-1"
+            >
+              {analisando
+                ? <><Loader2 size={10} className="animate-spin" /> Analisando imagem...</>
+                : analisado
+                  ? <><CheckCircle size={10} className="text-green-500" /> Analisado</>
+                  : <><Search size={10} /> Analisar imagem</>
+              }
+            </button>
+            {analisado && classificacao && (
+              <div className="mt-1.5 space-y-0.5">
+                {([
+                  { label: 'Frio',   valor: classificacao.adequacao_publico_frio as number },
+                  { label: 'Quente', valor: classificacao.adequacao_publico_quente as number },
+                  { label: 'WA',     valor: classificacao.adequacao_whatsapp as number },
+                ]).map(({ label, valor }) => (
+                  <div key={label} className="flex items-center gap-1">
+                    <span className="text-xs text-gray-400 w-10">{label}</span>
+                    <div className="flex-1 bg-gray-100 rounded-full h-1">
+                      <div className="h-1 rounded-full bg-blue-500" style={{ width: `${(valor ?? 0) * 10}%` }} />
+                    </div>
+                    <span className="text-xs text-gray-500 w-4">{valor}</span>
+                  </div>
+                ))}
+                {typeof classificacao.resumo === 'string' && (
+                  <p className="text-xs text-gray-400 mt-1 line-clamp-2">{classificacao.resumo}</p>
+                )}
+              </div>
+            )}
+          </>
+        ) : null}
+
+        {erroAcao && (
+          <p className="text-[10px] text-red-500 mt-1">{erroAcao}</p>
+        )}
       </div>
     </div>
   );
@@ -408,6 +792,16 @@ function CardCriativo({
         {/* Transcrição / Classificação */}
         {criativo.tipo === 'video' && (
           <div className="mt-1.5">
+            {criativo.transcricao_status === 'sem_audio' && (
+              <div className="flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 rounded-md" title={criativo.transcricao_erro ?? ''}>
+                <span className="text-xs text-gray-400">
+                  {/dco|auto.?crop/i.test(criativo.transcricao_erro ?? '')
+                    ? '🔒 DCO — sem download'
+                    : '🔇 Sem fala detectada'}
+                </span>
+              </div>
+            )}
+
             {criativo.transcricao_status === 'processando' && (
               <div className="flex items-center gap-1 px-1.5 py-0.5 bg-yellow-50 rounded-md">
                 <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse" />
@@ -415,7 +809,7 @@ function CardCriativo({
               </div>
             )}
 
-            {criativo.transcricao_status === 'concluida' && criativo.classificacao && (
+            {criativo.transcricao_status === 'concluida' && criativo.classificacao?.tipo_conteudo && (
               <div className="space-y-1">
                 <div className="flex items-center gap-1 flex-wrap">
                   <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-md capitalize">
@@ -452,11 +846,41 @@ function CardCriativo({
             )}
 
             {criativo.transcricao_status === 'erro' && (
+              <div className="mt-1 space-y-1">
+                {criativo.transcricao_erro && (
+                  <p className="text-[10px] text-red-500 leading-tight break-words">
+                    ⚠ {criativo.transcricao_erro}
+                  </p>
+                )}
+                <button
+                  onClick={onRetranscrever}
+                  className="w-full py-1 text-xs bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors"
+                >
+                  ↺ Tentar novamente
+                </button>
+              </div>
+            )}
+
+            {criativo.transcricao_status === 'concluida' && !criativo.classificacao?.tipo_conteudo && (
+              <div className="mt-1 space-y-1">
+                <p className="text-[10px] text-amber-600">
+                  ⚠ Transcrito, sem classificação
+                </p>
+                <button
+                  onClick={onRetranscrever}
+                  className="w-full py-1 text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg transition-colors"
+                >
+                  ↺ Classificar agora
+                </button>
+              </div>
+            )}
+
+            {(!criativo.transcricao_status || criativo.transcricao_status === 'pendente') && (
               <button
                 onClick={onRetranscrever}
-                className="text-xs text-red-500 hover:text-red-700 underline"
+                className="w-full mt-1.5 py-1 text-xs bg-[#1e3a5f]/10 hover:bg-[#1e3a5f]/20 text-[#1e3a5f] rounded-lg transition-colors"
               >
-                Erro — tentar novamente
+                ▶ Transcrever
               </button>
             )}
           </div>

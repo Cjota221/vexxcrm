@@ -28,11 +28,11 @@ export async function GET(req: NextRequest) {
       id, nome, tipo, status, orcamento_diario,
       copy_headline, copy_texto, copy_cta,
       meta_campaign_id, meta_adset_id, meta_ad_id,
-      created_at, criativo_id,
+      created_at, criativo_id, criativo_url_preview,
       ad_creatives (nome, url_preview, classificacao)
     `)
     .eq('tenant_id', tenantId)
-    .not('status', 'in', '("publicado","rejeitado")')
+    .in('status', ['rascunho', 'aprovado', 'publicando', 'erro'])
     .order('created_at', { ascending: false });
 
   return NextResponse.json(data ?? []);

@@ -24,14 +24,26 @@ export async function GET(req: NextRequest) {
   }
 
   const supabase = createServerSupabaseClient();
-  const { data } = await supabase
-    .from('ad_creatives')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .neq('status', 'arquivado')
-    .order('created_at', { ascending: false });
+  const page  = parseInt(req.nextUrl.searchParams.get('page')  || '1');
+  const limit = parseInt(req.nextUrl.searchParams.get('limit') || '20');
+  const offset = (page - 1) * limit;
 
-  return NextResponse.json(data ?? []);
+  const [{ data }, { count }] = await Promise.all([
+    supabase
+      .from('ad_creatives')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .neq('status', 'arquivado')
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1),
+    supabase
+      .from('ad_creatives')
+      .select('*', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .neq('status', 'arquivado'),
+  ]);
+
+  return NextResponse.json({ data: data ?? [], total: count ?? 0 });
 }
 
 export async function POST(req: NextRequest) {

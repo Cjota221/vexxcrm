@@ -1,10 +1,9 @@
-// ORQUESTRADOR DE PÚBLICOS — Coordena José + Cláudio para criar públicos Meta Ads.
-// Fluxo: José analisa CRM → Cláudio configura → Meta API cria → banco salva.
+// ORQUESTRADOR DE PÚBLICOS — Usa Jarvis para criar públicos Meta Ads.
+// Fluxo: Jarvis analisa CRM + configura → Meta API cria → banco salva.
 // REGRA: nunca executa ações sem salvar log completo em ai_analysis_runs.
 
 import { createServerSupabaseClient } from '@/lib/supabase';
-import { joseAnalisarDadosParaPublicos } from './jose-audience-analyst.service';
-import { claudioRefiniarPublicos } from './claudio-audience-creator.service';
+import { jarvisAnalisarParaPublicos } from './jarvis-trafego.service';
 import { criarPublicoMeta, criarPublicoRemarketing } from './meta-audiences.service';
 import type { PublicoCriado } from './meta-audiences.service';
 
@@ -71,33 +70,20 @@ export async function criarPublicosComIA(
 
   const publicosCriados: PublicoCriado[] = [];
 
-  // 2. José analisa os dados do CRM
+  // 2. Jarvis analisa CRM e gera configurações de públicos (1 passo)
   onEtapa?.('jose');
-  console.log('[PÚBLICOS] José analisando dados do CRM...');
-  const joseAnalise = await joseAnalisarDadosParaPublicos(
+  console.log('[PÚBLICOS] Jarvis analisando dados do CRM e configurando públicos...');
+  const jarvisConfig = await jarvisAnalisarParaPublicos(
     tenantId,
+    {},  // dadosCRM — pode ser enriquecido futuramente
     config.openaiKey || undefined,
   );
-  console.log(`[PÚBLICOS] José recomendou ${joseAnalise.publicos.length} públicos`);
+  console.log(`[PÚBLICOS] Jarvis configurou ${jarvisConfig.publicos_configurados.length} públicos`);
 
-  // 3. Cláudio refina e configura para a Meta API
-  onEtapa?.('claudio');
-  console.log('[PÚBLICOS] Cláudio configurando públicos...');
-  const claudioConfig = await claudioRefiniarPublicos(
-    joseAnalise,
-    config.openaiKey || undefined,
-  );
-  console.log(`[PÚBLICOS] Cláudio configurou ${claudioConfig.publicos_configurados.length} públicos`);
-
-  // 4. Criar cada público via Meta API em sequência
+  // 3. Criar cada público via Meta API em sequência
   onEtapa?.('meta');
-  for (const publico of claudioConfig.publicos_configurados) {
+  for (const publico of jarvisConfig.publicos_configurados) {
     console.log(`[PÚBLICOS] Criando: ${publico.nome_meta}...`);
-
-    const josePublico = joseAnalise.publicos.find(
-      p => p.nome.toLowerCase().includes(publico.nome_interno.toLowerCase()) ||
-           publico.nome_interno.toLowerCase().includes(p.nome.toLowerCase().split(' ')[0])
-    );
 
     try {
       const criado = await criarPublicoMeta(
@@ -105,7 +91,7 @@ export async function criarPublicosComIA(
         config.token,
         tenantId,
         publico,
-        josePublico?.justificativa,
+        publico.justificativa_jose,
       );
       publicosCriados.push(criado);
       console.log(`[PÚBLICOS] ✓ ${publico.nome_meta} — ${criado.tamanho_estimado}`);
@@ -156,8 +142,8 @@ export async function criarPublicosComIA(
   await supabase.from('ai_analysis_runs').insert({
     tenant_id: tenantId,
     status: erros === publicosCriados.length ? 'failed' : 'completed',
-    analyst_output: joseAnalise,
-    strategist_output: claudioConfig,
+    analyst_output: jarvisConfig,
+    strategist_output: null,
     actions_generated: criados,
     duration_ms: duracao,
     error_message: erros > 0 ? `${erros} público(s) falharam` : null,
@@ -171,7 +157,7 @@ export async function criarPublicosComIA(
     publicos: publicosCriados,
     criados,
     erros,
-    analise_resumo: joseAnalise.analise_resumo,
+    analise_resumo: jarvisConfig.analise_resumo,
     duracao_ms: duracao,
   };
 }

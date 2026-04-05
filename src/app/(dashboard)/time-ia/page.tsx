@@ -26,9 +26,7 @@ function authFetch(url: string, options?: RequestInit): Promise<Response> {
 
 interface AgentStatus {
   anne: { active: boolean; provider: string; model: string };
-  jose: { active: boolean; metaConnected: boolean; accountName?: string; lastRun?: string; metaError?: string };
-  claudio: { active: boolean; hasApiKey: boolean };
-  pedro: { active: boolean; hasApiKey: boolean };
+  jarvis: { active: boolean; metaConnected: boolean; accountName?: string; lastRun?: string; metaError?: string };
   judite: { active: boolean; hasApiKey: boolean };
 }
 
@@ -113,21 +111,22 @@ interface AgentCardProps {
   ativo: boolean;
   configurado: boolean;
   metrica?: string;
+  isRunning?: boolean;
   onConfigure?: () => void;
 }
 
-function AgentCard({ icon, nome, funcao, modelo, ativo, configurado, metrica, onConfigure }: AgentCardProps) {
-  const statusColor = !configurado ? 'border-yellow-300 bg-yellow-50' : ativo ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-gray-50';
-  const dotCls = !configurado ? 'bg-amber-400' : ativo ? 'bg-green-500' : 'bg-gray-400';
-  const label = !configurado ? 'Configurar' : ativo ? 'Ativo' : 'Aguardando';
-  const labelCls = !configurado ? 'text-amber-700' : ativo ? 'text-green-700' : 'text-gray-500';
+function AgentCard({ icon, nome, funcao, modelo, ativo, configurado, metrica, isRunning, onConfigure }: AgentCardProps) {
+  const statusColor = isRunning ? 'border-indigo-300 bg-indigo-50' : !configurado ? 'border-yellow-300 bg-yellow-50' : ativo ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-gray-50';
+  const dotCls = isRunning ? 'bg-indigo-500 animate-pulse' : !configurado ? 'bg-amber-400' : ativo ? 'bg-green-500' : 'bg-gray-400';
+  const label = isRunning ? 'Analisando...' : !configurado ? 'Configurar' : ativo ? 'Ativo' : 'Aguardando';
+  const labelCls = isRunning ? 'text-indigo-600' : !configurado ? 'text-amber-700' : ativo ? 'text-green-700' : 'text-gray-500';
 
   return (
     <div className={`rounded-xl border-2 p-4 flex flex-col gap-2 ${statusColor}`}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-9 h-9 rounded-xl bg-white shadow-sm flex items-center justify-center shrink-0">
-            {icon}
+            {isRunning ? <RefreshCw size={20} className="text-indigo-500 animate-spin" /> : icon}
           </div>
           <div>
             <p className="font-semibold text-gray-900 text-sm">{nome}</p>
@@ -449,50 +448,34 @@ export default function TimeIAPage() {
       )}
 
       {/* Cards dos agentes */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <AgentCard
           icon={<MessageCircle size={20} className="text-emerald-500" />}
           nome="Anne"
-          funcao="Atendimento WhatsApp"
+          funcao="Atendimento WhatsApp + Instagram"
           modelo={agentStatus?.anne.model || 'llama-3.3-70b-versatile'}
           ativo={agentStatus?.anne.active ?? true}
           configurado={true}
           metrica="Sempre ativa"
         />
         <AgentCard
-          icon={<BarChart2 size={20} className="text-blue-500" />}
-          nome="José"
-          funcao="Análise de métricas"
-          modelo="gpt-4o-mini"
-          ativo={agentStatus?.jose.active ?? false}
-          configurado={agentStatus?.jose.metaConnected ?? false}
-          metrica={agentStatus?.jose.accountName
-            ? `Conta: ${agentStatus.jose.accountName}`
-            : agentStatus?.jose.lastRun
-              ? `Últ: ${new Date(agentStatus.jose.lastRun).toLocaleDateString('pt-BR')}`
-              : undefined}
-        />
-        <AgentCard
-          icon={<Brain size={20} className="text-purple-500" />}
-          nome="Cláudio"
-          funcao="Estratégia + Copies"
-          modelo="gpt-4o-mini"
-          ativo={agentStatus?.claudio.active ?? false}
-          configurado={agentStatus?.claudio.hasApiKey ?? false}
-          metrica={copies.length > 0 ? `${copies.length} copies prontos` : undefined}
-        />
-        <AgentCard
-          icon={<Search size={20} className="text-orange-500" />}
-          nome="Pedro"
-          funcao="Tendências de mercado"
-          modelo="gpt-4o-mini"
-          ativo={agentStatus?.pedro.active ?? false}
-          configurado={agentStatus?.pedro.hasApiKey ?? false}
+          icon={<Zap size={20} className="text-[#1e3a5f]" />}
+          nome="JARVIS"
+          funcao="Análise + Estratégia + Públicos + Campanhas"
+          modelo="claude-haiku-4-5"
+          ativo={agentStatus?.jarvis.active ?? false}
+          configurado={agentStatus?.jarvis.metaConnected ?? false}
+          isRunning={runningAnalysis}
+          metrica={agentStatus?.jarvis.accountName
+            ? `Conta: ${agentStatus.jarvis.accountName}`
+            : agentStatus?.jarvis.lastRun
+              ? `Últ: ${new Date(agentStatus.jarvis.lastRun).toLocaleDateString('pt-BR')}`
+              : copies.length > 0 ? `${copies.length} copies prontos` : undefined}
         />
         <AgentCard
           icon={<Palette size={20} className="text-pink-500" />}
           nome="Judite"
-          funcao="Avaliação de criativos"
+          funcao="Avaliação visual de criativos"
           modelo="gpt-4o-mini (visão)"
           ativo={agentStatus?.judite.active ?? false}
           configurado={agentStatus?.judite.hasApiKey ?? false}
@@ -504,7 +487,7 @@ export default function TimeIAPage() {
         <div className="flex gap-0">
           {([
             { key: 'aprovacao', label: 'Fila de Aprovação', icon: <CheckSquare size={14} />, count: actions.length },
-            { key: 'copies',    label: 'Copies do Cláudio', icon: <PenSquare size={14} />,  count: copies.length },
+            { key: 'copies',    label: 'Copies do Jarvis',  icon: <PenSquare size={14} />,  count: copies.length },
             { key: 'config',    label: 'Configurações',     icon: <Settings2 size={14} />,  count: 0 },
           ] as const).map(tab => (
             <button
@@ -559,7 +542,7 @@ export default function TimeIAPage() {
             <div className="text-center py-12 text-gray-400">
               <Sparkles size={40} className="mx-auto mb-3 opacity-40" />
               <p className="font-medium">Nenhum copy gerado ainda</p>
-              <p className="text-sm mt-1">O Cláudio gera copies após analisar suas campanhas</p>
+              <p className="text-sm mt-1">O Jarvis gera copies após analisar suas campanhas</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -607,7 +590,7 @@ export default function TimeIAPage() {
               <label className="block">
                 <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
                   <Sparkles size={13} className="text-blue-500" />
-                  José · Cláudio · Pedro · Judite — OpenAI API Key
+                  Judite — OpenAI API Key
                 </span>
                 <p className="text-xs text-gray-400 mb-1">platform.openai.com → API Keys — compartilhada por toda a inteligência interna</p>
                 <input
@@ -626,9 +609,9 @@ export default function TimeIAPage() {
             <div className="flex items-center justify-between">
               <h3 className="font-semibold text-gray-900 flex items-center gap-2"><BarChart2 size={16} className="text-blue-500" /> Conta de Anúncios (Meta Ads)</h3>
               <span className="text-xs">
-                {agentStatus?.jose.metaConnected
-                  ? <span className="flex items-center gap-1.5 text-green-600"><span className="w-2 h-2 rounded-full bg-green-500" />{agentStatus.jose.accountName || 'Conectado'}</span>
-                  : <span className="flex items-center gap-1.5 text-red-500"><span className="w-2 h-2 rounded-full bg-red-500" />Não conectado{agentStatus?.jose.metaError ? ` — ${agentStatus.jose.metaError}` : ''}</span>}
+                {agentStatus?.jarvis.metaConnected
+                  ? <span className="flex items-center gap-1.5 text-green-600"><span className="w-2 h-2 rounded-full bg-green-500" />{agentStatus.jarvis.accountName || 'Conectado'}</span>
+                  : <span className="flex items-center gap-1.5 text-red-500"><span className="w-2 h-2 rounded-full bg-red-500" />Não conectado{agentStatus?.jarvis.metaError ? ` — ${agentStatus.jarvis.metaError}` : ''}</span>}
               </span>
             </div>
 
@@ -662,7 +645,7 @@ export default function TimeIAPage() {
           {/* Contexto da marca */}
           <div className="border border-gray-200 rounded-xl p-5 space-y-4">
             <h3 className="font-semibold text-gray-900 flex items-center gap-2"><Store size={16} className="text-gray-500" /> Contexto da Marca</h3>
-            <p className="text-xs text-gray-500">O Cláudio usa essas informações para gerar estratégias e copies relevantes.</p>
+            <p className="text-xs text-gray-500">O Jarvis usa essas informações para gerar estratégias e copies relevantes.</p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <label className="block">
@@ -716,7 +699,7 @@ export default function TimeIAPage() {
             <h3 className="font-semibold text-gray-900 flex items-center gap-2"><Activity size={16} className="text-indigo-500" /> Ativar Agentes</h3>
             <div className="space-y-3">
               {([
-                { key: 'analysis_enabled', label: 'José + Cláudio — Análise diária de Meta Ads', desc: 'Roda todo dia às 08h automaticamente' },
+                { key: 'analysis_enabled', label: 'JARVIS — Análise diária de Meta Ads', desc: 'Roda todo dia às 08h automaticamente' },
                 { key: 'research_enabled', label: 'Pedro — Pesquisa de tendências', desc: 'Executa junto com a análise diária' },
                 { key: 'visual_enabled', label: 'Judite — Avaliação de criativos', desc: 'Avalia imagens de anúncios na análise' },
               ] as const).map(item => (

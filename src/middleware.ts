@@ -29,7 +29,9 @@ export async function middleware(request: NextRequest) {
                            pathname.startsWith('/api/meta/leads') ||
                            pathname.startsWith('/api/catalogo/config') ||   // catálogo público — sem login
                            pathname.startsWith('/api/catalogo/produtos') || // catálogo público — sem login
-                           pathname.startsWith('/api/loja');               // loja pública — sem login
+                           pathname.startsWith('/api/loja') ||            // loja pública — sem login
+                           pathname === '/api/meta/transcricao/callback';  // callback n8n — auth via x-n8n-secret
+  // Nota: status-por-meta usa auth normal (Bearer token), não precisa ser pública
 
   // ─── PROTEÇÃO APENAS DE ROTAS DE API (não rotas de página) ───
   if (pathname.startsWith('/api') && !isPublicApiRoute) {

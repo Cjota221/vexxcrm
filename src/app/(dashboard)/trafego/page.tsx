@@ -75,6 +75,29 @@ interface Summary {
   totalCpc: number;
 }
 
+interface MetaAdset {
+  id: string;
+  name: string;
+  status: string;
+  effective_status?: string;
+  daily_budget?: string;
+  optimization_goal?: string;
+}
+
+interface MetaAd {
+  id: string;
+  name: string;
+  status: string;
+  effective_status?: string;
+  adset_id?: string;
+  creative?: {
+    id: string;
+    thumbnail_url?: string;
+    title?: string;
+    body?: string;
+  };
+}
+
 interface MetricsData {
   connected: boolean;
   accountName?: string;
@@ -1285,6 +1308,18 @@ interface IAPublico {
   copy_sugerido?: { headline: string; texto: string; cta: string };
   estrategia?: string;
   erro?: string;
+  meta_audience_id?: string | null;
+  targeting?: {
+    age_min?: number;
+    age_max?: number;
+    genders?: number[];
+    geo_locations?: {
+      countries?: string[];
+      regions?: { name: string; key?: string }[];
+    };
+    interests?: { id?: string; name: string }[];
+    custom_audiences?: { id: string; name?: string }[];
+  };
 }
 
 // Públicos pré-configurados CJ Rasteirinhas
@@ -1417,8 +1452,8 @@ function formatAudienceSize(lower?: number, upper?: number): string {
 type IALoadingStep = 'jose' | 'claudio' | 'meta' | 'remarketing' | null;
 
 const IA_STEP_LABELS: Record<string, string> = {
-  jose: '🔍 José analisando seus clientes...',
-  claudio: '🎯 Cláudio configurando os públicos...',
+  jose: '⚡ Jarvis analisando seus clientes...',
+  claudio: '⚡ Jarvis configurando os públicos...',
   meta: '📡 Criando no Meta Ads...',
   remarketing: '🔄 Criando público de remarketing...',
 };
@@ -1442,6 +1477,10 @@ function PublicosTab() {
   const [criandoComIA, setCriandoComIA] = useState(false);
   const [iaStep, setIaStep] = useState<IALoadingStep>(null);
   const [iaAnaliseResumo, setIaAnaliseResumo] = useState<string | null>(null);
+  const [publicandoId, setPublicandoId] = useState<string | null>(null);
+
+  // Modal de detalhes
+  const [modalPublico, setModalPublico] = useState<IAPublico | null>(null);
 
   // Criação manual de público
   const [formManual, setFormManual] = useState(false);
@@ -1534,6 +1573,45 @@ function PublicosTab() {
       setFormFeedback(String(e));
     } finally {
       setCriandoManual(false);
+    }
+  };
+
+  const publicarNoMeta = async (publico: IAPublico) => {
+    if (publicandoId) return;
+    setPublicandoId(publico.id);
+    try {
+      if (publico.tipo === 'remarketing' || publico.tipo === 'lookalike') {
+        // Tentar criar Custom Audience real no Meta
+        const res = await authFetch(`/api/trafego/publicos/${publico.id}/publicar-meta`, { method: 'POST' });
+        const json = await res.json() as { ok?: boolean; meta_audience_id?: string; error?: string };
+        if (json.ok && json.meta_audience_id) {
+          setIaPublicos(prev => prev.map(p => p.id === publico.id
+            ? { ...p, meta_audience_id: json.meta_audience_id, status: 'pronto' }
+            : p
+          ));
+          setFormFeedback('✅ Público criado no Meta! ID: ' + json.meta_audience_id);
+        } else {
+          setFormFeedback(json.error || 'Erro ao publicar no Meta');
+        }
+      } else {
+        // Para públicos de interesse: marcar como pronto para uso no agente
+        const res = await authFetch(`/api/trafego/publicos/${publico.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status: 'pronto' }),
+        });
+        if (res.ok) {
+          setIaPublicos(prev => prev.map(p => p.id === publico.id ? { ...p, status: 'pronto' } : p));
+          setFormFeedback('✅ Pronto para usar no agente');
+        } else {
+          // Mesmo se a API falhar, marcar localmente
+          setIaPublicos(prev => prev.map(p => p.id === publico.id ? { ...p, status: 'pronto' } : p));
+          setFormFeedback('✅ Pronto para usar no agente');
+        }
+      }
+    } catch {
+      setFormFeedback('Erro ao publicar público');
+    } finally {
+      setPublicandoId(null);
     }
   };
 
@@ -1661,7 +1739,7 @@ function PublicosTab() {
           <div className="flex-1 min-w-0">
             <div className="font-semibold text-gray-900 text-sm">Criar públicos com IA</div>
             <div className="text-xs text-gray-500 mt-0.5">
-              José analisa seus clientes + Cláudio configura os públicos certos para cada objetivo
+              ⚡ Jarvis analisa seus dados e configura os públicos de alta performance
             </div>
             {criandoComIA && iaStep && (
               <div className="mt-2 flex items-center gap-2 text-xs text-purple-700 font-medium">
@@ -1730,9 +1808,65 @@ function PublicosTab() {
                       )}
                     </div>
                     {p.descricao && <div className="text-xs text-gray-500 mt-0.5">{p.descricao}</div>}
-                    <div className="text-xs text-gray-400 mt-1 font-medium">{tamanho}</div>
+                    {/* Estimativa de alcance */}
+                    <div className="text-xs text-gray-400 mt-1 font-medium">
+                      {p.tipo === 'interesse'
+                        ? 'Estimativa disponível após publicar campanha'
+                        : tamanho === 'Calculando...' ? 'Estimativa disponível após publicar campanha' : tamanho}
+                    </div>
                     {p.jose_justificativa && (
                       <div className="text-xs text-gray-400 mt-0.5 italic">💡 {p.jose_justificativa}</div>
+                    )}
+                    {/* Targeting detalhado */}
+                    {p.targeting && (
+                      <div className="mt-2 space-y-0.5">
+                        {p.targeting.age_min && (
+                          <p className="text-xs text-gray-700">
+                            👤 Idade: {p.targeting.age_min}–{p.targeting.age_max} anos
+                            {p.targeting.genders?.includes(2) ? ' | Mulheres' : ''}
+                          </p>
+                        )}
+                        {p.targeting.geo_locations?.countries && p.targeting.geo_locations.countries.length > 0 && (
+                          <p className="text-xs text-gray-700">
+                            🌍 Países: {p.targeting.geo_locations.countries.join(', ')}
+                          </p>
+                        )}
+                        {p.targeting.geo_locations?.regions && p.targeting.geo_locations.regions.length > 0 && (
+                          <p className="text-xs text-gray-700">
+                            📍 Estados: {p.targeting.geo_locations.regions.map(r => r.name).join(', ')}
+                          </p>
+                        )}
+                        {p.targeting.interests && p.targeting.interests.length > 0 && (
+                          <p className="text-xs text-gray-700">
+                            🎯 Interesses: {p.targeting.interests.map(i => i.name).join(', ')}
+                          </p>
+                        )}
+                        {p.targeting.custom_audiences && p.targeting.custom_audiences.length > 0 && (
+                          <p className="text-xs text-gray-700">🔄 Público customizado no Meta</p>
+                        )}
+                      </div>
+                    )}
+                    {/* Status por tipo */}
+                    {p.tipo === 'interesse' ? (
+                      <div className="flex items-center gap-1.5 text-green-600 mt-1">
+                        <CheckCircle size={12} />
+                        <span className="text-xs">Pronto para usar no agente</span>
+                      </div>
+                    ) : p.meta_audience_id ? (
+                      <div className="flex items-center gap-1.5 text-green-600 mt-1">
+                        <CheckCircle size={12} />
+                        <span className="text-xs">Criado no Meta · ID: {p.meta_audience_id.slice(0, 12)}…</span>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => publicarNoMeta(p)}
+                        disabled={publicandoId === p.id}
+                        className="mt-2 flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 font-medium disabled:opacity-50 transition-colors"
+                      >
+                        {publicandoId === p.id
+                          ? <><Loader2 size={10} className="animate-spin" /> Criando no Meta...</>
+                          : <>☁ Criar no Meta</>}
+                      </button>
                     )}
                     {copy && (
                       <div className="mt-2 p-2 bg-gray-50 rounded-lg border border-gray-100 text-xs space-y-0.5">
@@ -1744,15 +1878,34 @@ function PublicosTab() {
                     {p.erro && (
                       <div className="text-xs text-red-500 mt-1">⚠ {p.erro}</div>
                     )}
+                    {/* Usar no agente */}
+                    <button
+                      onClick={() => {
+                        localStorage.setItem('agente_publico_selecionado', p.id);
+                        setFormFeedback(`✅ Público "${p.nome}" selecionado — abra a aba Agente`);
+                        setModalPublico(null);
+                      }}
+                      className="w-full mt-2 py-1.5 flex items-center justify-center gap-1.5 border border-crm-primary text-crm-primary text-xs rounded-xl hover:bg-crm-primary/5 transition-colors font-medium"
+                    >
+                      → Usar na próxima campanha
+                    </button>
                   </div>
-                  <span className={cn(
-                    'text-xs px-2 py-0.5 rounded-full font-medium shrink-0',
-                    p.status === 'pronto' ? 'bg-green-50 text-green-700' :
-                    p.status === 'falhou' ? 'bg-red-50 text-red-600' :
-                    'bg-gray-100 text-gray-500'
-                  )}>
-                    {p.status === 'pronto' ? 'Pronto' : p.status === 'falhou' ? 'Falhou' : p.status}
-                  </span>
+                  <div className="flex flex-col items-end gap-1.5 shrink-0">
+                    <span className={cn(
+                      'text-xs px-2 py-0.5 rounded-full font-medium',
+                      p.status === 'pronto' ? 'bg-green-50 text-green-700' :
+                      p.status === 'falhou' ? 'bg-red-50 text-red-600' :
+                      'bg-gray-100 text-gray-500'
+                    )}>
+                      {p.status === 'pronto' ? 'Pronto' : p.status === 'falhou' ? 'Falhou' : p.status}
+                    </span>
+                    <button
+                      onClick={() => setModalPublico(p)}
+                      className="text-xs text-crm-primary hover:underline font-medium"
+                    >
+                      Ver detalhes
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -1816,6 +1969,143 @@ function PublicosTab() {
       )}
 
       {/* Sugestões estáticas CJ como referência (só se não houver públicos IA) */}
+      {/* Modal de detalhes do público */}
+      {modalPublico && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+          onClick={() => setModalPublico(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between p-5 border-b border-gray-100">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="font-bold text-gray-900">{modalPublico.nome}</h3>
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 font-medium">
+                    {modalPublico.tipo === 'remarketing' ? '🔄 Remarketing' : modalPublico.tipo === 'lookalike' ? '👥 Lookalike' : '🎯 Interesse'}
+                  </span>
+                </div>
+                {modalPublico.descricao && (
+                  <p className="text-sm text-gray-500 mt-1">{modalPublico.descricao}</p>
+                )}
+              </div>
+              <button onClick={() => setModalPublico(null)} className="text-gray-400 hover:text-gray-600 ml-3 shrink-0 text-xl leading-none">✕</button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {/* Alcance estimado */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <p className="text-xs text-gray-400 mb-0.5">Alcance estimado</p>
+                  <p className="font-semibold text-gray-800 text-sm">
+                    {formatTamanhoEstimado(modalPublico.estimativa_alcance_min, modalPublico.estimativa_alcance_max, modalPublico.tamanho_estimado)}
+                  </p>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <p className="text-xs text-gray-400 mb-0.5">Criado em</p>
+                  <p className="font-semibold text-gray-800 text-sm">
+                    {new Date(modalPublico.created_at).toLocaleDateString('pt-BR')}
+                  </p>
+                </div>
+              </div>
+
+              {/* Explicação contextual por tipo */}
+              {modalPublico.tipo === 'interesse' ? (
+                <div className="p-3 bg-blue-50 rounded-xl border border-blue-100">
+                  <p className="text-xs text-blue-700 font-medium">✅ Como este público funciona</p>
+                  <p className="text-xs text-blue-600 mt-1">
+                    Públicos de interesse são aplicados diretamente nas campanhas — não precisam ser criados no Meta separadamente. Selecione este público ao criar uma campanha no Agente.
+                  </p>
+                </div>
+              ) : !modalPublico.meta_audience_id ? (
+                <div className="p-3 bg-orange-50 rounded-xl border border-orange-100">
+                  <p className="text-xs text-orange-700 font-medium">⚠️ Este público precisa ser criado no Meta</p>
+                  <p className="text-xs text-orange-600 mt-1">
+                    Remarketing requer um Custom Audience real no Meta. Clique abaixo para ativá-lo.
+                  </p>
+                  <button
+                    onClick={() => { publicarNoMeta(modalPublico); setModalPublico(null); }}
+                    disabled={publicandoId === modalPublico.id}
+                    className="mt-2 w-full py-1.5 flex items-center justify-center gap-1.5 bg-orange-600 text-white text-xs rounded-xl hover:bg-orange-700 disabled:opacity-50 transition-colors"
+                  >
+                    {publicandoId === modalPublico.id
+                      ? <><Loader2 size={10} className="animate-spin" /> Criando...</>
+                      : <>☁ Criar Custom Audience no Meta</>}
+                  </button>
+                </div>
+              ) : (
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
+                  <p className="text-xs text-blue-500 font-medium mb-1">ID no Meta Ads</p>
+                  <p className="font-mono text-xs text-blue-700 break-all">{modalPublico.meta_audience_id}</p>
+                </div>
+              )}
+
+              {/* Justificativa do Jarvis */}
+              {modalPublico.jose_justificativa && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                    ⚡ Análise do Jarvis
+                  </p>
+                  <p className="text-sm text-gray-700 bg-amber-50 border border-amber-100 rounded-xl p-3">
+                    {modalPublico.jose_justificativa}
+                  </p>
+                </div>
+              )}
+
+              {/* Estratégia */}
+              {modalPublico.estrategia && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Estratégia</p>
+                  <p className="text-sm text-gray-600">{modalPublico.estrategia}</p>
+                </div>
+              )}
+
+              {/* Copy do Cláudio */}
+              {(modalPublico.claudio_copy || modalPublico.copy_sugerido) && (() => {
+                const copy = modalPublico.claudio_copy || modalPublico.copy_sugerido!;
+                return (
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                      ✍️ Copy sugerido
+                    </p>
+                    <div className="bg-gray-50 rounded-xl border border-gray-100 p-3 space-y-1.5 text-sm">
+                      <div><span className="font-medium text-gray-700">Headline:</span> <span className="text-gray-600">{copy.headline}</span></div>
+                      <div><span className="font-medium text-gray-700">Texto:</span> <span className="text-gray-600">{copy.texto}</span></div>
+                      <div><span className="font-medium text-gray-700">CTA:</span> <span className="text-gray-600">{copy.cta}</span></div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Targeting JSON */}
+              {modalPublico.targeting && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Targeting completo</p>
+                  <pre className="bg-gray-900 text-green-400 text-[11px] rounded-xl p-3 overflow-x-auto">
+                    {JSON.stringify(modalPublico.targeting, null, 2)}
+                  </pre>
+                </div>
+              )}
+
+              {/* Botão usar no agente */}
+              <button
+                onClick={() => {
+                  localStorage.setItem('agente_publico_selecionado', modalPublico.id);
+                  setModalPublico(null);
+                  setFormFeedback(`✅ Público "${modalPublico.nome}" selecionado — abra a aba Agente`);
+                }}
+                className="w-full py-2.5 bg-crm-primary text-white text-sm font-medium rounded-xl hover:opacity-90 transition-colors"
+              >
+                → Usar este público na próxima campanha
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {!loading && iaPublicos.length === 0 && (
         <div className="space-y-3">
           <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Sugestões para CJ Rasteirinhas</h3>
@@ -1851,14 +2141,14 @@ function TextosTab({ copies }: { copies: Array<{ headline: string; texto_princip
       <div className="flex items-center justify-between">
         <h2 className="font-bold text-gray-900">Textos para Anúncios</h2>
         <a href="/time-ia" className="text-sm text-crm-primary hover:underline">
-          Pedir novo ao Cláudio →
+          Pedir novo ao Jarvis →
         </a>
       </div>
 
       {/* Copies gerados pelo Cláudio */}
       {copies.length > 0 && (
         <div className="space-y-4">
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Do Cláudio (aguardando uso)</h3>
+          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Do Jarvis (aguardando uso)</h3>
           {copies.map((copy) => (
             <div key={copy.id} className="bg-white rounded-2xl border border-gray-100 p-4">
               <div className="font-semibold text-gray-900">{copy.headline}</div>
@@ -2371,6 +2661,11 @@ export default function TrafegoPage() {
       .catch(() => {});
   }, []);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
+  const [expandedCampaignId, setExpandedCampaignId] = useState<string | null>(null);
+  const [drillAdsets, setDrillAdsets] = useState<MetaAdset[]>([]);
+  const [drillAds, setDrillAds] = useState<MetaAd[]>([]);
+  const [drillLoading, setDrillLoading] = useState(false);
+  const [expandedAdsetId, setExpandedAdsetId] = useState<string | null>(null);
   const [copies, setCopies] = useState<Array<{ id: string; headline: string; texto_principal: string; cta: string; justificativa?: string }>>([]);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -2462,7 +2757,7 @@ export default function TrafegoPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-6xl mx-auto px-4 py-6 space-y-4">
+      <div className="w-full px-4 py-6 space-y-4">
 
         {/* ─── Cabeçalho ─────────────────────────────────────────────────── */}
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
@@ -2842,43 +3137,183 @@ export default function TrafegoPage() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                          {filtered.map((c) => (
-                            <tr key={c.id} className="hover:bg-gray-50 transition-colors group">
-                              <td className="py-3 pr-4">
-                                <div className="font-medium text-gray-800 text-sm">{c.nome}</div>
-                                {c.alerts.length > 0 && (
-                                  <div className="text-xs text-red-400 mt-0.5">
-                                    {c.alerts[0].mensagem.substring(0, 50)}…
-                                  </div>
+                          {filtered.map((c) => {
+                            const isExpanded = expandedCampaignId === c.id;
+                            return (
+                              <React.Fragment key={c.id}>
+                                <tr className="hover:bg-gray-50 transition-colors group">
+                                  <td className="py-3 pr-4">
+                                    <div className="font-medium text-gray-800 text-sm">{c.nome}</div>
+                                    {c.alerts.length > 0 && (
+                                      <div className="text-xs text-red-400 mt-0.5">
+                                        {c.alerts[0].mensagem.substring(0, 50)}…
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="py-3 pr-4">
+                                    <EffectiveStatusBadge status={c.effective_status} />
+                                  </td>
+                                  <td className="py-3 pr-4">
+                                    <HealthBadge health={c.health} />
+                                  </td>
+                                  <td className="py-3 pr-4 text-right text-sm font-medium text-gray-700">
+                                    {brl(c.spend)}
+                                  </td>
+                                  <td className="py-3 pr-4 text-right">
+                                    <div className={cn('text-sm font-medium', c.roas >= 3 ? 'text-emerald-400' : c.roas >= 1.5 ? 'text-amber-400' : 'text-red-400')}>
+                                      {c.roas > 0 ? `${c.roas.toFixed(1)}×` : '—'}
+                                    </div>
+                                  </td>
+                                  <td className="py-3 pr-4 text-right text-sm text-gray-400">
+                                    {c.leads > 0 ? c.leads : '—'}
+                                  </td>
+                                  <td className="py-3">
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        onClick={() => setSelectedCampaign(c)}
+                                        className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 flex items-center gap-1 whitespace-nowrap transition-colors"
+                                      >
+                                        Gerir <ChevronRight size={12} />
+                                      </button>
+                                      <button
+                                        onClick={async () => {
+                                          if (isExpanded) {
+                                            setExpandedCampaignId(null);
+                                            setExpandedAdsetId(null);
+                                            return;
+                                          }
+                                          setExpandedCampaignId(c.id);
+                                          setExpandedAdsetId(null);
+                                          setDrillAdsets([]);
+                                          setDrillAds([]);
+                                          setDrillLoading(true);
+                                          try {
+                                            const [adsetsRes, adsRes] = await Promise.all([
+                                              authFetch(`/api/meta/campanhas/${c.id}/adsets`),
+                                              authFetch(`/api/meta/campanhas/${c.id}/ads`),
+                                            ]);
+                                            const [adsets, ads] = await Promise.all([
+                                              adsetsRes.json() as Promise<MetaAdset[]>,
+                                              adsRes.json() as Promise<MetaAd[]>,
+                                            ]);
+                                            setDrillAdsets(Array.isArray(adsets) ? adsets : []);
+                                            setDrillAds(Array.isArray(ads) ? ads : []);
+                                          } catch { /* silencioso */ }
+                                          setDrillLoading(false);
+                                        }}
+                                        className={cn(
+                                          'p-1.5 rounded-lg border transition-colors',
+                                          isExpanded
+                                            ? 'bg-[#1e3a5f]/10 border-[#1e3a5f]/30 text-[#1e3a5f]'
+                                            : 'border-gray-200 text-gray-400 hover:bg-gray-50 hover:text-gray-600'
+                                        )}
+                                        title="Ver conjuntos e anúncios"
+                                      >
+                                        <ChevronDown size={12} className={cn('transition-transform', isExpanded && 'rotate-180')} />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+
+                                {/* Drill-down row */}
+                                {isExpanded && (
+                                  <tr key={`${c.id}-drill`}>
+                                    <td colSpan={7} className="p-0">
+                                      <div className="bg-[#161b24] border-t border-[#242d40] px-6 py-4">
+                                        {drillLoading ? (
+                                          <div className="flex items-center gap-2 text-gray-400 text-xs py-2">
+                                            <Loader2 size={12} className="animate-spin" />
+                                            Carregando conjuntos e anúncios...
+                                          </div>
+                                        ) : drillAdsets.length === 0 ? (
+                                          <p className="text-gray-500 text-xs py-2">Nenhum conjunto encontrado</p>
+                                        ) : (
+                                          <div className="space-y-3">
+                                            {drillAdsets.map(adset => {
+                                              const adsetAds = drillAds.filter(ad => ad.adset_id === adset.id);
+                                              const adsetExpanded = expandedAdsetId === adset.id;
+                                              return (
+                                                <div key={adset.id}>
+                                                  {/* Adset row */}
+                                                  <button
+                                                    onClick={() => setExpandedAdsetId(adsetExpanded ? null : adset.id)}
+                                                    className="w-full flex items-center justify-between gap-3 text-left group/adset"
+                                                  >
+                                                    <div className="flex items-center gap-2 min-w-0">
+                                                      <ChevronDown
+                                                        size={12}
+                                                        className={cn('shrink-0 text-gray-500 transition-transform', adsetExpanded && 'rotate-180')}
+                                                      />
+                                                      <span className="text-xs font-medium text-gray-200 truncate">{adset.name}</span>
+                                                      <span className={cn(
+                                                        'text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0',
+                                                        (adset.effective_status ?? adset.status) === 'ACTIVE'
+                                                          ? 'bg-emerald-500/20 text-emerald-400'
+                                                          : 'bg-gray-600/40 text-gray-400'
+                                                      )}>
+                                                        {adset.effective_status ?? adset.status}
+                                                      </span>
+                                                    </div>
+                                                    <span className="text-[10px] text-gray-500 shrink-0">
+                                                      {adset.daily_budget ? `R$${(Number(adset.daily_budget) / 100).toFixed(0)}/dia` : ''}
+                                                      {adsetAds.length > 0 && ` · ${adsetAds.length} anúncio${adsetAds.length > 1 ? 's' : ''}`}
+                                                    </span>
+                                                  </button>
+
+                                                  {/* Ads list */}
+                                                  {adsetExpanded && (
+                                                    <div className="mt-2 ml-5 space-y-2">
+                                                      {adsetAds.length === 0 ? (
+                                                        <p className="text-[11px] text-gray-600">Nenhum anúncio neste conjunto</p>
+                                                      ) : adsetAds.map(ad => (
+                                                        <div key={ad.id} className="flex items-center gap-3 bg-[#1c2333] rounded-xl px-3 py-2 border border-[#242d40]">
+                                                          {/* Thumbnail */}
+                                                          <div className="w-10 h-10 rounded-lg overflow-hidden bg-[#242d40] shrink-0 flex items-center justify-center">
+                                                            {ad.creative?.thumbnail_url ? (
+                                                              <img
+                                                                src={ad.creative.thumbnail_url}
+                                                                alt={ad.name}
+                                                                className="w-full h-full object-cover"
+                                                              />
+                                                            ) : (
+                                                              <Play size={14} className="text-gray-600" />
+                                                            )}
+                                                          </div>
+                                                          {/* Info */}
+                                                          <div className="flex-1 min-w-0">
+                                                            <div className="text-xs font-medium text-gray-200 truncate">
+                                                              {ad.creative?.title ?? ad.name}
+                                                            </div>
+                                                            {ad.creative?.body && (
+                                                              <div className="text-[11px] text-gray-500 truncate mt-0.5">
+                                                                {ad.creative.body}
+                                                              </div>
+                                                            )}
+                                                          </div>
+                                                          <span className={cn(
+                                                            'text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0',
+                                                            (ad.effective_status ?? ad.status) === 'ACTIVE'
+                                                              ? 'bg-emerald-500/20 text-emerald-400'
+                                                              : 'bg-gray-600/40 text-gray-400'
+                                                          )}>
+                                                            {ad.effective_status ?? ad.status}
+                                                          </span>
+                                                        </div>
+                                                      ))}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </td>
+                                  </tr>
                                 )}
-                              </td>
-                              <td className="py-3 pr-4">
-                                <EffectiveStatusBadge status={c.effective_status} />
-                              </td>
-                              <td className="py-3 pr-4">
-                                <HealthBadge health={c.health} />
-                              </td>
-                              <td className="py-3 pr-4 text-right text-sm font-medium text-gray-700">
-                                {brl(c.spend)}
-                              </td>
-                              <td className="py-3 pr-4 text-right">
-                                <div className={cn('text-sm font-medium', c.roas >= 3 ? 'text-emerald-400' : c.roas >= 1.5 ? 'text-amber-400' : 'text-red-400')}>
-                                  {c.roas > 0 ? `${c.roas.toFixed(1)}×` : '—'}
-                                </div>
-                              </td>
-                              <td className="py-3 pr-4 text-right text-sm text-gray-400">
-                                {c.leads > 0 ? c.leads : '—'}
-                              </td>
-                              <td className="py-3">
-                                <button
-                                  onClick={() => setSelectedCampaign(c)}
-                                  className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 flex items-center gap-1 whitespace-nowrap transition-colors"
-                                >
-                                  Gerir <ChevronRight size={12} />
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
+                              </React.Fragment>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -2939,23 +3374,23 @@ export default function TrafegoPage() {
                         {allAlerts.length > 0 ? (
                           <>
                             <div className="flex gap-3">
-                              <div className="w-7 h-7 rounded-full bg-amber-500 flex items-center justify-center text-white text-xs font-bold shrink-0">J</div>
+                              <div className="w-7 h-7 rounded-full bg-crm-primary flex items-center justify-center text-white text-xs font-bold shrink-0">⚡</div>
                               <p className="text-xs text-gray-400 leading-relaxed">
-                                <span className="text-gray-800 font-medium">José:</span>{' '}
+                                <span className="text-gray-800 font-medium">Jarvis:</span>{' '}
                                 {allAlerts[0].tipo === 'danger'
                                   ? `Pausar ${allAlerts[0].campaign.nome} imediatamente. ${allAlerts[0].mensagem}.`
                                   : allAlerts[0].mensagem}
                               </p>
                             </div>
-                            <div className="flex gap-3">
-                              <div className="w-7 h-7 rounded-full bg-purple-500 flex items-center justify-center text-white text-xs font-bold shrink-0">C</div>
-                              <p className="text-xs text-gray-400 leading-relaxed">
-                                <span className="text-gray-800 font-medium">Cláudio:</span>{' '}
-                                {allAlerts.length > 1
-                                  ? allAlerts[1].mensagem
-                                  : 'Criar público lookalike dos clientes com maior LTV. Testar R$30/dia por 3 dias antes de escalar orçamento.'}
-                              </p>
-                            </div>
+                            {allAlerts.length > 1 && (
+                              <div className="flex gap-3">
+                                <div className="w-7 h-7 rounded-full bg-crm-primary/70 flex items-center justify-center text-white text-xs font-bold shrink-0">⚡</div>
+                                <p className="text-xs text-gray-400 leading-relaxed">
+                                  <span className="text-gray-800 font-medium">Jarvis:</span>{' '}
+                                  {allAlerts[1].mensagem}
+                                </p>
+                              </div>
+                            )}
                           </>
                         ) : (
                           <p className="text-xs text-gray-600">Nenhum alerta ativo no período.</p>

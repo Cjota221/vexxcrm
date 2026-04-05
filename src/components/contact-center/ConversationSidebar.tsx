@@ -26,6 +26,7 @@ import {
   Power,
   PowerOff,
   ChevronDown,
+  ChevronUp,
   Plus,
   Trash2,
   GripVertical,
@@ -38,6 +39,7 @@ import {
   MoreVertical,
   UserCheck,
   Users,
+  Zap,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
@@ -238,6 +240,18 @@ function SearchPanelInline({ onClose }: { onClose: () => void }) {
    PAINEL ANNE — toggle + stats
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
+interface AnneFeedEntry {
+  id: string;
+  created_at: string;
+  duration_ms: number | null;
+  intent: string | null;
+  agent_used: string | null;
+  is_crisis: boolean;
+  action_taken: string | null;
+  client_name: string | null;
+  client_phone: string | null;
+}
+
 function AnnePanelInline({
   anneEnabled,
   onAnneToggle,
@@ -247,6 +261,8 @@ function AnnePanelInline({
   onAnneToggle: (v: boolean) => void;
   onClose: () => void;
 }) {
+  const [feedOpen, setFeedOpen] = useState(false);
+
   const { data, isLoading } = useQuery({
     queryKey: ['anne-log-stats'],
     queryFn: async () => {
@@ -264,53 +280,156 @@ function AnnePanelInline({
     staleTime: 30_000,
   });
 
+  const { data: feed, isLoading: feedLoading } = useQuery({
+    queryKey: ['anne-feed'],
+    queryFn: async () => {
+      const res = await api.get<AnneFeedEntry[]>('/api/v2/anne/feed?limit=20');
+      return res.data ?? [];
+    },
+    enabled: feedOpen,
+    refetchInterval: feedOpen ? 30_000 : false,
+    staleTime: 15_000,
+  });
+
   const stats = data?.stats;
 
+  /** Cor do item baseada no resultado */
+  function feedItemColor(entry: AnneFeedEntry) {
+    if (entry.is_crisis) return 'border-l-red-400 bg-red-50';
+    if (entry.action_taken && entry.action_taken !== 'noop') return 'border-l-emerald-400 bg-emerald-50';
+    return 'border-l-amber-400 bg-amber-50';
+  }
+
+  function feedDot(entry: AnneFeedEntry) {
+    if (entry.is_crisis) return 'bg-red-400';
+    if (entry.action_taken && entry.action_taken !== 'noop') return 'bg-emerald-400';
+    return 'bg-amber-400';
+  }
+
+  function relTime(iso: string) {
+    const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+    if (diff < 60) return `${diff}s`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+    return `${Math.floor(diff / 3600)}h`;
+  }
+
   return (
-    <div className="px-3 pb-3 space-y-2 bg-white border-b border-gray-100">
-      {/* Toggle */}
-      <div className="flex items-center justify-between py-1">
-        <div className="flex items-center gap-2">
-          <span className={cn(
-            'w-2 h-2 rounded-full',
-            anneEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'
-          )} />
-          <span className="text-xs font-medium text-gray-700">
-            Anne {anneEnabled ? 'ativada' : 'pausada'}
-          </span>
+    <div className="bg-white border-b border-gray-100">
+      {/* Toggle + stats header (clicável para abrir feed) */}
+      <div className="px-3 pt-2 pb-2 space-y-2">
+        {/* Linha de controle */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className={cn(
+              'w-2 h-2 rounded-full',
+              anneEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'
+            )} />
+            <span className="text-xs font-medium text-gray-700">
+              Anne {anneEnabled ? 'ativada' : 'pausada'}
+            </span>
+          </div>
+          <button
+            onClick={() => onAnneToggle(!anneEnabled)}
+            className={cn(
+              'flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all',
+              anneEnabled
+                ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            )}
+          >
+            {anneEnabled ? <Power size={11} /> : <PowerOff size={11} />}
+            {anneEnabled ? 'Pausar' : 'Ativar'}
+          </button>
         </div>
-        <button
-          onClick={() => onAnneToggle(!anneEnabled)}
-          className={cn(
-            'flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all',
-            anneEnabled
-              ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-          )}
-        >
-          {anneEnabled ? <Power size={11} /> : <PowerOff size={11} />}
-          {anneEnabled ? 'Pausar' : 'Ativar'}
-        </button>
+
+        {/* Stats grid — clica para abrir feed */}
+        {isLoading ? (
+          <div className="flex justify-center py-1"><Loader2 size={12} className="animate-spin text-gray-400" /></div>
+        ) : stats ? (
+          <button
+            onClick={() => setFeedOpen(o => !o)}
+            className="w-full grid grid-cols-4 gap-1.5 group"
+            title={feedOpen ? 'Fechar feed de execuções' : 'Ver execuções recentes'}
+          >
+            {[
+              { label: 'Gatilhos', v: stats.gatilhos_24h },
+              { label: 'Exec.', v: stats.executados_24h },
+              { label: 'Escal.', v: stats.escalados_24h },
+              { label: 'Auto.', v: stats.taxa_automacao },
+            ].map(s => (
+              <div
+                key={s.label}
+                className={cn(
+                  'rounded-lg p-1.5 text-center border transition-colors',
+                  feedOpen
+                    ? 'bg-crm-primary/5 border-crm-primary/20'
+                    : 'bg-gray-50 border-gray-100 group-hover:bg-gray-100'
+                )}
+              >
+                <p className="text-[9px] text-gray-400">{s.label}</p>
+                <p className={cn(
+                  'text-xs font-bold',
+                  feedOpen ? 'text-crm-primary' : 'text-gray-700'
+                )}>{String(s.v)}</p>
+              </div>
+            ))}
+          </button>
+        ) : null}
+
+        {/* Indicador expandir/recolher */}
+        {stats && (
+          <button
+            onClick={() => setFeedOpen(o => !o)}
+            className="w-full flex items-center justify-center gap-1 text-[10px] text-gray-400 hover:text-crm-primary transition-colors py-0.5"
+          >
+            <Zap size={9} />
+            {feedOpen ? 'Recolher feed' : 'Ver execuções recentes'}
+            {feedOpen ? <ChevronUp size={9} /> : <ChevronDown size={9} />}
+          </button>
+        )}
       </div>
 
-      {/* Stats grid */}
-      {isLoading ? (
-        <div className="flex justify-center py-1"><Loader2 size={12} className="animate-spin text-gray-400" /></div>
-      ) : stats ? (
-        <div className="grid grid-cols-4 gap-1.5">
-          {[
-            { label: 'Gatilhos', v: stats.gatilhos_24h },
-            { label: 'Exec.', v: stats.executados_24h },
-            { label: 'Escal.', v: stats.escalados_24h },
-            { label: 'Auto.', v: stats.taxa_automacao },
-          ].map(s => (
-            <div key={s.label} className="bg-gray-50 rounded-lg p-1.5 text-center border border-gray-100">
-              <p className="text-[9px] text-gray-400">{s.label}</p>
-              <p className="text-xs font-bold text-gray-700">{String(s.v)}</p>
+      {/* Feed de execuções */}
+      {feedOpen && (
+        <div className="border-t border-gray-100 max-h-64 overflow-y-auto px-3 py-2 space-y-1.5">
+          {feedLoading ? (
+            <div className="flex justify-center py-4">
+              <Loader2 size={14} className="animate-spin text-gray-400" />
             </div>
-          ))}
+          ) : !feed || feed.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-6 text-center">
+              <Activity size={20} className="text-gray-300 mb-1.5" />
+              <p className="text-xs text-gray-400">Nenhuma execução recente</p>
+            </div>
+          ) : (
+            feed.map(entry => (
+              <div
+                key={entry.id}
+                className={cn(
+                  'flex items-start gap-2 px-2 py-1.5 rounded-lg border-l-2 text-left',
+                  feedItemColor(entry)
+                )}
+              >
+                <span className={cn('w-1.5 h-1.5 rounded-full mt-1 shrink-0', feedDot(entry))} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-1">
+                    <p className="text-[11px] font-semibold text-gray-700 truncate">
+                      {entry.client_name ?? entry.client_phone ?? 'Cliente'}
+                    </p>
+                    <span className="text-[10px] text-gray-400 shrink-0">{relTime(entry.created_at)}</span>
+                  </div>
+                  <p className="text-[10px] text-gray-500 truncate">
+                    {entry.intent ?? entry.action_taken ?? (entry.is_crisis ? 'Crise detectada' : '—')}
+                  </p>
+                  {entry.agent_used && (
+                    <p className="text-[9px] text-gray-400 mt-0.5 truncate font-mono">{entry.agent_used}</p>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
         </div>
-      ) : null}
+      )}
     </div>
   );
 }

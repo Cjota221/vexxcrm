@@ -32,7 +32,16 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const id = await salvarCriativoNoBanco({ tenantId, ...body });
+    const id = await salvarCriativoNoBanco({
+      tenantId,
+      nome:             body.nome,
+      tipo:             body.tipo,
+      metaVideoId:      body.metaVideoId,
+      metaImageHash:    body.metaImageHash,
+      urlPreview:       body.thumbUrl,       // thumbUrl → urlPreview
+      tamanhoBytes:     body.tamanhoBytes,
+      duracaoSegundos:  body.duracaoSegundos,
+    });
 
     // Disparar transcrição em background para vídeos
     if (body.tipo === 'video' && id) {
