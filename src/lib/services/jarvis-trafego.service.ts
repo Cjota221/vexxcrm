@@ -13,6 +13,8 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
+const JARVIS_MODEL = process.env.JARVIS_MODEL ?? 'claude-haiku-4-5-20251001';
+
 const JARVIS_TRAFEGO_SYSTEM = `Você é o JARVIS, motor de inteligência de tráfego pago da CJ Rasteirinhas.
 
 NEGÓCIO: Atacado de rasteirinhas femininas, fabricação própria em Goiânia-BR.
@@ -31,7 +33,7 @@ export async function jarvisAnalisarCampanhas(
   const client = apiKey ? new Anthropic({ apiKey }) : anthropic;
 
   const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: JARVIS_MODEL,
     max_tokens: 1024,
     system: JARVIS_TRAFEGO_SYSTEM,
     messages: [{
@@ -75,7 +77,7 @@ export async function jarvisGerarEstrategia(
   const client = apiKey ? new Anthropic({ apiKey }) : anthropic;
 
   const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: JARVIS_MODEL,
     max_tokens: 1500,
     system: JARVIS_TRAFEGO_SYSTEM,
     messages: [{
@@ -132,7 +134,7 @@ export async function jarvisGerarResumoPerformance(
   const client = apiKey ? new Anthropic({ apiKey }) : anthropic;
 
   const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: JARVIS_MODEL,
     max_tokens: 800,
     system: JARVIS_TRAFEGO_SYSTEM,
     messages: [{
@@ -179,7 +181,7 @@ export async function jarvisAnalisarParaPublicos(
   const client = apiKey ? new Anthropic({ apiKey }) : anthropic;
 
   const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: JARVIS_MODEL,
     max_tokens: 1500,
     system: JARVIS_TRAFEGO_SYSTEM,
     messages: [{

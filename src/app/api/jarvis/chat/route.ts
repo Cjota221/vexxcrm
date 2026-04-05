@@ -342,10 +342,77 @@ async function executarTool(
   }
 
   if (toolName === 'gerar_relatorio') {
+    const periodo  = String(input.periodo ?? 'semana');
+    const tipo     = String(input.tipo ?? 'completo');
+
+    // Define janela de datas
+    const agora    = new Date();
+    let diasAtras  = 7;
+    if (periodo === 'hoje')      diasAtras = 1;
+    else if (periodo === 'mes')  diasAtras = 30;
+    else if (periodo === 'trimestre') diasAtras = 90;
+
+    const dataInicio = input.data_inicio
+      ? String(input.data_inicio)
+      : new Date(agora.getTime() - diasAtras * 86_400_000).toISOString();
+    const dataFim = input.data_fim
+      ? `${String(input.data_fim)}T23:59:59`
+      : agora.toISOString();
+
+    // Busca última análise concluída
+    const { data: ultimaAnalise } = await supabase
+      .from('ai_analysis_runs')
+      .select('analyst_output, strategist_output, metrics_snapshot, actions_generated, copies_generated, created_at, duration_ms')
+      .eq('tenant_id', tenantId)
+      .eq('status', 'completed')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    // Busca campanhas do cache Meta
+    const { data: campanhas } = await supabase
+      .from('meta_campaigns_cache')
+      .select('nome, status, objetivo, orcamento_diario, metricas, sincronizado_em')
+      .eq('tenant_id', tenantId)
+      .order('sincronizado_em', { ascending: false })
+      .limit(20);
+
+    // Busca vendas do período se tipo inclui vendas
+    let vendas = null;
+    if (tipo === 'vendas' || tipo === 'completo') {
+      const { data: pedidos } = await supabase
+        .from('orders')
+        .select('total, status, created_at')
+        .eq('tenant_id', tenantId)
+        .gte('created_at', dataInicio)
+        .lte('created_at', dataFim);
+
+      if (pedidos) {
+        const faturamento = pedidos.reduce((s, p) => s + (Number(p.total) || 0), 0);
+        vendas = {
+          total_pedidos: pedidos.length,
+          faturamento: faturamento.toFixed(2),
+          ticket_medio: pedidos.length ? (faturamento / pedidos.length).toFixed(2) : '0',
+        };
+      }
+    }
+
     return {
-      mensagem: 'Relatório gerado com dados reais do VEXX',
-      periodo: input.periodo,
-      tipo: input.tipo,
+      periodo,
+      tipo,
+      janela:         { inicio: dataInicio, fim: dataFim },
+      ultima_analise: ultimaAnalise
+        ? {
+            criada_em:         ultimaAnalise.created_at,
+            acoes_geradas:     ultimaAnalise.actions_generated,
+            copies_geradas:    ultimaAnalise.copies_generated,
+            insights_analista: ultimaAnalise.analyst_output,
+            recomendacoes:     ultimaAnalise.strategist_output,
+            metricas_snapshot: ultimaAnalise.metrics_snapshot,
+          }
+        : null,
+      campanhas:      campanhas ?? [],
+      vendas,
     };
   }
 

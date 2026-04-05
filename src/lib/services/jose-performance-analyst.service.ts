@@ -257,7 +257,8 @@ export async function analisarPerformanceComJose(
         urgencia: (a.urgencia as 'imediata' | 'proximas_24h' | 'proxima_semana') || 'proximas_24h',
       });
     }
-  } catch {
+  } catch (err) {
+    console.error('[jose-performance-analyst] jarvisGerarResumoPerformance falhou:', err);
     // Fallback: resumo gerado localmente
   }
 
