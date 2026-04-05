@@ -127,7 +127,7 @@ export async function GET(req: NextRequest) {
     const insightFields = [
       'spend', 'impressions', 'clicks', 'reach', 'cpc', 'cpm', 'ctr',
       'frequency', 'actions', 'action_values',
-      'outbound_clicks', 'landing_page_view',
+      'outbound_clicks',
       'video_p25_watched_actions', 'video_p50_watched_actions',
       'video_p75_watched_actions', 'video_p95_watched_actions',
       'video_p100_watched_actions', 'video_thruplay_watched_actions',
@@ -227,7 +227,7 @@ export async function GET(req: NextRequest) {
           actions?: Array<{ action_type: string; value: string }>;
           action_values?: Array<{ action_type: string; value: string }>;
           outbound_clicks?: Array<{ action_type: string; value: string }>;
-          landing_page_view?: string;
+          // landing_page_view é action_type dentro de actions[], não campo direto
           video_p25_watched_actions?: Array<{ action_type: string; value: string }>;
           video_p50_watched_actions?: Array<{ action_type: string; value: string }>;
           video_p75_watched_actions?: Array<{ action_type: string; value: string }>;
@@ -265,7 +265,10 @@ export async function GET(req: NextRequest) {
       const thruplay    = Math.round(n(insight?.video_thruplay_watched_actions?.[0]?.value));
       const avg_watch   = n(insight?.video_avg_time_watched_actions?.[0]?.value);
       const cost_per_thruplay = n(insight?.cost_per_thruplay?.[0]?.value);
-      const landing_page_views = Math.round(n(insight?.outbound_clicks?.[0]?.value || insight?.landing_page_view));
+      const landing_page_views = Math.round(n(
+        insight?.outbound_clicks?.[0]?.value ||
+        insight?.actions?.find(a => a.action_type === 'landing_page_view')?.value
+      ));
 
       const alerts = computeAlerts({
         campaign_name: campaign.name, spend, cpm, ctr, cpl, roas,
