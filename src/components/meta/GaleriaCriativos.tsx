@@ -471,11 +471,12 @@ function CardCriativoCache({ item }: { item: CacheCreativo }) {
             const statusRes = await fetch(`/api/meta/transcricao?id=${upsertData.id}`, {
               headers: { Authorization: authPoll },
             });
-            const statusData = await statusRes.json() as { transcricao_status?: string; transcricao_erro?: string };
+            const statusData = await statusRes.json() as { transcricao_status?: string; transcricao_erro?: string; classificacao?: Record<string, unknown> };
 
             if (statusData.transcricao_status === 'concluida') {
               clearInterval(intervalo);
               setTranscrito('concluido');
+              if (statusData.classificacao) setClassificacao(statusData.classificacao);
             } else if (statusData.transcricao_status === 'erro') {
               clearInterval(intervalo);
               setTranscrito('idle');
@@ -575,7 +576,25 @@ function CardCriativoCache({ item }: { item: CacheCreativo }) {
                   : <>▶ Transcrever vídeo</>
             }
           </button>
-        ) : (item.url_thumb || item.url_full) ? (
+        ) : null}
+        {transcrito === 'concluido' && classificacao && (
+          <div className="mt-1.5 space-y-0.5">
+            {([
+              { label: 'Frio',   valor: classificacao.adequacao_publico_frio as number },
+              { label: 'Quente', valor: classificacao.adequacao_publico_quente as number },
+              { label: 'WA',     valor: classificacao.adequacao_whatsapp as number },
+            ]).map(({ label, valor }) => (
+              <div key={label} className="flex items-center gap-1">
+                <span className="text-[10px] text-gray-500 w-10">{label}</span>
+                <div className="flex-1 h-1 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-[#1e3a5f] rounded-full" style={{ width: `${(valor ?? 0) * 10}%` }} />
+                </div>
+                <span className="text-[10px] text-gray-600 w-3">{valor}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {item.tipo !== 'video' && (item.url_thumb || item.url_full) ? (
           <>
             <button
               onClick={analisar}
