@@ -191,13 +191,20 @@ async function executarTool(
       por_status[k] = (por_status[k] ?? 0) + 1;
     }
 
+    // Agrupar faturamento por mês
+    const por_mes: Record<string, number> = {};
+    for (const o of data ?? []) {
+      const mes = new Date(o.created_at as string).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+      por_mes[mes] = (por_mes[mes] ?? 0) + (parseFloat(String(o.total)) || 0);
+    }
+
     return {
       total_pedidos: data?.length ?? 0,
-      total_faturamento: total_faturamento.toFixed(2),
+      faturamento: total_faturamento.toFixed(2),
       ticket_medio: data?.length ? (total_faturamento / data.length).toFixed(2) : '0',
+      por_mes: Object.fromEntries(Object.entries(por_mes).map(([k, v]) => [k, v.toFixed(2)])),
       por_status,
       periodo: { inicio: dataInicio, fim: dataFim },
-      pedidos: data?.slice(0, 10) ?? [],
       erro_query: error?.message ?? null,
     };
   }
@@ -354,7 +361,7 @@ async function chamarAnthropic(
     },
     body: JSON.stringify({
       model:      'claude-haiku-4-5-20251001',
-      max_tokens: 1024,
+      max_tokens: 512,
       system:     systemPrompt,
       tools:      TOOLS,
       messages,
@@ -404,23 +411,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Base de conhecimento injetada no system prompt
-  const { data: knowledgeDocs } = await supabase
-    .from('jarvis_knowledge')
-    .select('titulo, conteudo, categoria')
-    .eq('tenant_id', tenantId)
-    .eq('ativo', true)
-    .order('criado_em', { ascending: false })
-    .limit(20);
-
-  const knowledgeBlock = knowledgeDocs && knowledgeDocs.length > 0
-    ? `\n\n## BASE DE CONHECIMENTO DO NEGÓCIO\nAs informações abaixo foram cadastradas pelo usuário. Use-as sempre que relevante:\n\n${
-        knowledgeDocs
-          .map(doc => `### [${doc.categoria.toUpperCase()}] ${doc.titulo}\n${doc.conteudo}`)
-          .join('\n\n---\n\n')
-      }`
-    : '';
-
   const hoje = new Date().toLocaleDateString('pt-BR', {
     weekday: 'long',
     day: '2-digit',
@@ -428,34 +418,19 @@ export async function POST(req: NextRequest) {
     year: 'numeric',
   });
 
-  const JARVIS_SYSTEM = `Você é o JARVIS, motor de inteligência central do VEXX CRM.
-
-DATA DE HOJE: ${hoje}
-Sempre use esta data como referência para análises e períodos.
-Quando pedirem "últimos 3 meses", calcule a partir de hoje.
-Você foi criado para a ${config?.brand_name ?? 'empresa'}.
-
-Suas responsabilidades:
-- Analisar performance de campanhas Meta Ads
-- Criar e otimizar públicos de alta performance
-- Gerar copies e estratégias de anúncio
-- Identificar oportunidades e alertar sobre problemas
-- Analisar vendas, clientes, atendimentos e pipeline
-- Aprender com cada campanha para melhorar continuamente
-
-Você tem acesso a tools que buscam dados reais do VEXX CRM.
-Sempre que o usuário pedir uma análise, use as tools para buscar dados reais antes de responder.
-Quando pedir para criar campanha, você executa.
-Você é direto, estratégico e fala português brasileiro.
-Você nunca diz "não posso" — você encontra uma forma.
-Seja conciso. Máximo 3 parágrafos por resposta. Use bullet points. Vá direto ao ponto.
-
-Dados de pedidos vêm da tabela orders do VEXX. Status válidos: shipped (entregue pelo transportador), confirmed (pagamento confirmado), delivered (entregue ao cliente), processing (em processamento). O FacilZap pode mostrar números diferentes por usar filtros de data distintos — explique isso quando perguntado.${knowledgeBlock}`;
+  const JARVIS_SYSTEM = `Você é o JARVIS do VEXX CRM da ${config?.brand_name ?? 'CJ Rasteirinhas'}.
+Hoje: ${hoje}.
+Negócio: atacado de rasteirinhas femininas, Goiânia-BR.
+WhatsApp: 62981480687. Ad Account: act_1244920119465862.
+Seja direto. Máximo 5 linhas por resposta.
+Use as tools para buscar dados reais antes de responder.`;
 
   try {
-    // Montar histórico de mensagens
+    // Histórico limitado a 4 mensagens para controlar tokens
+    const historicoCurtado = (historico ?? []).slice(-4);
+
     const messages: AnthropicMessage[] = [
-      ...(historico ?? []).map(h => ({ role: h.role, content: h.content })),
+      ...historicoCurtado.map(h => ({ role: h.role, content: h.content })),
       { role: 'user', content: mensagem },
     ];
 
