@@ -237,6 +237,219 @@ export async function criarPublicoVisitantesSite(
   return null;
 }
 
+/* ─── Público de engajamento com Instagram ───────────────────────────────── */
+
+export async function criarPublicoEngajamentoInstagram(
+  accountId: string,
+  token: string,
+  tenantId: string,
+  igAccountId: string,
+  dias: number = 30,
+): Promise<string | null> {
+  const supabase = createServerSupabaseClient();
+  const actId = accountId.replace('act_', '');
+
+  const rule = {
+    inclusions: {
+      operator: 'or',
+      rules: [{
+        event_sources: [{ id: igAccountId, type: 'ig_business' }],
+        retention_seconds: dias * 86400,
+        filter: {
+          operator: 'and',
+          filters: [{ field: 'event', operator: 'eq', value: 'ig_business_profile_all' }],
+        },
+      }],
+    },
+  };
+
+  const params = new URLSearchParams();
+  params.set('name', `CJ Engajamento Instagram ${dias}d`);
+  params.set('description', `Engajamento Instagram nos ultimos ${dias} dias`);
+  params.set('subtype', 'ENGAGEMENT');
+  params.set('rule', JSON.stringify(rule));
+  params.set('access_token', token);
+
+  try {
+    const res = await fetch(`${META_BASE}/act_${actId}/customaudiences`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const data = await res.json() as { id?: string; error?: { message: string } };
+    console.log('[publicos-cj] Instagram engajamento:', data);
+    if (data.id) {
+      await supabase.from('meta_audiences').insert({
+        tenant_id: tenantId,
+        nome: `CJ Engajamento Instagram ${dias}d`,
+        descricao: `Engajamento Instagram nos ultimos ${dias} dias`,
+        meta_audience_id: data.id,
+        targeting: { custom_audiences: [{ id: data.id }] },
+        criado_por_ia: true,
+        tipo: 'remarketing',
+        status: 'pronto',
+      });
+      return data.id;
+    }
+  } catch (err) {
+    console.error('[publicos-cj] Erro Instagram:', err);
+  }
+  return null;
+}
+
+/* ─── Público de engajamento com Vídeo ───────────────────────────────────── */
+
+const PERCENTUAL_MAP: Record<number, string> = {
+  25: 'video_view_25_percent',
+  50: 'video_view_50_percent',
+  75: 'video_view_75_percent',
+  95: 'video_view_95_percent',
+};
+
+export async function criarPublicoEngajamentoVideo(
+  accountId: string,
+  token: string,
+  tenantId: string,
+  videoIds: string[],
+  percentual = 25,
+  dias = 30,
+): Promise<string | null> {
+  if (!videoIds.length) return null;
+  const supabase = createServerSupabaseClient();
+  const actId = accountId.replace('act_', '');
+  const eventValue = PERCENTUAL_MAP[percentual] ?? 'video_view_25_percent';
+  const nome = `CJ Engajamento Video ${percentual}pct ${dias}d`;
+
+  const rule = {
+    inclusions: {
+      operator: 'or',
+      rules: [{
+        event_sources: videoIds.map(id => ({ id, type: 'video' })),
+        retention_seconds: dias * 86400,
+        filter: {
+          operator: 'and',
+          filters: [{ field: 'event', operator: 'eq', value: eventValue }],
+        },
+      }],
+    },
+  };
+
+  const params = new URLSearchParams();
+  params.set('name', nome);
+  params.set('description', `Assistiram ${percentual}pct dos videos selecionados nos ultimos ${dias} dias`);
+  params.set('subtype', 'ENGAGEMENT');
+  params.set('rule', JSON.stringify(rule));
+  params.set('access_token', token);
+
+  try {
+    const res = await fetch(`${META_BASE}/act_${actId}/customaudiences`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const data = await res.json() as { id?: string; error?: { message: string } };
+    console.log('[publicos-cj] Video engajamento:', data);
+    if (data.id) {
+      await supabase.from('meta_audiences').insert({
+        tenant_id: tenantId,
+        nome,
+        descricao: `Assistiram ${percentual}pct dos videos selecionados nos ultimos ${dias} dias`,
+        meta_audience_id: data.id,
+        targeting: { custom_audiences: [{ id: data.id }] },
+        criado_por_ia: true,
+        tipo: 'remarketing',
+        status: 'pronto',
+      });
+      return data.id;
+    }
+  } catch (err) {
+    console.error('[publicos-cj] Erro Video:', err);
+  }
+  return null;
+}
+
+/* ─── Lista de Clientes do VEXX (CUSTOM audience sem lookalike) ──────────── */
+
+export async function criarPublicoListaClientes(
+  accountId: string,
+  token: string,
+  tenantId: string,
+): Promise<string | null> {
+  const supabase = createServerSupabaseClient();
+  const actId = accountId.replace('act_', '');
+
+  const { data: clientes } = await supabase
+    .from('clients')
+    .select('phone, email, name')
+    .eq('tenant_id', tenantId)
+    .limit(1000);
+
+  if (!clientes || clientes.length < 10) {
+    console.warn('[publicos-cj] Poucos clientes para lista:', clientes?.length);
+    return null;
+  }
+
+  const params = new URLSearchParams();
+  params.set('name', 'CJ Lista Clientes VEXX');
+  params.set('description', `${clientes.length} clientes reais CJ Rasteirinhas`);
+  params.set('subtype', 'CUSTOM');
+  params.set('customer_file_source', 'USER_PROVIDED_ONLY');
+  params.set('access_token', token);
+
+  try {
+    const createRes = await fetch(`${META_BASE}/act_${actId}/customaudiences`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const createData = await createRes.json() as { id?: string; error?: { message: string } };
+    console.log('[publicos-cj] Lista clientes criada:', createData);
+    if (!createData.id) return null;
+
+    const audienceId = createData.id;
+    const crypto = await import('crypto');
+    const schema = ['PHONE', 'EMAIL', 'FN'];
+    const rows = clientes
+      .map(c => {
+        const phone = c.phone?.replace(/\D/g, '') ?? '';
+        const email = (c.email ?? '').toLowerCase().trim();
+        const fn    = (c.name ?? '').split(' ')[0].toLowerCase().trim();
+        return [
+          phone ? crypto.createHash('sha256').update(phone).digest('hex') : '',
+          email ? crypto.createHash('sha256').update(email).digest('hex') : '',
+          fn    ? crypto.createHash('sha256').update(fn).digest('hex')    : '',
+        ];
+      })
+      .filter(row => row[0] || row[1]);
+
+    await fetch(`${META_BASE}/${audienceId}/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payload: { schema, data: rows }, access_token: token }),
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    await supabase.from('meta_audiences').insert({
+      tenant_id: tenantId,
+      nome: 'CJ Lista Clientes VEXX',
+      descricao: `${clientes.length} clientes reais CJ Rasteirinhas`,
+      meta_audience_id: audienceId,
+      targeting: { custom_audiences: [{ id: audienceId }] },
+      criado_por_ia: true,
+      tipo: 'remarketing',
+      status: 'pronto',
+    });
+
+    return audienceId;
+  } catch (err) {
+    console.error('[publicos-cj] Erro lista clientes:', err);
+  }
+  return null;
+}
+
 /* ─── Lookalike a partir dos clientes do VEXX ───────────────────────────── */
 
 export async function criarLookalikeClientes(
@@ -245,6 +458,7 @@ export async function criarLookalikeClientes(
   tenantId: string,
 ): Promise<string | null> {
   const supabase = createServerSupabaseClient();
+  const actId = accountId.replace('act_', '');
 
   const { data: clientes } = await supabase
     .from('clients')
@@ -259,27 +473,23 @@ export async function criarLookalikeClientes(
   }
 
   const formBase = new URLSearchParams();
-  formBase.set('name', 'Clientes VEXX — Base Lookalike CJ');
-  formBase.set('description', `${clientes.length} clientes reais da CJ Rasteirinhas`);
+  formBase.set('name', 'CJ Base Lookalike Clientes');
+  formBase.set('description', `${clientes.length} clientes reais CJ Rasteirinhas`);
   formBase.set('subtype', 'CUSTOM');
   formBase.set('customer_file_source', 'USER_PROVIDED_ONLY');
   formBase.set('access_token', token);
 
   try {
-    const baseRes = await fetch(
-      `${META_BASE}/act_${accountId.replace('act_', '')}/customaudiences`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: formBase.toString(),
-        signal: AbortSignal.timeout(15_000),
-      }
-    );
+    const baseRes = await fetch(`${META_BASE}/act_${actId}/customaudiences`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formBase.toString(),
+      signal: AbortSignal.timeout(15_000),
+    });
     const baseData = await baseRes.json() as { id?: string; error?: { message: string } };
     if (!baseData.id) return null;
 
     const audienceId = baseData.id;
-
     const crypto = await import('crypto');
     const schema = ['PHONE', 'EMAIL', 'FN'];
     const data = clientes
@@ -303,7 +513,7 @@ export async function criarLookalikeClientes(
     });
 
     const lookalikeForm = new URLSearchParams();
-    lookalikeForm.set('name', 'Lookalike Clientes CJ — 1% BR');
+    lookalikeForm.set('name', 'CJ Lookalike Clientes 1pct BR');
     lookalikeForm.set('origin_audience_id', audienceId);
     lookalikeForm.set('lookalike_spec', JSON.stringify({
       type: 'similarity',
@@ -313,22 +523,19 @@ export async function criarLookalikeClientes(
     }));
     lookalikeForm.set('access_token', token);
 
-    const lookalikeRes = await fetch(
-      `${META_BASE}/act_${accountId.replace('act_', '')}/customaudiences`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: lookalikeForm.toString(),
-        signal: AbortSignal.timeout(15_000),
-      }
-    );
+    const lookalikeRes = await fetch(`${META_BASE}/act_${actId}/customaudiences`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: lookalikeForm.toString(),
+      signal: AbortSignal.timeout(15_000),
+    });
     const lookalikeData = await lookalikeRes.json() as { id?: string };
 
     if (lookalikeData.id) {
       await supabase.from('meta_audiences').insert({
         tenant_id: tenantId,
-        nome: 'Lookalike Clientes CJ — 1% BR',
-        descricao: `Pessoas similares aos ${clientes.length} clientes reais da CJ`,
+        nome: 'CJ Lookalike Clientes 1pct BR',
+        descricao: `Similares aos ${clientes.length} clientes reais da CJ`,
         meta_audience_id: lookalikeData.id,
         targeting: { custom_audiences: [{ id: lookalikeData.id }] },
         criado_por_ia: true,
@@ -341,4 +548,61 @@ export async function criarLookalikeClientes(
     console.error('[publicos-cj] Erro ao criar Lookalike:', err);
   }
   return null;
+}
+
+/* ─── Alias para compatibilidade ─────────────────────────────────────────── */
+export const criarPublicoEngajamentoPagina = criarPublicoEngajamentoReal;
+
+/* ─── Inicializar TODOS os públicos de uma vez ───────────────────────────── */
+
+export async function inicializarTodosPublicos(
+  tenantId: string,
+  igAccountId?: string,
+): Promise<Record<string, string | null>> {
+  const supabase = createServerSupabaseClient();
+  const { data: config } = await supabase
+    .from('ai_provider_config')
+    .select('meta_access_token, meta_ad_account_id, meta_ig_account_id')
+    .eq('tenant_id', tenantId)
+    .single();
+
+  if (!config?.meta_access_token || !config?.meta_ad_account_id) {
+    throw new Error('Meta Ads nao configurado');
+  }
+
+  const token = config.meta_access_token;
+  const actId = config.meta_ad_account_id.replace('act_', '');
+  const igId  = igAccountId ?? (config as Record<string, unknown>).meta_ig_account_id as string ?? '';
+
+  const resultados: Record<string, string | null> = {};
+
+  const [engPag, visitantes, listaClientes] = await Promise.allSettled([
+    criarPublicoEngajamentoReal(actId, token, tenantId, 30),
+    criarPublicoVisitantesSite(actId, token, tenantId, 30),
+    criarPublicoListaClientes(actId, token, tenantId),
+  ]);
+
+  resultados.engajamento_pagina  = engPag.status      === 'fulfilled' ? engPag.value      : null;
+  resultados.visitantes_site     = visitantes.status  === 'fulfilled' ? visitantes.value  : null;
+  resultados.lista_clientes      = listaClientes.status === 'fulfilled' ? listaClientes.value : null;
+
+  // Instagram só se tiver o ID configurado
+  if (igId) {
+    try {
+      resultados.engajamento_instagram = await criarPublicoEngajamentoInstagram(actId, token, tenantId, igId, 30);
+    } catch {
+      resultados.engajamento_instagram = null;
+    }
+  } else {
+    resultados.engajamento_instagram = null;
+  }
+
+  // Lookalike após ter lista de clientes
+  try {
+    resultados.lookalike = await criarLookalikeClientes(actId, token, tenantId);
+  } catch {
+    resultados.lookalike = null;
+  }
+
+  return resultados;
 }
