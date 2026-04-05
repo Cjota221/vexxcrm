@@ -47,7 +47,7 @@ export async function transcreverAudio(
       method: 'POST',
       headers: { Authorization: `Bearer ${groqKey}` },
       body: form,
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(60_000), // 60s — vídeos longos precisam de mais tempo
     });
 
     if (!res.ok) {
@@ -187,26 +187,32 @@ export async function processarCriativo(
     if (!videoData.source) throw new Error('URL de vídeo não disponível ainda — tente novamente em alguns minutos');
 
     // Baixar o vídeo
-    const videoBlob = await fetch(videoData.source, { signal: AbortSignal.timeout(15_000) })
+    const videoBlob = await fetch(videoData.source, { signal: AbortSignal.timeout(30_000) })
       .then(r => r.blob());
 
     // Transcrever
     const transcricaoResult = await transcreverAudio(videoBlob, `${criativo.nome}.mp4`);
 
-    if (!transcricaoResult.ok || !transcricaoResult.texto) {
+    // Rejeitar transcrições vazias ou muito curtas (ruído, silêncio, áudio mudo)
+    const textoValido = transcricaoResult.texto && transcricaoResult.texto.length >= 10;
+    if (!transcricaoResult.ok || !textoValido) {
+      const erroMsg = transcricaoResult.erro
+        ?? (transcricaoResult.texto && transcricaoResult.texto.length < 10
+          ? `Transcrição muito curta (${transcricaoResult.texto?.length ?? 0} chars) — possível áudio mudo ou sem fala`
+          : 'Whisper não retornou texto');
       await supabase
         .from('ad_creatives')
         .update({
           transcricao_status: 'erro',
-          transcricao_erro: transcricaoResult.erro,
+          transcricao_erro:   erroMsg,
           transcricao_modelo: 'whisper-large-v3',
         })
         .eq('id', criativoId);
-      return { ok: false, erro: transcricaoResult.erro };
+      return { ok: false, erro: erroMsg };
     }
 
     // Classificar
-    const classificacaoResult = await classificarCriativo(transcricaoResult.texto, criativo.nome);
+    const classificacaoResult = await classificarCriativo(transcricaoResult.texto!, criativo.nome);
 
     // Salvar resultado
     await supabase
