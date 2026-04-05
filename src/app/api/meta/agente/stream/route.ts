@@ -138,8 +138,8 @@ export async function GET(req: NextRequest) {
             orcamentoDiario: cj.orcamentoDiario,
             criativos: cj.criativoIds
               .map(id => criativos!.find((c: { id: string }) => c.id === id))
-              .filter(Boolean)
-              .map((c: { id: string; tipo: string; meta_video_id: string | null; meta_image_hash: string | null; url_preview: string | null }) => ({
+              .filter((c): c is { id: string; nome: string; tipo: string; meta_video_id: string | null; meta_image_hash: string | null; url_preview: string | null; classificacao: unknown } => Boolean(c))
+              .map(c => ({
                 id: c.id,
                 meta_video_id: c.meta_video_id ?? undefined,
                 meta_image_hash: c.meta_image_hash ?? undefined,
