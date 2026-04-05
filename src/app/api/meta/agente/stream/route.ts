@@ -16,6 +16,7 @@ import { resolverTokenMeta } from '@/lib/services/meta-token.service';
 import {
   distribuirOrcamento,
   criarCampanhaCompleta,
+  criarCampanhaCatalogo,
   type TipoCampanha,
   type ConfiguracaoCriativo,
 } from '@/lib/services/meta-adset-creator.service';
@@ -40,11 +41,12 @@ async function getTenantId(token: string): Promise<string | null> {
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  const token    = url.searchParams.get('token') ?? '';
-  const orcamento = Number(url.searchParams.get('orcamento') || '50');
-  const tiposRaw  = url.searchParams.get('tipos') || 'frio,whatsapp';
-  const tipos     = tiposRaw.split(',').filter(Boolean) as TipoCampanha[];
-  const nome      = url.searchParams.get('nome') || `Agente ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`;
+  const token      = url.searchParams.get('token') ?? '';
+  const orcamento  = Number(url.searchParams.get('orcamento') || '50');
+  const tiposRaw   = url.searchParams.get('tipos') || 'frio,whatsapp';
+  const tipos      = tiposRaw.split(',').filter(Boolean) as TipoCampanha[];
+  const nome       = url.searchParams.get('nome') || `Agente ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`;
+  const catalogoId = url.searchParams.get('catalogoId') ?? '';
 
   const encoder = new TextEncoder();
 
@@ -127,8 +129,22 @@ export async function GET(req: NextRequest) {
         // 6. Criar campanha por tipo
         const resultados: Array<{ tipo: TipoCampanha; ok: boolean; erro?: string; campaignId?: string }> = [];
 
+        const TIPO_LABEL_MAP: Record<TipoCampanha, string> = {
+          frio:     'Público Frio',
+          quente:   'Público Quente',
+          whatsapp: 'WhatsApp',
+          catalogo: 'Catálogo',
+        };
+
+        const SCORE_KEY: Record<TipoCampanha, string> = {
+          frio:     'adequacao_publico_frio',
+          quente:   'adequacao_publico_quente',
+          whatsapp: 'adequacao_whatsapp',
+          catalogo: 'adequacao_publico_frio',
+        };
+
         for (const tipo of tipos) {
-          const tipoLabel = tipo === 'frio' ? 'Público Frio' : tipo === 'quente' ? 'Público Quente' : 'WhatsApp';
+          const tipoLabel = TIPO_LABEL_MAP[tipo];
 
           send('step', {
             id: `campanha_${tipo}`,
@@ -136,83 +152,117 @@ export async function GET(req: NextRequest) {
             label: `Criando campanha ${tipoLabel}...`,
           });
 
-          // Selecionar melhor criativo: score por classificação ou o mais recente
-          const SCORE_KEY: Record<TipoCampanha, string> = {
-            frio:     'adequacao_publico_frio',
-            quente:   'adequacao_publico_quente',
-            whatsapp: 'adequacao_whatsapp',
-          };
-          const scoreKey = SCORE_KEY[tipo];
-          const sorted = [...criativos].sort((a, b) => {
-            const ca = (a.classificacao as Record<string, number> | null) ?? {};
-            const cb = (b.classificacao as Record<string, number> | null) ?? {};
-            return (cb[scoreKey] ?? 5) - (ca[scoreKey] ?? 5);
-          });
-          const criativo = sorted[0] as {
-            id: string;
-            nome: string;
-            tipo: string;
-            meta_video_id: string | null;
-            meta_image_hash: string | null;
-            url_preview: string | null;
-          };
-
-          const cfgCriativo: ConfiguracaoCriativo = {
-            tipo:          (criativo.tipo as 'video' | 'imagem') ?? (criativo.meta_video_id ? 'video' : 'imagem'),
-            metaVideoId:   criativo.meta_video_id ?? undefined,
-            metaImageHash: criativo.meta_image_hash ?? undefined,
-            imageUrl:      criativo.url_preview ?? undefined,
-            headline:      `${nome} — ${tipoLabel}`,
-            texto:         '',
-            cta:           tipo === 'whatsapp' || tipo === 'quente' ? 'WHATSAPP_MESSAGE' : 'LEARN_MORE',
-            pageId,
-            whatsappNumber: tipo === 'whatsapp' || tipo === 'quente' ? '5562993044255' : undefined,
-          };
-
           try {
-            const resultado = await criarCampanhaCompleta(tenantId, {
-              nome:            `${nome} — ${tipoLabel}`,
-              tipo,
-              orcamentoDiario: orcPorTipo[tipo] ?? 5000,
-              paises:          ['BR'],
-              idadeMin:        18,
-              idadeMax:        65,
-              criativo:        cfgCriativo,
-            });
+            let resultado: { campaignId: string; adsetId: string; adId: string };
 
-            // Salvar draft para aparecer na fila de aprovação
-            const { error: draftInsertError } = await supabase
-              .from('meta_campaign_drafts')
-              .insert({
-                tenant_id:        tenantId,
-                nome:             `${nome} — ${tipoLabel}`,
-                objetivo:         tipo === 'frio' ? 'BRAND_AWARENESS' : 'LINK_CLICKS',
-                status:           'aprovado',
-                tipo,
-                criativo_id:      criativo.id,
-                copy_headline:    cfgCriativo.headline,
-                copy_texto:       cfgCriativo.texto || null,
-                copy_cta:         cfgCriativo.cta,
-                orcamento_diario: orcPorTipo[tipo] ?? 5000,
-                meta_campaign_id:      resultado.campaignId,
-                meta_adset_id:         resultado.adsetId,
-                meta_ad_id:            resultado.adId,
-                criativo_url_preview:  criativo.url_preview ?? null,
+            if (tipo === 'catalogo') {
+              // Campanha de catálogo (DPA) — não usa criativo da galeria
+              if (!catalogoId) throw new Error('Catálogo não selecionado');
+              resultado = await criarCampanhaCatalogo(tenantId, {
+                nome:            `${nome} — ${tipoLabel}`,
+                catalogoId,
+                orcamentoDiario: orcPorTipo[tipo] ?? 5000,
+                pageId,
+                paises:          ['BR'],
+                idadeMin:        18,
+                idadeMax:        65,
               });
 
-            if (draftInsertError) {
-              console.error('[AGENTE STREAM] Erro ao salvar draft:', JSON.stringify(draftInsertError));
-            } else {
-              console.log('[AGENTE STREAM] Draft salvo com sucesso para tipo:', tipo);
-            }
+              const { error: draftInsertError } = await supabase
+                .from('meta_campaign_drafts')
+                .insert({
+                  tenant_id:             tenantId,
+                  nome:                  `${nome} — ${tipoLabel}`,
+                  objetivo:              'OUTCOME_SALES',
+                  status:                'aprovado',
+                  tipo,
+                  orcamento_diario:      orcPorTipo[tipo] ?? 5000,
+                  meta_campaign_id:      resultado.campaignId,
+                  meta_adset_id:         resultado.adsetId,
+                  meta_ad_id:            resultado.adId,
+                });
+              if (draftInsertError) {
+                console.error('[AGENTE STREAM] Erro ao salvar draft catálogo:', JSON.stringify(draftInsertError));
+              }
 
-            send('step', {
-              id: `campanha_${tipo}`,
-              status: 'ok',
-              label: `${tipoLabel} criada e pausada ✓`,
-              detalhe: `Criativo: "${criativo.nome}" · Campaign: ${resultado.campaignId}`,
-            });
-            resultados.push({ tipo, ok: true, campaignId: resultado.campaignId });
+              send('step', {
+                id: `campanha_${tipo}`,
+                status: 'ok',
+                label: `${tipoLabel} criada e pausada ✓`,
+                detalhe: `Catálogo: ${catalogoId} · Campaign: ${resultado.campaignId}`,
+              });
+              resultados.push({ tipo, ok: true, campaignId: resultado.campaignId });
+            } else {
+              // Campanha frio / quente / whatsapp — usa criativo da galeria
+              const scoreKey = SCORE_KEY[tipo];
+              const sorted = [...criativos].sort((a, b) => {
+                const ca = (a.classificacao as Record<string, number> | null) ?? {};
+                const cb = (b.classificacao as Record<string, number> | null) ?? {};
+                return (cb[scoreKey] ?? 5) - (ca[scoreKey] ?? 5);
+              });
+              const criativo = sorted[0] as {
+                id: string;
+                nome: string;
+                tipo: string;
+                meta_video_id: string | null;
+                meta_image_hash: string | null;
+                url_preview: string | null;
+              };
+
+              const cfgCriativo: ConfiguracaoCriativo = {
+                tipo:           (criativo.tipo as 'video' | 'imagem') ?? (criativo.meta_video_id ? 'video' : 'imagem'),
+                metaVideoId:    criativo.meta_video_id ?? undefined,
+                metaImageHash:  criativo.meta_image_hash ?? undefined,
+                imageUrl:       criativo.url_preview ?? undefined,
+                headline:       `${nome} — ${tipoLabel}`,
+                texto:          '',
+                cta:            tipo === 'whatsapp' || tipo === 'quente' ? 'WHATSAPP_MESSAGE' : 'LEARN_MORE',
+                pageId,
+                whatsappNumber: tipo === 'whatsapp' || tipo === 'quente' ? '5562993044255' : undefined,
+              };
+
+              resultado = await criarCampanhaCompleta(tenantId, {
+                nome:            `${nome} — ${tipoLabel}`,
+                tipo,
+                orcamentoDiario: orcPorTipo[tipo] ?? 5000,
+                paises:          ['BR'],
+                idadeMin:        18,
+                idadeMax:        65,
+                criativo:        cfgCriativo,
+              });
+
+              const { error: draftInsertError } = await supabase
+                .from('meta_campaign_drafts')
+                .insert({
+                  tenant_id:             tenantId,
+                  nome:                  `${nome} — ${tipoLabel}`,
+                  objetivo:              tipo === 'frio' ? 'BRAND_AWARENESS' : 'LINK_CLICKS',
+                  status:                'aprovado',
+                  tipo,
+                  criativo_id:           criativo.id,
+                  copy_headline:         cfgCriativo.headline,
+                  copy_texto:            cfgCriativo.texto || null,
+                  copy_cta:              cfgCriativo.cta,
+                  orcamento_diario:      orcPorTipo[tipo] ?? 5000,
+                  meta_campaign_id:      resultado.campaignId,
+                  meta_adset_id:         resultado.adsetId,
+                  meta_ad_id:            resultado.adId,
+                  criativo_url_preview:  criativo.url_preview ?? null,
+                });
+              if (draftInsertError) {
+                console.error('[AGENTE STREAM] Erro ao salvar draft:', JSON.stringify(draftInsertError));
+              } else {
+                console.log('[AGENTE STREAM] Draft salvo com sucesso para tipo:', tipo);
+              }
+
+              send('step', {
+                id: `campanha_${tipo}`,
+                status: 'ok',
+                label: `${tipoLabel} criada e pausada ✓`,
+                detalhe: `Criativo: "${criativo.nome}" · Campaign: ${resultado.campaignId}`,
+              });
+              resultados.push({ tipo, ok: true, campaignId: resultado.campaignId });
+            }
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             send('step', {

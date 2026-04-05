@@ -86,6 +86,14 @@ const CONFIG_POR_TIPO = {
       publisher_platforms: ['facebook', 'instagram'],
     },
   },
+  catalogo: {
+    objetivo:          'OUTCOME_SALES',
+    optimization_goal: 'OFFSITE_CONVERSIONS',
+    billing_event:     'IMPRESSIONS',
+    placements: {
+      publisher_platforms: ['facebook', 'instagram'],
+    },
+  },
 } as const;
 
 export type TipoCampanha = keyof typeof CONFIG_POR_TIPO;
@@ -445,6 +453,7 @@ const TIPO_LABEL: Record<TipoCampanha, string> = {
   frio:      'Público Frio',
   quente:    'Público Quente',
   whatsapp:  'WhatsApp',
+  catalogo:  'Catálogo',
 };
 
 /**
@@ -485,6 +494,7 @@ const TIPO_OBJETIVO: Record<TipoCampanha, ConfiguracaoAdset['objetivo']> = {
   frio:     'BRAND_AWARENESS',
   quente:   'LINK_CLICKS',
   whatsapp: 'LINK_CLICKS',
+  catalogo: 'CONVERSIONS',
 };
 
 /**
@@ -552,6 +562,133 @@ export async function criarCampanhaCompleta(
     targetingCompleto,
   });
   const creativeId = await criarAdCreative(token, actId, cfg.criativo);
+  const adId = await criarAd(token, actId, adsetId, creativeId, cfg.nome);
+
+  return { campaignId, adsetId, adId };
+}
+
+/* ─── criarCampanhaCatalogo ──────────────────────────────────────────────────── */
+
+export interface ConfigCampanhaCatalogo {
+  nome: string;
+  catalogoId: string;
+  /** Orçamento diário em centavos */
+  orcamentoDiario: number;
+  pageId: string;
+  paises?: string[];
+  idadeMin?: number;
+  idadeMax?: number;
+}
+
+/**
+ * Cria campanha de catálogo (Dynamic Product Ads) no Meta.
+ * Busca automaticamente o primeiro product set do catálogo informado.
+ */
+export async function criarCampanhaCatalogo(
+  tenantId: string,
+  cfg: ConfigCampanhaCatalogo,
+): Promise<ResultadoPublicacao> {
+  const config = await resolverTokenMeta(tenantId);
+  const token = config.token;
+  if (!config.account_id) throw new Error('Ad Account ID não configurado');
+  const actId = config.account_id.startsWith('act_')
+    ? config.account_id
+    : `act_${config.account_id}`;
+
+  // 1. Criar campanha OUTCOME_SALES
+  const campaignData = await metaPost(`${META_BASE}/${actId}/campaigns`, {
+    name:              cfg.nome,
+    objective:         'OUTCOME_SALES',
+    status:            'PAUSED',
+    special_ad_categories: '[]',
+    is_adset_budget_sharing_enabled: false,
+  }, token);
+  if (!campaignData.id) {
+    throw new Error(`Erro ao criar campanha catálogo: ${campaignData.error?.message ?? 'sem ID'}`);
+  }
+  const campaignId = campaignData.id;
+
+  // 2. Buscar product sets do catálogo para obter product_set_id
+  const psRes = await fetch(
+    `${META_BASE}/${cfg.catalogoId}/product_sets?fields=id,name&limit=5&access_token=${token}`,
+    { signal: AbortSignal.timeout(10_000) },
+  );
+  const psData = await psRes.json() as {
+    data?: Array<{ id: string; name: string }>;
+    error?: { message: string };
+  };
+  const productSetId = psData.data?.[0]?.id;
+  if (!productSetId) {
+    throw new Error(
+      `Nenhum product set encontrado no catálogo ${cfg.catalogoId}` +
+      (psData.error ? `: ${psData.error.message}` : ''),
+    );
+  }
+  console.log('[CATALOGO] product_set_id:', productSetId, 'catalogo:', cfg.catalogoId);
+
+  // 3. Criar adset com promoted_object apontando para o catálogo
+  const adsetPayload: Record<string, unknown> = {
+    name:              `[VEXX] ${cfg.nome} — Catálogo`,
+    campaign_id:       campaignId,
+    daily_budget:      String(cfg.orcamentoDiario),
+    optimization_goal: 'OFFSITE_CONVERSIONS',
+    billing_event:     'IMPRESSIONS',
+    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
+    promoted_object: {
+      product_catalog_id: cfg.catalogoId,
+      product_set_id:     productSetId,
+    },
+    targeting: {
+      age_min:       cfg.idadeMin ?? 18,
+      age_max:       cfg.idadeMax ?? 65,
+      geo_locations: { countries: cfg.paises ?? ['BR'] },
+      targeting_automation: { advantage_audience: 0 },
+    },
+    status: 'PAUSED',
+  };
+  console.log('[CATALOGO ADSET PAYLOAD]', JSON.stringify(adsetPayload, null, 2));
+  const adsetData = await metaPost(`${META_BASE}/${actId}/adsets`, adsetPayload, token);
+  console.log('[CATALOGO ADSET RESPONSE]', JSON.stringify(adsetData));
+  if (!adsetData.id) {
+    throw new Error(`Erro ao criar adset catálogo: ${adsetData.error?.message ?? 'sem ID'}`);
+  }
+  const adsetId = adsetData.id;
+
+  // 4. Criar criativo dinâmico (DPA template)
+  const creativePayload = {
+    name: `[VEXX] ${cfg.nome} — DPA`,
+    object_story_spec: {
+      page_id: cfg.pageId,
+      template_data: {
+        call_to_action: {
+          type:  'SHOP_NOW',
+          value: { link: '{{product.url}}' },
+        },
+        link:    '{{product.url}}',
+        message: '{{product.name}} — Aproveite!',
+        name:    '{{product.name}}',
+      },
+    },
+    product_set_id: productSetId,
+  };
+  console.log('[CATALOGO CREATIVE PAYLOAD]', JSON.stringify(creativePayload, null, 2));
+
+  const creativeUrlObj = new URL(`${META_BASE}/${actId}/adcreatives`);
+  creativeUrlObj.searchParams.set('access_token', token);
+  const creativeRes = await fetch(creativeUrlObj.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(creativePayload),
+    signal:  AbortSignal.timeout(20_000),
+  });
+  const creativeData = await creativeRes.json() as { id?: string; error?: { message: string } };
+  console.log('[CATALOGO CREATIVE RESPONSE]', JSON.stringify(creativeData));
+  if (!creativeRes.ok || !creativeData.id) {
+    throw new Error(`Erro ao criar criativo catálogo: ${creativeData.error?.message ?? 'sem ID'}`);
+  }
+  const creativeId = creativeData.id;
+
+  // 5. Criar ad
   const adId = await criarAd(token, actId, adsetId, creativeId, cfg.nome);
 
   return { campaignId, adsetId, adId };

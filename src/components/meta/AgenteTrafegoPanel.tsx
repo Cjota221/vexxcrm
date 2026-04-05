@@ -3,9 +3,9 @@
 import { useState, useRef } from 'react';
 import { useAuthStore } from '@/store/auth';
 import {
-  Bot, Zap, DollarSign, Users, MessageCircle,
+  Bot, DollarSign, Users, MessageCircle,
   TrendingUp, CheckCircle, XCircle, Loader2,
-  Sparkles, ChevronRight, Play, AlertCircle,
+  Sparkles, ChevronRight, Play, AlertCircle, ShoppingBag,
 } from 'lucide-react';
 import type { TipoCampanha } from '@/lib/services/meta-adset-creator.service';
 import { cn } from '@/lib/utils';
@@ -32,20 +32,27 @@ const TIPOS_CONFIG = {
   frio:     { label: 'Público frio',   icon: Users,         desc: 'Novos clientes por interesse' },
   quente:   { label: 'Público quente', icon: TrendingUp,    desc: 'Remarketing — já te conhecem' },
   whatsapp: { label: 'WhatsApp',       icon: MessageCircle, desc: 'Mensagens diretas' },
+  catalogo: { label: 'Catálogo',       icon: ShoppingBag,   desc: 'Anúncios dinâmicos de produtos' },
 } as const;
 
-const PESOS: Record<TipoCampanha, number> = { frio: 0.3, quente: 0.2, whatsapp: 0.5 };
+const CATALOGOS = [
+  { id: '740174445143215', nome: 'CJ Rasteirinhas Atacado' },
+  { id: '860022402952098', nome: 'Fácilzap 2024' },
+] as const;
+
+const PESOS: Record<TipoCampanha, number> = { frio: 0.3, quente: 0.2, whatsapp: 0.5, catalogo: 0.4 };
 
 /* ─── Componente ─────────────────────────────────────────────────────────── */
 
 export function AgenteTrafegoPanel() {
-  const [fase, setFase]           = useState<Fase>('config');
-  const [orcamento, setOrcamento] = useState(50);
-  const [tipos, setTipos]         = useState<TipoCampanha[]>(['frio', 'whatsapp']);
-  const [nome, setNome]           = useState('');
-  const [steps, setSteps]         = useState<Step[]>([]);
-  const [done, setDone]           = useState<DoneEvent | null>(null);
-  const esRef                     = useRef<EventSource | null>(null);
+  const [fase, setFase]             = useState<Fase>('config');
+  const [orcamento, setOrcamento]   = useState(50);
+  const [tipos, setTipos]           = useState<TipoCampanha[]>(['frio', 'whatsapp']);
+  const [nome, setNome]             = useState('');
+  const [catalogoId, setCatalogoId] = useState(CATALOGOS[0].id);
+  const [steps, setSteps]           = useState<Step[]>([]);
+  const [done, setDone]             = useState<DoneEvent | null>(null);
+  const esRef                       = useRef<EventSource | null>(null);
 
   function calcOrc(tipo: TipoCampanha): number {
     const totalPeso = tipos.reduce((a, t) => a + PESOS[t], 0);
@@ -70,10 +77,11 @@ export function AgenteTrafegoPanel() {
 
     const accessToken = useAuthStore.getState().accessToken ?? '';
     const params = new URLSearchParams({
-      token:    accessToken,
-      orcamento: String(orcamento),
-      tipos:    tipos.join(','),
-      nome:     nome || `Agente ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`,
+      token:      accessToken,
+      orcamento:  String(orcamento),
+      tipos:      tipos.join(','),
+      nome:       nome || `Agente ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`,
+      catalogoId,
     });
 
     const es = new EventSource(`/api/meta/agente/stream?${params}`);
@@ -184,6 +192,23 @@ export function AgenteTrafegoPanel() {
           })}
         </div>
       </div>
+
+      {/* Seletor de catálogo — aparece quando 'catalogo' está selecionado */}
+      {tipos.includes('catalogo') && (
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Catálogo de produtos</label>
+          <select
+            value={catalogoId}
+            onChange={e => setCatalogoId(e.target.value)}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/30 bg-white"
+          >
+            {CATALOGOS.map(c => (
+              <option key={c.id} value={c.id}>{c.nome}</option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-400 mt-1">ID: {catalogoId}</p>
+        </div>
+      )}
 
       <button
         onClick={() => setFase('confirmacao')}
