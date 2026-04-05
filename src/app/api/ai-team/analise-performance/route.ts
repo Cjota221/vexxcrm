@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     // Buscar credenciais
     const { data: config } = await supabase
       .from('ai_provider_config')
-      .select('meta_access_token, meta_ad_account_id, analytics_api_key')
+      .select('meta_access_token, meta_ad_account_id')
       .eq('tenant_id', profile.tenant_id)
       .single();
 
@@ -79,7 +79,6 @@ export async function POST(req: NextRequest) {
 
     const token     = config.meta_access_token;
     const accountId = config.meta_ad_account_id;
-    const openaiKey = config.analytics_api_key || process.env.OPENAI_API_KEY || '';
 
     // ── 1. Buscar campanhas com métricas (últimos 7 dias) ──────────────────
     const insightFields = 'spend,impressions,clicks,reach,cpc,cpm,ctr,frequency,actions,action_values';
@@ -140,8 +139,8 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    // ── 2. José analisa ────────────────────────────────────────────────────
-    const analise = await analisarPerformanceComJose(campanhas, openaiKey);
+    // ── 2. José analisa (resumo via Jarvis/Claude Haiku) ──────────────────
+    const analise = await analisarPerformanceComJose(campanhas, '');
 
     // ── 3. Salvar run no banco ─────────────────────────────────────────────
     const { data: run } = await supabase

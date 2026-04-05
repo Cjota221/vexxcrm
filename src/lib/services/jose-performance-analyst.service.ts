@@ -2,9 +2,9 @@
 // Diferente do jose-audience-analyst (que olha o CRM para criar públicos),
 // este serviço analisa as campanhas ATIVAS no Meta Ads e identifica
 // problemas, oportunidades e ações urgentes.
-// Usa GPT-4o-mini com dados reais das campanhas.
+// Usa Jarvis (Claude Haiku) para resumo executivo.
 
-const OPENAI_BASE = 'https://api.openai.com/v1';
+import { jarvisGerarResumoPerformance } from './jarvis-trafego.service';
 
 /* ─── Thresholds de alerta ────────────────────────────────────────────────── */
 
@@ -203,7 +203,7 @@ function calcularSituacaoGeral(campanhas: CampanhaParaAnalise[], alertas: Alerta
 
 export async function analisarPerformanceComJose(
   campanhas: CampanhaParaAnalise[],
-  apiKey: string
+  _apiKey?: string,
 ): Promise<JoseAnalisePerformance> {
 
   const alertas = analisarLocalmente(campanhas);
@@ -239,67 +239,23 @@ export async function analisarPerformanceComJose(
   const acoes_urgentes: JoseAnalisePerformance['acoes_urgentes'] = [];
 
   try {
-    const prompt = `Você é José, analista de tráfego pago especializado em Meta Ads para marcas de moda feminina.
-Analise as campanhas da CJ Rasteirinhas e escreva um resumo executivo em português simples (2-3 frases),
-como se estivesse explicando para uma empreendedora sem conhecimento técnico.
+    const jarvisResult = await jarvisGerarResumoPerformance(
+      resumoCampanhas,
+      resumoAlertas,
+      { gasto: gasto_total, retorno: retorno_total, roas: roas_medio, leads: leads_total },
+    );
 
-CAMPANHAS:
-${resumoCampanhas}
+    resumo_executivo = jarvisResult.resumo_executivo || '';
 
-ALERTAS IDENTIFICADOS:
-${resumoAlertas}
-
-TOTAIS: Investido R$${gasto_total.toFixed(0)}, retorno R$${retorno_total.toFixed(0)}, ROAS ${roas_medio.toFixed(1)}x, ${leads_total} leads
-
-Retorne JSON com:
-{
-  "resumo_executivo": "texto em 2-3 frases, linguagem simples, mencione os números mais importantes",
-  "acoes_urgentes": [
-    {
-      "campanha_nome": "nome",
-      "acao": "o que fazer em palavras simples",
-      "motivo": "por que fazer isso",
-      "urgencia": "imediata|proximas_24h|proxima_semana"
-    }
-  ]
-}`;
-
-    const response = await fetch(`${OPENAI_BASE}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' },
-        temperature: 0.2,
-        max_tokens: 1000,
-      }),
-    });
-
-    if (response.ok) {
-      const result = await response.json() as {
-        choices: Array<{ message: { content: string } }>;
-      };
-      const parsed = JSON.parse(result.choices[0].message.content) as {
-        resumo_executivo?: string;
-        acoes_urgentes?: Array<{ campanha_nome: string; acao: string; motivo: string; urgencia: string }>;
-      };
-
-      resumo_executivo = parsed.resumo_executivo || '';
-
-      for (const a of parsed.acoes_urgentes || []) {
-        const campanha = campanhas.find(c => c.nome.toLowerCase().includes(a.campanha_nome.toLowerCase()));
-        acoes_urgentes.push({
-          campanha_id: campanha?.id || '',
-          campanha_nome: a.campanha_nome,
-          acao: a.acao,
-          motivo: a.motivo,
-          urgencia: (a.urgencia as 'imediata' | 'proximas_24h' | 'proxima_semana') || 'proximas_24h',
-        });
-      }
+    for (const a of jarvisResult.acoes_urgentes || []) {
+      const campanha = campanhas.find(c => c.nome.toLowerCase().includes(a.campanha_nome.toLowerCase()));
+      acoes_urgentes.push({
+        campanha_id: campanha?.id || '',
+        campanha_nome: a.campanha_nome,
+        acao: a.acao,
+        motivo: a.motivo,
+        urgencia: (a.urgencia as 'imediata' | 'proximas_24h' | 'proxima_semana') || 'proximas_24h',
+      });
     }
   } catch {
     // Fallback: resumo gerado localmente

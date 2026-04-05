@@ -118,6 +118,57 @@ Análise: ${JSON.stringify(analise).slice(0, 2000)}`,
   }
 }
 
+/* ─── Resumo executivo de performance (substitui OpenAI em jose-performance-analyst) ── */
+
+export async function jarvisGerarResumoPerformance(
+  resumoCampanhas: string,
+  resumoAlertas: string,
+  totais: { gasto: number; retorno: number; roas: number; leads: number },
+  apiKey?: string,
+): Promise<{
+  resumo_executivo: string;
+  acoes_urgentes: Array<{ campanha_nome: string; acao: string; motivo: string; urgencia: string }>;
+}> {
+  const client = apiKey ? new Anthropic({ apiKey }) : anthropic;
+
+  const response = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 800,
+    system: JARVIS_TRAFEGO_SYSTEM,
+    messages: [{
+      role: 'user',
+      content: `Analise as campanhas abaixo e retorne JSON com resumo e ações urgentes:
+{
+  "resumo_executivo": "2-3 frases em português simples explicando a situação para uma empreendedora sem conhecimento técnico. Mencione os números mais importantes.",
+  "acoes_urgentes": [
+    {
+      "campanha_nome": "nome da campanha",
+      "acao": "o que fazer em palavras simples",
+      "motivo": "por que fazer isso",
+      "urgencia": "imediata|proximas_24h|proxima_semana"
+    }
+  ]
+}
+
+CAMPANHAS:
+${resumoCampanhas}
+
+ALERTAS:
+${resumoAlertas}
+
+TOTAIS: Investido R$${totais.gasto.toFixed(0)}, retorno R$${totais.retorno.toFixed(0)}, ROAS ${totais.roas.toFixed(1)}x, ${totais.leads} leads`,
+    }],
+  });
+
+  const text = response.content[0].type === 'text' ? response.content[0].text : '{}';
+  const clean = text.replace(/```json|```/g, '').trim();
+  try {
+    return JSON.parse(clean);
+  } catch {
+    return { resumo_executivo: '', acoes_urgentes: [] };
+  }
+}
+
 /* ─── Criação de públicos (substitui José Audience + Cláudio Audience) ───── */
 
 export async function jarvisAnalisarParaPublicos(
