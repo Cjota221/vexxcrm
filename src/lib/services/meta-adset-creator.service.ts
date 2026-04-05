@@ -645,6 +645,7 @@ export async function criarCampanhaMultiplosConjuntos(
     tipo: TipoCampanha;
     adsetId: string;
     ads: Array<{ adId: string; criativoNome: string }>;
+    erros: string[];
   }> = [];
 
   // 2. Para cada conjunto, criar adset + N ads
