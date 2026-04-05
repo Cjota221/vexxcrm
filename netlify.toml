@@ -83,6 +83,12 @@
 [functions."api/meta/transcricao/batch"]
   timeout = 26
 
+[functions."api/meta/agente/stream"]
+  timeout = 26
+
+[functions."api/meta/agente"]
+  timeout = 26
+
 # SSE: desabilitado como fonte de mensagens (eventBus in-memory não funciona
 # em Netlify serverless — processos isolados por request).
 # O hook useRealtimeMessages usa Supabase Realtime (WebSocket) como fonte
@@ -124,6 +130,13 @@
 # Headers para SSE — desabilitar buffering do proxy Netlify
 [[headers]]
   for = "/api/sse"
+  [headers.values]
+    Cache-Control = "no-cache, no-transform"
+    X-Accel-Buffering = "no"
+    Content-Type = "text/event-stream"
+
+[[headers]]
+  for = "/api/meta/agente/stream"
   [headers.values]
     Cache-Control = "no-cache, no-transform"
     X-Accel-Buffering = "no"

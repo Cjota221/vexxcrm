@@ -120,7 +120,7 @@ async function metaPost(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(10_000),
   });
   return res.json() as Promise<{ id?: string; error?: { message: string; code: number } }>;
 }
@@ -294,7 +294,7 @@ export async function criarAdCreative(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(creativePayload),
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(10_000),
   });
   const creativeData = await creativeRes.json() as { id?: string; error?: { message: string; error_subcode?: number; fbtrace_id?: string } };
   console.log('[META CREATIVE RESPONSE]', JSON.stringify(creativeData));
@@ -328,7 +328,7 @@ export async function criarAd(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(adPayload),
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(10_000),
   });
   const adData = await adRes.json() as { id?: string; error?: { message: string; error_subcode?: number; fbtrace_id?: string } };
   console.log('[META AD RESPONSE]', JSON.stringify(adData));
