@@ -5,7 +5,7 @@ import { useAuthStore } from '@/store/auth';
 import {
   CheckCircle, XCircle, Edit2, Play,
   Clock, Loader2, ChevronDown, ChevronUp,
-  Users, MessageCircle, TrendingUp, Zap,
+  Users, MessageCircle, TrendingUp, Zap, Trash2, AlertTriangle,
 } from 'lucide-react';
 
 interface AdCreative {
@@ -44,8 +44,11 @@ export function FilaAprovacao() {
   const [editando, setEditando]       = useState<string | null>(null);
   const [headline, setHeadline]       = useState('');
   const [bodyText, setBodyText]       = useState('');
-  const [processando, setProcessando] = useState<string | null>(null);
-  const [feedback, setFeedback]       = useState<{ id: string; msg: string; ok: boolean } | null>(null);
+  const [processando, setProcessando]   = useState<string | null>(null);
+  const [excluindo, setExcluindo]       = useState<string | null>(null);
+  const [excluindoTudo, setExcluindoTudo] = useState(false);
+  const [confirmarLimpar, setConfirmarLimpar] = useState(false);
+  const [feedback, setFeedback]         = useState<{ id: string; msg: string; ok: boolean } | null>(null);
 
   function authHeader(): HeadersInit {
     const token = useAuthStore.getState().accessToken;
@@ -100,6 +103,38 @@ export function FilaAprovacao() {
     }
   }
 
+  async function excluir(draftId: string) {
+    setExcluindo(draftId);
+    try {
+      const res = await fetch(`/api/meta/campanhas/${draftId}`, {
+        method: 'DELETE',
+        headers: authHeader(),
+      });
+      const data = await res.json() as { ok?: boolean; error?: string; meta_erro?: string };
+      if (data.ok) {
+        setDrafts(prev => prev.filter(d => d.id !== draftId));
+      } else {
+        setFeedback({ id: draftId, msg: data.error ?? 'Erro ao excluir', ok: false });
+      }
+    } finally {
+      setExcluindo(null);
+    }
+  }
+
+  async function excluirTudo() {
+    setExcluindoTudo(true);
+    setConfirmarLimpar(false);
+    try {
+      await Promise.all(drafts.map(d => fetch(`/api/meta/campanhas/${d.id}`, {
+        method: 'DELETE',
+        headers: authHeader(),
+      })));
+      setDrafts([]);
+    } finally {
+      setExcluindoTudo(false);
+    }
+  }
+
   if (loading) return (
     <div className="flex items-center justify-center py-12 text-gray-400 gap-2 text-sm">
       <Loader2 size={16} className="animate-spin" />
@@ -128,9 +163,39 @@ export function FilaAprovacao() {
             {drafts.length} campanha{drafts.length > 1 ? 's' : ''} aguardando revisão
           </span>
         </div>
-        <button onClick={carregar} className="text-xs text-gray-400 hover:text-gray-600">
-          Atualizar
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={carregar} className="text-xs text-gray-400 hover:text-gray-600">
+            Atualizar
+          </button>
+          {drafts.length > 1 && (
+            confirmarLimpar ? (
+              <div className="flex items-center gap-1">
+                <span className="text-xs text-red-600 font-medium">Excluir todas?</span>
+                <button
+                  onClick={excluirTudo}
+                  disabled={excluindoTudo}
+                  className="text-xs px-2 py-0.5 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+                >
+                  {excluindoTudo ? <Loader2 size={10} className="animate-spin inline" /> : 'Sim'}
+                </button>
+                <button
+                  onClick={() => setConfirmarLimpar(false)}
+                  className="text-xs px-2 py-0.5 border border-gray-200 text-gray-500 rounded-lg hover:bg-gray-50"
+                >
+                  Não
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmarLimpar(true)}
+                className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700"
+              >
+                <Trash2 size={11} />
+                Excluir todas
+              </button>
+            )
+          )}
+        </div>
       </div>
 
       {drafts.map(draft => {
@@ -286,8 +351,20 @@ export function FilaAprovacao() {
               {/* Ações */}
               <div className="flex gap-2 mt-3">
                 <button
+                  onClick={() => excluir(draft.id)}
+                  disabled={isProcessando || excluindo === draft.id}
+                  title="Excluir campanha (remove do CRM e arquiva no Meta)"
+                  className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 text-gray-400 text-xs font-medium rounded-xl hover:border-red-200 hover:text-red-500 hover:bg-red-50 disabled:opacity-50 transition-colors"
+                >
+                  {excluindo === draft.id
+                    ? <Loader2 size={12} className="animate-spin" />
+                    : <Trash2 size={12} />
+                  }
+                </button>
+
+                <button
                   onClick={() => agir(draft.id, 'rejeitar')}
-                  disabled={isProcessando}
+                  disabled={isProcessando || excluindo === draft.id}
                   className="flex items-center gap-1.5 px-3 py-2 border border-red-200 text-red-600 text-xs font-medium rounded-xl hover:bg-red-50 disabled:opacity-50 transition-colors"
                 >
                   {isProcessando ? <Loader2 size={12} className="animate-spin" /> : <XCircle size={12} />}
@@ -296,7 +373,7 @@ export function FilaAprovacao() {
 
                 <button
                   onClick={() => agir(draft.id, 'aprovar')}
-                  disabled={isProcessando}
+                  disabled={isProcessando || excluindo === draft.id}
                   className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-[#059669] text-white text-xs font-medium rounded-xl hover:bg-[#047857] disabled:opacity-50 transition-colors"
                 >
                   {isProcessando
