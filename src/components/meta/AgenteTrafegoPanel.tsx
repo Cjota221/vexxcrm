@@ -66,6 +66,7 @@ interface CriativoDisponivel {
   meta_image_hash: string | null;
   classificacao?: CriativoClassificacao | null;
   transcricao_status?: string | null;
+  metaCacheId?: string;
 }
 
 /* ─── Card individual de criativo (com refresh de thumb expirada) ─────────── */
@@ -196,6 +197,7 @@ const MAX_CRIATIVOS_POR_CONJUNTO = 5;
 
 export function AgenteTrafegoPanel() {
   const [fase, setFase]             = useState<Fase>('config');
+  const [objetivo, setObjetivo]     = useState<'AWARENESS' | 'TRAFFIC' | 'LEADS' | 'SALES' | 'MESSAGES'>('TRAFFIC');
   const [orcamento, setOrcamento]   = useState(50);
   const [tipos, setTipos]           = useState<TipoCampanha[]>(['frio', 'whatsapp']);
   const [nome, setNome]             = useState('');
@@ -239,17 +241,35 @@ export function AgenteTrafegoPanel() {
     setLoadingCriativos(true);
     try {
       const accessToken = useAuthStore.getState().accessToken ?? '';
-      // meses=12 — só últimos 12 meses; com classificacao retornada
-      const res = await fetch('/api/meta/criativos?limit=50&meses=12', {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (res.ok) {
-        const data = await res.json() as { criativos?: CriativoDisponivel[] };
-        const lista = data.criativos ?? [];
-        setCriativos(lista);
-        // Auto-selecionar top criativos para cada conjunto pelo score Jarvis
-        autoSelecionarJarvis(lista);
-      }
+      const [resMain, resCache] = await Promise.all([
+        fetch('/api/meta/criativos?limit=50&meses=12', { headers: { Authorization: `Bearer ${accessToken}` } }),
+        fetch('/api/meta/criativos-cache',              { headers: { Authorization: `Bearer ${accessToken}` } }),
+      ]);
+
+      const mainData  = resMain.ok  ? await resMain.json()  as { criativos?: CriativoDisponivel[] }            : null;
+      const cacheData = resCache.ok ? await resCache.json() as { criativos?: Array<{ id: string; nome: string; tipo: string; url_thumb?: string | null }> } : null;
+
+      const mainLista: CriativoDisponivel[] = mainData?.criativos ?? [];
+
+      const mainVideoIds = new Set(mainLista.map(c => c.meta_video_id).filter(Boolean));
+
+      const cacheLista: CriativoDisponivel[] = (cacheData?.criativos ?? [])
+        .filter(item => !mainVideoIds.has(item.id))
+        .map(item => ({
+          id:                 'cache:' + item.id,
+          nome:               item.nome,
+          tipo:               item.tipo as 'video' | 'imagem',
+          url_preview:        item.url_thumb ?? null,
+          meta_video_id:      item.id,
+          meta_image_hash:    null,
+          classificacao:      null,
+          transcricao_status: null,
+          metaCacheId:        item.id,
+        }));
+
+      const lista = [...mainLista, ...cacheLista];
+      setCriativos(lista);
+      autoSelecionarJarvis(lista);
     } catch {
       // silently fail
     } finally {
@@ -373,19 +393,69 @@ export function AgenteTrafegoPanel() {
     return tipos.length > 0;
   }
 
-  function executar() {
+  async function executar() {
     setFase('executando');
-    setSteps([]);
     setDone(null);
+
+    // Pre-popular pipeline com etapas planejadas
+    const TIPO_LABELS: Record<string, string> = {
+      frio: 'Público Frio', quente: 'Público Quente', whatsapp: 'WhatsApp', catalogo: 'Catálogo'
+    };
+    const plannedSteps: Step[] = [
+      { id: 'auth',      status: 'pending', label: 'Verificar credenciais' },
+      { id: 'meta',      status: 'pending', label: 'Verificar token Meta' },
+      { id: 'criativos', status: 'pending', label: 'Analisar criativos' },
+    ];
+    if (modoAvancado) {
+      plannedSteps.push({ id: 'multi', status: 'pending', label: `Criar campanha (${conjuntos.length} conjunto${conjuntos.length > 1 ? 's' : ''})` });
+      conjuntos.forEach(c => {
+        plannedSteps.push({ id: `conjunto_${c.tipo}`, status: 'pending', label: `Conjunto ${TIPO_LABELS[c.tipo] ?? c.tipo}` });
+      });
+    } else {
+      plannedSteps.push({ id: 'orcamento', status: 'pending', label: 'Distribuir orçamento' });
+      tipos.forEach(t => {
+        plannedSteps.push({ id: `campanha_${t}`, status: 'pending', label: `Campanha ${TIPO_LABELS[t] ?? t}` });
+      });
+    }
+    setSteps(plannedSteps);
 
     const accessToken = useAuthStore.getState().accessToken ?? '';
     const nomeBase = nome || `Agente ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`;
+
+    // Resolver IDs de cache → UUIDs reais antes de executar
+    const conjuntosResolvidos = await Promise.all(
+      conjuntos.map(async (c) => {
+        const idsResolvidos = await Promise.all(
+          c.criativoIds.map(async (id) => {
+            if (!id.startsWith('cache:')) return id;
+            const cacheItem = criativos.find(cr => cr.id === id);
+            if (!cacheItem?.metaCacheId) return null;
+            const auth = useAuthStore.getState().accessToken ?? '';
+            const res = await fetch('/api/meta/upload/save', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth}` },
+              body: JSON.stringify({
+                nome: cacheItem.nome,
+                tipo: 'video',
+                metaVideoId: cacheItem.metaCacheId,
+                thumbUrl: cacheItem.url_preview ?? undefined,
+              }),
+            });
+            const data = await res.json() as { ok?: boolean; id?: string };
+            return data.ok && data.id ? data.id : null;
+          })
+        );
+        return { ...c, criativoIds: idsResolvidos.filter((id): id is string => id !== null) };
+      })
+    );
+    setConjuntos(conjuntosResolvidos);
 
     const params = new URLSearchParams({
       token:      accessToken,
       orcamento:  String(orcamento),
       nome:       nomeBase,
       catalogoId,
+      objetivo,
     });
 
     if (urlDestino) params.set('urlDestino', urlDestino);
@@ -398,13 +468,13 @@ export function AgenteTrafegoPanel() {
 
     if (modoAvancado) {
       // Modo avançado: enviar conjuntos como JSON
-      const conjuntosPayload = conjuntos.map((c, idx) => ({
+      const conjuntosPayload = conjuntosResolvidos.map((c, idx) => ({
         tipo: c.tipo,
         orcamentoDiario: calcOrcConjuntoResto(idx) * 100, // reais → centavos
         criativoIds: c.criativoIds,
       }));
       params.set('conjuntos', JSON.stringify(conjuntosPayload));
-      params.set('tipos', conjuntos.map(c => c.tipo).join(','));
+      params.set('tipos', conjuntosResolvidos.map(c => c.tipo).join(','));
     } else {
       params.set('tipos', tipos.join(','));
     }
@@ -490,6 +560,37 @@ export function AgenteTrafegoPanel() {
             />
           </div>
           <span className="text-xs text-gray-400 shrink-0">R$/dia</span>
+        </div>
+      </div>
+
+      {/* Objetivo da campanha */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Objetivo da campanha</label>
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { value: 'AWARENESS', label: 'Reconhecimento',    emoji: '👁️',  desc: 'Mais pessoas te conhecem' },
+            { value: 'TRAFFIC',   label: 'Tráfego',           emoji: '🌐',  desc: 'Cliques no site/link' },
+            { value: 'LEADS',     label: 'Geração de Leads',  emoji: '📋',  desc: 'Formulário de leads' },
+            { value: 'SALES',     label: 'Vendas/Conversões', emoji: '💰',  desc: 'Compras e conversões' },
+            { value: 'MESSAGES',  label: 'Mensagens',         emoji: '💬',  desc: 'WhatsApp / DM' },
+          ].map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => setObjetivo(opt.value as typeof objetivo)}
+              className={cn(
+                'flex items-center gap-2 p-2.5 rounded-xl border text-left transition-all',
+                objetivo === opt.value
+                  ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]'
+                  : 'bg-white text-gray-700 border-gray-200 hover:border-[#1e3a5f]/40'
+              )}
+            >
+              <span className="text-lg">{opt.emoji}</span>
+              <div>
+                <p className="text-xs font-semibold">{opt.label}</p>
+                <p className={cn('text-[10px]', objetivo === opt.value ? 'text-white/70' : 'text-gray-400')}>{opt.desc}</p>
+              </div>
+            </button>
+          ))}
         </div>
       </div>
 
@@ -733,6 +834,11 @@ export function AgenteTrafegoPanel() {
       <div className="bg-gray-50 rounded-2xl border border-gray-100 p-4 space-y-3">
         <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">O agente vai executar:</p>
 
+        <div className="flex items-center gap-2 text-xs text-gray-600">
+          <span className="font-medium">Objetivo:</span>
+          <span className="px-2 py-0.5 bg-[#1e3a5f]/10 text-[#1e3a5f] rounded-full font-medium">{objetivo}</span>
+        </div>
+
         {modoAvancado ? (
           <>
             <p className="text-sm text-gray-700 font-medium">1 campanha com {conjuntos.length} conjunto(s):</p>
@@ -817,35 +923,68 @@ export function AgenteTrafegoPanel() {
       <div className="flex items-center gap-2">
         <Loader2 size={16} className="text-[#1e3a5f] animate-spin" />
         <span className="font-semibold text-gray-900 text-sm">Agente trabalhando...</span>
+        <span className="text-xs text-gray-400 ml-auto">
+          {steps.filter(s => s.status === 'ok').length}/{steps.length} etapas
+        </span>
       </div>
 
-      <div className="space-y-2">
+      {/* Pipeline N8N style */}
+      <div className="relative py-1">
         {steps.length === 0 && (
-          <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-xl">
-            <Loader2 size={14} className="text-blue-500 animate-spin shrink-0" />
-            <span className="text-sm text-blue-700">Iniciando agente...</span>
+          <div className="flex items-center gap-3 py-2">
+            <div className="w-7 h-7 rounded-full bg-blue-100 border-2 border-blue-400 flex items-center justify-center shrink-0">
+              <Loader2 size={13} className="text-blue-500 animate-spin" />
+            </div>
+            <span className="text-sm text-blue-600">Iniciando agente...</span>
           </div>
         )}
-        {steps.map(step => (
-          <div key={step.id} className={cn(
-            'flex items-start gap-3 p-3 rounded-xl border transition-all',
-            step.status === 'ok'      && 'bg-green-50 border-green-200',
-            step.status === 'error'   && 'bg-red-50 border-red-200',
-            step.status === 'running' && 'bg-blue-50 border-blue-200',
-            step.status === 'pending' && 'bg-gray-50 border-gray-100',
-          )}>
-            <div className="shrink-0 mt-0.5">
-              {step.status === 'ok'      && <CheckCircle size={14} className="text-green-600" />}
-              {step.status === 'error'   && <XCircle     size={14} className="text-red-500" />}
-              {step.status === 'running' && <Loader2     size={14} className="text-blue-500 animate-spin" />}
-              {step.status === 'pending' && <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-300" />}
+        {steps.map((step, idx) => {
+          const isLast = idx === steps.length - 1;
+          const nodeColor = {
+            ok:      'bg-green-500 border-green-500',
+            error:   'bg-red-500 border-red-500',
+            running: 'bg-blue-500 border-blue-500',
+            pending: 'bg-white border-gray-300',
+          }[step.status];
+          const cardColor = {
+            ok:      'bg-green-50 border-green-200',
+            error:   'bg-red-50 border-red-200',
+            running: 'bg-blue-50 border-blue-300 shadow-sm shadow-blue-100',
+            pending: 'bg-gray-50 border-gray-100',
+          }[step.status];
+
+          return (
+            <div key={step.id} className="relative flex gap-3">
+              {/* Vertical connector line */}
+              {!isLast && (
+                <div className="absolute left-[13px] top-7 bottom-0 w-0.5 bg-gray-200 z-0" />
+              )}
+
+              {/* Node circle */}
+              <div className={cn(
+                'relative z-10 w-7 h-7 rounded-full border-2 flex items-center justify-center shrink-0 mt-2',
+                nodeColor,
+              )}>
+                {step.status === 'ok'      && <CheckCircle size={13} className="text-white" />}
+                {step.status === 'error'   && <XCircle     size={13} className="text-white" />}
+                {step.status === 'running' && <Loader2     size={12} className="text-white animate-spin" />}
+                {step.status === 'pending' && <div className="w-2 h-2 rounded-full bg-gray-300" />}
+              </div>
+
+              {/* Content card */}
+              <div className={cn('flex-1 rounded-xl border p-3 mb-2 transition-all', cardColor)}>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-gray-800">{step.label}</p>
+                  {step.status === 'ok'    && <span className="text-[10px] text-green-600 font-medium">✓ OK</span>}
+                  {step.status === 'error' && <span className="text-[10px] text-red-600 font-medium">✗ Erro</span>}
+                </div>
+                {step.detalhe && (
+                  <p className="text-xs text-gray-500 mt-1 leading-relaxed">{step.detalhe}</p>
+                )}
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-800">{step.label}</p>
-              {step.detalhe && <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{step.detalhe}</p>}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

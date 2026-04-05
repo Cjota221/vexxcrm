@@ -28,7 +28,9 @@
       "Bash(grep -l \"message_reactions\\\\|contact_presence\\\\|whatsapp_groups\\\\|whatsapp_labels\\\\|calls_log\" supabase/migrations/*.sql)",
       "Bash(grep -rn \"advideos\\\\|adimages\\\\|owned_product_catalogs\\\\|/me/adaccounts\" src/lib/services/meta-*.ts)",
       "Bash(grep -rn \"account_id\\\\|META_AD_ACCOUNT_ID\" src/lib/services/meta-*.ts src/app/api/trafego/*.ts)",
-      "Bash(grep -r \"grupos\\\\|groups\" src/components --include=*.tsx --include=*.ts -l)"
+      "Bash(grep -r \"grupos\\\\|groups\" src/components --include=*.tsx --include=*.ts -l)",
+      "Bash(find \"c:\\\\Users\\\\carol\\\\Downloads\\\\vexx crm/src/app/api/trafego\" -type f -name \"*.ts\" -exec basename {} \\\\;)",
+      "Bash(grep -n \"export async function\\\\|POST\\\\|GET\" \"c:\\\\Users\\\\carol\\\\Downloads\\\\vexx crm/src/app/api/trafego\"/*.ts)"
     ]
   }
 }
