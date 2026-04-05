@@ -406,7 +406,18 @@ export async function POST(req: NextRequest) {
       }`
     : '';
 
+  const hoje = new Date().toLocaleDateString('pt-BR', {
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  });
+
   const JARVIS_SYSTEM = `Você é o JARVIS, motor de inteligência central do VEXX CRM.
+
+DATA DE HOJE: ${hoje}
+Sempre use esta data como referência para análises e períodos.
+Quando pedirem "últimos 3 meses", calcule a partir de hoje.
 Você foi criado para a ${config?.brand_name ?? 'empresa'}.
 
 Suas responsabilidades:
