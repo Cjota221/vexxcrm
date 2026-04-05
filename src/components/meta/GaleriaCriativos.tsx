@@ -673,27 +673,40 @@ function CardCriativo({
   const [thumbUrl, setThumbUrl] = useState<string | null>(criativo.url_preview ?? null);
   const [thumbFailed, setThumbFailed] = useState(false);
 
-  // Se não tem thumbnail ou ela expirou, busca fresca via API
+  // Se não tem thumbnail ou ela expirou, busca fresca via API com retry
+  // (Meta demora alguns segundos para processar o vídeo após upload)
   useEffect(() => {
     if (thumbUrl && !thumbFailed) return;
-    if (!criativo.id) return;
+    if (!criativo.id || criativo.tipo !== 'video' || !criativo.meta_video_id) return;
     let cancelled = false;
-    (async () => {
+
+    async function tentarBuscar(tentativa: number): Promise<void> {
+      if (cancelled) return;
       try {
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token ?? '';
         const res = await fetch(`/api/meta/criativo-url?id=${criativo.id}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (!res.ok || cancelled) return;
-        const json = await res.json() as { url?: string; thumb?: string };
-        const fresh = json.thumb ?? json.url;
-        if (fresh && !cancelled) setThumbUrl(fresh);
+        if (cancelled) return;
+        if (res.ok) {
+          const json = await res.json() as { url?: string; thumb?: string };
+          const fresh = json.thumb ?? json.url;
+          if (fresh) { setThumbUrl(fresh); setThumbFailed(false); return; }
+        }
       } catch { /* silencioso */ }
-    })();
+      // Retry: tenta até 5x com delays crescentes (3s, 5s, 8s, 12s, 18s)
+      if (tentativa < 5 && !cancelled) {
+        const delays = [3000, 5000, 8000, 12000, 18000];
+        await new Promise(r => setTimeout(r, delays[tentativa - 1] ?? 5000));
+        await tentarBuscar(tentativa + 1);
+      }
+    }
+
+    tentarBuscar(1);
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [criativo.id, thumbFailed]);
+  }, [criativo.id, criativo.meta_video_id, thumbFailed]);
 
   const statusIcon = {
     pronto:      <CheckCircle size={11} className="text-green-500" />,
@@ -730,11 +743,17 @@ function CardCriativo({
             onError={() => setThumbFailed(true)}
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            {criativo.tipo === 'video'
-              ? <Video size={24} className="text-gray-300" />
-              : <Image size={24} className="text-gray-300" />
-            }
+          <div className="w-full h-full flex flex-col items-center justify-center gap-1">
+            {criativo.tipo === 'video' && criativo.meta_video_id ? (
+              <>
+                <Loader2 size={20} className="text-gray-400 animate-spin" />
+                <span className="text-[10px] text-gray-400">Processando...</span>
+              </>
+            ) : criativo.tipo === 'video' ? (
+              <Video size={24} className="text-gray-300" />
+            ) : (
+              <Image size={24} className="text-gray-300" />
+            )}
           </div>
         )}
 
