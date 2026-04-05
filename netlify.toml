@@ -34,6 +34,12 @@
 [functions."api/trafego/metrics/breakdown"]
   timeout = 26
 
+[functions."api/meta/leads/sync"]
+  timeout = 26
+
+[functions."api/meta/leads/forms"]
+  timeout = 26
+
 [functions."api/cron/campaign-dispatcher"]
   timeout = 26
 

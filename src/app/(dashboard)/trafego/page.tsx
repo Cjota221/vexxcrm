@@ -157,7 +157,7 @@ interface MetricsData {
 }
 
 type Period = '1d' | '7d' | '15d' | '30d';
-type Tab = 'campanhas' | 'criativos' | 'publicos' | 'textos' | 'analise' | 'relatorio' | 'config' | 'agente' | 'aprovacoes';
+type Tab = 'campanhas' | 'criativos' | 'publicos' | 'textos' | 'analise' | 'relatorio' | 'config' | 'agente' | 'aprovacoes' | 'leads';
 
 /* ─── Formatadores ─────────────────────────────────────────────────────────── */
 
@@ -332,6 +332,75 @@ function CampaignDetailPanel({
   const [swapCta, setSwapCta] = useState('LEARN_MORE');
   const [swapUrl, setSwapUrl] = useState('');
   const [swapImg, setSwapImg] = useState('');
+
+  // Ad Sets state
+  interface AdsetItem {
+    id: string; nome: string; status: string; effective_status: string;
+    status_legivel: string; tipo_orcamento: string; orcamento_diario: number | null;
+    objetivo_otimizacao?: string;
+    targeting_traduzido: { sexo: string; idade: string; localizacao: string; interesses: string[]; tamanho_estimado: string };
+    metricas: { spend: number; revenue: number; leads: number; clicks: number; reach: number; roas: number; cpl: number; cpc: number; cpm: number; ctr: number; frequency: number };
+  }
+  const [adsetItems, setAdsetItems]       = useState<AdsetItem[]>([]);
+  const [adsetsLoading, setAdsetsLoading] = useState(false);
+  const [adsetsLoaded, setAdsetsLoaded]   = useState(false);
+  const [adsetAction, setAdsetAction]     = useState<{ id: string; loading: boolean } | null>(null);
+  const [adsetBudgetEdit, setAdsetBudgetEdit] = useState<{ id: string; value: string } | null>(null);
+
+  async function loadAdsets() {
+    if (adsetsLoaded) return;
+    setAdsetsLoading(true);
+    try {
+      const res = await authFetch(`/api/trafego/adsets?campaign_id=${campaign.id}`);
+      if (res.ok) {
+        const json = await res.json() as { adsets: AdsetItem[] };
+        setAdsetItems(json.adsets || []);
+        setAdsetsLoaded(true);
+      }
+    } catch { /* silencioso */ }
+    finally { setAdsetsLoading(false); }
+  }
+
+  async function toggleAdsetStatus(adset: AdsetItem) {
+    const novoStatus = adset.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
+    setAdsetAction({ id: adset.id, loading: true });
+    try {
+      const res = await authFetch('/api/trafego/adsets', {
+        method: 'PUT',
+        body: JSON.stringify({ adset_id: adset.id, novo_status: novoStatus }),
+      });
+      if (res.ok) {
+        setAdsetItems(prev => prev.map(a => a.id === adset.id ? { ...a, status: novoStatus, effective_status: novoStatus } : a));
+        onActionComplete(`Conjunto "${adset.nome}" ${novoStatus === 'PAUSED' ? 'pausado' : 'ativado'}.`);
+      } else {
+        const err = await res.json() as { error?: string };
+        setPanelError(err.error || 'Erro ao alterar conjunto');
+      }
+    } catch (e) { setPanelError(String(e)); }
+    finally { setAdsetAction(null); }
+  }
+
+  async function saveAdsetBudget(adset: AdsetItem) {
+    if (!adsetBudgetEdit) return;
+    const valor = parseFloat(adsetBudgetEdit.value);
+    if (!valor || valor <= 0) return;
+    setAdsetAction({ id: adset.id, loading: true });
+    try {
+      const res = await authFetch('/api/trafego/adsets', {
+        method: 'PUT',
+        body: JSON.stringify({ adset_id: adset.id, novo_orcamento_diario: valor }),
+      });
+      if (res.ok) {
+        setAdsetItems(prev => prev.map(a => a.id === adset.id ? { ...a, orcamento_diario: valor } : a));
+        setAdsetBudgetEdit(null);
+        onActionComplete(`Orçamento do conjunto "${adset.nome}" atualizado.`);
+      } else {
+        const err = await res.json() as { error?: string };
+        setPanelError(err.error || 'Erro ao atualizar orçamento');
+      }
+    } catch (e) { setPanelError(String(e)); }
+    finally { setAdsetAction(null); }
+  }
 
   // Daily history state
   const [dailyData, setDailyData] = useState<DailyMetric[]>([]);
@@ -632,6 +701,120 @@ function CampaignDetailPanel({
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+
+          {/* ─── Conjuntos de Anúncios (Ad Sets) ───────────────────────── */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Conjuntos de anúncios</h3>
+              {!adsetsLoaded && (
+                <button onClick={loadAdsets} disabled={adsetsLoading}
+                  className="text-xs text-crm-primary hover:underline flex items-center gap-1">
+                  {adsetsLoading ? <Loader2 size={11} className="animate-spin" /> : null}
+                  {adsetsLoading ? 'Carregando...' : 'Ver conjuntos'}
+                </button>
+              )}
+              {adsetsLoaded && (
+                <button onClick={() => { setAdsetsLoaded(false); setAdsetItems([]); }}
+                  className="text-xs text-gray-400 hover:underline">Ocultar</button>
+              )}
+            </div>
+            {adsetsLoaded && adsetItems.length === 0 && (
+              <p className="text-xs text-gray-400">Nenhum conjunto encontrado.</p>
+            )}
+            {adsetsLoaded && adsetItems.length > 0 && (
+              <div className="space-y-3">
+                {adsetItems.map(adset => {
+                  const isActive = adset.status === 'ACTIVE';
+                  const actLoading = adsetAction?.id === adset.id && adsetAction.loading;
+                  const editingBudget = adsetBudgetEdit?.id === adset.id;
+                  return (
+                    <div key={adset.id} className="bg-gray-50 rounded-2xl p-3 space-y-2">
+                      {/* Nome + status + toggle */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-semibold text-gray-800 leading-tight truncate">{adset.nome}</div>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <span className={cn('inline-flex items-center gap-1 text-xs font-medium',
+                              isActive ? 'text-green-600' : 'text-gray-400')}>
+                              <span className={cn('w-1.5 h-1.5 rounded-full', isActive ? 'bg-green-500' : 'bg-gray-300')} />
+                              {isActive ? 'Ativo' : 'Pausado'}
+                            </span>
+                            {adset.orcamento_diario && (
+                              <span className="text-xs text-gray-400">· {brl2(adset.orcamento_diario)}/dia</span>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => toggleAdsetStatus(adset)}
+                          disabled={actLoading}
+                          className={cn(
+                            'shrink-0 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all flex items-center gap-1',
+                            isActive
+                              ? 'border-red-200 text-red-600 hover:bg-red-50'
+                              : 'border-green-200 text-green-600 hover:bg-green-50'
+                          )}
+                        >
+                          {actLoading && !editingBudget ? <Loader2 size={10} className="animate-spin" /> : null}
+                          {isActive ? 'Pausar' : 'Ativar'}
+                        </button>
+                      </div>
+
+                      {/* Métricas rápidas do conjunto */}
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {[
+                          { l: 'Gasto',  v: brl(adset.metricas.spend) },
+                          { l: 'ROAS',   v: adset.metricas.roas > 0 ? adset.metricas.roas.toFixed(1) + 'x' : '—' },
+                          { l: 'Leads',  v: adset.metricas.leads > 0 ? n0(adset.metricas.leads) : '—' },
+                          { l: 'CPL',    v: adset.metricas.cpl > 0 ? brl2(adset.metricas.cpl) : '—' },
+                        ].map(({ l, v }) => (
+                          <div key={l} className="bg-white rounded-lg p-1.5 text-center">
+                            <div className="text-[10px] text-gray-400">{l}</div>
+                            <div className="text-xs font-bold text-gray-800">{v}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Público resumido */}
+                      <div className="text-xs text-gray-500 leading-relaxed">
+                        {adset.targeting_traduzido.sexo} · {adset.targeting_traduzido.idade} · {adset.targeting_traduzido.localizacao}
+                        {adset.targeting_traduzido.interesses.length > 0 && (
+                          <span className="text-gray-400"> · {adset.targeting_traduzido.interesses.slice(0, 2).join(', ')}{adset.targeting_traduzido.interesses.length > 2 ? ` +${adset.targeting_traduzido.interesses.length - 2}` : ''}</span>
+                        )}
+                      </div>
+
+                      {/* Edição de orçamento do conjunto */}
+                      {editingBudget ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number" min={1} step={0.01}
+                            value={adsetBudgetEdit!.value}
+                            onChange={e => setAdsetBudgetEdit({ id: adset.id, value: e.target.value })}
+                            className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300"
+                            placeholder="R$/dia"
+                          />
+                          <button onClick={() => saveAdsetBudget(adset)} disabled={actLoading}
+                            className="px-2.5 py-1 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1">
+                            {actLoading ? <Loader2 size={10} className="animate-spin" /> : null}
+                            Salvar
+                          </button>
+                          <button onClick={() => setAdsetBudgetEdit(null)}
+                            className="px-2 py-1 rounded-lg border border-gray-200 text-gray-500 text-xs hover:bg-gray-100">
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ) : adset.orcamento_diario ? (
+                        <button
+                          onClick={() => setAdsetBudgetEdit({ id: adset.id, value: String(adset.orcamento_diario) })}
+                          className="text-xs text-blue-500 hover:underline flex items-center gap-1">
+                          <Edit2 size={10} /> Editar orçamento deste conjunto
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -2930,6 +3113,158 @@ function getSazonalidade(): { status: string; recomendacao: string; proximaData:
   };
 }
 
+/* ─── Painel de Leads ──────────────────────────────────────────────────────── */
+
+function LeadsPanel() {
+  const [forms, setForms]             = useState<Array<{ id: string; nome: string; status: string; leads_count: number; created_time: string; campos: string[] }>>([]);
+  const [formsLoading, setFormsLoading] = useState(false);
+  const [formsLoaded, setFormsLoaded]   = useState(false);
+  const [syncing, setSyncing]           = useState<string | null>(null);
+  const [syncResult, setSyncResult]     = useState<{ formId: string; salvos: number; total: number } | null>(null);
+
+  async function loadForms() {
+    setFormsLoading(true);
+    try {
+      const res = await authFetch('/api/meta/leads/forms');
+      if (res.ok) {
+        const json = await res.json() as { forms: typeof forms };
+        setForms(json.forms || []);
+        setFormsLoaded(true);
+      }
+    } catch { /* silencioso */ }
+    finally { setFormsLoading(false); }
+  }
+
+  async function syncLeads(formId: string) {
+    setSyncing(formId);
+    setSyncResult(null);
+    try {
+      const res = await authFetch(`/api/meta/leads/sync?form_id=${formId}&limit=100`);
+      if (res.ok) {
+        const json = await res.json() as { salvos: number; leads: unknown[] };
+        setSyncResult({ formId, salvos: json.salvos, total: json.leads.length });
+        // atualizar contagem local
+        setForms(prev => prev.map(f => f.id === formId ? { ...f, leads_count: Math.max(f.leads_count, json.leads.length) } : f));
+      }
+    } catch { /* silencioso */ }
+    finally { setSyncing(null); }
+  }
+
+  async function syncAll() {
+    if (!forms.length) return;
+    setSyncing('all');
+    setSyncResult(null);
+    try {
+      const res = await authFetch('/api/meta/leads/sync', {
+        method: 'POST',
+        body: JSON.stringify({ form_ids: forms.map(f => f.id) }),
+      });
+      if (res.ok) {
+        const json = await res.json() as { total_salvos: number };
+        setSyncResult({ formId: 'all', salvos: json.total_salvos, total: json.total_salvos });
+      }
+    } catch { /* silencioso */ }
+    finally { setSyncing(null); }
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-bold text-gray-900">Leads dos formulários</h2>
+          <p className="text-xs text-gray-500 mt-0.5">Puxe leads de qualquer Instant Form direto para o CRM</p>
+        </div>
+        <div className="flex gap-2">
+          {formsLoaded && forms.length > 0 && (
+            <button onClick={syncAll} disabled={syncing === 'all'}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-50">
+              {syncing === 'all' ? <Loader2 size={12} className="animate-spin" /> : <CloudDownload size={12} />}
+              Sincronizar todos
+            </button>
+          )}
+          {!formsLoaded && (
+            <button onClick={loadForms} disabled={formsLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-50">
+              {formsLoading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+              {formsLoading ? 'Carregando...' : 'Carregar formulários'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {syncResult && (
+        <div className={cn('flex items-center gap-2 px-4 py-3 rounded-xl text-sm',
+          syncResult.salvos > 0 ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-gray-50 text-gray-600 border border-gray-200')}>
+          <CheckCircle size={15} />
+          {syncResult.formId === 'all'
+            ? `${syncResult.salvos} leads novos importados de todos os formulários`
+            : `${syncResult.salvos} leads novos · ${syncResult.total} leads no formulário`}
+        </div>
+      )}
+
+      {!formsLoaded && !formsLoading && (
+        <div className="text-center py-12 text-gray-400">
+          <FileText size={36} className="mx-auto mb-3 opacity-30" />
+          <p className="text-sm">Clique em "Carregar formulários" para ver seus Instant Forms</p>
+        </div>
+      )}
+
+      {formsLoaded && forms.length === 0 && (
+        <div className="text-center py-12 text-gray-400">
+          <FileText size={36} className="mx-auto mb-3 opacity-30" />
+          <p className="text-sm">Nenhum formulário de lead encontrado nesta página.</p>
+          <p className="text-xs mt-1">Verifique se o Page ID está configurado corretamente.</p>
+        </div>
+      )}
+
+      {forms.length > 0 && (
+        <div className="space-y-3">
+          {forms.map(form => (
+            <div key={form.id} className="bg-white border border-gray-100 rounded-2xl p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-gray-900 text-sm truncate">{form.nome}</h3>
+                    <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium',
+                      form.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500')}>
+                      {form.status === 'ACTIVE' ? 'Ativo' : form.status}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                    <span><strong className="text-gray-800">{n0(form.leads_count)}</strong> leads coletados</span>
+                    <span>Criado {formatDate(form.created_time)}</span>
+                  </div>
+                  {form.campos.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {form.campos.map(c => (
+                        <span key={c} className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-md">{c}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => syncLeads(form.id)}
+                  disabled={syncing === form.id}
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-blue-200 text-blue-600 text-xs font-medium hover:bg-blue-50 disabled:opacity-50 transition-colors"
+                >
+                  {syncing === form.id ? <Loader2 size={12} className="animate-spin" /> : <CloudDownload size={12} />}
+                  {syncing === form.id ? 'Importando...' : 'Importar leads'}
+                </button>
+              </div>
+              {syncResult?.formId === form.id && (
+                <div className="mt-3 pt-3 border-t border-gray-100 text-xs text-green-700 flex items-center gap-1.5">
+                  <CheckCircle size={12} />
+                  {syncResult.salvos} leads novos importados · {syncResult.total} total no formulário
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── Página Principal ─────────────────────────────────────────────────────── */
 
 export default function TrafegoPage() {
@@ -3334,6 +3669,17 @@ export default function TrafegoPage() {
                   </span>
                 )}
               </button>
+              <button
+                onClick={() => setTab('leads')}
+                className={cn(
+                  'px-5 py-3.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
+                  tab === 'leads'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                )}
+              >
+                Leads
+              </button>
             </div>
             {tab === 'publicos' && (
               <button className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 px-4 py-3.5 transition-colors whitespace-nowrap">
@@ -3723,6 +4069,9 @@ export default function TrafegoPage() {
 
             {/* ── APROVAÇÕES ── */}
             {tab === 'aprovacoes' && <FilaAprovacao />}
+
+            {/* ── LEADS ── */}
+            {tab === 'leads' && <LeadsPanel />}
 
             {/* ── CONFIG ── */}
             {tab === 'config' && (
