@@ -133,20 +133,25 @@ export async function GET(req: NextRequest) {
           }
 
           // Montar ConfigConjunto[] com os criativos selecionados
-          const conjuntosConfig: ConfigConjunto[] = conjuntosParsed.map(cj => ({
-            tipo: cj.tipo,
-            orcamentoDiario: cj.orcamentoDiario,
-            criativos: cj.criativoIds
-              .map(id => criativos!.find((c: { id: string }) => c.id === id))
-              .filter((c): c is { id: string; nome: string; tipo: string; meta_video_id: string | null; meta_image_hash: string | null; url_preview: string | null; classificacao: unknown } => Boolean(c))
-              .map(c => ({
+          const conjuntosConfig: ConfigConjunto[] = conjuntosParsed.map(cj => {
+            const criativosDoConjunto: ConfigConjunto['criativos'] = [];
+            for (const id of cj.criativoIds) {
+              const c = criativos!.find((cr: { id: string }) => cr.id === id);
+              if (!c) continue;
+              criativosDoConjunto.push({
                 id: c.id,
                 meta_video_id: c.meta_video_id ?? undefined,
                 meta_image_hash: c.meta_image_hash ?? undefined,
                 url_preview: c.url_preview ?? undefined,
                 tipo: (c.tipo as 'video' | 'imagem') ?? (c.meta_video_id ? 'video' : 'imagem'),
-              })),
-          }));
+              });
+            }
+            return {
+              tipo: cj.tipo,
+              orcamentoDiario: cj.orcamentoDiario,
+              criativos: criativosDoConjunto,
+            };
+          });
 
           send('step', { id: 'multi', status: 'running', label: `Criando campanha com ${conjuntosConfig.length} conjunto(s)...` });
 
