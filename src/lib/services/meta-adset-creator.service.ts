@@ -621,7 +621,7 @@ export async function criarCampanhaMultiplosConjuntos(
   const config = await resolverTokenMeta(tenantId);
   const token = config.token;
   if (!config.account_id) throw new Error('Ad Account ID não configurado');
-  const actId = config.account_id.startsWith('act_')
+  const actId: string = config.account_id.startsWith('act_')
     ? config.account_id
     : `act_${config.account_id}`;
 
