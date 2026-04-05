@@ -107,10 +107,17 @@ export function InicializadorPublicos() {
           Cria automaticamente: engajamento página, visitantes do site, engajamento Instagram, lista de clientes e Lookalike 1% BR.
         </p>
 
+        {/* Erro */}
+        {resultado && !resultado.ok && (
+          <div className="mb-4 px-3 py-2 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700">
+            {(resultado as unknown as { error?: string }).error ?? 'Erro ao inicializar públicos'}
+          </div>
+        )}
+
         {/* Resultados */}
-        {resultado && (
+        {resultado && resultado.ok && (
           <div className="mb-4 space-y-1.5">
-            {Object.entries(resultado.publicos).map(([key, pub]) => (
+            {resultado.publicos && Object.entries(resultado.publicos).map(([key, pub]) => (
               <div key={key} className="flex items-center gap-2 text-sm">
                 {pub.status === 'criado'
                   ? <CheckCircle size={13} className="text-green-500 shrink-0" />
