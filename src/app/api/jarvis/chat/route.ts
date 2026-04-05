@@ -26,17 +26,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Mensagem vazia' }, { status: 400 });
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: 'ANTHROPIC_API_KEY não configurada' }, { status: 500 });
-  }
-
   const supabase = createServerSupabaseClient();
   const { data: config } = await supabase
     .from('ai_provider_config')
-    .select('brand_name')
+    .select('brand_name, anthropic_api_key')
     .eq('tenant_id', tenantId)
     .single();
+
+  // Prioriza key do banco; fallback para variável de ambiente
+  const apiKey = config?.anthropic_api_key || process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    return NextResponse.json({ error: 'Token Anthropic não configurado. Adicione sua API key na página do Jarvis.' }, { status: 400 });
+  }
 
   const JARVIS_SYSTEM = `Você é o JARVIS, motor de inteligência central do VEXX CRM.
 Você foi criado para a ${config?.brand_name ?? 'CJ Rasteirinhas'}.
