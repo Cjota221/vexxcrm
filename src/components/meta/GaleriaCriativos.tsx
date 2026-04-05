@@ -30,6 +30,11 @@ export function GaleriaCriativos() {
   const [filtro, setFiltro]         = useState<'todos' | 'video' | 'imagem'>('todos');
   const [preview, setPreview]       = useState<{ id: string; nome: string } | null>(null);
   const [transcrevendo, setTranscrevendo] = useState(false);
+  const [batchResultado, setBatchResultado] = useState<{
+    processados: number;
+    falhas: number;
+    detalhes: Array<{ nome: string; ok: boolean; modo: string; erro?: string }>;
+  } | null>(null);
   const [sincronizando, setSincronizando] = useState(false);
   const [syncMsg, setSyncMsg]       = useState<string | null>(null);
   const [cacheItems, setCacheItems] = useState<CacheCreativo[]>([]);
@@ -62,23 +67,41 @@ export function GaleriaCriativos() {
     }
   }
 
-  const qtdPendentes = criativos.filter(
-    c => c.tipo === 'video' && (!c.transcricao_status || c.transcricao_status === 'pendente' || c.transcricao_status === 'erro')
+  // Pendentes = sem transcrição + erros + transcritos mas sem classificação
+  const qtdPendentes = criativos.filter(c =>
+    c.tipo === 'video' && (
+      !c.transcricao_status ||
+      c.transcricao_status === 'pendente' ||
+      c.transcricao_status === 'erro' ||
+      (c.transcricao_status === 'concluida' && !c.classificacao)
+    )
   ).length;
 
   async function transcreverTodos() {
     setTranscrevendo(true);
+    setBatchResultado(null);
     try {
       const auth = await getAuthHeader();
-      await fetch('/api/meta/transcricao/batch', {
+      const res = await fetch('/api/meta/transcricao/batch', {
         method: 'POST',
-        headers: { Authorization: auth },
+        headers: { 'Content-Type': 'application/json', Authorization: auth },
+        body: JSON.stringify({ limite: 10 }),
+      });
+      const data = await res.json() as {
+        processados?: number;
+        falhas?: number;
+        detalhes?: Array<{ nome: string; ok: boolean; modo: string; erro?: string }>;
+      };
+      setBatchResultado({
+        processados: data.processados ?? 0,
+        falhas: data.falhas ?? 0,
+        detalhes: data.detalhes ?? [],
       });
       // Polling para atualizar os cards
       let i = 0;
       const poll = setInterval(async () => {
         await recarregar();
-        if (++i >= 10) clearInterval(poll);
+        if (++i >= 6) clearInterval(poll);
       }, 3000);
     } finally {
       setTranscrevendo(false);
@@ -181,6 +204,32 @@ export function GaleriaCriativos() {
         <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
           <span>{syncMsg}</span>
           <button onClick={() => setSyncMsg(null)} className="text-blue-400 hover:text-blue-600 text-xs">✕</button>
+        </div>
+      )}
+
+      {/* Resultado do batch de transcrição */}
+      {batchResultado && (
+        <div className={`rounded-xl border p-3 space-y-2 ${batchResultado.falhas === 0 ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-gray-800">
+              Resultado: {batchResultado.processados} ok · {batchResultado.falhas} falha{batchResultado.falhas !== 1 ? 's' : ''}
+            </span>
+            <button onClick={() => setBatchResultado(null)} className="text-gray-400 hover:text-gray-600 text-xs">✕</button>
+          </div>
+          {batchResultado.detalhes.filter(d => !d.ok).map((d, i) => (
+            <div key={i} className="flex items-start gap-2 p-2 bg-white/70 rounded-lg border border-red-100">
+              <AlertCircle size={13} className="text-red-500 mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-gray-700 truncate">{d.nome}</p>
+                <p className="text-xs text-red-600 break-words">{d.erro ?? 'Erro desconhecido'}</p>
+              </div>
+            </div>
+          ))}
+          {batchResultado.detalhes.filter(d => d.ok && d.modo === 'so_classificacao').length > 0 && (
+            <p className="text-xs text-gray-500">
+              ✓ {batchResultado.detalhes.filter(d => d.ok && d.modo === 'so_classificacao').length} classificados sem re-download (já tinham transcrição)
+            </p>
+          )}
         </div>
       )}
 
@@ -711,12 +760,33 @@ function CardCriativo({
             )}
 
             {criativo.transcricao_status === 'erro' && (
-              <button
-                onClick={onRetranscrever}
-                className="text-xs text-red-500 hover:text-red-700 underline"
-              >
-                Erro — tentar novamente
-              </button>
+              <div className="mt-1 space-y-1">
+                {criativo.transcricao_erro && (
+                  <p className="text-[10px] text-red-500 leading-tight break-words">
+                    ⚠ {criativo.transcricao_erro}
+                  </p>
+                )}
+                <button
+                  onClick={onRetranscrever}
+                  className="w-full py-1 text-xs bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors"
+                >
+                  ↺ Tentar novamente
+                </button>
+              </div>
+            )}
+
+            {criativo.transcricao_status === 'concluida' && !criativo.classificacao && (
+              <div className="mt-1 space-y-1">
+                <p className="text-[10px] text-amber-600">
+                  ⚠ Transcrito, sem classificação
+                </p>
+                <button
+                  onClick={onRetranscrever}
+                  className="w-full py-1 text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg transition-colors"
+                >
+                  ↺ Classificar agora
+                </button>
+              </div>
             )}
 
             {(!criativo.transcricao_status || criativo.transcricao_status === 'pendente') && (
