@@ -1846,11 +1846,27 @@ function PublicosTab() {
                         )}
                       </div>
                     )}
-                    {/* Status Meta */}
-                    {p.meta_audience_id ? (
-                      <p className="text-xs text-green-600 mt-1">✅ Meta ID: {p.meta_audience_id}</p>
+                    {/* Status por tipo */}
+                    {p.tipo === 'interesse' ? (
+                      <div className="flex items-center gap-1.5 text-green-600 mt-1">
+                        <CheckCircle size={12} />
+                        <span className="text-xs">Pronto para usar no agente</span>
+                      </div>
+                    ) : p.meta_audience_id ? (
+                      <div className="flex items-center gap-1.5 text-green-600 mt-1">
+                        <CheckCircle size={12} />
+                        <span className="text-xs">Criado no Meta · ID: {p.meta_audience_id.slice(0, 12)}…</span>
+                      </div>
                     ) : (
-                      <p className="text-xs text-orange-500 mt-1">⚠️ Ainda não publicado no Meta</p>
+                      <button
+                        onClick={() => publicarNoMeta(p)}
+                        disabled={publicandoId === p.id}
+                        className="mt-2 flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 font-medium disabled:opacity-50 transition-colors"
+                      >
+                        {publicandoId === p.id
+                          ? <><Loader2 size={10} className="animate-spin" /> Criando no Meta...</>
+                          : <>☁ Criar no Meta</>}
+                      </button>
                     )}
                     {copy && (
                       <div className="mt-2 p-2 bg-gray-50 rounded-lg border border-gray-100 text-xs space-y-0.5">
@@ -1862,22 +1878,17 @@ function PublicosTab() {
                     {p.erro && (
                       <div className="text-xs text-red-500 mt-1">⚠ {p.erro}</div>
                     )}
-                    {/* Botão Publicar no Meta */}
-                    {!p.meta_audience_id && p.status !== 'pronto' && (
-                      <button
-                        onClick={() => publicarNoMeta(p)}
-                        disabled={publicandoId === p.id}
-                        className="w-full mt-3 py-1.5 flex items-center justify-center gap-1.5 bg-blue-600 text-white text-xs rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                      >
-                        {publicandoId === p.id
-                          ? <><Loader2 size={11} className="animate-spin" /> Publicando...</>
-                          : <>☁ {p.tipo === 'interesse' ? 'Marcar como pronto para o agente' : 'Publicar este público no Meta'}</>
-                        }
-                      </button>
-                    )}
-                    {p.status === 'pronto' && !p.meta_audience_id && p.tipo === 'interesse' && (
-                      <p className="text-xs text-green-600 mt-1">✅ Pronto para usar no agente</p>
-                    )}
+                    {/* Usar no agente */}
+                    <button
+                      onClick={() => {
+                        localStorage.setItem('agente_publico_selecionado', p.id);
+                        setFormFeedback(`✅ Público "${p.nome}" selecionado — abra a aba Agente`);
+                        setModalPublico(null);
+                      }}
+                      className="w-full mt-2 py-1.5 flex items-center justify-center gap-1.5 border border-crm-primary text-crm-primary text-xs rounded-xl hover:bg-crm-primary/5 transition-colors font-medium"
+                    >
+                      → Usar na próxima campanha
+                    </button>
                   </div>
                   <div className="flex flex-col items-end gap-1.5 shrink-0">
                     <span className={cn(
@@ -2001,19 +2012,42 @@ function PublicosTab() {
                 </div>
               </div>
 
-              {/* Meta Audience ID */}
-              {modalPublico.meta_audience_id && (
+              {/* Explicação contextual por tipo */}
+              {modalPublico.tipo === 'interesse' ? (
+                <div className="p-3 bg-blue-50 rounded-xl border border-blue-100">
+                  <p className="text-xs text-blue-700 font-medium">✅ Como este público funciona</p>
+                  <p className="text-xs text-blue-600 mt-1">
+                    Públicos de interesse são aplicados diretamente nas campanhas — não precisam ser criados no Meta separadamente. Selecione este público ao criar uma campanha no Agente.
+                  </p>
+                </div>
+              ) : !modalPublico.meta_audience_id ? (
+                <div className="p-3 bg-orange-50 rounded-xl border border-orange-100">
+                  <p className="text-xs text-orange-700 font-medium">⚠️ Este público precisa ser criado no Meta</p>
+                  <p className="text-xs text-orange-600 mt-1">
+                    Remarketing requer um Custom Audience real no Meta. Clique abaixo para ativá-lo.
+                  </p>
+                  <button
+                    onClick={() => { publicarNoMeta(modalPublico); setModalPublico(null); }}
+                    disabled={publicandoId === modalPublico.id}
+                    className="mt-2 w-full py-1.5 flex items-center justify-center gap-1.5 bg-orange-600 text-white text-xs rounded-xl hover:bg-orange-700 disabled:opacity-50 transition-colors"
+                  >
+                    {publicandoId === modalPublico.id
+                      ? <><Loader2 size={10} className="animate-spin" /> Criando...</>
+                      : <>☁ Criar Custom Audience no Meta</>}
+                  </button>
+                </div>
+              ) : (
                 <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
                   <p className="text-xs text-blue-500 font-medium mb-1">ID no Meta Ads</p>
                   <p className="font-mono text-xs text-blue-700 break-all">{modalPublico.meta_audience_id}</p>
                 </div>
               )}
 
-              {/* Justificativa do José */}
+              {/* Justificativa do Jarvis */}
               {modalPublico.jose_justificativa && (
                 <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                    💡 Análise do José
+                    ⚡ Análise do Jarvis
                   </p>
                   <p className="text-sm text-gray-700 bg-amber-50 border border-amber-100 rounded-xl p-3">
                     {modalPublico.jose_justificativa}
@@ -2035,7 +2069,7 @@ function PublicosTab() {
                 return (
                   <div>
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                      ✍️ Copy sugerido pelo Cláudio
+                      ✍️ Copy sugerido
                     </p>
                     <div className="bg-gray-50 rounded-xl border border-gray-100 p-3 space-y-1.5 text-sm">
                       <div><span className="font-medium text-gray-700">Headline:</span> <span className="text-gray-600">{copy.headline}</span></div>
@@ -2057,22 +2091,16 @@ function PublicosTab() {
               )}
 
               {/* Botão usar no agente */}
-              {modalPublico.meta_audience_id && (
-                <button
-                  onClick={() => {
-                    sessionStorage.setItem('agente_publico_ia', JSON.stringify({
-                      id: modalPublico.meta_audience_id,
-                      nome: modalPublico.nome,
-                      tipo: modalPublico.tipo,
-                    }));
-                    setModalPublico(null);
-                    alert(`Público "${modalPublico.nome}" selecionado. Abra a aba Agente e ele aparecerá como opção.`);
-                  }}
-                  className="w-full py-2.5 bg-[#1e3a5f] text-white text-sm font-medium rounded-xl hover:bg-[#16304f] transition-colors"
-                >
-                  Usar este público no próximo agente
-                </button>
-              )}
+              <button
+                onClick={() => {
+                  localStorage.setItem('agente_publico_selecionado', modalPublico.id);
+                  setModalPublico(null);
+                  setFormFeedback(`✅ Público "${modalPublico.nome}" selecionado — abra a aba Agente`);
+                }}
+                className="w-full py-2.5 bg-crm-primary text-white text-sm font-medium rounded-xl hover:opacity-90 transition-colors"
+              >
+                → Usar este público na próxima campanha
+              </button>
             </div>
           </div>
         </div>
