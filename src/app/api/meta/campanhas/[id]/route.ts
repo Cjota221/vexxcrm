@@ -11,8 +11,9 @@ import { META_BASE } from '@/lib/meta-config';
 
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params;
   let tenantId: string;
   try {
     const auth = await getTenantFromRequest(req);
@@ -27,7 +28,7 @@ export async function DELETE(
   const { data: draft } = await supabase
     .from('meta_campaign_drafts')
     .select('id, meta_campaign_id')
-    .eq('id', params.id)
+    .eq('id', id)
     .eq('tenant_id', tenantId)
     .single();
 
@@ -61,7 +62,7 @@ export async function DELETE(
   const { error: dbError } = await supabase
     .from('meta_campaign_drafts')
     .delete()
-    .eq('id', params.id)
+    .eq('id', id)
     .eq('tenant_id', tenantId);
 
   if (dbError) {
