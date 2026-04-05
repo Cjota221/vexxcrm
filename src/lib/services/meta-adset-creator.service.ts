@@ -567,6 +567,154 @@ export async function criarCampanhaCompleta(
   return { campaignId, adsetId, adId };
 }
 
+/* ─── criarCampanhaMultiplosConjuntos ────────────────────────────────────────── */
+
+export interface ConfigConjunto {
+  tipo: TipoCampanha;
+  orcamentoDiario: number; // centavos
+  criativos: Array<{
+    id: string;
+    meta_video_id?: string;
+    meta_image_hash?: string;
+    url_preview?: string;
+    tipo: 'video' | 'imagem';
+  }>;
+}
+
+export interface ConfigCampanhaAvancada {
+  nome: string;
+  conjuntos: ConfigConjunto[];
+  paises?: string[];
+  idadeMin?: number;
+  idadeMax?: number;
+  pageId: string;
+  whatsappNumber?: string;
+}
+
+/**
+ * Cria 1 campanha → N adsets (por tipo de público) → N ads por adset.
+ */
+export async function criarCampanhaMultiplosConjuntos(
+  tenantId: string,
+  cfg: ConfigCampanhaAvancada,
+): Promise<{
+  campaignId: string;
+  conjuntos: Array<{
+    tipo: TipoCampanha;
+    adsetId: string;
+    ads: Array<{ adId: string; criativoNome: string }>;
+  }>;
+}> {
+  const config = await resolverTokenMeta(tenantId);
+  const token = config.token;
+  if (!config.account_id) throw new Error('Ad Account ID não configurado');
+  const actId = config.account_id.startsWith('act_')
+    ? config.account_id
+    : `act_${config.account_id}`;
+
+  // 1. Determinar objetivo da campanha
+  const objetivo = cfg.conjuntos.some(c => c.tipo === 'whatsapp')
+    ? 'OUTCOME_TRAFFIC'
+    : cfg.conjuntos[0].tipo === 'frio'
+      ? 'OUTCOME_AWARENESS'
+      : 'OUTCOME_TRAFFIC';
+
+  const campanha = await metaPost(`${META_BASE}/${actId}/campaigns`, {
+    name: cfg.nome,
+    objective: objetivo,
+    status: 'PAUSED',
+    special_ad_categories: '[]',
+    is_adset_budget_sharing_enabled: false,
+  }, token);
+  if (!campanha.id) throw new Error(`Erro campanha: ${campanha.error?.message}`);
+
+  const resultadoConjuntos: Array<{
+    tipo: TipoCampanha;
+    adsetId: string;
+    ads: Array<{ adId: string; criativoNome: string }>;
+  }> = [];
+
+  // 2. Para cada conjunto, criar adset + N ads
+  for (const conjunto of cfg.conjuntos) {
+    // Buscar targeting para o tipo
+    let targetingCompleto: Record<string, unknown>;
+    if (conjunto.tipo === 'frio') {
+      const interesses = await buscarInteressesAtacado(token);
+      targetingCompleto = targetingFrio(interesses);
+    } else if (conjunto.tipo === 'quente') {
+      let audienceId: string | null = null;
+      try {
+        audienceId = await criarPublicoEngajamentoReal(actId, token, tenantId, 30);
+      } catch (err) {
+        console.warn('[criarCampanhaMultiplosConjuntos] Público quente falhou:', err);
+      }
+      if (audienceId) {
+        targetingCompleto = targetingQuente(audienceId);
+      } else {
+        const interesses = await buscarInteressesAtacado(token);
+        targetingCompleto = targetingFrio(interesses);
+      }
+    } else {
+      const interesses = await buscarInteressesAtacado(token);
+      targetingCompleto = targetingWhatsApp(interesses);
+    }
+
+    const tipoLabel = conjunto.tipo === 'frio'
+      ? 'Público Frio' : conjunto.tipo === 'quente'
+        ? 'Público Quente' : 'WhatsApp';
+
+    // Criar adset
+    const adset = await metaPost(`${META_BASE}/${actId}/adsets`, {
+      name: `${cfg.nome} — ${tipoLabel}`,
+      campaign_id: campanha.id,
+      daily_budget: String(conjunto.orcamentoDiario),
+      optimization_goal: conjunto.tipo === 'frio' ? 'REACH' : 'LINK_CLICKS',
+      billing_event: 'IMPRESSIONS',
+      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+      targeting: {
+        ...targetingCompleto,
+        targeting_automation: { advantage_audience: 0 },
+      },
+      status: 'PAUSED',
+    }, token);
+    if (!adset.id) throw new Error(`Erro adset ${tipoLabel}: ${adset.error?.message}`);
+
+    // Criar um ad para cada criativo
+    const ads: Array<{ adId: string; criativoNome: string }> = [];
+    for (const criativo of conjunto.criativos) {
+      try {
+        const cfgCriativo: ConfiguracaoCriativo = {
+          tipo: criativo.tipo,
+          metaVideoId: criativo.meta_video_id,
+          metaImageHash: criativo.meta_image_hash,
+          imageUrl: criativo.url_preview,
+          headline: `${cfg.nome} — ${tipoLabel}`,
+          texto: 'Conheça nossas rasteirinhas. Qualidade garantida.',
+          cta: conjunto.tipo === 'whatsapp' ? 'WHATSAPP_MESSAGE' : 'LEARN_MORE',
+          pageId: cfg.pageId,
+          whatsappNumber: conjunto.tipo === 'whatsapp' ? cfg.whatsappNumber : undefined,
+        };
+
+        const creativeId = await criarAdCreative(token, actId, cfgCriativo);
+        const adName = `${cfg.nome} — ${tipoLabel} — Criativo ${ads.length + 1}`;
+        const adId = await criarAd(token, actId, adset.id, creativeId, adName);
+        ads.push({ adId, criativoNome: `Criativo ${ads.length + 1}` });
+      } catch (err) {
+        console.error(`[AGENTE] Erro no criativo ${criativo.id}:`, err);
+        // Continua para o próximo criativo sem parar tudo
+      }
+    }
+
+    resultadoConjuntos.push({
+      tipo: conjunto.tipo,
+      adsetId: adset.id,
+      ads,
+    });
+  }
+
+  return { campaignId: campanha.id, conjuntos: resultadoConjuntos };
+}
+
 /* ─── criarCampanhaCatalogo ──────────────────────────────────────────────────── */
 
 export interface ConfigCampanhaCatalogo {
