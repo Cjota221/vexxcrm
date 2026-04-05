@@ -70,6 +70,7 @@ export default function JarvisPage() {
   const [docs, setDocs]               = useState<KnowledgeDoc[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [showForm, setShowForm]       = useState(false);
+  const [docsExpanded, setDocsExpanded] = useState(false);
   const [docForm, setDocForm]         = useState({ titulo: '', conteudo: '', categoria: 'geral', fonte: '' });
   const [savingDoc, setSavingDoc]     = useState(false);
   const [docError, setDocError]       = useState('');
@@ -216,9 +217,9 @@ export default function JarvisPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-4 h-[calc(100vh-80px)]">
       {/* Header */}
-      <div>
+      <div className="shrink-0">
         <h1 className="text-2xl font-bold text-txt-primary flex items-center gap-2">
           <Zap size={24} className="text-crm-primary" />
           Jarvis
@@ -228,10 +229,11 @@ export default function JarvisPage() {
         </p>
       </div>
 
-      <div className="flex gap-5 items-start">
+      <div className="flex gap-5 flex-1 min-h-0">
 
         {/* ── COLUNA ESQUERDA (30%) ────────────────────────────────────────── */}
-        <div className="w-[30%] min-w-[240px] space-y-4">
+        <div className="w-[30%] min-w-[240px] overflow-y-auto space-y-4 pb-4"
+             style={{ scrollbarWidth: 'none' }}>
 
           {/* Status */}
           <Card className="p-4">
@@ -319,131 +321,136 @@ export default function JarvisPage() {
 
           {/* Base de conhecimento */}
           <Card className="p-4">
-            <div className="flex items-center justify-between mb-3">
+            {/* Header clicável para recolher/expandir */}
+            <button
+              onClick={() => setDocsExpanded(v => !v)}
+              className="w-full flex items-center justify-between group"
+            >
               <div className="flex items-center gap-1.5">
+                <BookOpen size={13} className="text-txt-secondary" />
                 <p className="text-xs font-semibold text-txt-secondary uppercase tracking-wide">
                   Base de conhecimento
                 </p>
-                {!loadingDocs && (
-                  <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">
-                    {docs.length}
-                  </span>
+                {loadingDocs
+                  ? <Loader2 size={10} className="animate-spin text-gray-400" />
+                  : <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">{docs.length}</span>
+                }
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={e => { e.stopPropagation(); setShowForm(v => !v); setDocError(''); setDocsExpanded(true); }}
+                  className="text-gray-400 hover:text-crm-primary transition-colors"
+                  title="Adicionar documento"
+                >
+                  <Plus size={14} />
+                </button>
+                <ChevronRight
+                  size={13}
+                  className={cn('text-gray-300 transition-transform', docsExpanded && 'rotate-90')}
+                />
+              </div>
+            </button>
+
+            {/* Conteúdo expansível */}
+            {docsExpanded && (
+              <div className="mt-3 space-y-2">
+                {/* Feedback */}
+                {docError && <p className="text-[11px] text-red-500">{docError}</p>}
+                {docSuccess && <p className="text-[11px] text-green-600">✅ {docSuccess}</p>}
+
+                {/* Formulário de adição */}
+                {showForm && (
+                  <div className="space-y-2 p-3 bg-gray-50 border border-gray-200 rounded-xl">
+                    <input
+                      type="text"
+                      placeholder="Título do documento"
+                      value={docForm.titulo}
+                      onChange={e => setDocForm(f => ({ ...f, titulo: e.target.value }))}
+                      className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-crm-primary/40"
+                    />
+                    <select
+                      value={docForm.categoria}
+                      onChange={e => setDocForm(f => ({ ...f, categoria: e.target.value }))}
+                      className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-crm-primary/40 bg-white"
+                    >
+                      {CATEGORIAS.map(c => (
+                        <option key={c.value} value={c.value}>{c.label}</option>
+                      ))}
+                    </select>
+                    <textarea
+                      placeholder="Conteúdo — scripts, estratégias, informações do negócio..."
+                      value={docForm.conteudo}
+                      onChange={e => setDocForm(f => ({ ...f, conteudo: e.target.value }))}
+                      rows={4}
+                      className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-crm-primary/40 resize-none"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Fonte (opcional)"
+                      value={docForm.fonte}
+                      onChange={e => setDocForm(f => ({ ...f, fonte: e.target.value }))}
+                      className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-crm-primary/40"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={saveDoc}
+                        disabled={savingDoc}
+                        className="flex-1 py-1.5 bg-crm-primary text-white text-xs font-medium rounded-lg hover:bg-crm-primary/90 disabled:opacity-50 transition-colors"
+                      >
+                        {savingDoc ? 'Salvando...' : 'Salvar'}
+                      </button>
+                      <button
+                        onClick={() => setShowForm(false)}
+                        className="px-3 py-1.5 bg-gray-200 text-gray-600 text-xs rounded-lg hover:bg-gray-300 transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Lista de documentos */}
+                {docs.length === 0 && !showForm ? (
+                  <div className="text-center py-3">
+                    <p className="text-xs text-gray-400">Nenhum documento ainda.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+                    {docs.map((doc) => (
+                      <div key={doc.id} className="flex items-start gap-2 px-3 py-2 rounded-lg bg-gray-50 border border-gray-100 group">
+                        <BookOpen size={11} className="text-gray-400 shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-xs text-txt-secondary truncate block">{doc.titulo}</span>
+                          <span className="text-[10px] text-gray-400">
+                            {CATEGORIAS.find(c => c.value === doc.categoria)?.label ?? doc.categoria}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => deleteDoc(doc.id)}
+                          className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all shrink-0"
+                        >
+                          <Trash2 size={11} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {!showForm && (
+                  <button
+                    onClick={() => { setShowForm(true); setDocError(''); }}
+                    className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-dashed border-gray-200 text-gray-400 hover:text-crm-primary hover:border-crm-primary/30 transition-all text-xs"
+                  >
+                    <Plus size={12} /> Adicionar documento
+                  </button>
                 )}
               </div>
-              <button
-                onClick={() => { setShowForm(v => !v); setDocError(''); }}
-                className="text-gray-400 hover:text-crm-primary transition-colors"
-                title="Adicionar documento"
-              >
-                <Plus size={14} />
-              </button>
-            </div>
-
-            {/* Feedback */}
-            {docError && (
-              <p className="text-[11px] text-red-500 mb-2">{docError}</p>
-            )}
-            {docSuccess && (
-              <p className="text-[11px] text-green-600 mb-2">✅ {docSuccess}</p>
-            )}
-
-            {/* Formulário de adição */}
-            {showForm && (
-              <div className="mb-3 space-y-2 p-3 bg-gray-50 border border-gray-200 rounded-xl">
-                <input
-                  type="text"
-                  placeholder="Título do documento"
-                  value={docForm.titulo}
-                  onChange={e => setDocForm(f => ({ ...f, titulo: e.target.value }))}
-                  className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-crm-primary/40"
-                />
-                <select
-                  value={docForm.categoria}
-                  onChange={e => setDocForm(f => ({ ...f, categoria: e.target.value }))}
-                  className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-crm-primary/40 bg-white"
-                >
-                  {CATEGORIAS.map(c => (
-                    <option key={c.value} value={c.value}>{c.label}</option>
-                  ))}
-                </select>
-                <textarea
-                  placeholder="Conteúdo — scripts, estratégias, informações do negócio..."
-                  value={docForm.conteudo}
-                  onChange={e => setDocForm(f => ({ ...f, conteudo: e.target.value }))}
-                  rows={4}
-                  className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-crm-primary/40 resize-none"
-                />
-                <input
-                  type="text"
-                  placeholder="Fonte (opcional)"
-                  value={docForm.fonte}
-                  onChange={e => setDocForm(f => ({ ...f, fonte: e.target.value }))}
-                  className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-crm-primary/40"
-                />
-                <div className="flex gap-2">
-                  <button
-                    onClick={saveDoc}
-                    disabled={savingDoc}
-                    className="flex-1 py-1.5 bg-crm-primary text-white text-xs font-medium rounded-lg hover:bg-crm-primary/90 disabled:opacity-50 transition-colors"
-                  >
-                    {savingDoc ? 'Salvando...' : 'Salvar'}
-                  </button>
-                  <button
-                    onClick={() => setShowForm(false)}
-                    className="px-3 py-1.5 bg-gray-200 text-gray-600 text-xs rounded-lg hover:bg-gray-300 transition-colors"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Lista de documentos */}
-            {loadingDocs ? (
-              <div className="flex items-center justify-center py-4">
-                <Loader2 size={14} className="animate-spin text-gray-400" />
-              </div>
-            ) : docs.length === 0 ? (
-              <div className="text-center py-4">
-                <BookOpen size={20} className="text-gray-300 mx-auto mb-1.5" />
-                <p className="text-xs text-gray-400">Nenhum documento ainda.</p>
-                <p className="text-[11px] text-gray-300 mt-0.5">Adicione contexto para o Jarvis usar.</p>
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                {docs.map((doc) => (
-                  <div key={doc.id} className="flex items-start gap-2 px-3 py-2 rounded-lg bg-gray-50 border border-gray-100 group">
-                    <BookOpen size={12} className="text-gray-400 shrink-0 mt-0.5" />
-                    <div className="flex-1 min-w-0">
-                      <span className="text-xs text-txt-secondary truncate block">{doc.titulo}</span>
-                      <span className="text-[10px] text-gray-400">
-                        {CATEGORIAS.find(c => c.value === doc.categoria)?.label ?? doc.categoria}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => deleteDoc(doc.id)}
-                      className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all shrink-0"
-                    >
-                      <Trash2 size={11} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {!showForm && (
-              <button
-                onClick={() => { setShowForm(true); setDocError(''); }}
-                className="w-full mt-2 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-dashed border-gray-200 text-gray-400 hover:text-crm-primary hover:border-crm-primary/30 transition-all text-xs"
-              >
-                <Plus size={12} /> Adicionar documento
-              </button>
             )}
           </Card>
         </div>
 
         {/* ── COLUNA DIREITA — Chat (70%) ──────────────────────────────────── */}
-        <Card className="flex-1 flex flex-col overflow-hidden h-[calc(100vh-200px)]">
+        <Card className="flex-1 flex flex-col overflow-hidden min-h-0">
 
           {/* Header do chat */}
           <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3 shrink-0">
@@ -556,3 +563,4 @@ export default function JarvisPage() {
     </div>
   );
 }
+
