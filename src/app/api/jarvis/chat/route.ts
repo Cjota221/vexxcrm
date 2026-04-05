@@ -160,21 +160,30 @@ async function executarTool(
 ): Promise<unknown> {
 
   if (toolName === 'buscar_vendas') {
-    const { data } = await supabase
-      .from('orders')
-      .select(`
-        id, created_at, total, status,
-        client_id,
-        facilzap_id
-      `)
-      .eq('tenant_id', tenantId)
-      .gte('created_at', String(input.data_inicio) + 'T00:00:00+00')
-      .lte('created_at', String(input.data_fim) + 'T23:59:59+00')
-      .in('status', ['confirmed', 'shipped', 'delivered', 'processing'])
-      .order('created_at', { ascending: false })
-      .limit((input.limite as number) || 50);
+    const dataInicio = input.data_inicio
+      ? new Date(String(input.data_inicio) + 'T00:00:00.000Z').toISOString()
+      : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
-    const total_faturamento = data?.reduce((sum, o) => sum + (parseFloat(String(o.total)) || 0), 0) ?? 0;
+    const dataFim = input.data_fim
+      ? new Date(String(input.data_fim) + 'T23:59:59.999Z').toISOString()
+      : new Date().toISOString();
+
+    console.log('[JARVIS buscar_vendas] período:', dataInicio, 'até', dataFim);
+
+    const { data, error } = await supabase
+      .from('orders')
+      .select('id, created_at, total, status, client_id')
+      .eq('tenant_id', tenantId)
+      .gte('created_at', dataInicio)
+      .lte('created_at', dataFim)
+      .in('status', ['shipped', 'confirmed', 'delivered', 'processing'])
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    console.log('[JARVIS buscar_vendas] resultado:', data?.length, 'pedidos | erro:', error?.message);
+
+    const total_faturamento = data?.reduce((sum, o) =>
+      sum + (parseFloat(String(o.total)) || 0), 0) ?? 0;
 
     const por_status: Record<string, number> = {};
     for (const o of data ?? []) {
@@ -187,8 +196,9 @@ async function executarTool(
       total_faturamento: total_faturamento.toFixed(2),
       ticket_medio: data?.length ? (total_faturamento / data.length).toFixed(2) : '0',
       por_status,
-      nota: `Dados VEXX — ${data?.length ?? 0} pedidos encontrados no período. FacilZap pode divergir por filtros diferentes de data/status.`,
-      pedidos: data?.slice(0, 20) ?? [],
+      periodo: { inicio: dataInicio, fim: dataFim },
+      pedidos: data?.slice(0, 10) ?? [],
+      erro_query: error?.message ?? null,
     };
   }
 
