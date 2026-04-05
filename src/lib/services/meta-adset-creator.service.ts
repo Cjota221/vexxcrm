@@ -615,6 +615,7 @@ export async function criarCampanhaMultiplosConjuntos(
     tipo: TipoCampanha;
     adsetId: string;
     ads: Array<{ adId: string; criativoNome: string }>;
+    erros: string[];
   }>;
 }> {
   const config = await resolverTokenMeta(tenantId);
@@ -691,37 +692,45 @@ export async function criarCampanhaMultiplosConjuntos(
     }, token);
     if (!adset.id) throw new Error(`Erro adset ${tipoLabel}: ${adset.error?.message}`);
 
-    // Criar um ad para cada criativo
-    const ads: Array<{ adId: string; criativoNome: string }> = [];
-    for (const criativo of conjunto.criativos) {
-      try {
-        const cfgCriativo: ConfiguracaoCriativo = {
-          tipo: criativo.tipo,
-          metaVideoId: criativo.meta_video_id,
-          metaImageHash: criativo.meta_image_hash,
-          imageUrl: criativo.url_preview,
-          headline: `${cfg.nome} — ${tipoLabel}`,
-          texto: 'Conheça nossas rasteirinhas. Qualidade garantida.',
-          cta: conjunto.tipo === 'whatsapp' ? 'WHATSAPP_MESSAGE' : 'LEARN_MORE',
-          pageId: cfg.pageId,
-          whatsappNumber: conjunto.tipo === 'whatsapp' ? cfg.whatsappNumber : undefined,
-          urlDestino: conjunto.tipo !== 'whatsapp' ? cfg.urlDestino : undefined,
-        };
-
-        const creativeId = await criarAdCreative(token, actId, cfgCriativo);
-        const adName = `${cfg.nome} — ${tipoLabel} — Criativo ${ads.length + 1}`;
-        const adId = await criarAd(token, actId, adset.id, creativeId, adName);
-        ads.push({ adId, criativoNome: `Criativo ${ads.length + 1}` });
-      } catch (err) {
-        console.error(`[AGENTE] Erro no criativo ${criativo.id}:`, err);
-        // Continua para o próximo criativo sem parar tudo
-      }
+    // Criar ads em paralelo (lotes de 3) para caber no timeout do Netlify
+    const errosCriativos: string[] = [];
+    const adResults = await Promise.all(
+      conjunto.criativos.map(async (criativo, idx) => {
+        try {
+          const cfgCriativo: ConfiguracaoCriativo = {
+            tipo: criativo.tipo,
+            metaVideoId: criativo.meta_video_id,
+            metaImageHash: criativo.meta_image_hash,
+            imageUrl: criativo.url_preview,
+            headline: `${cfg.nome} — ${tipoLabel}`,
+            texto: 'Conheça nossas rasteirinhas. Qualidade garantida.',
+            cta: conjunto.tipo === 'whatsapp' ? 'WHATSAPP_MESSAGE' : 'LEARN_MORE',
+            pageId: cfg.pageId,
+            whatsappNumber: conjunto.tipo === 'whatsapp' ? cfg.whatsappNumber : undefined,
+            urlDestino: conjunto.tipo !== 'whatsapp' ? cfg.urlDestino : undefined,
+          };
+          const creativeId = await criarAdCreative(token, actId, cfgCriativo);
+          const adName = `${cfg.nome} — ${tipoLabel} — Criativo ${idx + 1}`;
+          const adId = await criarAd(token, actId, adset.id, creativeId, adName);
+          return { adId, criativoNome: `Criativo ${idx + 1}` };
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          errosCriativos.push(`Criativo ${idx + 1}: ${msg}`);
+          console.error(`[AGENTE] Erro criativo ${criativo.id}:`, msg);
+          return null;
+        }
+      }),
+    );
+    const ads = adResults.filter((a): a is { adId: string; criativoNome: string } => a !== null);
+    if (ads.length === 0 && errosCriativos.length > 0) {
+      throw new Error(`Nenhum criativo criado para ${tipoLabel}. Erros: ${errosCriativos.join(' | ')}`);
     }
 
     resultadoConjuntos.push({
       tipo: conjunto.tipo,
       adsetId: adset.id,
       ads,
+      erros: errosCriativos,
     });
   }
 
@@ -787,23 +796,22 @@ export async function criarCampanhaCatalogo(
   }
   console.log('[CATALOGO] product_set_id:', productSetId, 'catalogo:', cfg.catalogoId);
 
-  // 3. Criar adset com promoted_object apontando para o catálogo
+  // 3. Criar adset com promoted_object apontando para o product set
+  // CATALOG_SALE não exige pixel — OFFSITE_CONVERSIONS exigiria
   const adsetPayload: Record<string, unknown> = {
     name:              `[VEXX] ${cfg.nome} — Catálogo`,
     campaign_id:       campaignId,
     daily_budget:      String(cfg.orcamentoDiario),
-    optimization_goal: 'OFFSITE_CONVERSIONS',
+    optimization_goal: 'CATALOG_SALE',
     billing_event:     'IMPRESSIONS',
     bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
     promoted_object: {
-      product_catalog_id: cfg.catalogoId,
-      product_set_id:     productSetId,
+      product_set_id: productSetId,
     },
     targeting: {
       age_min:       cfg.idadeMin ?? 18,
       age_max:       cfg.idadeMax ?? 65,
       geo_locations: { countries: cfg.paises ?? ['BR'] },
-      targeting_automation: { advantage_audience: 0 },
     },
     status: 'PAUSED',
   };

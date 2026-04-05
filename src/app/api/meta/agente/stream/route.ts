@@ -195,11 +195,12 @@ export async function GET(req: NextRequest) {
                 meta_ad_id: adIds[0] ?? null,
               });
 
+              const errosDetalhe = cj.erros?.length ? ` | ⚠️ ${cj.erros.length} falhou: ${cj.erros[0]}` : '';
               send('step', {
                 id: `conjunto_${cj.tipo}`,
-                status: 'ok',
-                label: `${tipoLabel} — ${cj.ads.length} criativo(s) ✓`,
-                detalhe: `Adset: ${cj.adsetId}`,
+                status: cj.ads.length > 0 ? 'ok' : 'error',
+                label: `${tipoLabel} — ${cj.ads.length} criativo(s) ✓${errosDetalhe}`,
+                detalhe: `Adset: ${cj.adsetId}${errosDetalhe}`,
               });
             }
 
