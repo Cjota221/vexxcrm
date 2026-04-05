@@ -47,9 +47,7 @@ export async function POST(req: NextRequest) {
   if (!criativo.meta_video_id) {
     return NextResponse.json({ error: 'meta_video_id não disponível' }, { status: 400 });
   }
-  if (criativo.transcricao_status === 'processando') {
-    return NextResponse.json({ ok: true, status: 'processando', mensagem: 'Já em processamento' });
-  }
+  // Não bloqueia re-tentativa — vídeos travados em 'processando' devem poder ser re-acionados
 
   // Marcar como processando
   await supabase
