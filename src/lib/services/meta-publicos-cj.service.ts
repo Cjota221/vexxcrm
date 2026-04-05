@@ -11,6 +11,7 @@
 import { META_BASE } from '@/lib/meta-config';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { buscarInterestId } from './meta-audiences.service';
+import { resolverTokenMeta } from './meta-token.service';
 
 const PAGE_ID  = '101337882545607'; // CJ Rasteirinhas — Page ID (não Business ID)
 const PIXEL_ID = '518376893062766';
@@ -574,20 +575,23 @@ export async function inicializarTodosPublicos(
   tenantId: string,
   igAccountId?: string,
 ): Promise<Record<string, string | null>> {
-  const supabase = createServerSupabaseClient();
-  const { data: config } = await supabase
-    .from('ai_provider_config')
-    .select('meta_access_token, meta_ad_account_id, meta_ig_account_id')
-    .eq('tenant_id', tenantId)
-    .single();
-
-  if (!config?.meta_access_token || !config?.meta_ad_account_id) {
-    throw new Error('Meta Ads nao configurado');
+  // Usa resolverTokenMeta — mesma lógica que funciona para criar campanhas
+  const metaConfig = await resolverTokenMeta(tenantId);
+  if (!metaConfig.account_id) {
+    throw new Error('Ad Account ID não configurado. Configure em Configurações → Time de IAs.');
   }
 
-  const token = config.meta_access_token;
-  const actId = config.meta_ad_account_id.replace('act_', '');
-  const igId  = igAccountId ?? (config as Record<string, unknown>).meta_ig_account_id as string ?? '';
+  const token = metaConfig.token;
+  const actId = metaConfig.account_id.replace('act_', '');
+
+  // ig_account_id: parâmetro > DB
+  const supabase = createServerSupabaseClient();
+  const { data: extra } = await supabase
+    .from('ai_provider_config')
+    .select('meta_ig_account_id')
+    .eq('tenant_id', tenantId)
+    .single();
+  const igId = igAccountId ?? (extra?.meta_ig_account_id as string | undefined) ?? '';
 
   const resultados: Record<string, string | null> = {};
 
