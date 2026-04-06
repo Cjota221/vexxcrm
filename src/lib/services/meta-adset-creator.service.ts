@@ -115,7 +115,18 @@ async function metaPost(
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(10_000),
   });
-  return res.json() as Promise<{ id?: string; error?: { message: string; code: number } }>;
+
+  const responseText = await res.text();
+  console.log(`[META RAW RESPONSE] ${url}`, responseText);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(responseText);
+  } catch {
+    throw new Error(`Meta API retornou resposta não-JSON: ${responseText.slice(0, 200)}`);
+  }
+
+  return parsed as { id?: string; error?: { message: string; code: number; error_subcode?: number; error_user_msg?: string; fbtrace_id?: string } };
 }
 
 /* ─── Criar Campanha ─────────────────────────────────────────────────────────── */
