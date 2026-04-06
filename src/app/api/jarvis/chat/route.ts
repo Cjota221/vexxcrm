@@ -146,6 +146,23 @@ const TOOLS = [
       required: ['tipo', 'periodo'],
     },
   },
+  {
+    name: 'criar_campanha_meta',
+    description: 'Cria uma campanha completa no Meta Ads (campanha + adset + criativo + anúncio). Sempre cria com status PAUSED para Carol revisar antes de ativar. Use quando Carol pedir para criar uma campanha, anúncio ou publicidade no Facebook/Instagram.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        campaign_name:        { type: 'string',  description: 'Nome da campanha' },
+        ad_message:           { type: 'string',  description: 'Texto principal do anúncio (máx 125 chars)' },
+        ad_title:             { type: 'string',  description: 'Título do anúncio (máx 40 chars)' },
+        destination_url:      { type: 'string',  description: 'URL de destino do anúncio' },
+        daily_budget_reais:   { type: 'number',  description: 'Orçamento diário em reais (ex: 30)' },
+        age_min:              { type: 'number',  description: 'Idade mínima do público (default 25)' },
+        age_max:              { type: 'number',  description: 'Idade máxima do público (default 55)' },
+      },
+      required: ['campaign_name', 'ad_message', 'ad_title', 'destination_url', 'daily_budget_reais'],
+    },
+  },
 ];
 
 /* ─── Executor de tools ───────────────────────────────────────────── */
@@ -339,6 +356,76 @@ async function executarTool(
     }
     const data = await res.json() as { resumo?: string };
     return { ok: true, mensagem: data.resumo || 'Campanha criada e pausada para sua aprovação' };
+  }
+
+  if (toolName === 'criar_campanha_meta') {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+    const campaignName      = String(input.campaign_name ?? 'Campanha CJ Rasteirinhas');
+    const dailyBudgetReais  = Number(input.daily_budget_reais ?? 30);
+
+    const res = await fetch(`${appUrl}/api/jarvis/criar-campanha`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tenantId: tenantId,
+        campaign: {
+          name:      campaignName,
+          objective: 'OUTCOME_TRAFFIC',
+        },
+        adset: {
+          name:         `${campaignName} — Conjunto`,
+          dailyBudget:  dailyBudgetReais,
+          ageMin:       (input.age_min as number) ?? 25,
+          ageMax:       (input.age_max as number) ?? 55,
+        },
+        creative: {
+          name:    `${campaignName} — Criativo`,
+          message: String(input.ad_message ?? ''),
+          title:   String(input.ad_title ?? '').slice(0, 40),
+          link:    String(input.destination_url ?? ''),
+        },
+        adName: `${campaignName} — Anúncio`,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { error?: string };
+      return {
+        ok:       false,
+        mensagem: `Erro ao criar campanha: ${err.error ?? 'Falha desconhecida'}`,
+      };
+    }
+
+    const result = await res.json() as {
+      campaignId: string;
+      adsetId:    string;
+      creativeId: string;
+      adId:       string;
+      adsManagerUrl: string;
+    };
+
+    return {
+      ok:             true,
+      campaign_id:    result.campaignId,
+      adset_id:       result.adsetId,
+      creative_id:    result.creativeId,
+      ad_id:          result.adId,
+      ads_manager_url: result.adsManagerUrl,
+      mensagem: [
+        '✅ Campanha criada com sucesso!',
+        '',
+        '📋 IDs gerados:',
+        `• Campanha: ${result.campaignId}`,
+        `• Conjunto: ${result.adsetId}`,
+        `• Criativo: ${result.creativeId}`,
+        `• Anúncio: ${result.adId}`,
+        '',
+        `🔗 Ver no Ads Manager: ${result.adsManagerUrl}`,
+        '',
+        '⚠️ Status: PAUSADA — ative quando estiver pronta para veicular.',
+      ].join('\n'),
+    };
   }
 
   if (toolName === 'gerar_relatorio') {
