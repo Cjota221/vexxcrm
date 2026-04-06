@@ -29,7 +29,7 @@ import {
   Clock, ChevronRight, ChevronLeft, Copy, Pause, Play, Users,
   Image as ImageIcon, FileText, BarChart3, Zap, Target, X,
   Edit2, DollarSign, Loader2, ChevronDown, AlertOctagon, CloudDownload,
-  Plus, Globe, Wand2,
+  Plus, Globe, Wand2, Settings, Bot,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -1933,767 +1933,285 @@ function formatTamanhoEstimado(min?: number, max?: number, texto?: string): stri
   return `~${fmt(min || max || 0)} pessoas`;
 }
 
+interface PublicoAprovadoItem {
+  id: string;
+  nome: string;
+  tipo: string;
+  status: string;
+  meta_audience_id: string | null;
+  estimativa_alcance: number | null;
+  criado_por_ia: boolean;
+  created_at: string;
+}
+
 function PublicosTab() {
-  const [savedAudiences, setSavedAudiences] = useState<SavedAudience[]>([]);
-  const [customAudiences, setCustomAudiences] = useState<SavedAudience[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [metaConnected, setMetaConnected] = useState(false);
+  const [subTab, setSubTab] = useState<'criar' | 'lookalike' | 'biblioteca'>('criar');
+  const [gerandoTipo, setGerandoTipo] = useState<string | null>(null);
+  const [feedbackPublico, setFeedbackPublico] = useState<string | null>(null);
+  const [publicosAprovados, setPublicosAprovados] = useState<PublicoAprovadoItem[]>([]);
+  const [carregandoPublicos, setCarregandoPublicos] = useState(false);
 
-  // Públicos IA (do banco local)
-  const [iaPublicos, setIaPublicos] = useState<IAPublico[]>([]);
-  const [criandoComIA, setCriandoComIA] = useState(false);
-  const [iaStep, setIaStep] = useState<IALoadingStep>(null);
-  const [iaAnaliseResumo, setIaAnaliseResumo] = useState<string | null>(null);
-  const [publicandoId, setPublicandoId] = useState<string | null>(null);
-
-  // Modal de detalhes
-  const [modalPublico, setModalPublico] = useState<IAPublico | null>(null);
-
-  // Lookalike creator
-  const [showLookalike, setShowLookalike] = useState(false);
-  const [lalSeedId, setLalSeedId]         = useState('');
-  const [lalSeedNome, setLalSeedNome]     = useState('');
-  const [lalRatio, setLalRatio]           = useState(1);
-  const [criandoLal, setCriandoLal]       = useState(false);
-
-  const handleCriarLookalike = async () => {
-    if (!lalSeedId) return;
-    setCriandoLal(true);
-    setFormFeedback(null);
+  const carregarPublicosAprovados = useCallback(async () => {
+    setCarregandoPublicos(true);
     try {
-      const res = await authFetch('/api/trafego/publicos/lookalike', {
-        method: 'POST',
-        body: JSON.stringify({ origin_audience_id: lalSeedId, origin_audience_name: lalSeedNome, ratio: lalRatio / 100 }),
-      });
-      const json = await res.json() as { ok?: boolean; meta_audience_id?: string; nome?: string; error?: string };
-      if (json.ok) {
-        setFormFeedback(`✅ Lookalike ${lalRatio}% criado! ID: ${json.meta_audience_id} — ficará disponível em até 24h no Meta.`);
-        setShowLookalike(false);
-        carregarDados();
-      } else {
-        setFormFeedback(json.error || 'Erro ao criar Lookalike');
-      }
-    } catch (e) { setFormFeedback(String(e)); }
-    finally { setCriandoLal(false); }
-  };
-
-  // Criação manual de público
-  const [formManual, setFormManual] = useState(false);
-  const [formNome, setFormNome] = useState('');
-  const [formSegmento, setFormSegmento] = useState<'revendedoras' | 'franqueadas' | 'marca_propria' | 'personalizado'>('revendedoras');
-  const [formIdadeMin, setFormIdadeMin] = useState('25');
-  const [formIdadeMax, setFormIdadeMax] = useState('50');
-  const [formGenero, setFormGenero] = useState<'feminino' | 'masculino' | 'todos'>('feminino');
-  const [criandoManual, setCriandoManual] = useState(false);
-  const [formFeedback, setFormFeedback] = useState<string | null>(null);
-
-  const carregarDados = useCallback(() => {
-    setLoading(true);
-    Promise.all([
-      authFetch('/api/trafego/saved-audiences').then(r => r.json()),
-      authFetch('/api/ai-team/create-audiences').then(r => r.json()),
-    ])
-      .then(([metaData, iaData]: [
-        { connected?: boolean; savedAudiences?: SavedAudience[]; customAudiences?: SavedAudience[] },
-        { publicos?: IAPublico[] }
-      ]) => {
-        setMetaConnected(metaData.connected || false);
-        setSavedAudiences(metaData.savedAudiences || []);
-        setCustomAudiences(metaData.customAudiences || []);
-        setIaPublicos(iaData.publicos || []);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      const res = await authFetch('/api/trafego/publicos-aprovados?limit=50');
+      if (!res.ok) return;
+      const data = await res.json() as { data?: PublicoAprovadoItem[] };
+      setPublicosAprovados(data.data ?? []);
+    } catch { /* silencioso */ }
+    finally { setCarregandoPublicos(false); }
   }, []);
 
-  useEffect(() => { carregarDados(); }, [carregarDados]);
+  useEffect(() => { carregarPublicosAprovados(); }, [carregarPublicosAprovados]);
 
-  const handleCriarComIA = useCallback(async () => {
-    if (criandoComIA) return;
-    setCriandoComIA(true);
-    setIaStep('jose');
-    setIaAnaliseResumo(null);
-
+  async function gerarPublicoAutomatico(tipo: 'frio' | 'quente' | 'lookalike') {
+    setGerandoTipo(tipo);
+    setFeedbackPublico(null);
     try {
-      const res = await authFetch('/api/ai-team/create-audiences', { method: 'POST' });
-      const data = await res.json() as {
+      const res = await authFetch('/api/trafego/publicos/gerar-automatico', {
+        method: 'POST',
+        body: JSON.stringify({ tipo }),
+      });
+      const json = await res.json() as {
         ok?: boolean;
-        publicos?: IAPublico[];
-        analise_resumo?: string;
-        criados?: number;
-        erros?: number;
+        nome?: string;
+        meta_audience_id?: string;
+        interesses_usados?: string[];
         error?: string;
       };
-
-      if (!res.ok || data.error) throw new Error(data.error || 'Erro ao criar públicos');
-
-      setIaPublicos(prev => {
-        const novosIds = new Set((data.publicos || []).map(p => p.id));
-        return [...(data.publicos || []), ...prev.filter(p => !novosIds.has(p.id))];
-      });
-      if (data.analise_resumo) setIaAnaliseResumo(data.analise_resumo);
-    } catch (err) {
-      console.error('[PublicosTab] Erro ao criar com IA:', err);
-    } finally {
-      setCriandoComIA(false);
-      setIaStep(null);
-    }
-  }, [criandoComIA]);
-
-  const handleCriarManual = async () => {
-    if (!formNome.trim()) { setFormFeedback('Informe o nome do público'); return; }
-    setCriandoManual(true);
-    setFormFeedback(null);
-    try {
-      const res = await authFetch('/api/trafego/publicos/criar', {
-        method: 'POST',
-        body: JSON.stringify({
-          nome: formNome.trim(),
-          segmento: formSegmento,
-          idade_min: parseInt(formIdadeMin) || 25,
-          idade_max: parseInt(formIdadeMax) || 50,
-          genero: formGenero,
-        }),
-      });
-      const json = await res.json() as { ok?: boolean; error?: string; estimativa_alcance?: string; interesses_encontrados?: string[] };
       if (json.ok) {
-        setFormFeedback(`✅ Público criado! Alcance: ${json.estimativa_alcance || 'calculando...'}`);
-        setFormNome('');
-        setFormManual(false);
-        carregarDados();
+        setFeedbackPublico(
+          `✅ Público "${json.nome}" criado no Meta` +
+          (json.interesses_usados?.length
+            ? ` com ${json.interesses_usados.length} interesses`
+            : '')
+        );
+        carregarPublicosAprovados();
       } else {
-        setFormFeedback(json.error || 'Erro ao criar público');
+        setFeedbackPublico(`❌ ${json.error || 'Erro ao gerar público'}`);
       }
     } catch (e) {
-      setFormFeedback(String(e));
+      setFeedbackPublico(`❌ ${String(e)}`);
     } finally {
-      setCriandoManual(false);
+      setGerandoTipo(null);
     }
-  };
+  }
 
-  const publicarNoMeta = async (publico: IAPublico) => {
-    if (publicandoId) return;
-    setPublicandoId(publico.id);
-    try {
-      if (publico.tipo === 'remarketing' || publico.tipo === 'lookalike') {
-        // Tentar criar Custom Audience real no Meta
-        const res = await authFetch(`/api/trafego/publicos/${publico.id}/publicar-meta`, { method: 'POST' });
-        const json = await res.json() as { ok?: boolean; meta_audience_id?: string; error?: string };
-        if (json.ok && json.meta_audience_id) {
-          setIaPublicos(prev => prev.map(p => p.id === publico.id
-            ? { ...p, meta_audience_id: json.meta_audience_id, status: 'pronto' }
-            : p
-          ));
-          setFormFeedback('✅ Público criado no Meta! ID: ' + json.meta_audience_id);
-        } else {
-          setFormFeedback(json.error || 'Erro ao publicar no Meta');
-        }
-      } else {
-        // Para públicos de interesse: marcar como pronto para uso no agente
-        const res = await authFetch(`/api/trafego/publicos/${publico.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ status: 'pronto' }),
-        });
-        if (res.ok) {
-          setIaPublicos(prev => prev.map(p => p.id === publico.id ? { ...p, status: 'pronto' } : p));
-          sessionStorage.setItem('agente_publico_ia', JSON.stringify({ id: publico.meta_audience_id || publico.id, tipo: publico.tipo }));
-          setFormFeedback('✅ Pronto para usar no agente');
-        } else {
-          // Mesmo se a API falhar, marcar localmente
-          setIaPublicos(prev => prev.map(p => p.id === publico.id ? { ...p, status: 'pronto' } : p));
-          setFormFeedback('✅ Pronto para usar no agente');
-        }
-      }
-    } catch {
-      setFormFeedback('Erro ao publicar público');
-    } finally {
-      setPublicandoId(null);
-    }
+  const statusBadge = (status: string) => {
+    const map: Record<string, string> = {
+      rascunho:  'bg-gray-100 text-gray-600',
+      publicado: 'bg-green-50 text-green-700',
+      erro:      'bg-red-50 text-red-700',
+      arquivado: 'bg-yellow-50 text-yellow-700',
+    };
+    return (
+      <span className={cn('text-xs rounded-full px-2 py-0.5 font-medium capitalize', map[status] ?? 'bg-gray-100 text-gray-600')}>
+        {status}
+      </span>
+    );
   };
 
   return (
-    <div className="space-y-6">
-      {formFeedback && (
+    <div className="space-y-5">
+      {/* Pills navigation */}
+      <div className="flex gap-2">
+        {([
+          { key: 'criar',      label: 'Criar com IA' },
+          { key: 'lookalike',  label: 'Lookalike' },
+          { key: 'biblioteca', label: 'Biblioteca' },
+        ] as { key: 'criar' | 'lookalike' | 'biblioteca'; label: string }[]).map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => setSubTab(key)}
+            className={cn(
+              'px-4 py-1.5 rounded-full text-sm font-medium transition-colors',
+              subTab === key
+                ? 'bg-[#1e3a5f] text-white'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Feedback */}
+      {feedbackPublico && (
         <div className={cn(
           'rounded-xl px-4 py-3 text-sm border',
-          formFeedback.startsWith('✅')
+          feedbackPublico.startsWith('✅')
             ? 'bg-green-50 border-green-200 text-green-800'
             : 'bg-red-50 border-red-200 text-red-800'
         )}>
-          {formFeedback}
-          <button onClick={() => setFormFeedback(null)} className="ml-2 opacity-60 hover:opacity-100">✕</button>
+          {feedbackPublico}
+          <button onClick={() => setFeedbackPublico(null)} className="ml-2 opacity-60 hover:opacity-100">✕</button>
         </div>
       )}
 
-      <div className="flex items-center justify-between">
-        <h2 className="font-bold text-gray-900">Públicos</h2>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setFormManual(f => !f)}
-            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-xl border border-purple-200 text-purple-700 hover:bg-purple-50"
-          >
-            <Plus size={13} /> Criar manual
-          </button>
-          <button
-            onClick={carregarDados}
-            disabled={loading || criandoComIA}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 text-gray-600 text-sm hover:bg-gray-50 disabled:opacity-40"
-          >
-            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Atualizar
-          </button>
-        </div>
-      </div>
-
-      {/* Formulário de criação manual */}
-      {formManual && (
-        <div className="bg-white rounded-2xl border border-purple-200 p-5 space-y-4">
-          <h3 className="font-semibold text-gray-900 text-sm">Criar público manualmente</h3>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Quem você quer atingir?</label>
-            <div className="grid grid-cols-2 gap-2">
-              {([
-                { v: 'revendedoras',  l: 'Revendedoras e lojistas' },
-                { v: 'franqueadas',   l: 'Candidatas a franqueadas C4' },
-                { v: 'marca_propria', l: 'Compradores marca própria' },
-                { v: 'personalizado', l: 'Personalizado' },
-              ] as const).map(({ v, l }) => (
-                <button
-                  key={v}
-                  onClick={() => setFormSegmento(v)}
-                  className={cn(
-                    'py-2 px-3 rounded-xl border text-xs font-medium text-left transition-all',
-                    formSegmento === v
-                      ? 'bg-purple-600 text-white border-purple-600'
-                      : 'border-gray-200 text-gray-700 hover:bg-gray-50'
-                  )}
-                >
-                  {l}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Nome do público *</label>
-            <input
-              type="text"
-              value={formNome}
-              onChange={e => setFormNome(e.target.value)}
-              placeholder="Ex: Revendedoras SP/RJ"
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-crm-primary/30"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Idade mínima</label>
-              <input type="number" min={18} max={64} value={formIdadeMin} onChange={e => setFormIdadeMin(e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-crm-primary/30" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Idade máxima</label>
-              <input type="number" min={19} max={65} value={formIdadeMax} onChange={e => setFormIdadeMax(e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-crm-primary/30" />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Gênero</label>
-            <div className="flex gap-2">
-              {([{ v: 'feminino', l: 'Mulheres' }, { v: 'masculino', l: 'Homens' }, { v: 'todos', l: 'Todos' }] as const).map(({ v, l }) => (
-                <button key={v} onClick={() => setFormGenero(v)}
-                  className={cn('flex-1 py-2 rounded-xl border text-xs font-medium transition-all',
-                    formGenero === v ? 'bg-crm-primary text-white border-crm-primary' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-                  )}>
-                  {l}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex gap-2 pt-1">
-            <button onClick={() => setFormManual(false)} className="px-4 py-2 rounded-xl border border-gray-200 text-gray-700 text-sm hover:bg-gray-50">
-              Cancelar
-            </button>
-            <button
-              onClick={handleCriarManual}
-              disabled={criandoManual || !formNome.trim()}
-              className="flex-1 flex items-center justify-center gap-2 py-2 rounded-xl bg-purple-600 text-white text-sm font-medium hover:bg-purple-700 disabled:opacity-50"
-            >
-              {criandoManual ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
-              {criandoManual ? 'Criando...' : 'Criar público'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Card IA — Criar públicos com IA */}
-      <div className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-2xl border border-purple-100 p-4">
-        <div className="flex items-start gap-3">
-          <div className="text-2xl shrink-0">🤖</div>
-          <div className="flex-1 min-w-0">
-            <div className="font-semibold text-gray-900 text-sm">Criar públicos com IA</div>
-            <div className="text-xs text-gray-500 mt-0.5">
-              ⚡ Jarvis analisa seus dados e configura os públicos de alta performance
-            </div>
-            {criandoComIA && iaStep && (
-              <div className="mt-2 flex items-center gap-2 text-xs text-purple-700 font-medium">
-                <Loader2 size={12} className="animate-spin shrink-0" />
-                {IA_STEP_LABELS[iaStep]}
-              </div>
-            )}
-            {iaAnaliseResumo && !criandoComIA && (
-              <div className="mt-2 text-xs text-gray-600 bg-white/70 rounded-lg p-2 border border-purple-100/50">
-                💡 {iaAnaliseResumo}
-              </div>
-            )}
-          </div>
-          <button
-            onClick={handleCriarComIA}
-            disabled={criandoComIA}
-            className={cn(
-              'shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all',
-              criandoComIA
-                ? 'bg-purple-100 text-purple-400 cursor-not-allowed'
-                : 'bg-purple-600 text-white hover:bg-purple-700 shadow-sm'
-            )}
-          >
-            {criandoComIA
-              ? <><Loader2 size={13} className="animate-spin" /> Criando...</>
-              : <><Wand2 size={13} /> Criar com IA</>
-            }
-          </button>
-        </div>
-      </div>
-
-      {loading && (
-        <div className="text-center py-8 text-gray-400 text-sm flex items-center justify-center gap-2">
-          <Loader2 size={15} className="animate-spin" /> Carregando públicos...
-        </div>
-      )}
-
-      {!loading && !metaConnected && iaPublicos.length === 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
-          Meta Ads não conectado — configure o token em <a href="/time-ia" className="underline font-medium">Time de IAs</a>.
-        </div>
-      )}
-
-      {/* Públicos criados pela IA */}
-      {!loading && iaPublicos.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-            Criados pela IA ({iaPublicos.length})
-          </h3>
-          {iaPublicos.map(p => {
-            const copy = p.claudio_copy || p.copy_sugerido;
-            const tamanho = formatTamanhoEstimado(p.estimativa_alcance_min, p.estimativa_alcance_max, p.tamanho_estimado);
-            const tipoLabel = p.tipo === 'remarketing' ? '🔄 Remarketing' : p.tipo === 'lookalike' ? '👥 Lookalike' : '🎯 Interesse';
-            return (
-              <div key={p.id} className={cn(
-                'bg-white rounded-2xl border p-4',
-                p.erro ? 'border-red-100 bg-red-50/30' : 'border-gray-100'
-              )}>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-gray-900 text-sm">{p.nome}</span>
-                      <span className="text-xs px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 font-medium">{tipoLabel}</span>
-                      {p.criado_por_ia && (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">IA</span>
-                      )}
-                    </div>
-                    {p.descricao && <div className="text-xs text-gray-500 mt-0.5">{p.descricao}</div>}
-                    {/* Estimativa de alcance */}
-                    <div className="text-xs text-gray-400 mt-1 font-medium">
-                      {p.tipo === 'interesse'
-                        ? 'Estimativa disponível após publicar campanha'
-                        : tamanho === 'Calculando...' ? 'Estimativa disponível após publicar campanha' : tamanho}
-                    </div>
-                    {p.jose_justificativa && (
-                      <div className="text-xs text-gray-400 mt-0.5 italic">💡 {p.jose_justificativa}</div>
-                    )}
-                    {/* Targeting detalhado */}
-                    {p.targeting && (
-                      <div className="mt-2 space-y-0.5">
-                        {p.targeting.age_min && (
-                          <p className="text-xs text-gray-700">
-                            👤 Idade: {p.targeting.age_min}–{p.targeting.age_max} anos
-                            {p.targeting.genders?.includes(2) ? ' | Mulheres' : ''}
-                          </p>
-                        )}
-                        {p.targeting.geo_locations?.countries && p.targeting.geo_locations.countries.length > 0 && (
-                          <p className="text-xs text-gray-700">
-                            🌍 Países: {p.targeting.geo_locations.countries.join(', ')}
-                          </p>
-                        )}
-                        {p.targeting.geo_locations?.regions && p.targeting.geo_locations.regions.length > 0 && (
-                          <p className="text-xs text-gray-700">
-                            📍 Estados: {p.targeting.geo_locations.regions.map(r => r.name).join(', ')}
-                          </p>
-                        )}
-                        {p.targeting.interests && p.targeting.interests.length > 0 && (
-                          <p className="text-xs text-gray-700">
-                            🎯 Interesses: {p.targeting.interests.map(i => i.name).join(', ')}
-                          </p>
-                        )}
-                        {p.targeting.custom_audiences && p.targeting.custom_audiences.length > 0 && (
-                          <p className="text-xs text-gray-700">🔄 Público customizado no Meta</p>
-                        )}
-                      </div>
-                    )}
-                    {/* Status por tipo */}
-                    {p.tipo === 'interesse' ? (
-                      <div className="flex items-center gap-1.5 text-green-600 mt-1">
-                        <CheckCircle size={12} />
-                        <span className="text-xs">Pronto para usar no agente</span>
-                      </div>
-                    ) : p.meta_audience_id ? (
-                      <div className="flex items-center gap-1.5 text-green-600 mt-1">
-                        <CheckCircle size={12} />
-                        <span className="text-xs">Criado no Meta · ID: {p.meta_audience_id.slice(0, 12)}…</span>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => publicarNoMeta(p)}
-                        disabled={publicandoId === p.id}
-                        className="mt-2 flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 font-medium disabled:opacity-50 transition-colors"
-                      >
-                        {publicandoId === p.id
-                          ? <><Loader2 size={10} className="animate-spin" /> Criando no Meta...</>
-                          : <>☁ Criar no Meta</>}
-                      </button>
-                    )}
-                    {copy && (
-                      <div className="mt-2 p-2 bg-gray-50 rounded-lg border border-gray-100 text-xs space-y-0.5">
-                        <div><span className="font-medium text-gray-700">Headline:</span> {copy.headline}</div>
-                        <div><span className="font-medium text-gray-700">Texto:</span> {copy.texto}</div>
-                        <div><span className="font-medium text-gray-700">CTA:</span> {copy.cta}</div>
-                      </div>
-                    )}
-                    {p.erro && (
-                      <div className="text-xs text-red-500 mt-1">⚠ {p.erro}</div>
-                    )}
-                    {/* Usar no agente */}
-                    <button
-                      onClick={() => {
-                        sessionStorage.setItem('agente_publico_ia', JSON.stringify({ id: p.meta_audience_id || p.id, tipo: p.tipo }));
-                        setFormFeedback(`✅ Público "${p.nome}" selecionado — abra a aba Agente`);
-                        setModalPublico(null);
-                      }}
-                      className="w-full mt-2 py-1.5 flex items-center justify-center gap-1.5 border border-crm-primary text-crm-primary text-xs rounded-xl hover:bg-crm-primary/5 transition-colors font-medium"
-                    >
-                      → Usar na próxima campanha
-                    </button>
-                  </div>
-                  <div className="flex flex-col items-end gap-1.5 shrink-0">
-                    <span className={cn(
-                      'text-xs px-2 py-0.5 rounded-full font-medium',
-                      p.status === 'pronto' ? 'bg-green-50 text-green-700' :
-                      p.status === 'falhou' ? 'bg-red-50 text-red-600' :
-                      'bg-gray-100 text-gray-500'
-                    )}>
-                      {p.status === 'pronto' ? 'Pronto' : p.status === 'falhou' ? 'Falhou' : p.status}
-                    </span>
-                    <button
-                      onClick={() => setModalPublico(p)}
-                      className="text-xs text-crm-primary hover:underline font-medium"
-                    >
-                      Ver detalhes
-                    </button>
-                  </div>
+      {/* ── Sub-seção: Criar com IA ── */}
+      {subTab === 'criar' && (
+        <div className="space-y-5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Card Frio */}
+            <div className="bg-white rounded-2xl border border-gray-100 p-5">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
+                  <Users size={18} className="text-blue-600" />
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Públicos Salvos no Meta */}
-      {!loading && savedAudiences.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Públicos Salvos no Meta ({savedAudiences.length})</h3>
-          {savedAudiences.map(a => (
-            <div key={a.id} className="bg-white rounded-2xl border border-gray-100 p-4">
-              <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  <div className="font-semibold text-gray-900">{a.name}</div>
-                  {a.description && <div className="text-sm text-gray-500 mt-0.5">{a.description}</div>}
-                  <div className="text-xs text-gray-400 mt-1">
-                    {formatAudienceSize(a.approximate_count_lower_bound, a.approximate_count_upper_bound)}
-                  </div>
-                </div>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium shrink-0">Salvo</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Públicos Personalizados no Meta — com saúde e botão Lookalike */}
-      {!loading && customAudiences.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Públicos Personalizados ({customAudiences.length})</h3>
-          </div>
-          {customAudiences.map(a => {
-            const lower = a.approximate_count_lower_bound || 0;
-            const isLookalike = a.subtype === 'LOOKALIKE';
-            const MIN_VIAVEL  = isLookalike ? 1000 : 100;
-            const saude: 'ok' | 'baixo' | 'desconhecido' =
-              lower === 0 ? 'desconhecido' : lower >= MIN_VIAVEL ? 'ok' : 'baixo';
-            return (
-              <div key={a.id} className="bg-white rounded-2xl border border-gray-100 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-gray-900 text-sm leading-tight">{a.name}</div>
-                    {a.description && <div className="text-xs text-gray-500 mt-0.5 line-clamp-1">{a.description}</div>}
-                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                      <span className={cn('text-xs font-medium flex items-center gap-1',
-                        saude === 'ok' ? 'text-green-600' : saude === 'baixo' ? 'text-red-500' : 'text-gray-400')}>
-                        <span className={cn('w-1.5 h-1.5 rounded-full inline-block',
-                          saude === 'ok' ? 'bg-green-500' : saude === 'baixo' ? 'bg-red-400' : 'bg-gray-300')} />
-                        {formatAudienceSize(a.approximate_count_lower_bound, a.approximate_count_upper_bound)}
-                      </span>
-                      {saude === 'baixo' && (
-                        <span className="text-xs text-red-500 bg-red-50 px-1.5 py-0.5 rounded-md">abaixo do mínimo</span>
-                      )}
-                      {a.subtype && (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-mono">{a.subtype}</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-1.5 shrink-0">
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 font-medium">Personalizado</span>
-                    {!isLookalike && saude !== 'desconhecido' && (
-                      <button
-                        onClick={() => {
-                          setLalSeedId(a.id);
-                          setLalSeedNome(a.name);
-                          setShowLookalike(true);
-                        }}
-                        className="text-xs text-blue-500 hover:underline flex items-center gap-1"
-                      >
-                        <Wand2 size={10} /> Criar Lookalike
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* ─── Criador de Lookalike ─────────────────────────────────────────── */}
-      {showLookalike && (
-        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold text-blue-900 text-sm">Criar Lookalike</h3>
-            <button onClick={() => setShowLookalike(false)} className="text-blue-400 hover:text-blue-600"><X size={16} /></button>
-          </div>
-          <div>
-            <div className="text-xs text-blue-700 mb-1">Semente</div>
-            <div className="bg-white rounded-xl px-3 py-2 border border-blue-200 text-sm text-gray-800 font-medium truncate">{lalSeedNome || lalSeedId}</div>
-          </div>
-          <div>
-            <div className="text-xs text-blue-700 mb-2">Percentual do público ({lalRatio}%)</div>
-            <div className="flex gap-2 flex-wrap">
-              {[1, 2, 3, 5, 10].map(p => (
-                <button key={p} onClick={() => setLalRatio(p)}
-                  className={cn('px-3 py-1.5 rounded-xl border text-xs font-medium transition-all',
-                    lalRatio === p ? 'bg-blue-600 text-white border-blue-600' : 'border-blue-200 text-blue-700 bg-white hover:bg-blue-100')}>
-                  {p}%
-                </button>
-              ))}
-            </div>
-            <div className="text-xs text-blue-500 mt-1.5">
-              {lalRatio <= 2 ? 'Mais parecido com a semente — menor alcance' : lalRatio >= 5 ? 'Maior alcance — menos similar à semente' : 'Equilíbrio entre alcance e similaridade'}
-            </div>
-          </div>
-          <div className="bg-amber-50 rounded-xl px-3 py-2 text-xs text-amber-700">
-            A semente precisa ter pelo menos 100 pessoas. O Lookalike ficará disponível no Meta em até 24h.
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => setShowLookalike(false)}
-              className="flex-1 px-3 py-2 rounded-xl border border-blue-200 text-blue-700 text-sm hover:bg-blue-100">
-              Cancelar
-            </button>
-            <button onClick={handleCriarLookalike} disabled={criandoLal || !lalSeedId}
-              className="flex-1 px-3 py-2 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2">
-              {criandoLal ? <Loader2 size={13} className="animate-spin" /> : null}
-              Criar Lookalike {lalRatio}%
-            </button>
-          </div>
-        </div>
-      )}
-
-      {!loading && metaConnected && savedAudiences.length === 0 && customAudiences.length === 0 && iaPublicos.length === 0 && (
-        <div className="text-center py-8">
-          <Users size={36} className="text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500 text-sm">Nenhum público ainda</p>
-          <p className="text-gray-400 text-xs mt-1">Clique em &quot;Criar com IA&quot; para gerar públicos segmentados automaticamente.</p>
-        </div>
-      )}
-
-      {/* Sugestões estáticas CJ como referência (só se não houver públicos IA) */}
-      {/* Modal de detalhes do público */}
-      {modalPublico && (
-        <div
-          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
-          onClick={() => setModalPublico(null)}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto"
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className="flex items-start justify-between p-5 border-b border-gray-100">
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="font-bold text-gray-900">{modalPublico.nome}</h3>
-                  <span className="text-xs px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 font-medium">
-                    {modalPublico.tipo === 'remarketing' ? '🔄 Remarketing' : modalPublico.tipo === 'lookalike' ? '👥 Lookalike' : '🎯 Interesse'}
-                  </span>
-                </div>
-                {modalPublico.descricao && (
-                  <p className="text-sm text-gray-500 mt-1">{modalPublico.descricao}</p>
-                )}
-              </div>
-              <button onClick={() => setModalPublico(null)} className="text-gray-400 hover:text-gray-600 ml-3 shrink-0 text-xl leading-none">✕</button>
-            </div>
-
-            <div className="p-5 space-y-4">
-              {/* Alcance estimado */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-gray-50 rounded-xl p-3">
-                  <p className="text-xs text-gray-400 mb-0.5">Alcance estimado</p>
-                  <p className="font-semibold text-gray-800 text-sm">
-                    {formatTamanhoEstimado(modalPublico.estimativa_alcance_min, modalPublico.estimativa_alcance_max, modalPublico.tamanho_estimado)}
-                  </p>
-                </div>
-                <div className="bg-gray-50 rounded-xl p-3">
-                  <p className="text-xs text-gray-400 mb-0.5">Criado em</p>
-                  <p className="font-semibold text-gray-800 text-sm">
-                    {new Date(modalPublico.created_at).toLocaleDateString('pt-BR')}
+                  <h3 className="font-semibold text-gray-900">Público Frio</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Jarvis seleciona interesses de revendedoras, franqueadas e lojistas no Meta e cria o público automaticamente.
                   </p>
                 </div>
               </div>
-
-              {/* Explicação contextual por tipo */}
-              {modalPublico.tipo === 'interesse' ? (
-                <div className="p-3 bg-blue-50 rounded-xl border border-blue-100">
-                  <p className="text-xs text-blue-700 font-medium">✅ Como este público funciona</p>
-                  <p className="text-xs text-blue-600 mt-1">
-                    Públicos de interesse são aplicados diretamente nas campanhas — não precisam ser criados no Meta separadamente. Selecione este público ao criar uma campanha no Agente.
-                  </p>
-                </div>
-              ) : !modalPublico.meta_audience_id ? (
-                <div className="p-3 bg-orange-50 rounded-xl border border-orange-100">
-                  <p className="text-xs text-orange-700 font-medium">⚠️ Este público precisa ser criado no Meta</p>
-                  <p className="text-xs text-orange-600 mt-1">
-                    Remarketing requer um Custom Audience real no Meta. Clique abaixo para ativá-lo.
-                  </p>
-                  <button
-                    onClick={() => { publicarNoMeta(modalPublico); setModalPublico(null); }}
-                    disabled={publicandoId === modalPublico.id}
-                    className="mt-2 w-full py-1.5 flex items-center justify-center gap-1.5 bg-orange-600 text-white text-xs rounded-xl hover:bg-orange-700 disabled:opacity-50 transition-colors"
-                  >
-                    {publicandoId === modalPublico.id
-                      ? <><Loader2 size={10} className="animate-spin" /> Criando...</>
-                      : <>☁ Criar Custom Audience no Meta</>}
-                  </button>
-                </div>
-              ) : (
-                <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
-                  <p className="text-xs text-blue-500 font-medium mb-1">ID no Meta Ads</p>
-                  <p className="font-mono text-xs text-blue-700 break-all">{modalPublico.meta_audience_id}</p>
-                </div>
-              )}
-
-              {/* Justificativa do Jarvis */}
-              {modalPublico.jose_justificativa && (
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                    ⚡ Análise do Jarvis
-                  </p>
-                  <p className="text-sm text-gray-700 bg-amber-50 border border-amber-100 rounded-xl p-3">
-                    {modalPublico.jose_justificativa}
-                  </p>
-                </div>
-              )}
-
-              {/* Estratégia */}
-              {modalPublico.estrategia && (
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Estratégia</p>
-                  <p className="text-sm text-gray-600">{modalPublico.estrategia}</p>
-                </div>
-              )}
-
-              {/* Copy do Cláudio */}
-              {(modalPublico.claudio_copy || modalPublico.copy_sugerido) && (() => {
-                const copy = modalPublico.claudio_copy || modalPublico.copy_sugerido!;
-                return (
-                  <div>
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                      ✍️ Copy sugerido
-                    </p>
-                    <div className="bg-gray-50 rounded-xl border border-gray-100 p-3 space-y-1.5 text-sm">
-                      <div><span className="font-medium text-gray-700">Headline:</span> <span className="text-gray-600">{copy.headline}</span></div>
-                      <div><span className="font-medium text-gray-700">Texto:</span> <span className="text-gray-600">{copy.texto}</span></div>
-                      <div><span className="font-medium text-gray-700">CTA:</span> <span className="text-gray-600">{copy.cta}</span></div>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Targeting JSON */}
-              {modalPublico.targeting && (
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Targeting completo</p>
-                  <pre className="bg-gray-900 text-green-400 text-[11px] rounded-xl p-3 overflow-x-auto">
-                    {JSON.stringify(modalPublico.targeting, null, 2)}
-                  </pre>
-                </div>
-              )}
-
-              {/* Botão usar no agente */}
               <button
-                onClick={() => {
-                  sessionStorage.setItem('agente_publico_ia', JSON.stringify({ id: modalPublico.meta_audience_id || modalPublico.id, tipo: modalPublico.tipo }));
-                  setModalPublico(null);
-                  setFormFeedback(`✅ Público "${modalPublico.nome}" selecionado — abra a aba Agente`);
-                }}
-                className="w-full py-2.5 bg-crm-primary text-white text-sm font-medium rounded-xl hover:opacity-90 transition-colors"
+                onClick={() => gerarPublicoAutomatico('frio')}
+                disabled={gerandoTipo === 'frio'}
+                className="w-full mt-4 py-2.5 bg-[#1e3a5f] text-white text-sm font-medium rounded-xl hover:bg-[#16304f] disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                → Usar este público na próxima campanha
+                {gerandoTipo === 'frio'
+                  ? <><Loader2 size={14} className="animate-spin" /> Jarvis trabalhando...</>
+                  : <><Wand2 size={14} /> Gerar público frio</>
+                }
+              </button>
+            </div>
+
+            {/* Card Quente */}
+            <div className="bg-white rounded-2xl border border-gray-100 p-5">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-orange-50 flex items-center justify-center shrink-0">
+                  <TrendingUp size={18} className="text-orange-600" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-semibold text-gray-900">Público Quente</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Pessoas que já interagiram com a CJ nos últimos 30 dias — visitantes, seguidores, engajamento.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => gerarPublicoAutomatico('quente')}
+                disabled={gerandoTipo === 'quente'}
+                className="w-full mt-4 py-2.5 bg-orange-600 text-white text-sm font-medium rounded-xl hover:bg-orange-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {gerandoTipo === 'quente'
+                  ? <><Loader2 size={14} className="animate-spin" /> Jarvis trabalhando...</>
+                  : <><Wand2 size={14} /> Gerar público quente</>
+                }
+              </button>
+            </div>
+
+            {/* Card Lookalike */}
+            <div className="bg-white rounded-2xl border border-gray-100 p-5">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center shrink-0">
+                  <Target size={18} className="text-purple-600" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-semibold text-gray-900">Lookalike</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Meta encontra pessoas parecidas com seus melhores clientes. Baseado na sua lista de compradores.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => gerarPublicoAutomatico('lookalike')}
+                disabled={gerandoTipo === 'lookalike'}
+                className="w-full mt-4 py-2.5 bg-purple-600 text-white text-sm font-medium rounded-xl hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {gerandoTipo === 'lookalike'
+                  ? <><Loader2 size={14} className="animate-spin" /> Jarvis trabalhando...</>
+                  : <><Wand2 size={14} /> Gerar lookalike</>
+                }
               </button>
             </div>
           </div>
+
+          {/* Lista de públicos criados */}
+          {(carregandoPublicos || publicosAprovados.length > 0) && (
+            <div className="bg-white rounded-2xl border border-gray-100 p-5">
+              <h3 className="font-semibold text-gray-800 text-sm mb-3 flex items-center gap-2">
+                <Users size={15} className="text-indigo-500" />
+                Públicos criados ({publicosAprovados.length})
+              </h3>
+              {carregandoPublicos ? (
+                <div className="flex items-center justify-center py-4 text-gray-400">
+                  <Loader2 size={18} className="animate-spin" />
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {publicosAprovados.map(p => (
+                    <div key={p.id} className="flex items-center justify-between px-3 py-2 rounded-lg border border-gray-100 hover:bg-gray-50">
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">{p.nome}</p>
+                        <p className="text-xs text-gray-400 capitalize">{p.tipo}{p.meta_audience_id ? ` · ID ${p.meta_audience_id}` : ''}</p>
+                      </div>
+                      {statusBadge(p.status)}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      {!loading && iaPublicos.length === 0 && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Sugestões para CJ Rasteirinhas</h3>
-          {PUBLICOS_CJ.map((p) => (
-            <div key={p.nome} className="bg-gray-50 rounded-2xl border border-gray-100 p-4">
+      {/* ── Sub-seção: Lookalike ── */}
+      {subTab === 'lookalike' && (
+        <div className="space-y-5">
+          <div className="bg-white rounded-2xl border border-gray-100 p-5">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center shrink-0">
+                <Target size={18} className="text-purple-600" />
+              </div>
               <div className="flex-1">
-                <div className="font-semibold text-gray-700">{p.nome}</div>
-                <div className="text-sm text-gray-500 mt-0.5">{p.descricao}</div>
-                <div className="text-xs text-gray-400 mt-1">Tamanho estimado: {p.tamanho}</div>
-                <div className="text-xs text-gray-400 mt-0.5">
-                  <span className="font-medium">Interesses:</span> {p.interesses}
-                </div>
+                <h3 className="font-semibold text-gray-900">Lookalike</h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Meta encontra pessoas parecidas com seus melhores clientes. Precisa de pelo menos 100 contatos no CRM.
+                </p>
               </div>
             </div>
-          ))}
+            <button
+              onClick={() => gerarPublicoAutomatico('lookalike')}
+              disabled={gerandoTipo === 'lookalike'}
+              className="w-full mt-4 py-2.5 bg-purple-600 text-white text-sm font-medium rounded-xl hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {gerandoTipo === 'lookalike'
+                ? <><Loader2 size={14} className="animate-spin" /> Jarvis trabalhando...</>
+                : <><Wand2 size={14} /> Gerar lookalike</>
+              }
+            </button>
+          </div>
+
+          {/* Lookalikes criados */}
+          {publicosAprovados.filter(p => p.tipo === 'lookalike').length > 0 && (
+            <div className="bg-white rounded-2xl border border-gray-100 p-5">
+              <h3 className="font-semibold text-gray-800 text-sm mb-3">Lookalikes criados</h3>
+              <div className="space-y-2">
+                {publicosAprovados.filter(p => p.tipo === 'lookalike').map(p => (
+                  <div key={p.id} className="flex items-center justify-between px-3 py-2 rounded-lg border border-gray-100">
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">{p.nome}</p>
+                      {p.meta_audience_id && <p className="text-xs text-gray-400">ID Meta: {p.meta_audience_id}</p>}
+                    </div>
+                    {statusBadge(p.status)}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
+      )}
+
+      {/* ── Sub-seção: Biblioteca ── */}
+      {subTab === 'biblioteca' && (
+        <BibliotecaInteresses />
       )}
     </div>
   );
 }
+
 
 function TextosTab({ copies }: { copies: Array<{ headline: string; texto_principal: string; cta: string; justificativa?: string; id: string }> }) {
   const [copied, setCopied] = useState<string | null>(null);
@@ -4235,6 +3753,251 @@ export default function TrafegoPage() {
 
   const periodLabel = { '1d': 'Hoje', '7d': '7 dias', '15d': '15 dias', '30d': '30 dias' }[period];
 
+  function renderSecao() {
+    switch (tab) {
+      case 'campanhas':
+        return (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-gray-900 text-sm">Campanhas</h2>
+              <button
+                onClick={() => setNovaCampanhaOpen(true)}
+                className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 transition-colors"
+              >
+                <Plus size={12} /> Nova campanha
+              </button>
+            </div>
+            {/* Filtros de status */}
+            {!loading && (data?.campaigns || []).length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap">
+                {([
+                  { value: 'all',            label: 'Todas' },
+                  { value: 'ACTIVE',         label: 'Rodando' },
+                  { value: 'PAUSED',         label: 'Pausadas' },
+                  { value: 'WITH_ISSUES',    label: 'Com problema' },
+                  { value: 'PENDING_REVIEW', label: 'Em revisão' },
+                ] as const).map(f => (
+                  <button
+                    key={f.value}
+                    onClick={() => setStatusFilter(f.value)}
+                    className={cn(
+                      'px-3 py-1 rounded-lg text-xs font-medium transition-all border',
+                      statusFilter === f.value
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-300 hover:text-gray-700'
+                    )}
+                  >
+                    {f.label}
+                    {f.value !== 'all' && (
+                      <span className="ml-1 opacity-60">
+                        ({(data?.campaigns || []).filter(c => c.effective_status === f.value).length})
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+            {loading && <div className="text-center py-12 text-gray-600 text-sm">Carregando campanhas...</div>}
+            {!loading && (!data?.campaigns || data.campaigns.length === 0) && (
+              <div className="text-center py-12">
+                <Target size={40} className="text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500 text-sm">Nenhuma campanha encontrada no período</p>
+                <p className="text-gray-600 text-xs mt-1">
+                  {data?.connected ? 'Sem campanhas ativas ou pausadas' : 'Conecte o Meta Ads para ver campanhas'}
+                </p>
+              </div>
+            )}
+            {!loading && (data?.campaigns || []).length > 0 && (() => {
+              const filtered = (data?.campaigns || []).filter(c =>
+                statusFilter === 'all' || c.effective_status === statusFilter
+              );
+              if (filtered.length === 0) return (
+                <div className="text-center py-8 text-gray-400 text-sm">Nenhuma campanha com este status</div>
+              );
+              return (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-gray-100">
+                        <th className="text-left text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">Campanha</th>
+                        <th className="text-left text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">Status</th>
+                        <th className="text-left text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">Saúde</th>
+                        <th className="text-right text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">Gasto</th>
+                        <th className="text-right text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">ROAS</th>
+                        <th className="text-right text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">Leads</th>
+                        <th className="text-right pb-3" />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {filtered.map((c) => {
+                        const isExpanded = expandedCampaignId === c.id;
+                        return (
+                          <React.Fragment key={c.id}>
+                            <tr className="hover:bg-gray-50 transition-colors group">
+                              <td className="py-3 pr-4">
+                                <div className="font-medium text-gray-800 text-sm">{c.nome}</div>
+                                {c.alerts.length > 0 && (
+                                  <div className="text-xs text-red-400 mt-0.5">{c.alerts[0].mensagem.substring(0, 50)}…</div>
+                                )}
+                              </td>
+                              <td className="py-3 pr-4"><EffectiveStatusBadge status={c.effective_status} /></td>
+                              <td className="py-3 pr-4"><HealthBadge health={c.health} /></td>
+                              <td className="py-3 pr-4 text-right text-sm font-medium text-gray-700">{brl(c.spend)}</td>
+                              <td className="py-3 pr-4 text-right">
+                                <div className={cn('text-sm font-medium', c.roas >= 3 ? 'text-emerald-400' : c.roas >= 1.5 ? 'text-amber-400' : 'text-red-400')}>
+                                  {c.roas > 0 ? `${c.roas.toFixed(1)}×` : '—'}
+                                </div>
+                              </td>
+                              <td className="py-3 pr-4 text-right text-sm text-gray-400">{c.leads > 0 ? c.leads : '—'}</td>
+                              <td className="py-3">
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => setSelectedCampaign(c)}
+                                    className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 flex items-center gap-1 whitespace-nowrap transition-colors"
+                                  >
+                                    Gerir <ChevronRight size={12} />
+                                  </button>
+                                  <button
+                                    onClick={async () => {
+                                      if (isExpanded) { setExpandedCampaignId(null); setExpandedAdsetId(null); return; }
+                                      setExpandedCampaignId(c.id);
+                                      setExpandedAdsetId(null);
+                                      setDrillAdsets([]);
+                                      setDrillAds([]);
+                                      setDrillLoading(true);
+                                      try {
+                                        const [adsetsRes, adsRes] = await Promise.all([
+                                          authFetch(`/api/meta/campanhas/${c.id}/adsets`),
+                                          authFetch(`/api/meta/campanhas/${c.id}/ads`),
+                                        ]);
+                                        const [adsets, ads] = await Promise.all([
+                                          adsetsRes.json() as Promise<MetaAdset[]>,
+                                          adsRes.json() as Promise<MetaAd[]>,
+                                        ]);
+                                        setDrillAdsets(Array.isArray(adsets) ? adsets : []);
+                                        setDrillAds(Array.isArray(ads) ? ads : []);
+                                      } catch { /* silencioso */ }
+                                      setDrillLoading(false);
+                                    }}
+                                    className={cn(
+                                      'p-1.5 rounded-lg border transition-colors',
+                                      isExpanded ? 'bg-[#1e3a5f]/10 border-[#1e3a5f]/30 text-[#1e3a5f]' : 'border-gray-200 text-gray-400 hover:bg-gray-50 hover:text-gray-600'
+                                    )}
+                                  >
+                                    <ChevronDown size={12} className={cn('transition-transform', isExpanded && 'rotate-180')} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                            {isExpanded && (
+                              <tr key={`${c.id}-drill`}>
+                                <td colSpan={7} className="p-0">
+                                  <div className="bg-[#161b24] border-t border-[#242d40] px-6 py-4">
+                                    {drillLoading ? (
+                                      <div className="flex items-center gap-2 text-gray-400 text-xs py-2">
+                                        <Loader2 size={12} className="animate-spin" /> Carregando...
+                                      </div>
+                                    ) : drillAdsets.length === 0 ? (
+                                      <p className="text-gray-500 text-xs py-2">Nenhum conjunto encontrado</p>
+                                    ) : (
+                                      <div className="space-y-3">
+                                        {drillAdsets.map(adset => {
+                                          const adsetAds = drillAds.filter(ad => ad.adset_id === adset.id);
+                                          const adsetExpanded = expandedAdsetId === adset.id;
+                                          return (
+                                            <div key={adset.id}>
+                                              <button
+                                                onClick={() => setExpandedAdsetId(adsetExpanded ? null : adset.id)}
+                                                className="w-full flex items-center justify-between gap-3 text-left"
+                                              >
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                  <ChevronDown size={12} className={cn('shrink-0 text-gray-500 transition-transform', adsetExpanded && 'rotate-180')} />
+                                                  <span className="text-xs font-medium text-gray-200 truncate">{adset.name}</span>
+                                                  <span className={cn('text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0',
+                                                    (adset.effective_status ?? adset.status) === 'ACTIVE' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-gray-600/40 text-gray-400'
+                                                  )}>
+                                                    {adset.effective_status ?? adset.status}
+                                                  </span>
+                                                </div>
+                                                <span className="text-[10px] text-gray-500 shrink-0">
+                                                  {adset.daily_budget ? `R$${(Number(adset.daily_budget)/100).toFixed(0)}/dia` : ''}
+                                                  {adsetAds.length > 0 && ` · ${adsetAds.length} anúncio${adsetAds.length > 1 ? 's' : ''}`}
+                                                </span>
+                                              </button>
+                                              {adsetExpanded && (
+                                                <div className="mt-2 ml-5 space-y-2">
+                                                  {adsetAds.length === 0 ? (
+                                                    <p className="text-[11px] text-gray-600">Nenhum anúncio neste conjunto</p>
+                                                  ) : adsetAds.map(ad => (
+                                                    <div key={ad.id} className="flex items-center gap-3 bg-[#1c2333] rounded-xl px-3 py-2 border border-[#242d40]">
+                                                      <div className="w-10 h-10 rounded-lg overflow-hidden bg-[#242d40] shrink-0 flex items-center justify-center">
+                                                        {ad.creative?.thumbnail_url
+                                                          ? <img src={ad.creative.thumbnail_url} alt={ad.name} className="w-full h-full object-cover" />
+                                                          : <Play size={14} className="text-gray-600" />
+                                                        }
+                                                      </div>
+                                                      <div className="flex-1 min-w-0">
+                                                        <div className="text-xs font-medium text-gray-200 truncate">{ad.creative?.title ?? ad.name}</div>
+                                                        {ad.creative?.body && <div className="text-[11px] text-gray-500 truncate mt-0.5">{ad.creative.body}</div>}
+                                                      </div>
+                                                      <span className={cn('text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0',
+                                                        (ad.effective_status ?? ad.status) === 'ACTIVE' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-gray-600/40 text-gray-400'
+                                                      )}>
+                                                        {ad.effective_status ?? ad.status}
+                                                      </span>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
+            <div className="mt-6 pt-6 border-t border-gray-100">
+              <CriadorCampanha pageId={metaPageId || '101337882545607'} whatsappNumber="5562981480687" />
+            </div>
+          </div>
+        );
+      case 'criativos':  return <GaleriaCriativos />;
+      case 'publicos':   return <PublicosTab />;
+      case 'textos':     return <TextosTab copies={copies} />;
+      case 'analise':    return <AnaliseTab />;
+      case 'relatorio':  return <RelatorioTab />;
+      case 'agente':     return <AgenteTrafegoPanel />;
+      case 'aprovacoes': return <FilaAprovacao />;
+      case 'leads':      return <LeadsPanel />;
+      case 'regras':     return <RulesPanel />;
+      case 'consolidado': return <ConsolidadoTab />;
+      case 'abtest':     return <ABTestTab />;
+      case 'catalogo':   return <CatalogoTab />;
+      case 'biblioteca': return null;
+      case 'config':
+        return (
+          <div className="max-w-lg">
+            <h2 className="font-bold text-gray-900 mb-1">Conexão com o Meta Ads</h2>
+            <p className="text-xs text-gray-500 mb-5">
+              Configure um System User Token para integração permanente.
+            </p>
+            <MetaTokenConfig />
+          </div>
+        );
+      default: return null;
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="w-full px-4 py-6 space-y-4">
@@ -4482,538 +4245,60 @@ export default function TrafegoPage() {
           </div>
         )}
 
-        {/* ─── Abas ────────────────────────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl border border-gray-100">
-          {/* Tab headers */}
-          <div className="flex items-center border-b border-gray-100 overflow-x-auto">
-            <div className="flex flex-1">
-              {(
-                [
-                  { key: 'campanhas', label: 'Campanhas' },
-                  { key: 'criativos', label: 'Criativos' },
-                  { key: 'publicos',  label: 'Públicos' },
-                  { key: 'textos',    label: 'Textos' },
-                  { key: 'analise',   label: 'Análise' },
-                  { key: 'relatorio', label: 'Relatório' },
-                  { key: 'config',   label: 'Configurações' },
-                  { key: 'agente',   label: '⚡ Agente' },
-                ] as { key: Tab; label: string }[]
-              ).map(({ key, label }) => (
-                <button
-                  key={key}
-                  onClick={() => setTab(key)}
-                  className={cn(
-                    'px-5 py-3.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
-                    tab === key
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700'
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-              <button
-                onClick={() => setTab('aprovacoes')}
-                className={cn(
-                  'relative px-5 py-3.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
-                  tab === 'aprovacoes'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                )}
-              >
-                Aprovações
-                {pendentes > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                    {pendentes}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => setTab('leads')}
-                className={cn(
-                  'px-5 py-3.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
-                  tab === 'leads'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                )}
-              >
-                Leads
-              </button>
-              <button
-                onClick={() => setTab('regras')}
-                className={cn(
-                  'px-5 py-3.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
-                  tab === 'regras'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                )}
-              >
-                Regras
-              </button>
-              <button
-                onClick={() => setTab('consolidado')}
-                className={cn(
-                  'px-5 py-3.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
-                  tab === 'consolidado'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                )}
-              >
-                Multi-conta
-              </button>
-              <button
-                onClick={() => setTab('abtest')}
-                className={cn(
-                  'px-5 py-3.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
-                  tab === 'abtest'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                )}
-              >
-                A/B Test
-              </button>
-              <button
-                onClick={() => setTab('catalogo')}
-                className={cn(
-                  'px-5 py-3.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
-                  tab === 'catalogo'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                )}
-              >
-                Catálogo
-              </button>
-              <button
-                onClick={() => setTab('biblioteca')}
-                className={cn(
-                  'px-5 py-3.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
-                  tab === 'biblioteca'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                )}
-              >
-                Biblioteca
-              </button>
+        {/* ─── Layout de duas colunas ─────────────────────────────────────── */}
+        <div className="flex gap-4 items-start">
+
+          {/* Conteúdo principal — ~80% */}
+          <div className="flex-1 min-w-0">
+            <div className="bg-white rounded-2xl border border-gray-100">
+              <div className="p-5">
+                {renderSecao()}
+              </div>
             </div>
-            {tab === 'publicos' && (
-              <button className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 px-4 py-3.5 transition-colors whitespace-nowrap">
-                <Plus size={12} /> Criar público
-              </button>
-            )}
-            {tab === 'campanhas' && (
-              <button
-                onClick={() => setNovaCampanhaOpen(true)}
-                className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 px-4 py-3.5 transition-colors whitespace-nowrap"
-              >
-                <Plus size={12} /> Nova campanha
-              </button>
-            )}
           </div>
 
-          <div className="p-5">
-            {/* ── CAMPANHAS ── */}
-            {tab === 'campanhas' && (
-              <div className="space-y-4">
-                {/* Filtros de status */}
-                {!loading && (data?.campaigns || []).length > 0 && (
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {([
-                      { value: 'all',           label: 'Todas' },
-                      { value: 'ACTIVE',        label: 'Rodando' },
-                      { value: 'PAUSED',        label: 'Pausadas' },
-                      { value: 'WITH_ISSUES',   label: 'Com problema' },
-                      { value: 'PENDING_REVIEW',label: 'Em revisão' },
-                    ] as const).map(f => (
-                      <button
-                        key={f.value}
-                        onClick={() => setStatusFilter(f.value)}
-                        className={cn(
-                          'px-3 py-1 rounded-lg text-xs font-medium transition-all border',
-                          statusFilter === f.value
-                            ? 'bg-blue-600 text-white border-blue-600'
-                            : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-300 hover:text-gray-700'
-                        )}
-                      >
-                        {f.label}
-                        {f.value !== 'all' && (
-                          <span className="ml-1 opacity-60">
-                            ({(data?.campaigns || []).filter(c => c.effective_status === f.value).length})
-                          </span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {loading && (
-                  <div className="text-center py-12 text-gray-600 text-sm">Carregando campanhas...</div>
-                )}
-
-                {!loading && (!data?.campaigns || data.campaigns.length === 0) && (
-                  <div className="text-center py-12">
-                    <Target size={40} className="text-gray-300 mx-auto mb-3" />
-                    <p className="text-gray-500 text-sm">Nenhuma campanha encontrada no período</p>
-                    <p className="text-gray-600 text-xs mt-1">
-                      {data?.connected ? 'Sem campanhas ativas ou pausadas' : 'Conecte o Meta Ads para ver campanhas'}
-                    </p>
-                  </div>
-                )}
-
-                {!loading && (data?.campaigns || []).length > 0 && (() => {
-                  const filtered = (data?.campaigns || []).filter(c =>
-                    statusFilter === 'all' || c.effective_status === statusFilter
-                  );
-                  if (filtered.length === 0) return (
-                    <div className="text-center py-8 text-gray-400 text-sm">
-                      Nenhuma campanha com este status no período
-                    </div>
-                  );
-                  return (
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b border-gray-100">
-                            <th className="text-left text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">Campanha</th>
-                            <th className="text-left text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">Status</th>
-                            <th className="text-left text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">Saúde</th>
-                            <th className="text-right text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">Gasto</th>
-                            <th className="text-right text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">ROAS</th>
-                            <th className="text-right text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">Leads</th>
-                            <th className="text-right pb-3" />
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {filtered.map((c) => {
-                            const isExpanded = expandedCampaignId === c.id;
-                            return (
-                              <React.Fragment key={c.id}>
-                                <tr className="hover:bg-gray-50 transition-colors group">
-                                  <td className="py-3 pr-4">
-                                    <div className="font-medium text-gray-800 text-sm">{c.nome}</div>
-                                    {c.alerts.length > 0 && (
-                                      <div className="text-xs text-red-400 mt-0.5">
-                                        {c.alerts[0].mensagem.substring(0, 50)}…
-                                      </div>
-                                    )}
-                                  </td>
-                                  <td className="py-3 pr-4">
-                                    <EffectiveStatusBadge status={c.effective_status} />
-                                  </td>
-                                  <td className="py-3 pr-4">
-                                    <HealthBadge health={c.health} />
-                                  </td>
-                                  <td className="py-3 pr-4 text-right text-sm font-medium text-gray-700">
-                                    {brl(c.spend)}
-                                  </td>
-                                  <td className="py-3 pr-4 text-right">
-                                    <div className={cn('text-sm font-medium', c.roas >= 3 ? 'text-emerald-400' : c.roas >= 1.5 ? 'text-amber-400' : 'text-red-400')}>
-                                      {c.roas > 0 ? `${c.roas.toFixed(1)}×` : '—'}
-                                    </div>
-                                  </td>
-                                  <td className="py-3 pr-4 text-right text-sm text-gray-400">
-                                    {c.leads > 0 ? c.leads : '—'}
-                                  </td>
-                                  <td className="py-3">
-                                    <div className="flex items-center gap-1">
-                                      <button
-                                        onClick={() => setSelectedCampaign(c)}
-                                        className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 flex items-center gap-1 whitespace-nowrap transition-colors"
-                                      >
-                                        Gerir <ChevronRight size={12} />
-                                      </button>
-                                      <button
-                                        onClick={async () => {
-                                          if (isExpanded) {
-                                            setExpandedCampaignId(null);
-                                            setExpandedAdsetId(null);
-                                            return;
-                                          }
-                                          setExpandedCampaignId(c.id);
-                                          setExpandedAdsetId(null);
-                                          setDrillAdsets([]);
-                                          setDrillAds([]);
-                                          setDrillLoading(true);
-                                          try {
-                                            const [adsetsRes, adsRes] = await Promise.all([
-                                              authFetch(`/api/meta/campanhas/${c.id}/adsets`),
-                                              authFetch(`/api/meta/campanhas/${c.id}/ads`),
-                                            ]);
-                                            const [adsets, ads] = await Promise.all([
-                                              adsetsRes.json() as Promise<MetaAdset[]>,
-                                              adsRes.json() as Promise<MetaAd[]>,
-                                            ]);
-                                            setDrillAdsets(Array.isArray(adsets) ? adsets : []);
-                                            setDrillAds(Array.isArray(ads) ? ads : []);
-                                          } catch { /* silencioso */ }
-                                          setDrillLoading(false);
-                                        }}
-                                        className={cn(
-                                          'p-1.5 rounded-lg border transition-colors',
-                                          isExpanded
-                                            ? 'bg-[#1e3a5f]/10 border-[#1e3a5f]/30 text-[#1e3a5f]'
-                                            : 'border-gray-200 text-gray-400 hover:bg-gray-50 hover:text-gray-600'
-                                        )}
-                                        title="Ver conjuntos e anúncios"
-                                      >
-                                        <ChevronDown size={12} className={cn('transition-transform', isExpanded && 'rotate-180')} />
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-
-                                {/* Drill-down row */}
-                                {isExpanded && (
-                                  <tr key={`${c.id}-drill`}>
-                                    <td colSpan={7} className="p-0">
-                                      <div className="bg-[#161b24] border-t border-[#242d40] px-6 py-4">
-                                        {drillLoading ? (
-                                          <div className="flex items-center gap-2 text-gray-400 text-xs py-2">
-                                            <Loader2 size={12} className="animate-spin" />
-                                            Carregando conjuntos e anúncios...
-                                          </div>
-                                        ) : drillAdsets.length === 0 ? (
-                                          <p className="text-gray-500 text-xs py-2">Nenhum conjunto encontrado</p>
-                                        ) : (
-                                          <div className="space-y-3">
-                                            {drillAdsets.map(adset => {
-                                              const adsetAds = drillAds.filter(ad => ad.adset_id === adset.id);
-                                              const adsetExpanded = expandedAdsetId === adset.id;
-                                              return (
-                                                <div key={adset.id}>
-                                                  {/* Adset row */}
-                                                  <button
-                                                    onClick={() => setExpandedAdsetId(adsetExpanded ? null : adset.id)}
-                                                    className="w-full flex items-center justify-between gap-3 text-left group/adset"
-                                                  >
-                                                    <div className="flex items-center gap-2 min-w-0">
-                                                      <ChevronDown
-                                                        size={12}
-                                                        className={cn('shrink-0 text-gray-500 transition-transform', adsetExpanded && 'rotate-180')}
-                                                      />
-                                                      <span className="text-xs font-medium text-gray-200 truncate">{adset.name}</span>
-                                                      <span className={cn(
-                                                        'text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0',
-                                                        (adset.effective_status ?? adset.status) === 'ACTIVE'
-                                                          ? 'bg-emerald-500/20 text-emerald-400'
-                                                          : 'bg-gray-600/40 text-gray-400'
-                                                      )}>
-                                                        {adset.effective_status ?? adset.status}
-                                                      </span>
-                                                    </div>
-                                                    <span className="text-[10px] text-gray-500 shrink-0">
-                                                      {adset.daily_budget ? `R$${(Number(adset.daily_budget) / 100).toFixed(0)}/dia` : ''}
-                                                      {adsetAds.length > 0 && ` · ${adsetAds.length} anúncio${adsetAds.length > 1 ? 's' : ''}`}
-                                                    </span>
-                                                  </button>
-
-                                                  {/* Ads list */}
-                                                  {adsetExpanded && (
-                                                    <div className="mt-2 ml-5 space-y-2">
-                                                      {adsetAds.length === 0 ? (
-                                                        <p className="text-[11px] text-gray-600">Nenhum anúncio neste conjunto</p>
-                                                      ) : adsetAds.map(ad => (
-                                                        <div key={ad.id} className="flex items-center gap-3 bg-[#1c2333] rounded-xl px-3 py-2 border border-[#242d40]">
-                                                          {/* Thumbnail */}
-                                                          <div className="w-10 h-10 rounded-lg overflow-hidden bg-[#242d40] shrink-0 flex items-center justify-center">
-                                                            {ad.creative?.thumbnail_url ? (
-                                                              <img
-                                                                src={ad.creative.thumbnail_url}
-                                                                alt={ad.name}
-                                                                className="w-full h-full object-cover"
-                                                              />
-                                                            ) : (
-                                                              <Play size={14} className="text-gray-600" />
-                                                            )}
-                                                          </div>
-                                                          {/* Info */}
-                                                          <div className="flex-1 min-w-0">
-                                                            <div className="text-xs font-medium text-gray-200 truncate">
-                                                              {ad.creative?.title ?? ad.name}
-                                                            </div>
-                                                            {ad.creative?.body && (
-                                                              <div className="text-[11px] text-gray-500 truncate mt-0.5">
-                                                                {ad.creative.body}
-                                                              </div>
-                                                            )}
-                                                          </div>
-                                                          <span className={cn(
-                                                            'text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0',
-                                                            (ad.effective_status ?? ad.status) === 'ACTIVE'
-                                                              ? 'bg-emerald-500/20 text-emerald-400'
-                                                              : 'bg-gray-600/40 text-gray-400'
-                                                          )}>
-                                                            {ad.effective_status ?? ad.status}
-                                                          </span>
-                                                        </div>
-                                                      ))}
-                                                    </div>
-                                                  )}
-                                                </div>
-                                              );
-                                            })}
-                                          </div>
-                                        )}
-                                      </div>
-                                    </td>
-                                  </tr>
-                                )}
-                              </React.Fragment>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  );
-                })()}
+          {/* Menu lateral direito — fixo */}
+          <div className="w-48 shrink-0">
+            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden sticky top-6">
+              <div className="px-3 py-3 border-b border-gray-100">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Módulos</p>
               </div>
-            )}
-
-            {/* ── CRIADOR DE CAMPANHA ── */}
-            {tab === 'campanhas' && (
-              <div className="mt-6 pt-6 border-t border-gray-100">
-                <CriadorCampanha pageId={metaPageId || '101337882545607'} whatsappNumber="5562981480687" />
-              </div>
-            )}
-
-            {/* ── CRIATIVOS ── */}
-            {tab === 'criativos' && <GaleriaCriativos />}
-
-            {/* ── PÚBLICOS ── */}
-            {tab === 'publicos' && (
-              <>
-                {/* Performance + Sugestões das IAs */}
-                {data?.summary && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-6">
-                    {/* Coluna esquerda: barras de performance */}
-                    <div>
-                      <h3 className="text-sm font-semibold text-gray-700 mb-4">Performance da semana</h3>
-                      <div className="space-y-4">
-                        {[
-                          { label: 'CPC', value: data.summary.totalCpc > 0 ? brl2(data.summary.totalCpc) : '—', color: 'bg-green-500', pct: data.summary.totalCpc > 0 ? Math.min(100, (data.summary.totalCpc / 2) * 100) : 0 },
-                          { label: 'CTR', value: (data.campaigns || []).length > 0 ? pct((data.campaigns || []).reduce((s, c) => s + c.ctr, 0) / (data.campaigns || []).length) : '—', color: 'bg-blue-500', pct: 35 },
-                          { label: 'CPM', value: (data.campaigns || []).length > 0 ? brl2((data.campaigns || []).reduce((s, c) => s + c.cpm, 0) / (data.campaigns || []).length) : '—', color: 'bg-orange-500', pct: 45 },
-                          { label: 'CPL', value: data.summary.totalCpl > 0 ? brl2(data.summary.totalCpl) : '—', color: 'bg-red-500', pct: data.summary.totalCpl > 0 ? Math.min(100, (data.summary.totalCpl / 150) * 100) : 0 },
-                          { label: 'Alcance', value: n0((data.campaigns || []).reduce((s, c) => s + c.reach, 0)), color: 'bg-gray-500', pct: 20 },
-                        ].map(({ label, value, color, pct: barPct }) => (
-                          <div key={label} className="flex items-center gap-3">
-                            <span className="text-xs text-gray-500 w-12 shrink-0">{label}</span>
-                            <div className="flex-1 bg-gray-200 rounded-full h-1.5">
-                              <div className={cn('h-1.5 rounded-full transition-all', color)} style={{ width: `${barPct}%` }} />
-                            </div>
-                            <span className="text-xs font-mono text-gray-400 w-16 text-right shrink-0">{value}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Coluna direita: sugestões das IAs */}
-                    <div>
-                      <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-sm font-semibold text-gray-700">Sugestões das IAs</h3>
-                        {allAlerts.length > 0 && (
-                          <span className="text-xs bg-gray-100 text-gray-500 rounded-md px-2 py-0.5">
-                            {Math.min(allAlerts.length, 2)}
-                          </span>
-                        )}
-                      </div>
-                      <div className="space-y-3">
-                        {allAlerts.length > 0 ? (
-                          <>
-                            <div className="flex gap-3">
-                              <div className="w-7 h-7 rounded-full bg-crm-primary flex items-center justify-center text-white text-xs font-bold shrink-0">⚡</div>
-                              <p className="text-xs text-gray-400 leading-relaxed">
-                                <span className="text-gray-800 font-medium">Jarvis:</span>{' '}
-                                {allAlerts[0].tipo === 'danger'
-                                  ? `Pausar ${allAlerts[0].campaign.nome} imediatamente. ${allAlerts[0].mensagem}.`
-                                  : allAlerts[0].mensagem}
-                              </p>
-                            </div>
-                            {allAlerts.length > 1 && (
-                              <div className="flex gap-3">
-                                <div className="w-7 h-7 rounded-full bg-crm-primary/70 flex items-center justify-center text-white text-xs font-bold shrink-0">⚡</div>
-                                <p className="text-xs text-gray-400 leading-relaxed">
-                                  <span className="text-gray-800 font-medium">Jarvis:</span>{' '}
-                                  {allAlerts[1].mensagem}
-                                </p>
-                              </div>
-                            )}
-                          </>
-                        ) : (
-                          <p className="text-xs text-gray-600">Nenhum alerta ativo no período.</p>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-2 gap-3 mt-5">
-                        <div>
-                          <div className="text-[10px] text-gray-600 uppercase tracking-wider">ROAS ATUAL</div>
-                          <div className="text-xl font-bold text-gray-900 mt-0.5">
-                            {data.summary.totalRoas > 0 ? `${data.summary.totalRoas.toFixed(2)}×` : '—'}
-                          </div>
-                          <div className="text-[10px] text-gray-600 mt-0.5">meta: 3× mínimo</div>
-                        </div>
-                        <div>
-                          <div className="text-[10px] text-gray-600 uppercase tracking-wider">EFICIÊNCIA</div>
-                          <div className="text-xl font-bold text-amber-400 mt-0.5">
-                            {data.summary.totalRoas > 0
-                              ? `${Math.min(100, Math.round((data.summary.totalRoas / 3) * 100))}%`
-                              : '—'}
-                          </div>
-                          <div className="text-[10px] text-gray-600 mt-0.5">do potencial da conta</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                <PublicosTab />
-              </>
-            )}
-
-            {/* ── TEXTOS ── */}
-            {tab === 'textos' && <TextosTab copies={copies} />}
-
-            {/* ── ANÁLISE ── */}
-            {tab === 'analise' && <AnaliseTab />}
-
-            {/* ── RELATÓRIO ── */}
-            {tab === 'relatorio' && <RelatorioTab />}
-
-            {/* ── AGENTE ── */}
-            {tab === 'agente' && (
-              <AgenteTrafegoPanel />
-            )}
-
-            {/* ── APROVAÇÕES ── */}
-            {tab === 'aprovacoes' && <FilaAprovacao />}
-
-            {/* ── LEADS ── */}
-            {tab === 'leads' && <LeadsPanel />}
-
-            {/* ── REGRAS ── */}
-            {tab === 'regras' && <RulesPanel />}
-
-            {/* ── MULTI-CONTA ── */}
-            {tab === 'consolidado' && <ConsolidadoTab />}
-
-            {/* ── A/B TEST ── */}
-            {tab === 'abtest' && <ABTestTab />}
-
-            {/* ── CATÁLOGO ── */}
-            {tab === 'catalogo' && <CatalogoTab />}
-
-            {/* ── BIBLIOTECA DE INTERESSES ── */}
-            {tab === 'biblioteca' && <BibliotecaInteresses />}
-
-            {/* ── CONFIG ── */}
-            {tab === 'config' && (
-              <div className="max-w-lg">
-                <h2 className="font-bold text-gray-900 mb-1">Conexão com o Meta Ads</h2>
-                <p className="text-xs text-gray-500 mb-5">
-                  Configure um System User Token para integração permanente sem expiração.
-                </p>
-                <MetaTokenConfig />
-                <InicializadorPublicos />
-              </div>
-            )}
+              <nav className="py-2">
+                {([
+                  { key: 'campanhas',  label: 'Campanhas',    icon: Target },
+                  { key: 'criativos',  label: 'Criativos',    icon: ImageIcon },
+                  { key: 'publicos',   label: 'Públicos',     icon: Users },
+                  { key: 'textos',     label: 'Textos',       icon: FileText },
+                  { key: 'analise',    label: 'Análise',      icon: Zap },
+                  { key: 'relatorio',  label: 'Relatório',    icon: BarChart3 },
+                  { key: 'agente',     label: 'Agente',       icon: Bot },
+                  { key: 'aprovacoes', label: 'Aprovações',   icon: CheckCircle, badge: pendentes },
+                  { key: 'leads',      label: 'Leads',        icon: CloudDownload },
+                  { key: 'config',     label: 'Configurações',icon: Settings },
+                ] as Array<{ key: Tab; label: string; icon: React.ElementType; badge?: number }>).map(item => (
+                  <button
+                    key={item.key}
+                    onClick={() => setTab(item.key)}
+                    className={cn(
+                      'w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-all text-sm',
+                      tab === item.key
+                        ? 'bg-[#1e3a5f]/8 text-[#1e3a5f] font-medium border-r-2 border-[#1e3a5f]'
+                        : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'
+                    )}
+                  >
+                    <item.icon size={15} className="shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                    {item.badge !== undefined && item.badge > 0 && (
+                      <span className="ml-auto w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center shrink-0">
+                        {item.badge}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </nav>
+            </div>
           </div>
+
         </div>
 
         {/* ─── Pedro — Sazonalidade ────────────────────────────────────────── */}

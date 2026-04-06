@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Sparkles, CheckCircle, XCircle, Clock, Plus, Loader2, Users, Target, ChevronDown } from 'lucide-react';
+import { Search, Sparkles, CheckCircle, XCircle, Clock, Plus, Loader2, Users, Target, ChevronDown, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
 
@@ -68,28 +68,40 @@ const TIPOS_PUBLICO = [
   { value: 'retargeting', label: 'Retargeting' },
 ];
 
-/* ─── Seção 1: Busca de interesses na Meta API ──────────────────────────────── */
+/* ─── Seção 1: Atualização automática pelo Jarvis ───────────────────────────── */
 
-function BuscaInteresses({ onSaved }: { onSaved: () => void }) {
-  const [keyword, setKeyword] = useState('');
+const KEYWORDS_CJ = [
+  'rasteirinha', 'sandália feminina', 'calçados femininos',
+  'moda feminina', 'atacado moda', 'revenda roupas',
+  'empreendedorismo feminino', 'renda extra',
+  'negócio próprio', 'franquia', 'loja virtual',
+  'sacoleira', 'revendedora', 'moda praia',
+  'marca própria', 'private label', 'lojista',
+];
+
+function AtualizarBiblioteca({ onAtualizado }: { onAtualizado: () => void }) {
   const [loading, setLoading] = useState(false);
-  const [resultado, setResultado] = useState<{ saved: number; data: { id: string; nome: string }[] } | null>(null);
-  const [erro, setErro] = useState('');
+  const [resultado, setResultado] = useState<{ total: number } | null>(null);
+  const [erro, setErro]           = useState('');
 
-  async function buscar() {
-    if (!keyword.trim()) return;
+  async function atualizar() {
     setLoading(true);
     setErro('');
     setResultado(null);
+    let totalSalvos = 0;
     try {
-      const res = await authFetch('/api/trafego/interests/biblioteca', {
-        method: 'POST',
-        body:   JSON.stringify({ keyword: keyword.trim() }),
-      });
-      const data = await res.json() as { saved?: number; data?: { id: string; nome: string }[]; error?: string };
-      if (!res.ok || data.error) throw new Error(data.error ?? 'Erro ao buscar');
-      setResultado({ saved: data.saved ?? 0, data: data.data ?? [] });
-      onSaved();
+      for (const kw of KEYWORDS_CJ) {
+        try {
+          const res = await authFetch('/api/trafego/interests/biblioteca', {
+            method: 'POST',
+            body:   JSON.stringify({ keyword: kw }),
+          });
+          const data = await res.json() as { saved?: number; error?: string };
+          if (res.ok && !data.error) totalSalvos += data.saved ?? 0;
+        } catch { /* keyword falhou, continua */ }
+      }
+      setResultado({ total: totalSalvos });
+      onAtualizado();
     } catch (e) {
       setErro(String(e));
     } finally {
@@ -98,45 +110,29 @@ function BuscaInteresses({ onSaved }: { onSaved: () => void }) {
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5">
+    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200 p-5">
       <h3 className="font-semibold text-gray-800 mb-1 flex items-center gap-2">
-        <Search size={16} className="text-blue-500" />
-        Buscar interesses na Meta API
+        <RefreshCw size={16} className="text-blue-500" />
+        Atualizar biblioteca
       </h3>
-      <p className="text-xs text-gray-500 mb-4">Digite uma palavra-chave para buscar interesses e salvá-los na biblioteca.</p>
+      <p className="text-xs text-gray-500 mb-4">
+        Jarvis busca interesses para as {KEYWORDS_CJ.length} palavras-chave pré-definidas para moda feminina e os salva automaticamente.
+      </p>
 
-      <div className="flex gap-2">
-        <input
-          type="text"
-          value={keyword}
-          onChange={e => setKeyword(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && buscar()}
-          placeholder="ex: moda feminina, sapatos, roupas..."
-          className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <button
-          onClick={buscar}
-          disabled={loading || !keyword.trim()}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-        >
-          {loading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
-          Buscar
-        </button>
-      </div>
+      <button
+        onClick={atualizar}
+        disabled={loading}
+        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+      >
+        {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+        {loading ? 'Atualizando...' : 'Jarvis, atualize a biblioteca'}
+      </button>
 
       {erro && <p className="mt-3 text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{erro}</p>}
-
       {resultado && (
-        <div className="mt-4">
-          <p className="text-xs text-green-700 font-medium mb-2">
-            {resultado.saved} interesse{resultado.saved !== 1 ? 's' : ''} salvo{resultado.saved !== 1 ? 's' : ''} na biblioteca
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {resultado.data.map(i => (
-              <span key={i.id} className="text-xs bg-gray-100 text-gray-700 rounded-full px-3 py-1">{i.nome}</span>
-            ))}
-          </div>
-        </div>
+        <p className="mt-3 text-xs text-blue-700 font-medium">
+          {resultado.total} interesse{resultado.total !== 1 ? 's' : ''} adicionado{resultado.total !== 1 ? 's' : ''} à biblioteca.
+        </p>
       )}
     </div>
   );
@@ -570,7 +566,7 @@ export function BibliotecaInteresses() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* Coluna esquerda */}
         <div className="space-y-5">
-          <BuscaInteresses onSaved={() => setRefreshInteresses(n => n + 1)} />
+          <AtualizarBiblioteca onAtualizado={() => setRefreshInteresses(n => n + 1)} />
           <JarvisAnalisar onAnalizado={() => setRefreshInteresses(n => n + 1)} />
         </div>
 
