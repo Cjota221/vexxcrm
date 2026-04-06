@@ -171,6 +171,122 @@ TOTAIS: Investido R$${totais.gasto.toFixed(0)}, retorno R$${totais.retorno.toFix
   }
 }
 
+/* ─── Seleção do melhor público para uma campanha ────────────────────────── */
+
+export interface PublicoDisponivel {
+  id: string;
+  nome: string;
+  tipo: string;
+  meta_audience_id?: string | null;
+  targeting?: unknown;
+}
+
+export async function jarvisSelecionarPublico(
+  tipoCampanha: string,
+  publicos: PublicoDisponivel[],
+  contexto: { objetivo: string; orcamento_diario_reais: number; idade_min: number; idade_max: number; genero: string },
+  apiKey?: string,
+  baseConhecimento?: string,
+): Promise<{ publico_id: string; nome: string; justificativa: string }> {
+  const client = apiKey ? new Anthropic({ apiKey }) : anthropic;
+
+  const conhecimentoExtra = baseConhecimento
+    ? `\n\nBASE DE CONHECIMENTO DO NEGÓCIO:\n${baseConhecimento}`
+    : '';
+
+  const response = await client.messages.create({
+    model: JARVIS_MODEL,
+    max_tokens: 512,
+    system: JARVIS_TRAFEGO_SYSTEM + conhecimentoExtra,
+    messages: [{
+      role: 'user',
+      content: `Selecione o melhor público para esta campanha dentre os disponíveis.
+Retorne APENAS JSON válido:
+{
+  "publico_id": "id do público escolhido",
+  "nome": "nome do público escolhido",
+  "justificativa": "1 frase explicando por que este público é o melhor para o objetivo"
+}
+
+Campanha:
+- Tipo: ${tipoCampanha}
+- Objetivo: ${contexto.objetivo}
+- Orçamento diário: R$${contexto.orcamento_diario_reais}
+- Faixa etária: ${contexto.idade_min}-${contexto.idade_max} anos
+- Gênero: ${contexto.genero}
+
+Públicos disponíveis:
+${JSON.stringify(publicos.map(p => ({ id: p.id, nome: p.nome, tipo: p.tipo, tem_audience_id: !!p.meta_audience_id })), null, 2)}`,
+    }],
+  });
+
+  const text = response.content[0].type === 'text' ? response.content[0].text : '{}';
+  const clean = text.replace(/```json|```/g, '').trim();
+  try {
+    const result = JSON.parse(clean) as { publico_id: string; nome: string; justificativa: string };
+    // Validar que o ID retornado existe na lista
+    const existe = publicos.find(p => p.id === result.publico_id);
+    if (!existe) return { publico_id: publicos[0].id, nome: publicos[0].nome, justificativa: 'Seleção automática (fallback).' };
+    return result;
+  } catch {
+    return { publico_id: publicos[0].id, nome: publicos[0].nome, justificativa: 'Seleção automática (fallback).' };
+  }
+}
+
+/* ─── Geração de copy rápida para campanha ───────────────────────────────── */
+
+export async function jarvisGerarCopyRapida(
+  contexto: { objetivo: string; tipo_campanha: string; publico_nome: string; tipo_criativo: 'video' | 'imagem'; url_destino?: string },
+  apiKey?: string,
+  baseConhecimento?: string,
+): Promise<{ headline: string; texto: string; cta: string }> {
+  const client = apiKey ? new Anthropic({ apiKey }) : anthropic;
+
+  const ctaOpcoes = contexto.objetivo === 'MESSAGES' ? 'WHATSAPP_MESSAGE' :
+    contexto.objetivo === 'LEAD_GENERATION' ? 'SIGN_UP' : 'LEARN_MORE';
+
+  const conhecimentoExtra = baseConhecimento
+    ? `\n\nBASE DE CONHECIMENTO DO NEGÓCIO:\n${baseConhecimento}`
+    : '';
+
+  const response = await client.messages.create({
+    model: JARVIS_MODEL,
+    max_tokens: 256,
+    system: JARVIS_TRAFEGO_SYSTEM + conhecimentoExtra,
+    messages: [{
+      role: 'user',
+      content: `Crie copy para um anúncio de ${contexto.tipo_criativo} da CJ Rasteirinhas.
+Retorne APENAS JSON válido:
+{
+  "headline": "máx 40 caracteres, direto e impactante",
+  "texto": "máx 125 caracteres, benefício claro, linguagem de revendedora",
+  "cta": "${ctaOpcoes}"
+}
+
+Contexto:
+- Tipo de campanha: ${contexto.tipo_campanha}
+- Objetivo: ${contexto.objetivo}
+- Público: ${contexto.publico_nome}
+- Produto: rasteirinhas femininas atacado, mínimo 5 pares, R$25-49,90/par
+- Tom: empreendedora, renda extra, negócio próprio`,
+    }],
+  });
+
+  const text = response.content[0].type === 'text' ? response.content[0].text : '{}';
+  const clean = text.replace(/```json|```/g, '').trim();
+  try {
+    const result = JSON.parse(clean) as { headline: string; texto: string; cta: string };
+    // Garantir limites de caracteres
+    return {
+      headline: (result.headline ?? '').slice(0, 40),
+      texto:    (result.texto ?? '').slice(0, 125),
+      cta:      result.cta ?? ctaOpcoes,
+    };
+  } catch {
+    return { headline: 'Revenda rasteirinhas CJ', texto: 'Moda feminina no atacado. Lucre revendendo. Peça mínima: 5 pares.', cta: ctaOpcoes };
+  }
+}
+
 /* ─── Criação de públicos (substitui José Audience + Cláudio Audience) ───── */
 
 export async function jarvisAnalisarParaPublicos(

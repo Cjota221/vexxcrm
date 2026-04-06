@@ -14,6 +14,7 @@ import {
   targetingQuente,
   targetingWhatsApp,
 } from './meta-publicos-cj.service';
+import { jarvisSelecionarPublico, jarvisGerarCopyRapida } from './jarvis-trafego.service';
 
 /* ─── Tipos ─────────────────────────────────────────────────────────────────── */
 
@@ -410,39 +411,80 @@ export async function publicarRascunho(
     : `act_${config.account_id}`;
 
   try {
+    // 0. Carregar base de conhecimento do Jarvis (26 documentos)
+    const { data: conhecimentos } = await supabase
+      .from('jarvis_knowledge')
+      .select('titulo, conteudo, categoria')
+      .eq('tenant_id', tenantId)
+      .eq('ativo', true)
+      .limit(30);
+
+    const baseConhecimento = (conhecimentos ?? [])
+      .map(k => `[${(k as Record<string, string>).categoria}] ${(k as Record<string, string>).titulo}: ${(k as Record<string, string>).conteudo}`)
+      .join('\n\n')
+      .slice(0, 6000); // limite para não estourar tokens
+
+    console.log(`[JARVIS] Base de conhecimento carregada: ${(conhecimentos ?? []).length} documentos`);
+
     // 1. Criar campanha
     const campaignId = await criarCampanha(token, actId, draft.nome, draft.objetivo);
 
-    // 2. Resolver público aprovado para o adset
-    // Prioridade: publico_id do draft > público aprovado do tipo correspondente no banco
+    // 2. Resolver público — Jarvis seleciona o melhor dentre todos os aprovados
     const tipoCampanha = objetivoParaTipo(draft.objetivo);
     let publicoMetaId: string | undefined = draft.publico_id ?? undefined;
     let targetingAprovado: Record<string, unknown> | undefined = undefined;
+    let publicoNome = 'público selecionado';
 
     if (!publicoMetaId) {
-      const { data: publicoAprovado } = await supabase
+      // Buscar TODOS os públicos aprovados para o tipo (não só o mais recente)
+      const { data: publicosDisponiveis } = await supabase
         .from('meta_publicos_aprovados')
-        .select('meta_audience_id, targeting, nome')
+        .select('id, nome, tipo, meta_audience_id, targeting')
         .eq('tenant_id', tenantId)
         .eq('tipo', tipoCampanha)
         .eq('status', 'publicado')
         .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .limit(20);
 
-      if (!publicoAprovado?.meta_audience_id && !publicoAprovado?.targeting) {
+      if (!publicosDisponiveis || publicosDisponiveis.length === 0) {
         throw new Error(
           `Nenhum público aprovado encontrado para o tipo '${tipoCampanha}'. ` +
           `Acesse a aba Públicos, importe ou crie um público e tente novamente.`,
         );
       }
 
-      if (publicoAprovado?.meta_audience_id) {
-        // Público quente ou lookalike — usa custom_audience por ID
-        publicoMetaId = publicoAprovado.meta_audience_id as string;
-      } else if (publicoAprovado?.targeting) {
-        // Público frio — usa targeting com interesses salvo
-        targetingAprovado = publicoAprovado.targeting as Record<string, unknown>;
+      // Jarvis escolhe o melhor público quando há mais de um
+      let publicoEscolhido = publicosDisponiveis[0];
+      if (publicosDisponiveis.length > 1) {
+        try {
+          const selecao = await jarvisSelecionarPublico(
+            tipoCampanha,
+            publicosDisponiveis,
+            {
+              objetivo:              draft.objetivo,
+              orcamento_diario_reais: Math.round((draft.orcamento_diario ?? 3000) / 100),
+              idade_min:             draft.idade_min ?? 18,
+              idade_max:             draft.idade_max ?? 65,
+              genero:                draft.genero ?? 'all',
+            },
+            undefined, // apiKey — usa env
+            baseConhecimento,
+          );
+          const encontrado = publicosDisponiveis.find(p => p.id === selecao.publico_id);
+          if (encontrado) {
+            publicoEscolhido = encontrado;
+            console.log(`[JARVIS] Público selecionado: ${selecao.nome} — ${selecao.justificativa}`);
+          }
+        } catch (e) {
+          console.warn('[JARVIS] Falha ao selecionar público, usando o mais recente:', e);
+        }
+      }
+
+      publicoNome = publicoEscolhido.nome ?? 'público selecionado';
+      if (publicoEscolhido.meta_audience_id) {
+        publicoMetaId = publicoEscolhido.meta_audience_id as string;
+      } else if (publicoEscolhido.targeting) {
+        targetingAprovado = publicoEscolhido.targeting as Record<string, unknown>;
       }
     }
 
@@ -463,18 +505,47 @@ export async function publicarRascunho(
       targetingCompleto: targetingAprovado,
     });
 
-    // 3. Criar ad creative
+    // 4. Resolver copy — Jarvis gera se o rascunho não tiver headline ou texto
     const criativo = draft.ad_creatives as { tipo: string; meta_video_id: string | null; meta_image_hash: string | null; url_preview: string | null } | null;
     if (!criativo) throw new Error('Criativo não encontrado. Selecione um criativo antes de publicar.');
+
+    let headline = draft.copy_headline?.trim() || '';
+    let texto    = draft.copy_texto?.trim() || '';
+    let cta      = draft.copy_cta || '';
+
+    if (!headline || !texto) {
+      try {
+        const copyGerada = await jarvisGerarCopyRapida(
+          {
+            objetivo:       draft.objetivo,
+            tipo_campanha:  tipoCampanha,
+            publico_nome:   publicoNome,
+            tipo_criativo:  criativo.tipo as 'video' | 'imagem',
+            url_destino:    draft.url_destino ?? undefined,
+          },
+          undefined, // apiKey — usa env
+          baseConhecimento,
+        );
+        headline = headline || copyGerada.headline;
+        texto    = texto    || copyGerada.texto;
+        cta      = cta      || copyGerada.cta;
+        console.log(`[JARVIS] Copy gerada — headline: "${headline}" | cta: ${cta}`);
+      } catch (e) {
+        console.warn('[JARVIS] Falha ao gerar copy, usando fallback:', e);
+        headline = headline || draft.nome;
+        texto    = texto    || 'Rasteirinhas femininas no atacado. Revenda e lucre.';
+        cta      = cta      || 'LEARN_MORE';
+      }
+    }
 
     const cfgCriativo: ConfiguracaoCriativo = {
       tipo:          criativo.tipo as 'video' | 'imagem',
       metaVideoId:   criativo.meta_video_id ?? undefined,
       metaImageHash: criativo.meta_image_hash ?? undefined,
       imageUrl:      criativo.url_preview ?? undefined,
-      headline:      draft.copy_headline ?? draft.nome,
-      texto:         draft.copy_texto ?? '',
-      cta:           draft.copy_cta ?? 'LEARN_MORE',
+      headline,
+      texto,
+      cta,
       urlDestino:    draft.url_destino ?? undefined,
       pageId,
       whatsappNumber,
