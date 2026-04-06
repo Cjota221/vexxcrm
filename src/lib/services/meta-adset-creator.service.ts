@@ -200,6 +200,9 @@ async function criarAdset(
     };
   }
 
+  // OUTCOME_AWARENESS campaigns do not support targeting_automation
+  const isAwareness = tipoCfg.optimization_goal === 'REACH';
+
   const adsetPayload: Record<string, unknown> = {
     name:              `[VEXX] ${cfg.nome} — Adset`,
     campaign_id:       campaignId,
@@ -208,7 +211,7 @@ async function criarAdset(
     billing_event:     tipoCfg.billing_event,
     bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
     targeting:         targetingFinal,
-    targeting_automation: { advantage_audience: 0 },
+    ...(!isAwareness ? { targeting_automation: { advantage_audience: 0 } } : {}),
     status: 'PAUSED',
   };
 
@@ -883,15 +886,17 @@ export async function criarCampanhaMultiplosConjuntos(
     };
 
     // Criar adset
+    // OUTCOME_AWARENESS (frio/REACH) não suporta targeting_automation
+    const isFrioAdset = conjunto.tipo === 'frio';
     const adset = await metaPost(`${META_BASE}/${actId}/adsets`, {
       name: `${cfg.nome} — ${tipoLabel}`,
       campaign_id: campanha.id,
       daily_budget: String(conjunto.orcamentoDiario),
       optimization_goal: optGoal,
-      billing_event: conjunto.tipo === 'frio' ? 'IMPRESSIONS' : 'LINK_CLICKS',
+      billing_event: isFrioAdset ? 'IMPRESSIONS' : 'LINK_CLICKS',
       bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
       targeting: targetingSimples,
-      targeting_automation: { advantage_audience: 0 },
+      ...(!isFrioAdset ? { targeting_automation: { advantage_audience: 0 } } : {}),
       status: 'PAUSED',
     }, token);
     if (!adset.id) throw new Error(`Erro adset ${tipoLabel}: ${adset.error?.message}`);
@@ -1017,7 +1022,6 @@ export async function criarCampanhaCatalogo(
       age_max:       cfg.idadeMax ?? 65,
       geo_locations: { countries: cfg.paises ?? ['BR'] },
     },
-    targeting_automation: { advantage_audience: 0 },
     status: 'PAUSED',
   };
   console.log('[CATALOGO ADSET PAYLOAD]', JSON.stringify(adsetPayload, null, 2));
