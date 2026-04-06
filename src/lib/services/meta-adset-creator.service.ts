@@ -117,7 +117,6 @@ async function metaPost(
   });
 
   const responseText = await res.text();
-  console.log(`[META RAW RESPONSE] ${url}`, responseText);
 
   let parsed: unknown;
   try {
@@ -126,7 +125,11 @@ async function metaPost(
     throw new Error(`Meta API retornou resposta não-JSON: ${responseText.slice(0, 200)}`);
   }
 
-  return parsed as { id?: string; error?: { message: string; code: number; error_subcode?: number; error_user_msg?: string; fbtrace_id?: string } };
+  const result = parsed as { id?: string; error?: { message: string; code: number; error_subcode?: number; error_user_msg?: string; fbtrace_id?: string } };
+  if (result.error) {
+    console.error(`[META ERROR] ${url}`, JSON.stringify(result.error));
+  }
+  return result;
 }
 
 /* ─── Criar Campanha ─────────────────────────────────────────────────────────── */
@@ -799,6 +802,8 @@ export interface ConfigCampanhaAvancada {
   pageId: string;
   whatsappNumber?: string;
   urlDestino?: string;
+  /** Objetivo passado pelo frontend: AWARENESS | TRAFFIC | LEADS | SALES | MESSAGES */
+  objetivo?: string;
 }
 
 /**
@@ -823,12 +828,22 @@ export async function criarCampanhaMultiplosConjuntos(
     ? config.account_id
     : `act_${config.account_id}`;
 
-  // 1. Determinar objetivo da campanha
-  const objetivo = cfg.conjuntos.some(c => c.tipo === 'whatsapp')
-    ? 'OUTCOME_TRAFFIC'
-    : cfg.conjuntos[0].tipo === 'frio'
-      ? 'OUTCOME_AWARENESS'
-      : 'OUTCOME_TRAFFIC';
+  // 1. Determinar objetivo da campanha a partir do parâmetro do frontend
+  const OBJETIVO_MAP: Record<string, string> = {
+    AWARENESS: 'OUTCOME_AWARENESS',
+    TRAFFIC:   'OUTCOME_TRAFFIC',
+    LEADS:     'OUTCOME_LEADS',
+    SALES:     'OUTCOME_SALES',
+    MESSAGES:  'OUTCOME_TRAFFIC', // Meta não tem OUTCOME_MESSAGES — usa TRAFFIC com CTA WhatsApp
+  };
+
+  const objetivo = cfg.objetivo
+    ? (OBJETIVO_MAP[cfg.objetivo.toUpperCase()] ?? 'OUTCOME_TRAFFIC')
+    : cfg.conjuntos.some(c => c.tipo === 'whatsapp')
+      ? 'OUTCOME_TRAFFIC'
+      : cfg.conjuntos[0]?.tipo === 'frio'
+        ? 'OUTCOME_AWARENESS'
+        : 'OUTCOME_TRAFFIC';
 
   const campanha = await metaPost(`${META_BASE}/${actId}/campaigns`, {
     name: cfg.nome,
@@ -846,29 +861,93 @@ export async function criarCampanhaMultiplosConjuntos(
     erros: string[];
   }> = [];
 
+  const supabase = createServerSupabaseClient();
+
   // 2. Para cada conjunto, criar adset + N ads
   for (const conjunto of cfg.conjuntos) {
     // Buscar targeting para o tipo
     let targetingCompleto: Record<string, unknown>;
+
     if (conjunto.tipo === 'frio') {
+      // Frio: interesses + Lookalike se disponível
       const interesses = await buscarInteressesAtacado(token);
       targetingCompleto = targetingFrio(interesses);
-    } else if (conjunto.tipo === 'quente') {
-      let audienceId: string | null = null;
-      try {
-        audienceId = await criarPublicoEngajamentoReal(actId, token, tenantId, 30);
-      } catch (err) {
-        console.warn('[criarCampanhaMultiplosConjuntos] Público quente falhou:', err);
+
+      const { data: lookalikes } = await supabase
+        .from('meta_publicos_aprovados')
+        .select('meta_audience_id')
+        .eq('tenant_id', tenantId)
+        .eq('tipo', 'lookalike')
+        .eq('status', 'publicado')
+        .not('meta_audience_id', 'is', null)
+        .limit(2);
+
+      const idsLookalike = (lookalikes ?? [])
+        .map(p => p.meta_audience_id as string)
+        .filter(Boolean);
+
+      if (idsLookalike.length > 0) {
+        targetingCompleto = {
+          ...targetingCompleto,
+          custom_audiences: idsLookalike.map(id => ({ id })),
+        };
       }
-      if (audienceId) {
-        targetingCompleto = targetingQuente(audienceId);
+
+    } else if (conjunto.tipo === 'quente') {
+      // Quente: públicos aprovados (engajamento + retargeting), fallback interesses
+      const { data: publicosQuentes } = await supabase
+        .from('meta_publicos_aprovados')
+        .select('meta_audience_id')
+        .eq('tenant_id', tenantId)
+        .in('tipo', ['quente', 'retargeting', 'remarketing'])
+        .eq('status', 'publicado')
+        .not('meta_audience_id', 'is', null);
+
+      const idsQuentes = (publicosQuentes ?? [])
+        .map(p => p.meta_audience_id as string)
+        .filter(Boolean)
+        .slice(0, 4); // Meta aceita até 4 custom audiences por adset
+
+      if (idsQuentes.length > 0) {
+        targetingCompleto = {
+          age_min: 22,
+          age_max: 55,
+          genders: [2],
+          geo_locations: { countries: ['BR'] },
+          custom_audiences: idsQuentes.map(id => ({ id })),
+        };
       } else {
         const interesses = await buscarInteressesAtacado(token);
         targetingCompleto = targetingFrio(interesses);
       }
+
     } else {
-      const interesses = await buscarInteressesAtacado(token);
-      targetingCompleto = targetingWhatsApp(interesses);
+      // WhatsApp: priorizar públicos quentes/retargeting, fallback interesses
+      const { data: publicosQuentes } = await supabase
+        .from('meta_publicos_aprovados')
+        .select('meta_audience_id')
+        .eq('tenant_id', tenantId)
+        .in('tipo', ['quente', 'retargeting'])
+        .eq('status', 'publicado')
+        .not('meta_audience_id', 'is', null)
+        .limit(3);
+
+      const idsQuentes = (publicosQuentes ?? [])
+        .map(p => p.meta_audience_id as string)
+        .filter(Boolean);
+
+      if (idsQuentes.length > 0) {
+        targetingCompleto = {
+          age_min: 25,
+          age_max: 55,
+          genders: [2],
+          geo_locations: { countries: ['BR'] },
+          custom_audiences: idsQuentes.map(id => ({ id })),
+        };
+      } else {
+        const interesses = await buscarInteressesAtacado(token);
+        targetingCompleto = targetingWhatsApp(interesses);
+      }
     }
 
     const tipoLabel = conjunto.tipo === 'frio'
@@ -896,17 +975,6 @@ export async function criarCampanhaMultiplosConjuntos(
       ...targetingSimples,
       targeting_automation: { advantage_audience: 0 },
     };
-
-    console.log('[DEBUG ADSET PAYLOAD COMPLETO]', JSON.stringify({
-      name: `${cfg.nome} — ${tipoLabel}`,
-      campaign_id: campanha.id,
-      daily_budget: String(conjunto.orcamentoDiario),
-      optimization_goal: optGoal,
-      billing_event: 'IMPRESSIONS',
-      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
-      targeting: targetingComAutomacao,
-      status: 'PAUSED',
-    }, null, 2));
 
     const adset = await metaPost(`${META_BASE}/${actId}/adsets`, {
       name: `${cfg.nome} — ${tipoLabel}`,

@@ -51,6 +51,7 @@ export async function GET(req: NextRequest) {
   const catalogoId = url.searchParams.get('catalogoId') ?? '';
   const urlDestino  = url.searchParams.get('urlDestino') ?? '';
   const conjuntosRaw = url.searchParams.get('conjuntos') ?? '';
+  const objetivoParam = url.searchParams.get('objetivo') ?? '';
   // Públicos IA por tipo: {"frio": "audience_id", "quente": "audience_id"}
   let audienciasPorTipo: Partial<Record<TipoCampanha, string>> = {};
   try {
@@ -184,6 +185,7 @@ export async function GET(req: NextRequest) {
               pageId,
               whatsappNumber: '5562981480687',
               urlDestino: urlDestino || undefined,
+              objetivo: objetivoParam || undefined,
             });
 
             const TIPO_LABEL_MULTI: Record<string, string> = {
