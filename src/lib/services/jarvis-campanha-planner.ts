@@ -97,9 +97,15 @@ export async function jarvisPlanejarCampanha(
     } : null,
   }));
 
-  const response = await client.messages.create({
-    model: JARVIS_MODEL,
-    max_tokens: 2000,
+  const abortCtrl = new AbortController();
+  const timeoutId = setTimeout(() => abortCtrl.abort(), 20000);
+
+  let response: Awaited<ReturnType<typeof client.messages.create>>;
+  try {
+    response = await client.messages.create(
+      {
+        model: JARVIS_MODEL,
+        max_tokens: 1000,
     system: `Você é o Jarvis, o agente de tráfego da CJ Rasteirinhas.
 CJ Rasteirinhas é uma fábrica de rasteirinhas femininas em Goiânia.
 Público: revendedoras mulheres, 25-55 anos, Brasil.
@@ -116,49 +122,22 @@ Regras:
 - Distribuir orçamento: 40% frio, 30% quente, 30% whatsapp
 
 Responda APENAS em JSON válido, sem markdown, sem explicação fora do JSON.`,
-    messages: [{
-      role: 'user',
-      content: `Criativos disponíveis: ${JSON.stringify(criativosResumidos)}
-Objetivo: ${objetivo}
-Orçamento total: R$${orcamentoTotal}/dia
+      messages: [{
+        role: 'user',
+        content: `Criativos: ${JSON.stringify(criativosResumidos)}
+Objetivo: ${objetivo} | Orçamento: R$${orcamentoTotal}/dia
 
-Retorne um JSON com esta estrutura exata:
-{
-  "nome_sugerido": "string",
-  "resumo_estrategia": "string — 2-3 frases explicando a estratégia",
-  "conjuntos": [
-    {
-      "tipo": "frio",
-      "label": "Público Frio",
-      "criativo_ids": ["id1", "id2", "id3"],
-      "justificativa": "string — por que esses criativos para este público",
-      "orcamento_sugerido": ${Math.round(orcamentoTotal * 0.4)}
+JSON exato (sem markdown):
+{"nome_sugerido":"","resumo_estrategia":"2 frases","conjuntos":[{"tipo":"frio","label":"Público Frio","criativo_ids":[],"justificativa":"","orcamento_sugerido":${Math.round(orcamentoTotal * 0.4)}},{"tipo":"quente","label":"Público Quente","criativo_ids":[],"justificativa":"","orcamento_sugerido":${Math.round(orcamentoTotal * 0.3)}},{"tipo":"whatsapp","label":"WhatsApp","criativo_ids":[],"justificativa":"","orcamento_sugerido":${Math.round(orcamentoTotal * 0.3)}}],"copy_por_conjunto":{"frio":{"headline":"","texto":"","cta":"LEARN_MORE"},"quente":{"headline":"","texto":"","cta":"LEARN_MORE"},"whatsapp":{"headline":"","texto":"","cta":"WHATSAPP_MESSAGE"}}}`,
+      }],
     },
-    {
-      "tipo": "quente",
-      "label": "Público Quente",
-      "criativo_ids": ["id1", "id2", "id3"],
-      "justificativa": "string",
-      "orcamento_sugerido": ${Math.round(orcamentoTotal * 0.3)}
-    },
-    {
-      "tipo": "whatsapp",
-      "label": "WhatsApp",
-      "criativo_ids": ["id1", "id2", "id3"],
-      "justificativa": "string",
-      "orcamento_sugerido": ${Math.round(orcamentoTotal * 0.3)}
-    }
-  ],
-  "copy_por_conjunto": {
-    "frio":     { "headline": "string", "texto": "string", "cta": "LEARN_MORE" },
-    "quente":   { "headline": "string", "texto": "string", "cta": "LEARN_MORE" },
-    "whatsapp": { "headline": "string", "texto": "string", "cta": "WHATSAPP_MESSAGE" }
+    { signal: abortCtrl.signal },
+    );
+  } finally {
+    clearTimeout(timeoutId);
   }
-}`,
-    }],
-  });
 
-  const text = response.content[0].type === 'text' ? response.content[0].text : '{}';
+  const text = response!.content[0].type === 'text' ? response!.content[0].text : '{}';
   const clean = text.replace(/```json|```/g, '').trim();
 
   let jarvisRaw: JarvisResposta;
@@ -193,7 +172,7 @@ Retorne um JSON com esta estrutura exata:
     copy_por_conjunto: jarvisRaw.copy_por_conjunto ?? {},
   };
 
-  // Salvar plano na memória do Jarvis (fire-and-forget)
+  // Salvar plano na memória do Jarvis — fire-and-forget (não bloqueia o retorno)
   const supabase = createServerSupabaseClient();
   supabase.from('jarvis_memoria').insert({
     tenant_id: tenantId,
@@ -207,8 +186,13 @@ Retorne um JSON com esta estrutura exata:
     },
     resultado: null,
     aprendizado: null,
-  }).then(({ error }) => { if (error) console.warn('[Jarvis] Erro ao salvar plano:', error.message); });
+  })
+    .then(({ error }) => {
+      if (error) console.warn('[Jarvis] Erro ao salvar plano:', error.message);
+      else console.log('[Jarvis] Plano salvo');
+    });
 
+  // Retornar imediatamente sem esperar o save
   return plano;
 }
 
