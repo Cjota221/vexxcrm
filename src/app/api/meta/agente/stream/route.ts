@@ -51,6 +51,7 @@ export async function GET(req: NextRequest) {
   const catalogoId = url.searchParams.get('catalogoId') ?? '';
   const urlDestino  = url.searchParams.get('urlDestino') ?? '';
   const conjuntosRaw = url.searchParams.get('conjuntos') ?? '';
+  const planoRaw     = url.searchParams.get('plano') ?? '';
   const objetivoParam = url.searchParams.get('objetivo') ?? '';
   // Públicos IA por tipo: {"frio": "audience_id", "quente": "audience_id"}
   let audienciasPorTipo: Partial<Record<TipoCampanha, string>> = {};
@@ -132,8 +133,126 @@ export async function GET(req: NextRequest) {
           detalhe: criativos.slice(0, 3).map((c: { nome: string }) => c.nome).join(', '),
         });
 
+        // ─── Modo plano aprovado pelo Jarvis ─────────────────────────────
+        if (planoRaw) {
+          let plano: {
+            nome_sugerido: string;
+            objetivo: string;
+            conjuntos: Array<{
+              tipo: TipoCampanha;
+              label: string;
+              criativos: Array<{ id: string; meta_video_id?: string; meta_image_hash?: string; url_preview?: string; tipo?: string }>;
+              orcamento_sugerido: number;
+            }>;
+            copy_por_conjunto: Record<string, { headline: string; texto: string; cta: string }>;
+          };
+          try {
+            plano = JSON.parse(planoRaw);
+          } catch {
+            send('done', { ok: false, erro: 'Erro ao parsear plano do Jarvis' });
+            controller.close();
+            return;
+          }
+
+          const nomeUsado = nome || plano.nome_sugerido || `Agente ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`;
+
+          const conjuntosConfig: ConfigConjunto[] = plano.conjuntos.map(cj => ({
+            tipo: cj.tipo,
+            orcamentoDiario: Math.round(cj.orcamento_sugerido * 100), // reais → centavos
+            criativos: cj.criativos.map(c => ({
+              id: c.id,
+              meta_video_id: c.meta_video_id ?? undefined,
+              meta_image_hash: c.meta_image_hash ?? undefined,
+              url_preview: c.url_preview ?? undefined,
+              tipo: (c.tipo as 'video' | 'imagem') ?? (c.meta_video_id ? 'video' : 'imagem'),
+            })),
+            // Copiar headline/texto/cta do plano para cada conjunto
+            ...(plano.copy_por_conjunto?.[cj.tipo] ? {
+              copyOverride: plano.copy_por_conjunto[cj.tipo],
+            } : {}),
+          }));
+
+          send('step', { id: 'multi', status: 'running', label: `Criando campanha com ${conjuntosConfig.length} conjunto(s) (plano Jarvis)...` });
+
+          try {
+            const resultado = await criarCampanhaMultiplosConjuntos(tenantId, {
+              nome: nomeUsado,
+              conjuntos: conjuntosConfig,
+              paises: ['BR'],
+              idadeMin: 18,
+              idadeMax: 65,
+              pageId,
+              whatsappNumber: '5562981480687',
+              urlDestino: urlDestino || undefined,
+              objetivo: plano.objetivo || objetivoParam || undefined,
+            });
+
+            const TIPO_LABEL: Record<string, string> = {
+              frio: 'Público Frio', quente: 'Público Quente', whatsapp: 'WhatsApp',
+            };
+
+            for (const cj of resultado.conjuntos) {
+              const tipoLabel = TIPO_LABEL[cj.tipo] ?? cj.tipo;
+              const planoCj = plano.conjuntos.find(c => c.tipo === cj.tipo);
+              const primeiroThumb = planoCj?.criativos?.[0]?.url_preview ?? null;
+              const copy = plano.copy_por_conjunto?.[cj.tipo];
+              const adIds = cj.ads.map(a => a.adId);
+
+              await supabase.from('meta_campaign_drafts').insert({
+                tenant_id: tenantId,
+                nome: `${nomeUsado} — ${tipoLabel}`,
+                objetivo: cj.tipo === 'frio' ? 'BRAND_AWARENESS' : 'LINK_CLICKS',
+                status: 'aprovado',
+                tipo: cj.tipo,
+                orcamento_diario: planoCj?.orcamento_sugerido ? planoCj.orcamento_sugerido * 100 : 5000,
+                meta_campaign_id: resultado.campaignId,
+                meta_adset_id: cj.adsetId,
+                meta_ad_id: adIds[0] ?? null,
+                criativo_url_preview: primeiroThumb,
+                copy_headline: copy?.headline ?? `${adIds.length} criativo(s)`,
+                copy_texto: copy?.texto ?? null,
+                copy_cta: copy?.cta ?? 'LEARN_MORE',
+                jarvis_log: `Plano Jarvis: ${planoCj?.criativos?.length ?? 0} criativos`.slice(0, 500),
+              });
+
+              const erros = cj.erros?.length ? ` | ⚠️ ${cj.erros.length} com erro` : '';
+              send('step', {
+                id: `conjunto_${cj.tipo}`,
+                status: cj.ads.length > 0 ? 'ok' : 'error',
+                label: `${tipoLabel} — ${cj.ads.length} criativo(s) ✓${erros}`,
+                detalhe: `Adset: ${cj.adsetId}`,
+              });
+            }
+
+            supabase.from('jarvis_memoria').insert({
+              tenant_id: tenantId,
+              tipo: 'campanha_resultado',
+              referencia_id: resultado.campaignId,
+              titulo: nomeUsado,
+              contexto: {
+                modo: 'plano_jarvis',
+                nome_campanha: nomeUsado,
+                campaign_id: resultado.campaignId,
+                conjuntos: resultado.conjuntos.map(c => ({ tipo: c.tipo, adsetId: c.adsetId, totalAds: c.ads.length })),
+                criado_em: new Date().toISOString(),
+              },
+              resultado: null,
+              aprendizado: null,
+            }).then(({ error: memErr }) => { if (memErr) console.warn('[Jarvis] Erro memória plano:', memErr.message); });
+
+            send('step', { id: 'multi', status: 'ok', label: `Campanha criada com ${resultado.conjuntos.length} conjunto(s) ✓` });
+            send('done', {
+              ok: true,
+              resumo: `1 campanha com ${resultado.conjuntos.length} conjunto(s) e ${resultado.conjuntos.reduce((a, c) => a + c.ads.length, 0)} criativo(s) — tudo pausado`,
+            });
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            send('step', { id: 'multi', status: 'error', label: 'Erro ao criar campanha', detalhe: msg });
+            send('done', { ok: false, erro: msg });
+          }
+
         // ─── Modo avançado: múltiplos conjuntos em 1 campanha ─────────────
-        if (conjuntosRaw) {
+        } else if (conjuntosRaw) {
           let conjuntosParsed: Array<{
             tipo: TipoCampanha;
             orcamentoDiario: number;

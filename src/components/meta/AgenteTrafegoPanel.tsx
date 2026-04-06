@@ -9,6 +9,7 @@ import {
   Plus, Trash2, Image as ImageIcon, Video, Eye, X,
 } from 'lucide-react';
 import type { TipoCampanha } from '@/lib/services/meta-adset-creator.service';
+import type { PlanoCampanha } from '@/lib/services/jarvis-campanha-planner';
 import { cn } from '@/lib/utils';
 
 /* ─── Tipos ──────────────────────────────────────────────────────────────── */
@@ -37,7 +38,7 @@ interface DoneEvent {
   resultados?: Array<{ tipo: TipoCampanha; ok: boolean; erro?: string; campaignId?: string }>;
 }
 
-type Fase = 'config' | 'confirmacao' | 'executando' | 'concluido';
+type Fase = 'config' | 'planejando' | 'plano_aprovacao' | 'confirmacao' | 'executando' | 'concluido';
 
 type TipoConjunto = 'frio' | 'quente' | 'whatsapp';
 
@@ -220,6 +221,7 @@ export function AgenteTrafegoPanel() {
   const [loadingCriativos, setLoadingCriativos] = useState(false);
   const [previewCriativo, setPreviewCriativo]   = useState<{ id: string; nome: string; url: string | null } | null>(null);
   const [loadingPreview, setLoadingPreview]     = useState(false);
+  const [planoCampanha, setPlanoCampanha]       = useState<PlanoCampanha | null>(null);
 
   async function abrirPreview(criativo: CriativoDisponivel) {
     if (criativo.tipo !== 'video') return;
@@ -384,6 +386,7 @@ export function AgenteTrafegoPanel() {
     setFase('config');
     setDone(null);
     setSteps([]);
+    setPlanoCampanha(null);
   }
 
   function podeExecutar(): boolean {
@@ -391,6 +394,47 @@ export function AgenteTrafegoPanel() {
       return conjuntos.length > 0 && conjuntos.every(c => c.criativoIds.length >= 1);
     }
     return tipos.length > 0;
+  }
+
+  async function gerarPlanoJarvis() {
+    setFase('planejando');
+    const accessToken = useAuthStore.getState().accessToken ?? '';
+
+    // Garantir criativos carregados
+    let lista = criativos;
+    if (lista.length === 0) {
+      await fetchCriativos();
+      lista = criativos; // state pode não ter atualizado ainda — não crítico, fallback abaixo
+    }
+
+    const criativoIds = modoAvancado
+      ? [...new Set(conjuntos.flatMap(c => c.criativoIds))]
+      : lista.slice(0, 15).map(c => c.id);
+
+    try {
+      const res = await fetch('/api/meta/agente/planejar', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          criativo_ids: [...new Set(criativoIds)].filter(id => !id.startsWith('cache:')),
+          objetivo,
+          orcamento_total: orcamento,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json() as { error?: string };
+        throw new Error(err.error ?? 'Erro desconhecido');
+      }
+      const plano = await res.json() as PlanoCampanha;
+      if (!plano.conjuntos?.length) throw new Error('Plano vazio');
+      setPlanoCampanha(plano);
+      setFase('plano_aprovacao');
+    } catch (err) {
+      // Fallback: ir direto para confirmação sem IA
+      console.warn('[Jarvis Planner] Erro, indo para confirmação direta:', err);
+      setPlanoCampanha(null);
+      setFase('confirmacao');
+    }
   }
 
   async function executar() {
@@ -420,7 +464,44 @@ export function AgenteTrafegoPanel() {
     setSteps(plannedSteps);
 
     const accessToken = useAuthStore.getState().accessToken ?? '';
-    const nomeBase = nome || `Agente ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`;
+    const nomeBase = nome || planoCampanha?.nome_sugerido || `Agente ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`;
+
+    // ── Modo plano Jarvis aprovado ────────────────────────────────────────
+    if (planoCampanha) {
+      const params = new URLSearchParams({
+        token:     accessToken,
+        orcamento: String(orcamento),
+        nome:      nomeBase,
+        catalogoId,
+        objetivo,
+      });
+      if (urlDestino) params.set('urlDestino', urlDestino);
+      params.set('plano', JSON.stringify(planoCampanha));
+
+      const es = new EventSource(`/api/meta/agente/stream?${params}`);
+      esRef.current = es;
+
+      es.addEventListener('step', (e) => {
+        const step = JSON.parse((e as MessageEvent).data) as Step;
+        setSteps(prev => {
+          const idx = prev.findIndex(s => s.id === step.id);
+          if (idx >= 0) { const next = [...prev]; next[idx] = step; return next; }
+          return [...prev, step];
+        });
+      });
+      es.addEventListener('done', (e) => {
+        const result = JSON.parse((e as MessageEvent).data) as DoneEvent;
+        setDone(result);
+        setFase('concluido');
+        es.close();
+      });
+      es.onerror = () => {
+        setDone({ ok: false, erro: 'Conexão perdida com o servidor' });
+        setFase('concluido');
+        es.close();
+      };
+      return;
+    }
 
     // Resolver IDs de cache → UUIDs reais antes de executar
     const conjuntosResolvidos = await Promise.all(
@@ -828,12 +909,136 @@ export function AgenteTrafegoPanel() {
       )}
 
       <button
-        onClick={() => setFase('confirmacao')}
+        onClick={gerarPlanoJarvis}
         disabled={!podeExecutar()}
         className="w-full py-3 bg-[#1e3a5f] text-white text-sm font-medium rounded-xl hover:bg-[#16304f] disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
       >
-        Ver plano do agente <ChevronRight size={16} />
+        <Sparkles size={15} /> Ver plano do Jarvis
       </button>
+    </div>
+  );
+
+  /* ── Planejando ──────────────────────────────────────────────────────── */
+  if (fase === 'planejando') return (
+    <div className="space-y-5">
+      <div className="flex items-center gap-3 p-4 bg-gradient-to-r from-[#1e3a5f]/5 to-purple-50 rounded-2xl border border-[#1e3a5f]/10">
+        <div className="w-10 h-10 rounded-xl bg-[#1e3a5f] flex items-center justify-center shrink-0">
+          <Sparkles size={20} className="text-white animate-pulse" />
+        </div>
+        <div className="flex-1">
+          <p className="font-semibold text-gray-900 text-sm">Jarvis analisando seus criativos...</p>
+          <p className="text-xs text-gray-500">Distribuindo os melhores criativos por público</p>
+        </div>
+        <Loader2 size={16} className="text-[#1e3a5f] animate-spin shrink-0" />
+      </div>
+
+      <div className="space-y-2">
+        {['Lendo scores de classificação...', 'Distribuindo por público frio, quente e WhatsApp...', 'Gerando copy personalizada...'].map((label, i) => (
+          <div key={i} className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg">
+            <Loader2 size={12} className="text-gray-400 animate-spin shrink-0" />
+            <span className="text-xs text-gray-500">{label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  /* ── Plano Aprovação ──────────────────────────────────────────────────── */
+  if (fase === 'plano_aprovacao' && planoCampanha) return (
+    <div className="space-y-4">
+      {/* Header Jarvis */}
+      <div className="flex items-center gap-3 p-4 bg-gradient-to-r from-[#1e3a5f]/5 to-purple-50 rounded-2xl border border-[#1e3a5f]/10">
+        <div className="w-10 h-10 rounded-xl bg-[#1e3a5f] flex items-center justify-center shrink-0">
+          <Sparkles size={18} className="text-white" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-gray-900 text-sm">Jarvis planejou sua campanha</p>
+          <p className="text-xs text-gray-500 leading-relaxed mt-0.5">{planoCampanha.resumo_estrategia}</p>
+        </div>
+      </div>
+
+      {/* Conjuntos do plano */}
+      <div className="space-y-3">
+        {planoCampanha.conjuntos.map(conjunto => {
+          const copy = planoCampanha.copy_por_conjunto?.[conjunto.tipo];
+          const TIPO_COLORS: Record<string, string> = {
+            frio: 'text-blue-600 bg-blue-50 border-blue-200',
+            quente: 'text-orange-600 bg-orange-50 border-orange-200',
+            whatsapp: 'text-green-600 bg-green-50 border-green-200',
+          };
+          const tagCls = TIPO_COLORS[conjunto.tipo] ?? 'text-gray-600 bg-gray-50 border-gray-200';
+
+          return (
+            <div key={conjunto.tipo} className="border border-gray-200 rounded-2xl p-4 space-y-3">
+              {/* Cabeçalho do conjunto */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className={cn('text-xs font-semibold px-2.5 py-1 rounded-full border', tagCls)}>
+                    {conjunto.label}
+                  </span>
+                  <span className="text-xs text-gray-400">R${conjunto.orcamento_sugerido}/dia</span>
+                </div>
+                <span className="text-xs text-gray-400">{conjunto.criativos.length} criativo(s)</span>
+              </div>
+
+              {/* Miniaturas */}
+              {conjunto.criativos.length > 0 && (
+                <div className="flex gap-2 flex-wrap">
+                  {conjunto.criativos.slice(0, 6).map(c => (
+                    <div key={c.id} className="w-14 h-14 rounded-lg overflow-hidden border border-gray-200 bg-gray-100 shrink-0">
+                      {c.url_preview ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={c.url_preview} alt={c.nome} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <Video size={14} className="text-gray-400" />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {conjunto.criativos.length > 6 && (
+                    <div className="w-14 h-14 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center shrink-0">
+                      <span className="text-xs text-gray-500 font-medium">+{conjunto.criativos.length - 6}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Justificativa */}
+              <p className="text-xs text-gray-500 italic leading-relaxed">{conjunto.justificativa}</p>
+
+              {/* Copy gerada */}
+              {copy && (
+                <div className="bg-gray-50 rounded-xl p-3 space-y-1 border border-gray-100">
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Copy gerada</p>
+                  <p className="text-xs font-medium text-gray-800">{copy.headline}</p>
+                  <p className="text-xs text-gray-500">{copy.texto}</p>
+                  <span className="inline-block text-[10px] bg-[#1e3a5f]/10 text-[#1e3a5f] px-2 py-0.5 rounded-full font-medium">{copy.cta}</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700">
+        Todas as campanhas serão criadas <strong>pausadas</strong> — você revisa e ativa manualmente.
+      </div>
+
+      <div className="flex gap-2">
+        <button
+          onClick={() => { setPlanoCampanha(null); setFase('config'); }}
+          className="flex-1 py-2.5 border border-gray-200 text-gray-700 text-sm rounded-xl hover:bg-gray-50"
+        >
+          Ajustar
+        </button>
+        <button
+          onClick={executar}
+          className="flex-1 py-2.5 bg-[#1e3a5f] text-white text-sm font-medium rounded-xl hover:bg-[#16304f] flex items-center justify-center gap-2"
+        >
+          <Play size={14} /> Aprovar e executar
+        </button>
+      </div>
     </div>
   );
 
