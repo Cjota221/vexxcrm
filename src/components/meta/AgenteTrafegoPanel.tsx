@@ -445,10 +445,24 @@ export function AgenteTrafegoPanel() {
             return data.ok && data.id ? data.id : null;
           })
         );
-        return { ...c, criativoIds: idsResolvidos.filter((id): id is string => id !== null) };
+        const resolvidos = idsResolvidos.filter((id): id is string => id !== null);
+        // Avisa se algum criativo de cache não pôde ser salvo
+        const perdidos = c.criativoIds.length - resolvidos.length;
+        if (perdidos > 0) {
+          console.warn(`[Agente] ${perdidos} criativo(s) do cache não puderam ser salvos no conjunto ${c.tipo}`);
+        }
+        return { ...c, criativoIds: resolvidos };
       })
     );
     setConjuntos(conjuntosResolvidos);
+
+    // Bloquear se algum conjunto ficou sem criativos após resolução
+    const conjuntoVazio = conjuntosResolvidos.find(c => c.criativoIds.length === 0);
+    if (modoAvancado && conjuntoVazio) {
+      setDone({ ok: false, erro: `Conjunto "${conjuntoVazio.tipo}" ficou sem criativos. Selecione outros criativos e tente novamente.` });
+      setFase('concluido');
+      return;
+    }
 
     const params = new URLSearchParams({
       token:      accessToken,

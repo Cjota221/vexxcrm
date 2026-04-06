@@ -32,17 +32,17 @@ const INTERESSES_ATACADO = [
 
 /* ─── Targeting por tipo ─────────────────────────────────────────────────── */
 
+// Targeting simplificado: sem placement fields (publisher_platforms, instagram_positions etc.)
+// Campos de placement dentro de "targeting" causam "Invalid parameter" em OUTCOME_TRAFFIC.
+// Deixar a Meta escolher placements automaticamente é mais seguro e geralmente performa melhor.
+
 export function targetingFrio(interestIds: Array<{ id: string; name: string }>) {
   return {
     age_min: 25,
     age_max: 55,
     genders: [2],
     geo_locations: { countries: ['BR'] },
-    flexible_spec: interestIds.length > 0 ? [{ interests: interestIds }] : undefined,
-    publisher_platforms: ['facebook', 'instagram'],
-    instagram_positions: ['stream', 'reels', 'story'],
-    facebook_positions: ['feed'],
-    device_platforms: ['mobile'],
+    ...(interestIds.length > 0 ? { flexible_spec: [{ interests: interestIds }] } : {}),
   };
 }
 
@@ -52,11 +52,7 @@ export function targetingWhatsApp(interestIds: Array<{ id: string; name: string 
     age_max: 50,
     genders: [2],
     geo_locations: { countries: ['BR'] },
-    flexible_spec: interestIds.length > 0 ? [{ interests: interestIds.slice(0, 4) }] : undefined,
-    publisher_platforms: ['facebook', 'instagram'],
-    instagram_positions: ['stream', 'story'],
-    facebook_positions: ['feed', 'marketplace'],
-    device_platforms: ['mobile'],
+    ...(interestIds.length > 0 ? { flexible_spec: [{ interests: interestIds.slice(0, 4) }] } : {}),
   };
 }
 
@@ -66,10 +62,6 @@ export function targetingQuente(customAudienceId: string | null) {
     age_max: 55,
     genders: [2],
     geo_locations: { countries: ['BR'] },
-    publisher_platforms: ['facebook', 'instagram'],
-    instagram_positions: ['stream', 'story'],
-    facebook_positions: ['feed'],
-    device_platforms: ['mobile'],
   };
   if (customAudienceId) {
     base.custom_audiences = [{ id: customAudienceId }];

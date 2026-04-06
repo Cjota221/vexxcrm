@@ -103,7 +103,9 @@ export async function GET(req: NextRequest) {
           .select('meta_page_id')
           .eq('tenant_id', tenantId)
           .single();
-        const pageId = aiConfig?.meta_page_id ?? '110009834520002';
+        // meta_page_id: Page ID da CJ Rasteirinhas (não o Business ID)
+        // Fallback = 101337882545607 (confirmado em meta-publicos-cj.service.ts)
+        const pageId = aiConfig?.meta_page_id ?? '101337882545607';
 
         // 4. Buscar criativos
         send('step', { id: 'criativos', status: 'running', label: 'Analisando criativos disponíveis...' });
@@ -180,7 +182,7 @@ export async function GET(req: NextRequest) {
               idadeMin: 18,
               idadeMax: 65,
               pageId,
-              whatsappNumber: '5562993044255',
+              whatsappNumber: '5562981480687',
               urlDestino: urlDestino || undefined,
             });
 
@@ -373,7 +375,7 @@ export async function GET(req: NextRequest) {
                 texto:          textoPorTipo[tipo] || 'CJ Rasteirinhas — direto da fábrica para você.',
                 cta:            tipo === 'whatsapp' || tipo === 'quente' ? 'WHATSAPP_MESSAGE' : 'LEARN_MORE',
                 pageId,
-                whatsappNumber: tipo === 'whatsapp' || tipo === 'quente' ? '5562993044255' : undefined,
+                whatsappNumber: tipo === 'whatsapp' || tipo === 'quente' ? '5562981480687' : undefined,
                 urlDestino:     urlDestino || undefined,
               };
 

@@ -84,10 +84,10 @@
   timeout = 26
 
 [functions."api/meta/agente/stream"]
-  timeout = 26
+  timeout = 60
 
 [functions."api/meta/agente"]
-  timeout = 26
+  timeout = 60
 
 # SSE: desabilitado como fonte de mensagens (eventBus in-memory não funciona
 # em Netlify serverless — processos isolados por request).

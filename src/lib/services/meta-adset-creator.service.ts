@@ -73,7 +73,7 @@ const CONFIG_POR_TIPO = {
   quente: {
     objetivo:          'OUTCOME_TRAFFIC',
     optimization_goal: 'LINK_CLICKS',
-    billing_event:     'IMPRESSIONS',
+    billing_event:     'LINK_CLICKS',   // Meta exige billing=LINK_CLICKS quando optimization=LINK_CLICKS
     placements: {
       publisher_platforms: ['facebook', 'instagram'],
     },
@@ -81,14 +81,14 @@ const CONFIG_POR_TIPO = {
   whatsapp: {
     objetivo:          'OUTCOME_TRAFFIC',
     optimization_goal: 'LINK_CLICKS',
-    billing_event:     'IMPRESSIONS',
+    billing_event:     'LINK_CLICKS',   // Meta exige billing=LINK_CLICKS quando optimization=LINK_CLICKS
     placements: {
       publisher_platforms: ['facebook', 'instagram'],
     },
   },
   catalogo: {
     objetivo:          'OUTCOME_SALES',
-    optimization_goal: 'OFFSITE_CONVERSIONS',
+    optimization_goal: 'CATALOG_SALE',  // OFFSITE_CONVERSIONS exige pixel; CATALOG_SALE não
     billing_event:     'IMPRESSIONS',
     placements: {
       publisher_platforms: ['facebook', 'instagram'],
@@ -174,20 +174,39 @@ async function criarAdset(
   const tipo = objetivoParaTipo(cfg.objetivo);
   const tipoCfg = CONFIG_POR_TIPO[tipo];
 
-  // Payload mínimo garantido pela Meta API v21.0.
-  // Campos extras (placements, interests, gender) adicionados após confirmação que funciona.
+  // Targeting simplificado: apenas campos essenciais.
+  // Placement fields (publisher_platforms, instagram_positions, etc.) dentro de targeting
+  // causam "Invalid parameter" dependendo do objetivo — deixar a Meta escolher automaticamente.
+  let targetingFinal: Record<string, unknown>;
+  if (cfg.targetingCompleto) {
+    const tc = cfg.targetingCompleto;
+    targetingFinal = {
+      age_min:       tc.age_min       ?? cfg.idadeMin,
+      age_max:       tc.age_max       ?? cfg.idadeMax,
+      geo_locations: tc.geo_locations ?? { countries: cfg.paises },
+      ...(tc.genders          ? { genders:          tc.genders }          : {}),
+      ...(tc.flexible_spec    ? { flexible_spec:    tc.flexible_spec }    : {}),
+      ...(tc.custom_audiences ? { custom_audiences: tc.custom_audiences } : {}),
+    };
+  } else {
+    targetingFinal = {
+      age_min:       cfg.idadeMin,
+      age_max:       cfg.idadeMax,
+      geo_locations: { countries: cfg.paises },
+      ...(targeting.genders       ? { genders:       targeting.genders }       : {}),
+      ...(targeting.flexible_spec ? { flexible_spec: targeting.flexible_spec } : {}),
+      ...(cfg.publico_meta_id     ? { custom_audiences: [{ id: cfg.publico_meta_id }] } : {}),
+    };
+  }
+
   const adsetPayload: Record<string, unknown> = {
     name:              `[VEXX] ${cfg.nome} — Adset`,
     campaign_id:       campaignId,
     daily_budget:      String(cfg.orcamentoDiario),
     optimization_goal: tipoCfg.optimization_goal,
     billing_event:     tipoCfg.billing_event,
-    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',  // sobrescreve padrão da conta (BID_CAP/ROAS)
-    targeting: cfg.targetingCompleto ?? {
-      age_min:       cfg.idadeMin,
-      age_max:       cfg.idadeMax,
-      geo_locations: { countries: cfg.paises },
-    },
+    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
+    targeting:         targetingFinal,
     status: 'PAUSED',
   };
 
@@ -249,9 +268,20 @@ export async function criarAdCreative(
     }
 
     // image_url obrigatório: prioriza thumbnail do Meta, depois url_preview do banco
-    const imageUrl = videoStatus.picture ?? cfg.imageUrl;
+    // Se ainda não tiver, tenta buscar novamente (vídeo pode ter acabado de processar)
+    let imageUrl = videoStatus.picture ?? cfg.imageUrl;
     if (!imageUrl) {
-      throw new Error('Thumbnail do vídeo não disponível. O Meta ainda pode estar processando o vídeo.');
+      const retryRes = await fetch(
+        `${META_BASE}/${cfg.metaVideoId}?fields=picture&access_token=${token}`,
+        { signal: AbortSignal.timeout(8_000) },
+      ).catch(() => null);
+      if (retryRes?.ok) {
+        const retryData = await retryRes.json() as { picture?: string };
+        imageUrl = retryData.picture ?? null;
+      }
+    }
+    if (!imageUrl) {
+      throw new Error('Thumbnail do vídeo não disponível. Aguarde o processamento concluir (pode levar alguns minutos) e tente novamente.');
     }
 
     const mensagem = cfg.texto?.trim() || 'Conheça nossos produtos. Qualidade garantida.';
