@@ -1951,6 +1951,23 @@ function PublicosTab() {
   const [publicosAprovados, setPublicosAprovados] = useState<PublicoAprovadoItem[]>([]);
   const [carregandoPublicos, setCarregandoPublicos] = useState(false);
 
+  // Estado para seletor de vídeos no Lookalike
+  interface CriativoVideo { id: string; nome: string; meta_video_id: string; url_preview: string | null }
+  const [videos, setVideos]               = useState<CriativoVideo[]>([]);
+  const [videosSelecionados, setVideosSel] = useState<string[]>([]);
+  const [carregandoVideos, setCarregandoVideos] = useState(false);
+
+  const carregarVideos = useCallback(async () => {
+    setCarregandoVideos(true);
+    try {
+      const res  = await authFetch('/api/meta/criativos?limit=30&tipo=video');
+      if (!res.ok) return;
+      const data = await res.json() as { criativos?: CriativoVideo[] };
+      setVideos((data.criativos ?? []).filter(c => c.meta_video_id));
+    } catch { /* silencioso */ }
+    finally { setCarregandoVideos(false); }
+  }, []);
+
   const carregarPublicosAprovados = useCallback(async () => {
     setCarregandoPublicos(true);
     try {
@@ -1968,9 +1985,13 @@ function PublicosTab() {
     setGerandoTipo(tipo);
     setFeedbackPublico(null);
     try {
+      const body: Record<string, unknown> = { tipo };
+      if (tipo === 'lookalike' && videosSelecionados.length > 0) {
+        body.video_ids = videosSelecionados;
+      }
       const res = await authFetch('/api/trafego/publicos/gerar-automatico', {
         method: 'POST',
-        body: JSON.stringify({ tipo }),
+        body: JSON.stringify(body),
       });
       const json = await res.json() as {
         ok?: boolean;
@@ -2163,31 +2184,106 @@ function PublicosTab() {
       {/* ── Sub-seção: Lookalike ── */}
       {subTab === 'lookalike' && (
         <div className="space-y-5">
+
+          {/* Card principal */}
           <div className="bg-white rounded-2xl border border-gray-100 p-5">
-            <div className="flex items-start gap-3">
+            <div className="flex items-start gap-3 mb-4">
               <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center shrink-0">
                 <Target size={18} className="text-purple-600" />
               </div>
               <div className="flex-1">
-                <h3 className="font-semibold text-gray-900">Lookalike</h3>
+                <h3 className="font-semibold text-gray-900">Lookalike 1% Brasil</h3>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Meta encontra pessoas parecidas com seus melhores clientes. Precisa de pelo menos 100 contatos no CRM.
+                  Selecione os vídeos cujo público assistiu — o Meta encontra pessoas com perfil semelhante.
+                  Se não houver vídeos, usa a lista de clientes do CRM como fonte.
                 </p>
               </div>
             </div>
+
+            {/* Seletor de vídeos */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-medium text-gray-700">
+                  Vídeos disponíveis
+                  {videosSelecionados.length > 0 && (
+                    <span className="ml-2 text-purple-600">{videosSelecionados.length} selecionado{videosSelecionados.length > 1 ? 's' : ''}</span>
+                  )}
+                </p>
+                <button
+                  onClick={() => { carregarVideos(); }}
+                  disabled={carregandoVideos}
+                  className="text-xs text-gray-400 hover:text-gray-700 flex items-center gap-1"
+                >
+                  {carregandoVideos
+                    ? <Loader2 size={11} className="animate-spin" />
+                    : <RefreshCw size={11} />}
+                  Carregar
+                </button>
+              </div>
+
+              {videos.length === 0 && !carregandoVideos && (
+                <p className="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
+                  Clique em "Carregar" para buscar seus vídeos. Se não houver vídeos, usaremos a lista de clientes do CRM.
+                </p>
+              )}
+
+              {carregandoVideos && (
+                <div className="flex items-center gap-2 text-xs text-gray-400 py-2">
+                  <Loader2 size={12} className="animate-spin" /> Buscando vídeos...
+                </div>
+              )}
+
+              {videos.length > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {videos.map(v => {
+                    const sel = videosSelecionados.includes(v.meta_video_id);
+                    return (
+                      <button
+                        key={v.id}
+                        onClick={() => setVideosSel(prev =>
+                          sel ? prev.filter(id => id !== v.meta_video_id) : [...prev, v.meta_video_id]
+                        )}
+                        className={cn(
+                          'relative rounded-xl border-2 p-2 text-left transition-all',
+                          sel ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-gray-300'
+                        )}
+                      >
+                        {v.url_preview
+                          ? <img src={v.url_preview} alt={v.nome} className="w-full aspect-video object-cover rounded-lg mb-1.5" />
+                          : <div className="w-full aspect-video bg-gray-100 rounded-lg mb-1.5 flex items-center justify-center">
+                              <Play size={16} className="text-gray-400" />
+                            </div>
+                        }
+                        <p className="text-[10px] text-gray-700 truncate font-medium">{v.nome}</p>
+                        {sel && (
+                          <span className="absolute top-1.5 right-1.5 w-5 h-5 bg-purple-600 rounded-full flex items-center justify-center">
+                            <CheckCircle size={12} className="text-white" />
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             <button
               onClick={() => gerarPublicoAutomatico('lookalike')}
               disabled={gerandoTipo === 'lookalike'}
-              className="w-full mt-4 py-2.5 bg-purple-600 text-white text-sm font-medium rounded-xl hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              className="w-full py-2.5 bg-purple-600 text-white text-sm font-medium rounded-xl hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {gerandoTipo === 'lookalike'
                 ? <><Loader2 size={14} className="animate-spin" /> Jarvis trabalhando...</>
-                : <><Wand2 size={14} /> Gerar lookalike</>
+                : <><Wand2 size={14} />
+                    {videosSelecionados.length > 0
+                      ? `Gerar lookalike dos ${videosSelecionados.length} vídeo${videosSelecionados.length > 1 ? 's' : ''}`
+                      : 'Gerar lookalike'}
+                  </>
               }
             </button>
           </div>
 
-          {/* Lookalikes criados */}
+          {/* Lookalikes já criados */}
           {publicosAprovados.filter(p => p.tipo === 'lookalike').length > 0 && (
             <div className="bg-white rounded-2xl border border-gray-100 p-5">
               <h3 className="font-semibold text-gray-800 text-sm mb-3">Lookalikes criados</h3>
@@ -2196,7 +2292,10 @@ function PublicosTab() {
                   <div key={p.id} className="flex items-center justify-between px-3 py-2 rounded-lg border border-gray-100">
                     <div>
                       <p className="text-sm font-medium text-gray-800">{p.nome}</p>
-                      {p.meta_audience_id && <p className="text-xs text-gray-400">ID Meta: {p.meta_audience_id}</p>}
+                      {p.meta_audience_id
+                        ? <p className="text-xs text-gray-400">ID Meta: {p.meta_audience_id}</p>
+                        : <p className="text-xs text-amber-500">Salvo localmente — criar manualmente no Meta</p>
+                      }
                     </div>
                     {statusBadge(p.status)}
                   </div>

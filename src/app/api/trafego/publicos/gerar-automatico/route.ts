@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { META_BASE } from '@/lib/meta-config';
+import { criarPublicoEngajamentoVideo } from '@/lib/services/meta-publicos-cj.service';
 import Anthropic from '@anthropic-ai/sdk';
 
 const KEYWORDS_POR_TIPO = {
@@ -28,7 +29,10 @@ const NOMES_POR_TIPO = {
 export async function POST(req: NextRequest) {
   try {
     const { profile } = await getTenantFromRequest(req);
-    const body = await req.json() as { tipo: 'frio' | 'quente' | 'lookalike' };
+    const body = await req.json() as {
+      tipo: 'frio' | 'quente' | 'lookalike';
+      video_ids?: string[];   // para lookalike baseado em vídeos
+    };
     const { tipo } = body;
 
     const supabase = createServerSupabaseClient();
@@ -122,66 +126,111 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ── LOOKALIKE: a partir da base de clientes ──────────────────────────────
+    // ── LOOKALIKE ─────────────────────────────────────────────────────────────
+    // Tentativa A: vídeos selecionados → Custom Audience de engajamento → Lookalike
+    // Tentativa B: se A falhar (#3) → lista de clientes do CRM → Lookalike
+    // Tentativa C: se B também falhar → salvar rascunho localmente com orientação
     if (tipo === 'lookalike') {
-      const { data: clientes } = await supabase
-        .from('contacts')
-        .select('phone, email')
-        .eq('tenant_id', profile.tenant_id)
-        .limit(500);
+      let sourceAudienceId: string | null = null;
+      let sourceNome = '';
+      let tentativa = '';
 
-      if (!clientes || clientes.length < 100) {
-        return NextResponse.json({
-          error: `Mínimo de 100 clientes necessário para criar lookalike. Você tem ${clientes?.length ?? 0} contatos.`,
-        }, { status: 400 });
+      // ── Tentativa A: público de engajamento de vídeo ──────────────────────
+      if (body.video_ids && body.video_ids.length > 0) {
+        try {
+          sourceAudienceId = await criarPublicoEngajamentoVideo(
+            accountId,
+            token,
+            profile.tenant_id,
+            body.video_ids,
+            25,  // assistiram 25%+
+            30,  // últimos 30 dias
+          );
+          if (sourceAudienceId) {
+            sourceNome = 'Engajamento de Vídeo';
+            tentativa  = 'video';
+          }
+        } catch (e) {
+          console.warn('[gerar-automatico] lookalike tentativa A (vídeo) falhou:', e);
+        }
       }
 
-      // 1. Criar Custom Audience base
-      const caParams = new URLSearchParams();
-      caParams.set('name', 'CJ — Base Clientes para Lookalike');
-      caParams.set('subtype', 'CUSTOM');
-      caParams.set('description', 'Lista de clientes CJ para gerar lookalike');
-      caParams.set('access_token', token);
+      // ── Tentativa B: lista de clientes do CRM ─────────────────────────────
+      if (!sourceAudienceId) {
+        const { data: clientes } = await supabase
+          .from('contacts')
+          .select('phone, email')
+          .eq('tenant_id', profile.tenant_id)
+          .limit(500);
 
-      const caRes  = await fetch(`${META_BASE}/${accountId}/customaudiences`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body:    caParams.toString(),
-      });
-      const caData = await caRes.json() as { id?: string; error?: { message?: string } };
+        if (clientes && clientes.length >= 100) {
+          const caParams = new URLSearchParams();
+          caParams.set('name', 'CJ — Base Clientes para Lookalike');
+          caParams.set('subtype', 'CUSTOM');
+          caParams.set('description', `${clientes.length} clientes CJ para gerar lookalike`);
+          caParams.set('access_token', token);
 
-      if (!caRes.ok || !caData.id) {
-        return NextResponse.json({
-          error: caData.error?.message || 'Erro ao criar base de clientes',
-        }, { status: 502 });
+          try {
+            const caRes  = await fetch(`${META_BASE}/${accountId}/customaudiences`, {
+              method:  'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body:    caParams.toString(),
+            });
+            const caData = await caRes.json() as { id?: string; error?: { message?: string } };
+            if (caRes.ok && caData.id) {
+              sourceAudienceId = caData.id;
+              sourceNome = 'Lista de Clientes CRM';
+              tentativa  = 'crm';
+            }
+          } catch (e) {
+            console.warn('[gerar-automatico] lookalike tentativa B (CRM) falhou:', e);
+          }
+        }
       }
 
-      // 2. Criar lookalike
-      const laParams = new URLSearchParams();
-      laParams.set('name', NOMES_POR_TIPO.lookalike);
-      laParams.set('origin_audience_id', caData.id);
-      laParams.set('lookalike_spec', JSON.stringify({
-        type:    'similarity',
-        ratio:   0.01,
-        country: 'BR',
-      }));
-      laParams.set('access_token', token);
+      // ── Criar Lookalike a partir da source ────────────────────────────────
+      let laAudienceId: string | null = null;
+      let laErroMsg: string | null    = null;
 
-      const laRes  = await fetch(`${META_BASE}/${accountId}/customaudiences`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body:    laParams.toString(),
-      });
-      const laData = await laRes.json() as { id?: string; error?: { message?: string } };
+      if (sourceAudienceId) {
+        const laParams = new URLSearchParams();
+        laParams.set('name', NOMES_POR_TIPO.lookalike);
+        laParams.set('origin_audience_id', sourceAudienceId);
+        laParams.set('lookalike_spec', JSON.stringify({
+          type:    'similarity',
+          ratio:   0.01,
+          country: 'BR',
+        }));
+        laParams.set('access_token', token);
 
-      const laAudienceId = laRes.ok && laData.id ? laData.id : null;
-      const laErroMsg    = !laAudienceId
-        ? (laData.error?.message ?? 'Salvo localmente (Meta precisou de permissão adicional)')
-        : null;
+        try {
+          const laRes  = await fetch(`${META_BASE}/${accountId}/customaudiences`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body:    laParams.toString(),
+          });
+          const laData = await laRes.json() as { id?: string; error?: { message?: string } };
+          if (laRes.ok && laData.id) {
+            laAudienceId = laData.id;
+          } else {
+            laErroMsg = laData.error?.message ?? 'Meta não criou o Lookalike';
+          }
+        } catch (e) {
+          laErroMsg = String(e);
+        }
+      } else {
+        // Tentativa C: sem source disponível
+        const qtdVideos = body.video_ids?.length ?? 0;
+        laErroMsg = qtdVideos === 0
+          ? 'Selecione ao menos 1 vídeo para criar o Lookalike. Se não houver vídeos disponíveis, crie um público de vídeo primeiro no Gerenciador de Anúncios do Meta.'
+          : 'Não foi possível criar o público de engajamento de vídeo (token sem permissão). Crie o público manualmente em Meta Ads Manager → Públicos.';
+      }
+
+      const nomeFinal = `${NOMES_POR_TIPO.lookalike}${tentativa === 'video' ? ' (Vídeo)' : tentativa === 'crm' ? ' (CRM)' : ''}`;
 
       const { error: insertErr } = await supabase.from('meta_publicos_aprovados').insert({
         tenant_id:        profile.tenant_id,
-        nome:             NOMES_POR_TIPO.lookalike,
+        nome:             nomeFinal,
         tipo:             'lookalike',
         meta_audience_id: laAudienceId,
         status:           laAudienceId ? 'publicado' : 'rascunho',
@@ -194,9 +243,10 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         ok:               true,
-        nome:             NOMES_POR_TIPO.lookalike,
+        nome:             nomeFinal,
         meta_audience_id: laAudienceId,
         tipo:             'lookalike',
+        source:           tentativa || 'nenhuma',
         ...(laErroMsg ? { aviso: laErroMsg } : {}),
       });
     }
