@@ -93,6 +93,40 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(result);
       }
 
+      case 'deletar_campanha': {
+        const campaignId = body.campaign_id as string;
+        if (!campaignId) return NextResponse.json({ error: 'campaign_id obrigatório' }, { status: 400 });
+
+        // 1. Tentar deletar na Meta API (falha silenciosamente se ID inválido/já deletado)
+        try {
+          const metaRes = await fetch(
+            `${META_BASE}/${campaignId}?access_token=${token}`,
+            { method: 'DELETE' },
+          );
+          const metaJson = await metaRes.json() as { success?: boolean; error?: { message: string } };
+          if (!metaRes.ok && metaJson.error) {
+            console.warn('[deletar_campanha] Meta API:', metaJson.error.message);
+          }
+        } catch (e) {
+          console.warn('[deletar_campanha] Meta API falhou:', e);
+        }
+
+        // 2. Remover do cache local — tentar por id (UUID do Supabase) e por campaign_id (ID Meta)
+        await supabase
+          .from('meta_campaigns_cache')
+          .delete()
+          .eq('id', campaignId)
+          .eq('tenant_id', profile.tenant_id);
+
+        await supabase
+          .from('meta_campaigns_cache')
+          .delete()
+          .eq('campaign_id', campaignId)
+          .eq('tenant_id', profile.tenant_id);
+
+        return NextResponse.json({ ok: true });
+      }
+
       default:
         return NextResponse.json({ error: `Ação desconhecida: ${action}` }, { status: 400 });
     }
