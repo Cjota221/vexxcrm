@@ -35,20 +35,20 @@ export async function resolverTokenMeta(tenantId: string): Promise<MetaTokenInfo
   const supabase = createServerSupabaseClient();
 
   const { data, error } = await supabase
-    .from('ai_provider_config')
-    .select('meta_access_token, meta_ad_account_id, meta_page_id, meta_token_expires_at')
-    .eq('tenant_id', tenantId)
+    .from('tenants')
+    .select('meta_access_token')
+    .eq('id', tenantId)
     .single();
 
   if (error || !data?.meta_access_token) {
-    throw new Error('Token Meta não configurado. Configure em Configurações → Time de IAs.');
+    throw new Error('Token Meta não configurado. Acesse Configurações e configure o token Meta.');
   }
 
   return {
     token:      data.meta_access_token,
-    account_id: data.meta_ad_account_id ?? null,
-    page_id:    data.meta_page_id ?? null,
-    expires_at: data.meta_token_expires_at ?? null,
+    account_id: 'act_1244920119465862',
+    page_id:    '101337882545607',
+    expires_at: null,
   };
 }
 

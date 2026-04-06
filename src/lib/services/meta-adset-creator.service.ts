@@ -208,10 +208,12 @@ async function criarAdset(
     campaign_id:       campaignId,
     daily_budget:      String(cfg.orcamentoDiario),
     optimization_goal: tipoCfg.optimization_goal,
-    billing_event:     tipoCfg.billing_event,
+    billing_event:     'IMPRESSIONS',
     bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
-    targeting:         targetingFinal,
-    ...(!isAwareness ? { targeting_automation: { advantage_audience: 0 } } : {}),
+    targeting: {
+      ...targetingFinal,
+      ...(!isAwareness ? { targeting_automation: { advantage_audience: 0 } } : {}),
+    },
     status: 'PAUSED',
   };
 
@@ -893,10 +895,12 @@ export async function criarCampanhaMultiplosConjuntos(
       campaign_id: campanha.id,
       daily_budget: String(conjunto.orcamentoDiario),
       optimization_goal: optGoal,
-      billing_event: isFrioAdset ? 'IMPRESSIONS' : 'LINK_CLICKS',
+      billing_event: 'IMPRESSIONS',
       bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
-      targeting: targetingSimples,
-      ...(!isFrioAdset ? { targeting_automation: { advantage_audience: 0 } } : {}),
+      targeting: {
+        ...targetingSimples,
+        ...(!isFrioAdset ? { targeting_automation: { advantage_audience: 0 } } : {}),
+      },
       status: 'PAUSED',
     }, token);
     if (!adset.id) throw new Error(`Erro adset ${tipoLabel}: ${adset.error?.message}`);
