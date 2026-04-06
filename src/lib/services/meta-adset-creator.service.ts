@@ -277,7 +277,7 @@ export async function criarAdCreative(
       ).catch(() => null);
       if (retryRes?.ok) {
         const retryData = await retryRes.json() as { picture?: string };
-        imageUrl = retryData.picture ?? null;
+        imageUrl = retryData.picture ?? undefined;
       }
     }
     if (!imageUrl) {
