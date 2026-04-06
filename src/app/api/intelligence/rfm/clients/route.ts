@@ -47,17 +47,13 @@ export async function GET(request: NextRequest) {
 
     const offset = (page - 1) * limit;
 
-    // Query base
+    // Query base — somente colunas garantidas no schema base + 005
     let query = supabase
       .from('clients')
-      .select(`
-        id, name, phone, email, cpf,
-        rfm_segment, rfm_score, rfm_recency, rfm_frequency, rfm_monetary,
-        churn_probability, purchase_prob_30d, ltv_projected_12m,
-        flag_auto_vip, flag_churn_risk, flag_needs_attention, flag_upsell_ready,
-        total_orders, avg_ticket, ltv, last_order_at,
-        created_at
-      `, { count: 'exact' })
+      .select(
+        'id, name, phone, email, rfm_segment, rfm_score, churn_probability, total_orders, avg_ticket, ltv, last_order_at, created_at',
+        { count: 'exact' },
+      )
       .eq('tenant_id', tenantId)
       .eq('rfm_segment', segment);
 
@@ -75,7 +71,10 @@ export async function GET(request: NextRequest) {
 
     if (queryError) {
       console.error('Erro ao buscar clientes do segmento:', queryError);
-      return NextResponse.json({ error: 'Erro ao buscar clientes', details: queryError.message }, { status: 500 });
+      return NextResponse.json(
+        { error: `Erro ao buscar clientes: ${queryError.message}` },
+        { status: 500 },
+      );
     }
 
     // Calcular totais do segmento
@@ -109,8 +108,8 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Erro na API rfm/clients:', error);
     return NextResponse.json(
-      { error: 'Erro interno', details: String(error) },
-      { status: 500 }
+      { error: `Erro interno: ${String(error)}` },
+      { status: 500 },
     );
   }
 }
