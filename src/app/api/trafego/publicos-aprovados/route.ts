@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
-import { META_BASE } from '@/lib/meta-config';
 
 /**
  * GET /api/trafego/publicos-aprovados
@@ -41,14 +40,22 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/trafego/publicos-aprovados
- * Cria um público aprovado no Supabase e opcionalmente publica como saved_audience na Meta API.
+ * Registra um público no banco de dados local.
+ *
+ * Saved Audiences NÃO podem ser criadas via API Meta (apenas leitura).
+ * Custom Audiences (quente, lookalike) devem ser criadas via /gerar-automatico.
+ *
+ * Use este endpoint para:
+ * - Registrar um público criado manualmente no Meta Ads Manager (cole o meta_audience_id)
+ * - Salvar um targeting de público frio (sem meta_audience_id — vai direto no adset)
+ *
  * Body: {
  *   nome: string,
  *   tipo: 'frio' | 'quente' | 'whatsapp' | 'lookalike' | 'retargeting',
  *   descricao?: string,
- *   targeting: Record<string, unknown>,    // objeto targeting completo
+ *   targeting: Record<string, unknown>,
  *   interest_ids?: string[],
- *   publicar_meta?: boolean,               // se true, cria saved_audience na Meta API
+ *   meta_audience_id?: string,  // ID de Custom Audience já criada no Meta Ads Manager
  * }
  */
 export async function POST(req: NextRequest) {
@@ -60,82 +67,31 @@ export async function POST(req: NextRequest) {
       descricao?: string;
       targeting: Record<string, unknown>;
       interest_ids?: string[];
-      publicar_meta?: boolean;
+      meta_audience_id?: string;
     };
 
     if (!body.nome?.trim() || !body.tipo || !body.targeting) {
-      return NextResponse.json({ error: 'nome, tipo e targeting são obrigatórios' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'nome, tipo e targeting são obrigatórios' },
+        { status: 400 },
+      );
+    }
+
+    const TIPOS_VALIDOS = ['frio', 'quente', 'whatsapp', 'lookalike', 'retargeting'];
+    if (!TIPOS_VALIDOS.includes(body.tipo)) {
+      return NextResponse.json(
+        { error: `tipo inválido — use: ${TIPOS_VALIDOS.join(', ')}` },
+        { status: 400 },
+      );
     }
 
     const supabase = createServerSupabaseClient();
 
-    let metaAudienceId: string | null = null;
-    let estimativaAlcance: number | null = null;
-    let statusPublico: string = 'rascunho';
-    let erroMsg: string | null = null;
+    const metaAudienceId = body.meta_audience_id?.trim() || null;
+    // Se tem ID externo, o público já existe no Meta → 'publicado'
+    // Se só tem targeting (frio), está 'publicado' localmente (vai no adset)
+    const statusPublico = 'publicado';
 
-    // Publicar na Meta API se solicitado
-    if (body.publicar_meta) {
-      const { data: config } = await supabase
-        .from('ai_provider_config')
-        .select('meta_access_token, meta_ad_account_id')
-        .eq('tenant_id', profile.tenant_id)
-        .single();
-
-      if (!config?.meta_access_token || !config?.meta_ad_account_id) {
-        return NextResponse.json({ error: 'Meta não configurado' }, { status: 400 });
-      }
-
-      const token = config.meta_access_token;
-      const accountId = config.meta_ad_account_id.startsWith('act_')
-        ? config.meta_ad_account_id
-        : `act_${config.meta_ad_account_id}`;
-
-      try {
-        // Criar saved_audience na Meta API
-        const metaUrl = new URL(`${META_BASE}/${accountId}/saved_audiences`);
-        metaUrl.searchParams.set('access_token', token);
-
-        const metaRes = await fetch(metaUrl.toString(), {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({
-            name:      body.nome,
-            targeting: body.targeting,
-          }),
-        });
-
-        const metaData = await metaRes.json() as {
-          id?: string;
-          error?: { message: string; error_user_msg?: string };
-        };
-
-        if (!metaRes.ok || !metaData.id) {
-          throw new Error(metaData.error?.error_user_msg ?? metaData.error?.message ?? `Meta HTTP ${metaRes.status}`);
-        }
-
-        metaAudienceId = metaData.id;
-        statusPublico = 'publicado';
-
-        // Buscar estimativa de alcance
-        try {
-          const reachRes = await fetch(
-            `${META_BASE}/${accountId}/reachestimate?targeting_spec=${encodeURIComponent(JSON.stringify(body.targeting))}&access_token=${token}`
-          );
-          if (reachRes.ok) {
-            const reachData = await reachRes.json() as { users?: number; data?: { users: number } };
-            estimativaAlcance = reachData.users ?? (reachData.data as { users: number } | undefined)?.users ?? null;
-          }
-        } catch {
-          // Estimativa é opcional — não falha o fluxo
-        }
-      } catch (metaErr) {
-        erroMsg = String(metaErr);
-        statusPublico = 'erro';
-      }
-    }
-
-    // Salvar no Supabase
     const { data: publico, error: insertErr } = await supabase
       .from('meta_publicos_aprovados')
       .insert({
@@ -146,9 +102,8 @@ export async function POST(req: NextRequest) {
         targeting:         body.targeting,
         interest_ids:      body.interest_ids ?? [],
         meta_audience_id:  metaAudienceId,
-        estimativa_alcance: estimativaAlcance,
+        estimativa_alcance: null,
         status:            statusPublico,
-        erro_msg:          erroMsg,
         criado_por_ia:     false,
       })
       .select()
@@ -156,11 +111,7 @@ export async function POST(req: NextRequest) {
 
     if (insertErr) throw new Error(insertErr.message);
 
-    return NextResponse.json({
-      ok:     true,
-      publico,
-      ...(erroMsg ? { aviso: `Salvo localmente, mas Meta retornou erro: ${erroMsg}` } : {}),
-    });
+    return NextResponse.json({ ok: true, publico });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }

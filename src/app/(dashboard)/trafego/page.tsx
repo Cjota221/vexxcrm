@@ -29,7 +29,7 @@ import {
   Clock, ChevronRight, ChevronLeft, Copy, Pause, Play, Users,
   Image as ImageIcon, FileText, BarChart3, Zap, Target, X,
   Edit2, DollarSign, Loader2, ChevronDown, AlertOctagon, CloudDownload,
-  Plus, Globe, Wand2, Settings, Bot,
+  Plus, Globe, Wand2, Settings, Bot, Link,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -1956,6 +1956,8 @@ function PublicosTab() {
   const [videos, setVideos]               = useState<CriativoVideo[]>([]);
   const [videosSelecionados, setVideosSel] = useState<string[]>([]);
   const [carregandoVideos, setCarregandoVideos] = useState(false);
+  const [audienceIdInput, setAudienceIdInput] = useState('');
+  const [criandoLookalikeManual, setCriandoLookalikeManual] = useState(false);
 
   const carregarVideos = useCallback(async () => {
     setCarregandoVideos(true);
@@ -1996,20 +1998,32 @@ function PublicosTab() {
       const json = await res.json() as {
         ok?: boolean;
         nome?: string;
+        tipo?: string;
         meta_audience_id?: string;
         interesses_usados?: string[];
-        aviso?: string;
+        videos_usados?: number;
+        contatos_enviados?: number;
+        nota?: string;
         error?: string;
       };
       if (json.ok) {
-        const base = json.meta_audience_id
-          ? `✅ Público "${json.nome}" criado no Meta`
-          : `⚠️ Público "${json.nome}" salvo localmente`;
-        const sufixo = json.interesses_usados?.length
-          ? ` com ${json.interesses_usados.length} interesses`
-          : '';
-        const avisoExtra = json.aviso ? ` — ${json.aviso}` : '';
-        setFeedbackPublico(base + sufixo + avisoExtra);
+        // Frio não tem meta_audience_id por design — vai direto no adset
+        let msg: string;
+        if (json.tipo === 'frio') {
+          const qtd = json.interesses_usados?.length ?? 0;
+          msg = `✅ Targeting configurado: "${json.nome}" com ${qtd} interesse${qtd !== 1 ? 's' : ''}`;
+        } else if (json.meta_audience_id) {
+          const detalhe = json.videos_usados != null
+            ? ` (${json.videos_usados} vídeo${json.videos_usados !== 1 ? 's' : ''})`
+            : json.contatos_enviados != null
+            ? ` (${json.contatos_enviados} clientes)`
+            : '';
+          msg = `✅ Público "${json.nome}" criado no Meta${detalhe}`;
+        } else {
+          msg = `✅ Público "${json.nome}" configurado`;
+        }
+        if (json.nota) msg += ` — ${json.nota}`;
+        setFeedbackPublico(msg);
         carregarPublicosAprovados();
       } else {
         setFeedbackPublico(`❌ ${json.error || 'Erro ao gerar público'}`);
@@ -2062,13 +2076,15 @@ function PublicosTab() {
       {/* Feedback */}
       {feedbackPublico && (
         <div className={cn(
-          'rounded-xl px-4 py-3 text-sm border',
+          'rounded-xl px-4 py-3 text-sm border flex items-start justify-between gap-3',
           feedbackPublico.startsWith('✅')
             ? 'bg-green-50 border-green-200 text-green-800'
+            : feedbackPublico.startsWith('⚠️')
+            ? 'bg-amber-50 border-amber-200 text-amber-800'
             : 'bg-red-50 border-red-200 text-red-800'
         )}>
-          {feedbackPublico}
-          <button onClick={() => setFeedbackPublico(null)} className="ml-2 opacity-60 hover:opacity-100">✕</button>
+          <span>{feedbackPublico}</span>
+          <button onClick={() => setFeedbackPublico(null)} className="opacity-60 hover:opacity-100 shrink-0">✕</button>
         </div>
       )}
 
@@ -2194,77 +2210,14 @@ function PublicosTab() {
               <div className="flex-1">
                 <h3 className="font-semibold text-gray-900">Lookalike 1% Brasil</h3>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Selecione os vídeos cujo público assistiu — o Meta encontra pessoas com perfil semelhante.
-                  Se não houver vídeos, usa a lista de clientes do CRM como fonte.
+                  O Jarvis usa a lista de clientes do CRM (com hash SHA-256) para criar uma audiência-semente
+                  e gerar um Lookalike 1% no Meta — pessoas com perfil semelhante aos seus compradores reais.
                 </p>
               </div>
             </div>
 
-            {/* Seletor de vídeos */}
-            <div className="mb-4">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-medium text-gray-700">
-                  Vídeos disponíveis
-                  {videosSelecionados.length > 0 && (
-                    <span className="ml-2 text-purple-600">{videosSelecionados.length} selecionado{videosSelecionados.length > 1 ? 's' : ''}</span>
-                  )}
-                </p>
-                <button
-                  onClick={() => { carregarVideos(); }}
-                  disabled={carregandoVideos}
-                  className="text-xs text-gray-400 hover:text-gray-700 flex items-center gap-1"
-                >
-                  {carregandoVideos
-                    ? <Loader2 size={11} className="animate-spin" />
-                    : <RefreshCw size={11} />}
-                  Carregar
-                </button>
-              </div>
-
-              {videos.length === 0 && !carregandoVideos && (
-                <p className="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
-                  Clique em "Carregar" para buscar seus vídeos. Se não houver vídeos, usaremos a lista de clientes do CRM.
-                </p>
-              )}
-
-              {carregandoVideos && (
-                <div className="flex items-center gap-2 text-xs text-gray-400 py-2">
-                  <Loader2 size={12} className="animate-spin" /> Buscando vídeos...
-                </div>
-              )}
-
-              {videos.length > 0 && (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {videos.map(v => {
-                    const sel = videosSelecionados.includes(v.meta_video_id);
-                    return (
-                      <button
-                        key={v.id}
-                        onClick={() => setVideosSel(prev =>
-                          sel ? prev.filter(id => id !== v.meta_video_id) : [...prev, v.meta_video_id]
-                        )}
-                        className={cn(
-                          'relative rounded-xl border-2 p-2 text-left transition-all',
-                          sel ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-gray-300'
-                        )}
-                      >
-                        {v.url_preview
-                          ? <img src={v.url_preview} alt={v.nome} className="w-full aspect-video object-cover rounded-lg mb-1.5" />
-                          : <div className="w-full aspect-video bg-gray-100 rounded-lg mb-1.5 flex items-center justify-center">
-                              <Play size={16} className="text-gray-400" />
-                            </div>
-                        }
-                        <p className="text-[10px] text-gray-700 truncate font-medium">{v.nome}</p>
-                        {sel && (
-                          <span className="absolute top-1.5 right-1.5 w-5 h-5 bg-purple-600 rounded-full flex items-center justify-center">
-                            <CheckCircle size={12} className="text-white" />
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+            <div className="bg-purple-50 rounded-xl px-3 py-2 mb-4 text-xs text-purple-700">
+              Mínimo de 100 clientes com telefone ou e-mail cadastrado no CRM.
             </div>
 
             <button
@@ -2273,14 +2226,76 @@ function PublicosTab() {
               className="w-full py-2.5 bg-purple-600 text-white text-sm font-medium rounded-xl hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {gerandoTipo === 'lookalike'
-                ? <><Loader2 size={14} className="animate-spin" /> Jarvis trabalhando...</>
-                : <><Wand2 size={14} />
-                    {videosSelecionados.length > 0
-                      ? `Gerar lookalike dos ${videosSelecionados.length} vídeo${videosSelecionados.length > 1 ? 's' : ''}`
-                      : 'Gerar lookalike'}
-                  </>
+                ? <><Loader2 size={14} className="animate-spin" /> Criando no Meta...</>
+                : <><Wand2 size={14} /> Gerar Lookalike com clientes do CRM</>
               }
             </button>
+          </div>
+
+          {/* Card: Registrar Lookalike existente */}
+          <div className="bg-white rounded-2xl border border-amber-200 p-5">
+            <div className="flex items-start gap-3 mb-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
+                <Link size={18} className="text-amber-600" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-gray-900">Registrar Lookalike do Meta Ads Manager</h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Crie o Lookalike manualmente no Meta Ads Manager, copie o ID e registre aqui. Nenhuma permissão especial necessária.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-amber-50 rounded-xl px-3 py-2 mb-3 text-xs text-amber-700 leading-relaxed">
+              <strong>Passo a passo:</strong> Meta Ads Manager → Públicos → Criar público → Público semelhante → configure → salve → copie o ID numérico da coluna "ID do público".
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={audienceIdInput}
+                onChange={e => setAudienceIdInput(e.target.value.trim())}
+                placeholder="Ex: 120212345678901234"
+                className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-300"
+              />
+              <button
+                disabled={!audienceIdInput || criandoLookalikeManual}
+                onClick={async () => {
+                  setCriandoLookalikeManual(true);
+                  setFeedbackPublico(null);
+                  try {
+                    const res = await authFetch('/api/trafego/publicos-aprovados', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        nome:             `CJ | LOOKALIKE 1% BR (manual)`,
+                        tipo:             'lookalike',
+                        targeting:        { custom_audiences: [{ id: audienceIdInput }] },
+                        meta_audience_id: audienceIdInput,
+                        publicar_meta:    false,
+                      }),
+                    });
+                    const json = await res.json() as { ok?: boolean; publico?: { id: string }; error?: string };
+                    if (json.ok) {
+                      setFeedbackPublico(`✅ Lookalike registrado! ID Meta: ${audienceIdInput}`);
+                      setAudienceIdInput('');
+                      carregarPublicosAprovados();
+                    } else {
+                      setFeedbackPublico(`❌ ${json.error || 'Erro ao registrar'}`);
+                    }
+                  } catch {
+                    setFeedbackPublico('❌ Erro de conexão');
+                  } finally {
+                    setCriandoLookalikeManual(false);
+                  }
+                }}
+                className="px-4 py-2 bg-amber-600 text-white text-sm font-medium rounded-xl hover:bg-amber-700 disabled:opacity-40 flex items-center gap-1.5 shrink-0"
+              >
+                {criandoLookalikeManual
+                  ? <><Loader2 size={13} className="animate-spin" /> Salvando...</>
+                  : <><CheckCircle size={13} /> Registrar</>}
+              </button>
+            </div>
           </div>
 
           {/* Lookalikes já criados */}

@@ -412,20 +412,47 @@ export async function publicarRascunho(
     // 1. Criar campanha
     const campaignId = await criarCampanha(token, actId, draft.nome, draft.objetivo);
 
-    // 2. Criar adset
+    // 2. Resolver público aprovado para o adset
+    // Prioridade: publico_id do draft > público aprovado do tipo correspondente no banco
+    const tipoCampanha = objetivoParaTipo(draft.objetivo);
+    let publicoMetaId: string | undefined = draft.publico_id ?? undefined;
+    let targetingAprovado: Record<string, unknown> | undefined = undefined;
+
+    if (!publicoMetaId) {
+      const { data: publicoAprovado } = await supabase
+        .from('meta_publicos_aprovados')
+        .select('meta_audience_id, targeting, nome')
+        .eq('tenant_id', tenantId)
+        .eq('tipo', tipoCampanha)
+        .eq('status', 'publicado')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (publicoAprovado?.meta_audience_id) {
+        // Público quente ou lookalike — usa custom_audience por ID
+        publicoMetaId = publicoAprovado.meta_audience_id as string;
+      } else if (publicoAprovado?.targeting) {
+        // Público frio — usa targeting com interesses salvo
+        targetingAprovado = publicoAprovado.targeting as Record<string, unknown>;
+      }
+    }
+
+    // 3. Criar adset
     const interesses: InteresseTargeting[] = Array.isArray(draft.interesses) ? draft.interesses : [];
     const adsetId = await criarAdset(token, actId, campaignId, {
-      nome:           draft.nome,
-      objetivo:       draft.objetivo,
-      orcamentoDiario: draft.orcamento_diario,
-      dataInicio:     draft.data_inicio ?? undefined,
-      dataFim:        draft.data_fim ?? undefined,
-      paises:         draft.paises ?? ['BR'],
-      idadeMin:       draft.idade_min ?? 18,
-      idadeMax:       draft.idade_max ?? 65,
-      genero:         draft.genero ?? 'all',
+      nome:             draft.nome,
+      objetivo:         draft.objetivo,
+      orcamentoDiario:  draft.orcamento_diario,
+      dataInicio:       draft.data_inicio ?? undefined,
+      dataFim:          draft.data_fim ?? undefined,
+      paises:           draft.paises ?? ['BR'],
+      idadeMin:         draft.idade_min ?? 18,
+      idadeMax:         draft.idade_max ?? 65,
+      genero:           draft.genero ?? 'all',
       interesses,
-      publico_meta_id: draft.publico_id ?? undefined,
+      publico_meta_id:  publicoMetaId,
+      targetingCompleto: targetingAprovado,
     });
 
     // 3. Criar ad creative

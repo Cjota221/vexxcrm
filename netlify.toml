@@ -80,6 +80,12 @@
 [functions."api/trafego/publicos-aprovados"]
   timeout = 26
 
+[functions."api/trafego/publicos/gerar-automatico"]
+  timeout = 26
+
+[functions."api/trafego/publicos/lookalike"]
+  timeout = 26
+
 [functions."api/meta/catalog"]
   timeout = 26
 
