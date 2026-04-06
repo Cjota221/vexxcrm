@@ -11,6 +11,7 @@ import { CriadorCampanha } from '@/components/meta/CriadorCampanha';
 import { AgenteTrafegoPanel } from '@/components/meta/AgenteTrafegoPanel';
 import { FilaAprovacao } from '@/components/meta/FilaAprovacao';
 import { InicializadorPublicos } from '@/components/meta/InicializadorPublicos';
+import { BibliotecaInteresses } from '@/components/meta/BibliotecaInteresses';
 
 function authFetch(url: string, options?: RequestInit): Promise<Response> {
   const token = useAuthStore.getState().accessToken;
@@ -157,7 +158,7 @@ interface MetricsData {
 }
 
 type Period = '1d' | '7d' | '15d' | '30d';
-type Tab = 'campanhas' | 'criativos' | 'publicos' | 'textos' | 'analise' | 'relatorio' | 'config' | 'agente' | 'aprovacoes' | 'leads' | 'regras' | 'consolidado' | 'abtest' | 'catalogo';
+type Tab = 'campanhas' | 'criativos' | 'publicos' | 'textos' | 'analise' | 'relatorio' | 'config' | 'agente' | 'aprovacoes' | 'leads' | 'regras' | 'consolidado' | 'abtest' | 'catalogo' | 'biblioteca';
 
 /* ─── Formatadores ─────────────────────────────────────────────────────────── */
 
@@ -4582,6 +4583,17 @@ export default function TrafegoPage() {
               >
                 Catálogo
               </button>
+              <button
+                onClick={() => setTab('biblioteca')}
+                className={cn(
+                  'px-5 py-3.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
+                  tab === 'biblioteca'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                )}
+              >
+                Biblioteca
+              </button>
             </div>
             {tab === 'publicos' && (
               <button className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 px-4 py-3.5 transition-colors whitespace-nowrap">
@@ -4986,6 +4998,9 @@ export default function TrafegoPage() {
 
             {/* ── CATÁLOGO ── */}
             {tab === 'catalogo' && <CatalogoTab />}
+
+            {/* ── BIBLIOTECA DE INTERESSES ── */}
+            {tab === 'biblioteca' && <BibliotecaInteresses />}
 
             {/* ── CONFIG ── */}
             {tab === 'config' && (

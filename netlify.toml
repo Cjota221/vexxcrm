@@ -71,6 +71,15 @@
 [functions."api/trafego/abtest"]
   timeout = 26
 
+[functions."api/trafego/interests/biblioteca"]
+  timeout = 26
+
+[functions."api/trafego/interests/jarvis-analisar"]
+  timeout = 26
+
+[functions."api/trafego/publicos-aprovados"]
+  timeout = 26
+
 [functions."api/meta/catalog"]
   timeout = 26
 

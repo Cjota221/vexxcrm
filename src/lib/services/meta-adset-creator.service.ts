@@ -907,3 +907,43 @@ export async function criarCampanhaCatalogo(
 
   return { campaignId, adsetId, adId };
 }
+
+/* ─── Buscar Público Aprovado ────────────────────────────────────────────────── */
+
+/**
+ * Busca um público aprovado pelo tenant no Supabase e retorna o targeting
+ * pronto para uso em campanhas. Se meta_audience_id estiver preenchido,
+ * o campo custom_audiences é incluído no targeting para usar o saved_audience.
+ *
+ * @param tenantId - UUID do tenant
+ * @param publicoId - UUID do público aprovado
+ * @returns Objeto targeting completo ou null se não encontrado
+ */
+export async function buscarPublicoAprovado(
+  tenantId: string,
+  publicoId: string,
+): Promise<Record<string, unknown> | null> {
+  const supabase = createServerSupabaseClient();
+
+  const { data, error } = await supabase
+    .from('meta_publicos_aprovados')
+    .select('targeting, meta_audience_id, status, nome')
+    .eq('id', publicoId)
+    .eq('tenant_id', tenantId)
+    .single();
+
+  if (error || !data) return null;
+  if (data.status === 'arquivado') return null;
+
+  const targeting = (data.targeting as Record<string, unknown>) ?? {};
+
+  // Se o público foi publicado na Meta como saved_audience, inclui o ID
+  if (data.meta_audience_id) {
+    return {
+      ...targeting,
+      custom_audiences: [{ id: data.meta_audience_id }],
+    };
+  }
+
+  return targeting;
+}
