@@ -891,9 +891,12 @@ export async function criarCampanhaMultiplosConjuntos(
       ...(targetingCompleto.custom_audiences ? { custom_audiences: targetingCompleto.custom_audiences } : {}),
     };
 
-    // Criar adset
-    // OUTCOME_AWARENESS (frio/REACH) não suporta targeting_automation
-    const isFrioAdset = conjunto.tipo === 'frio';
+    // targeting_automation: { advantage_audience: 0 } é obrigatório para todos os tipos
+    const targetingComAutomacao = {
+      ...targetingSimples,
+      targeting_automation: { advantage_audience: 0 },
+    };
+
     console.log('[DEBUG ADSET PAYLOAD COMPLETO]', JSON.stringify({
       name: `${cfg.nome} — ${tipoLabel}`,
       campaign_id: campanha.id,
@@ -901,12 +904,10 @@ export async function criarCampanhaMultiplosConjuntos(
       optimization_goal: optGoal,
       billing_event: 'IMPRESSIONS',
       bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
-      targeting: {
-        ...targetingSimples,
-        ...(!isFrioAdset ? { targeting_automation: { advantage_audience: 0 } } : {}),
-      },
+      targeting: targetingComAutomacao,
       status: 'PAUSED',
     }, null, 2));
+
     const adset = await metaPost(`${META_BASE}/${actId}/adsets`, {
       name: `${cfg.nome} — ${tipoLabel}`,
       campaign_id: campanha.id,
@@ -914,10 +915,7 @@ export async function criarCampanhaMultiplosConjuntos(
       optimization_goal: optGoal,
       billing_event: 'IMPRESSIONS',
       bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
-      targeting: {
-        ...targetingSimples,
-        ...(!isFrioAdset ? { targeting_automation: { advantage_audience: 0 } } : {}),
-      },
+      targeting: targetingComAutomacao,
       status: 'PAUSED',
     }, token);
     if (!adset.id) throw new Error(`Erro adset ${tipoLabel}: ${adset.error?.message}`);
