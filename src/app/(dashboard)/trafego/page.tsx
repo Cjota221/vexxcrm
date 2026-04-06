@@ -4348,9 +4348,9 @@ export default function TrafegoPage() {
         )}
 
         {/* ─── Layout de duas colunas ─────────────────────────────────────── */}
-        <div className="flex gap-4 items-start">
+        <div className="flex gap-5 items-start mt-4">
 
-          {/* Conteúdo principal — ~80% */}
+          {/* Conteúdo principal */}
           <div className="flex-1 min-w-0">
             <div className="bg-white rounded-2xl border border-gray-100">
               <div className="p-5">
@@ -4359,45 +4359,64 @@ export default function TrafegoPage() {
             </div>
           </div>
 
-          {/* Menu lateral direito — fixo */}
-          <div className="w-48 shrink-0">
-            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden sticky top-6">
-              <div className="px-3 py-3 border-b border-gray-100">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Módulos</p>
+          {/* Menu lateral direito */}
+          <div className="w-52 shrink-0">
+            <div
+              className="rounded-2xl overflow-hidden sticky top-6"
+              style={{ backgroundColor: '#1e3a5f' }}
+            >
+              {/* Header */}
+              <div className="px-4 py-4 border-b border-white/10">
+                <p className="text-[10px] font-bold text-white/50 uppercase tracking-widest">
+                  Módulos
+                </p>
               </div>
-              <nav className="py-2">
+
+              {/* Itens */}
+              <nav className="p-2 space-y-0.5">
                 {([
-                  { key: 'campanhas',  label: 'Campanhas',    icon: Target },
-                  { key: 'criativos',  label: 'Criativos',    icon: ImageIcon },
-                  { key: 'publicos',   label: 'Públicos',     icon: Users },
-                  { key: 'textos',     label: 'Textos',       icon: FileText },
-                  { key: 'analise',    label: 'Análise',      icon: Zap },
-                  { key: 'relatorio',  label: 'Relatório',    icon: BarChart3 },
-                  { key: 'agente',     label: 'Agente',       icon: Bot },
-                  { key: 'aprovacoes', label: 'Aprovações',   icon: CheckCircle, badge: pendentes },
-                  { key: 'leads',      label: 'Leads',        icon: CloudDownload },
-                  { key: 'config',     label: 'Configurações',icon: Settings },
-                ] as Array<{ key: Tab; label: string; icon: React.ElementType; badge?: number }>).map(item => (
-                  <button
-                    key={item.key}
-                    onClick={() => setTab(item.key)}
-                    className={cn(
-                      'w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-all text-sm',
-                      tab === item.key
-                        ? 'bg-[#1e3a5f]/8 text-[#1e3a5f] font-medium border-r-2 border-[#1e3a5f]'
-                        : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'
-                    )}
-                  >
-                    <item.icon size={15} className="shrink-0" />
-                    <span className="truncate">{item.label}</span>
-                    {item.badge !== undefined && item.badge > 0 && (
-                      <span className="ml-auto w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center shrink-0">
-                        {item.badge}
-                      </span>
-                    )}
-                  </button>
-                ))}
+                  { key: 'campanhas',  label: 'Campanhas',     icon: Target },
+                  { key: 'criativos',  label: 'Criativos',     icon: ImageIcon },
+                  { key: 'publicos',   label: 'Públicos',      icon: Users },
+                  { key: 'textos',     label: 'Textos',        icon: FileText },
+                  { key: 'analise',    label: 'Análise',       icon: Zap },
+                  { key: 'relatorio',  label: 'Relatório',     icon: BarChart3 },
+                  { key: 'agente',     label: 'Agente',        icon: Bot },
+                  { key: 'aprovacoes', label: 'Aprovações',    icon: CheckCircle, badge: pendentes },
+                  { key: 'leads',      label: 'Leads',         icon: CloudDownload },
+                  { key: 'config',     label: 'Configurações', icon: Settings },
+                ] as Array<{ key: Tab; label: string; icon: React.ElementType; badge?: number }>).map(item => {
+                  const ativo = tab === item.key;
+                  return (
+                    <button
+                      key={item.key}
+                      onClick={() => setTab(item.key)}
+                      className={cn(
+                        'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-150 relative',
+                        ativo
+                          ? 'bg-white/15 text-white'
+                          : 'text-white/70 hover:bg-white/10 hover:text-white'
+                      )}
+                    >
+                      <item.icon
+                        size={17}
+                        className={cn('shrink-0 transition-colors', ativo ? 'text-white' : 'text-white/60')}
+                      />
+                      <span className="text-sm font-medium truncate">{item.label}</span>
+                      {item.badge !== undefined && item.badge > 0 && (
+                        <span className="ml-auto w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center shrink-0">
+                          {item.badge > 9 ? '9+' : item.badge}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </nav>
+
+              {/* Footer */}
+              <div className="px-4 py-3 border-t border-white/10 mt-1">
+                <p className="text-[10px] text-white/30">Tráfego v2.0</p>
+              </div>
             </div>
           </div>
 
