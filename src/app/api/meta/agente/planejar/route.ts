@@ -15,6 +15,7 @@ import {
 } from '@/lib/services/jarvis-campanha-planner';
 
 export async function POST(req: NextRequest) {
+  console.log('[Planejar Route] INICIO');
   try {
     const { profile } = await getTenantFromRequest(req);
     const tenantId = profile.tenant_id;
@@ -24,6 +25,8 @@ export async function POST(req: NextRequest) {
       objetivo?: string;
       orcamento_total?: number;
     };
+
+    console.log('[Planejar Route] body recebido:', JSON.stringify(body));
 
     const { criativo_ids, objetivo, orcamento_total } = body;
 
@@ -43,13 +46,19 @@ export async function POST(req: NextRequest) {
       .eq('tenant_id', tenantId)
       .in('id', criativo_ids);
 
+    console.log('[Planejar Route] criativos encontrados no banco:', criativos?.length ?? 0);
+
     if (criativosError) {
+      console.error('[Planejar Route] Erro ao buscar criativos:', criativosError.message);
       return NextResponse.json({ error: criativosError.message }, { status: 500 });
     }
 
     if (!criativos || criativos.length === 0) {
       return NextResponse.json({ error: 'Nenhum criativo encontrado' }, { status: 404 });
     }
+
+    const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+    console.log('[Planejar Route] anthropicApiKey existe:', !!anthropicApiKey);
 
     const criativosMapped: CriativoSelecionado[] = criativos.map(c => ({
       id: c.id,
@@ -61,6 +70,7 @@ export async function POST(req: NextRequest) {
       classificacao: c.classificacao as CriativoSelecionado['classificacao'],
     }));
 
+    console.log('[Planejar Route] Chamando jarvisPlanejarCampanha...');
     const plano = await jarvisPlanejarCampanha(
       tenantId,
       criativosMapped,
@@ -68,10 +78,13 @@ export async function POST(req: NextRequest) {
       orcamento_total,
     );
 
+    console.log('[Planejar Route] Plano gerado OK — conjuntos:', plano.conjuntos?.length);
     return NextResponse.json(plano);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error('[/api/meta/agente/planejar]', msg);
+    const stack = err instanceof Error ? err.stack : undefined;
+    console.error('[Planejar Route] ERRO:', msg);
+    if (stack) console.error('[Planejar Route] Stack:', stack);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

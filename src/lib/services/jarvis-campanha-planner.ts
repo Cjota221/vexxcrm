@@ -83,6 +83,9 @@ export async function jarvisPlanejarCampanha(
   orcamentoTotal: number,
   anthropicApiKey?: string,
 ): Promise<PlanoCampanha> {
+  console.log('[Jarvis Planner] INICIO — criativos:', criativos.length, 'objetivo:', objetivo);
+
+  try {
   const client = getAnthropicClient(anthropicApiKey);
   const criativosResumidos = criativos.map(c => ({
     id: c.id,
@@ -99,6 +102,9 @@ export async function jarvisPlanejarCampanha(
 
   const abortCtrl = new AbortController();
   const timeoutId = setTimeout(() => abortCtrl.abort(), 20000);
+
+  console.log('[Jarvis Planner] Chamando Anthropic API...');
+  const startAnthro = Date.now();
 
   let response: Awaited<ReturnType<typeof client.messages.create>>;
   try {
@@ -137,14 +143,21 @@ JSON exato (sem markdown):
     clearTimeout(timeoutId);
   }
 
+  console.log('[Jarvis Planner] Anthropic respondeu em', Date.now() - startAnthro, 'ms');
+  console.log('[Jarvis Planner] stop_reason:', response!.stop_reason);
+
   const text = response!.content[0].type === 'text' ? response!.content[0].text : '{}';
   const clean = text.replace(/```json|```/g, '').trim();
+
+  console.log('[Jarvis Planner] Response body raw:', text.slice(0, 500));
+  console.log('[Jarvis Planner] Parseando JSON...');
 
   let jarvisRaw: JarvisResposta;
   try {
     jarvisRaw = JSON.parse(clean) as JarvisResposta;
-  } catch {
-    // Fallback: distribuição automática por score
+    console.log('[Jarvis Planner] JSON parseado OK — conjuntos:', jarvisRaw.conjuntos?.length);
+  } catch (parseErr) {
+    console.warn('[Jarvis Planner] Falha no parse, usando fallback. Erro:', String(parseErr));
     jarvisRaw = fallbackDistribuicao(criativos, objetivo, orcamentoTotal);
   }
 
@@ -172,7 +185,10 @@ JSON exato (sem markdown):
     copy_por_conjunto: jarvisRaw.copy_por_conjunto ?? {},
   };
 
+  console.log('[Jarvis Planner] Plano montado — conjuntos:', conjuntos.length);
+
   // Salvar plano na memória do Jarvis — fire-and-forget (não bloqueia o retorno)
+  console.log('[Jarvis Planner] Salvando na jarvis_memoria...');
   const supabase = createServerSupabaseClient();
   supabase.from('jarvis_memoria').insert({
     tenant_id: tenantId,
@@ -194,6 +210,12 @@ JSON exato (sem markdown):
 
   // Retornar imediatamente sem esperar o save
   return plano;
+
+  } catch (err) {
+    console.error('[Jarvis Planner] ERRO COMPLETO:', err);
+    console.error('[Jarvis Planner] Stack:', err instanceof Error ? err.stack : String(err));
+    throw err;
+  }
 }
 
 /* ─── Fallback sem IA ────────────────────────────────────────────────────── */
