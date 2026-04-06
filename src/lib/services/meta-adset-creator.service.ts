@@ -205,8 +205,8 @@ async function criarAdset(
     daily_budget:      String(cfg.orcamentoDiario),
     optimization_goal: tipoCfg.optimization_goal,
     billing_event:     tipoCfg.billing_event,
-    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
     targeting:         targetingFinal,
+    targeting_automation: { advantage_audience: 0 },
     status: 'PAUSED',
   };
 
@@ -232,6 +232,10 @@ export async function criarAdCreative(
   actId: string,
   cfg: ConfiguracaoCriativo,
 ): Promise<string> {
+  if (!cfg.pageId) {
+    throw new Error('Page ID não configurado. Acesse Tráfego → Configurações e configure o Page ID da sua página do Facebook.');
+  }
+
   let object_story_spec: Record<string, unknown>;
 
   const callToAction: Record<string, unknown> = {
@@ -726,8 +730,8 @@ export async function criarCampanhaMultiplosConjuntos(
       daily_budget: String(conjunto.orcamentoDiario),
       optimization_goal: optGoal,
       billing_event: conjunto.tipo === 'frio' ? 'IMPRESSIONS' : 'LINK_CLICKS',
-      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
       targeting: targetingSimples,
+      targeting_automation: { advantage_audience: 0 },
       status: 'PAUSED',
     }, token);
     if (!adset.id) throw new Error(`Erro adset ${tipoLabel}: ${adset.error?.message}`);
@@ -845,7 +849,6 @@ export async function criarCampanhaCatalogo(
     daily_budget:      String(cfg.orcamentoDiario),
     optimization_goal: 'CATALOG_SALE',
     billing_event:     'IMPRESSIONS',
-    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
     promoted_object: {
       product_set_id: productSetId,
     },
@@ -854,6 +857,7 @@ export async function criarCampanhaCatalogo(
       age_max:       cfg.idadeMax ?? 65,
       geo_locations: { countries: cfg.paises ?? ['BR'] },
     },
+    targeting_automation: { advantage_audience: 0 },
     status: 'PAUSED',
   };
   console.log('[CATALOGO ADSET PAYLOAD]', JSON.stringify(adsetPayload, null, 2));

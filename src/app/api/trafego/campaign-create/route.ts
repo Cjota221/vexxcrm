@@ -8,7 +8,7 @@ import { META_BASE } from '@/lib/meta-config';
 // Complex fields (targeting, object_story_spec, creative, call_to_action, special_ad_categories)
 // must be JSON-stringified as individual form values.
 const FORM_COMPLEX_FIELDS = new Set([
-  'targeting', 'object_story_spec', 'creative', 'call_to_action',
+  'targeting', 'targeting_automation', 'object_story_spec', 'creative', 'call_to_action',
   'special_ad_categories', 'link_data', 'promoted_object',
 ]);
 
@@ -119,7 +119,6 @@ export async function POST(req: NextRequest) {
       objective: objetivoNormalizado,
       status: 'PAUSED',
       special_ad_categories: [],
-      is_adset_budget_sharing_enabled: 0,  // 0/1 p/ form-encoded: evita string "false" interpretada como truthy
       access_token: token,
     });
 
@@ -153,7 +152,7 @@ export async function POST(req: NextRequest) {
       optimization_goal: optimizationGoal,
       daily_budget: String(orcamentoCentavos),
       targeting,
-      targeting_automation: { advantage_audience: 0 },
+      targeting_automation: { advantage_audience: 0 },  // desabilita Advantage+ automático
       start_time: new Date(body.data_inicio).toISOString(),
       ...(body.data_fim ? { end_time: new Date(body.data_fim).toISOString() } : {}),
       status: 'PAUSED',
