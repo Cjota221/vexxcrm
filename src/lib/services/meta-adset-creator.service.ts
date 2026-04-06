@@ -67,33 +67,25 @@ const CONFIG_POR_TIPO = {
     objetivo:          'OUTCOME_AWARENESS',
     optimization_goal: 'REACH',
     billing_event:     'IMPRESSIONS',
-    placements: {
-      publisher_platforms: ['facebook', 'instagram'],
-    },
+    placements: { publisher_platforms: ['facebook', 'instagram'] },
   },
   quente: {
     objetivo:          'OUTCOME_TRAFFIC',
     optimization_goal: 'LINK_CLICKS',
-    billing_event:     'LINK_CLICKS',   // Meta exige billing=LINK_CLICKS quando optimization=LINK_CLICKS
-    placements: {
-      publisher_platforms: ['facebook', 'instagram'],
-    },
+    billing_event:     'IMPRESSIONS',
+    placements: { publisher_platforms: ['facebook', 'instagram'] },
   },
   whatsapp: {
     objetivo:          'OUTCOME_TRAFFIC',
     optimization_goal: 'LINK_CLICKS',
-    billing_event:     'LINK_CLICKS',   // Meta exige billing=LINK_CLICKS quando optimization=LINK_CLICKS
-    placements: {
-      publisher_platforms: ['facebook', 'instagram'],
-    },
+    billing_event:     'IMPRESSIONS',
+    placements: { publisher_platforms: ['facebook', 'instagram'] },
   },
   catalogo: {
     objetivo:          'OUTCOME_SALES',
-    optimization_goal: 'CATALOG_SALE',  // OFFSITE_CONVERSIONS exige pixel; CATALOG_SALE não
+    optimization_goal: 'CATALOG_SALE',
     billing_event:     'IMPRESSIONS',
-    placements: {
-      publisher_platforms: ['facebook', 'instagram'],
-    },
+    placements: { publisher_platforms: ['facebook', 'instagram'] },
   },
 } as const;
 
