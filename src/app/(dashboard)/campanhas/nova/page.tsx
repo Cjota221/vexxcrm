@@ -1638,10 +1638,11 @@ function NovaCampanhaInner() {
   // Carrega contatos de um segmento e faz union com os já existentes (sem duplicatas por id)
   const carregarSegmento = useCallback(async (nomeSegmento: string, offsetUsado: number, limit: number): Promise<Contato[]> => {
     const page = Math.floor(offsetUsado / limit) + 1;
-    const { data } = await api.get<Record<string, unknown>>(
+    const { data, error: apiError } = await api.get<Record<string, unknown>>(
       '/api/intelligence/rfm/clients',
       { segment: nomeSegmento, page: String(page), limit: String(limit) }
     );
+    if (apiError) throw new Error(apiError);
     const paginationData = (data as Record<string, unknown>)?.pagination as Record<string, unknown> | undefined;
     const totalCount = (paginationData?.total as number) ?? 0;
     setTotalSegmento(prev => Math.max(prev, totalCount));
@@ -1664,6 +1665,7 @@ function NovaCampanhaInner() {
       : [...segmentosRFM, seg.nome];
 
     setSegmentosRFM(novosSegmentos);
+    setErro('');
 
     if (novosSegmentos.length === 0) {
       setContatos([]);
@@ -1689,8 +1691,9 @@ function NovaCampanhaInner() {
         }
       }
       setContatos(union);
-    } catch {
-      // silencia erro
+    } catch (err) {
+      console.error('[toggleSegmento] Erro ao carregar contatos:', err);
+      setErro(err instanceof Error ? err.message : 'Erro ao carregar contatos do segmento');
     } finally {
       setCarregandoContatos(false);
     }
