@@ -206,7 +206,7 @@ async function criarAdset(
     daily_budget:      String(cfg.orcamentoDiario),
     optimization_goal: tipoCfg.optimization_goal,
     billing_event:     tipoCfg.billing_event,
-    bid_strategy:      'LOWEST_COST_WITHOUT_BID_CAP',
+    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
     targeting:         targetingFinal,
     targeting_automation: { advantage_audience: 0 },
     status: 'PAUSED',
