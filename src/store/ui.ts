@@ -14,6 +14,11 @@ interface UIState {
   /** Toast messages */
   toasts: Toast[];
 
+  /** Aba ativa no módulo de Tráfego Pago */
+  trafegoTab: string;
+  /** Aprovações pendentes no módulo de Tráfego */
+  trafegoPendentes: number;
+
   /** Toggle sidebar */
   toggleSidebar: () => void;
   setSidebarExpanded: (expanded: boolean) => void;
@@ -33,6 +38,10 @@ interface UIState {
   /** Toasts */
   addToast: (toast: Omit<Toast, 'id'>) => void;
   removeToast: (id: string) => void;
+
+  /** Tráfego */
+  setTrafegoTab: (tab: string) => void;
+  setTrafegoPendentes: (count: number) => void;
 }
 
 export interface Toast {
@@ -50,6 +59,8 @@ export const useUIStore = create<UIState>()((set) => ({
   activeModal: null,
   modalData: null,
   toasts: [],
+  trafegoTab: 'campanhas',
+  trafegoPendentes: 0,
 
   toggleSidebar: () =>
     set((state) => ({ sidebarExpanded: !state.sidebarExpanded })),
@@ -87,4 +98,7 @@ export const useUIStore = create<UIState>()((set) => ({
     set((state) => ({
       toasts: state.toasts.filter((t) => t.id !== id),
     })),
+
+  setTrafegoTab: (tab) => set({ trafegoTab: tab }),
+  setTrafegoPendentes: (count) => set({ trafegoPendentes: count }),
 }));
