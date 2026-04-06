@@ -430,15 +430,16 @@ export async function publicarRascunho(
 
     console.log(`[JARVIS] Base de conhecimento carregada: ${docsCarregados.length} documentos`);
 
-    // Buscar apiKey do tenant (estratégia: banco > env var)
+    // Buscar apiKey do tenant (estratégia: anthropic_api_key banco > strategy_api_key banco > env var)
     const { data: aiConfig } = await supabase
       .from('ai_provider_config')
-      .select('analytics_api_key, anthropic_api_key')
+      .select('anthropic_api_key, strategy_api_key')
       .eq('tenant_id', tenantId)
       .maybeSingle();
 
-    const jarvisApiKey = (aiConfig as Record<string, string> | null)?.anthropic_api_key
-      || (aiConfig as Record<string, string> | null)?.analytics_api_key
+    const aiCfg = aiConfig as Record<string, string | null> | null;
+    const jarvisApiKey = aiCfg?.anthropic_api_key
+      || aiCfg?.strategy_api_key
       || process.env.ANTHROPIC_API_KEY;
 
     if (!jarvisApiKey) {
@@ -453,6 +454,10 @@ export async function publicarRascunho(
     let publicoMetaId: string | undefined = draft.publico_id ?? undefined;
     let targetingAprovado: Record<string, unknown> | undefined = undefined;
     let publicoNome = 'público selecionado';
+
+    // Declarar fora dos blocos condicionais para ficarem acessíveis no log final
+    let jarvisDecisao: string | null = null;
+    let jarvisCopy: string | null = null;
 
     if (!publicoMetaId) {
       // Buscar TODOS os públicos aprovados para o tipo (não só o mais recente)
@@ -474,7 +479,6 @@ export async function publicarRascunho(
 
       // Jarvis escolhe o melhor público quando há mais de um e apiKey disponível
       let publicoEscolhido = publicosDisponiveis[0];
-      let jarvisDecisao: string | null = null;
 
       if (publicosDisponiveis.length > 1 && jarvisApiKey) {
         try {
@@ -540,7 +544,7 @@ export async function publicarRascunho(
     let texto    = draft.copy_texto?.trim() || '';
     let cta      = draft.copy_cta || '';
 
-    let jarvisCopy: string | null = null;
+    // jarvisCopy já declarado no escopo externo acima
 
     if ((!headline || !texto) && jarvisApiKey) {
       try {
