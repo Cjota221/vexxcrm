@@ -20,6 +20,7 @@ import { supabase } from '@/lib/supabase';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { Card } from '@/components/ui/Card';
+import { MonthlyStatsStrip, MonthlyStatsStripSkeleton } from '@/components/dashboard/monthly-stats-strip';
 import type { DashboardKPIs } from '@/types';
 
 /**
@@ -134,6 +135,7 @@ export default function DashboardPage() {
             <div key={i} className="h-24 bg-surface-200 rounded-2xl animate-pulse" />
           ))}
         </div>
+        <MonthlyStatsStripSkeleton />
       </div>
     );
   }
@@ -162,6 +164,9 @@ export default function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      {/* Faturamento Mensal */}
+      <MonthlyStatsStrip />
 
       {/* Links rápidos */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
