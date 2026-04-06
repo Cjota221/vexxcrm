@@ -889,7 +889,7 @@ export async function criarCampanhaMultiplosConjuntos(
       daily_budget: String(conjunto.orcamentoDiario),
       optimization_goal: optGoal,
       billing_event: conjunto.tipo === 'frio' ? 'IMPRESSIONS' : 'LINK_CLICKS',
-      bid_strategy: 'LOWEST_COST_WITHOUT_BID_CAP',
+      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
       targeting: targetingSimples,
       targeting_automation: { advantage_audience: 0 },
       status: 'PAUSED',
