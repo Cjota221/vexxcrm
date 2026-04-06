@@ -882,6 +882,19 @@ export async function criarCampanhaMultiplosConjuntos(
     // Criar adset
     // OUTCOME_AWARENESS (frio/REACH) não suporta targeting_automation
     const isFrioAdset = conjunto.tipo === 'frio';
+    console.log('[DEBUG ADSET PAYLOAD COMPLETO]', JSON.stringify({
+      name: `${cfg.nome} — ${tipoLabel}`,
+      campaign_id: campanha.id,
+      daily_budget: String(conjunto.orcamentoDiario),
+      optimization_goal: optGoal,
+      billing_event: 'IMPRESSIONS',
+      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+      targeting: {
+        ...targetingSimples,
+        ...(!isFrioAdset ? { targeting_automation: { advantage_audience: 0 } } : {}),
+      },
+      status: 'PAUSED',
+    }, null, 2));
     const adset = await metaPost(`${META_BASE}/${actId}/adsets`, {
       name: `${cfg.nome} — ${tipoLabel}`,
       campaign_id: campanha.id,
