@@ -1,12 +1,17 @@
 /**
  * POST /api/meta/analisar-imagem
- * Analisa uma imagem criativa via GPT-4o-mini vision e salva classificação.
+ * Analisa uma imagem criativa via Claude Haiku Vision (Anthropic) e salva classificação.
  * Body: { criativoId: string, imageUrl: string, fonte: 'ad_creatives' | 'meta_creatives_cache' }
+ *
+ * Migrado de OpenAI GPT-4o-mini Vision para Anthropic claude-haiku-4-5-20251001.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { createServerSupabaseClient } from '@/lib/supabase';
+import Anthropic from '@anthropic-ai/sdk';
+
+const HAIKU_MODEL = process.env.JARVIS_MODEL ?? 'claude-haiku-4-5-20251001';
 
 interface Classificacao {
   tipo_conteudo: string;
@@ -42,45 +47,59 @@ export async function POST(req: NextRequest) {
 
   console.log('[ANALISAR IMAGEM] criativoId:', body.criativoId, 'url:', body.imageUrl?.substring(0, 50));
 
-  const openaiKey = process.env.OPENAI_API_KEY;
-  if (!openaiKey) {
-    return NextResponse.json({ error: 'OPENAI_API_KEY não configurada' }, { status: 500 });
+  // Buscar API key do banco ou env
+  const supabase = createServerSupabaseClient();
+  const { data: configData } = await supabase
+    .from('ai_provider_config')
+    .select('visual_api_key')
+    .eq('tenant_id', tenantId)
+    .single();
+
+  const anthropicKey = configData?.visual_api_key || process.env.ANTHROPIC_API_KEY;
+  if (!anthropicKey) {
+    return NextResponse.json({ error: 'ANTHROPIC_API_KEY não configurada' }, { status: 500 });
   }
 
   try {
     // Baixar imagem no servidor e converter para base64
-    // URLs do Meta CDN expiram e exigem auth — OpenAI não consegue baixar diretamente
-    let imagePayload: { url: string };
+    // URLs do Meta CDN expiram e exigem auth — Anthropic não consegue baixar diretamente
+    let base64: string;
+    let mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' = 'image/jpeg';
+
     try {
       const imgRes = await fetch(body.imageUrl, { signal: AbortSignal.timeout(10_000) });
       if (!imgRes.ok) throw new Error(`HTTP ${imgRes.status}`);
       const contentType = imgRes.headers.get('content-type') ?? 'image/jpeg';
       const buffer = await imgRes.arrayBuffer();
-      const base64 = Buffer.from(buffer).toString('base64');
-      imagePayload = { url: `data:${contentType};base64,${base64}` };
+      base64 = Buffer.from(buffer).toString('base64');
+
+      if (contentType.includes('png')) mediaType = 'image/png';
+      else if (contentType.includes('gif')) mediaType = 'image/gif';
+      else if (contentType.includes('webp')) mediaType = 'image/webp';
     } catch (downloadErr) {
-      console.warn('[ANALISAR IMAGEM] Falha ao baixar imagem, tentando URL direta:', downloadErr);
-      imagePayload = { url: body.imageUrl };
+      console.warn('[ANALISAR IMAGEM] Falha ao baixar imagem:', downloadErr);
+      return NextResponse.json({ error: 'Não foi possível baixar a imagem para análise' }, { status: 422 });
     }
 
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${openaiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'image_url',
-              image_url: imagePayload,
+    const client = new Anthropic({ apiKey: anthropicKey });
+
+    const response = await client.messages.create({
+      model: HAIKU_MODEL,
+      max_tokens: 400,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: mediaType,
+              data: base64,
             },
-            {
-              type: 'text',
-              text: `Você é especialista em marketing digital para moda feminina e calçados no Brasil.
+          },
+          {
+            type: 'text',
+            text: `Você é especialista em marketing digital para moda feminina e calçados no Brasil.
 Analise esta imagem criativa para anúncio e retorne APENAS JSON válido, sem markdown:
 {
   "tipo_conteudo": "produto|lifestyle|oferta|institucional|depoimento",
@@ -93,27 +112,14 @@ Analise esta imagem criativa para anúncio e retorne APENAS JSON válido, sem ma
   "recomendacao_uso": "Onde usar este criativo"
 }
 Critérios de score 0-10: frio=novos clientes que nunca compraram, quente=remarketing para quem já visitou, whatsapp=mensagens diretas convertendo em venda.`,
-            },
-          ],
-        }],
-        max_tokens: 300,
-      }),
-      signal: AbortSignal.timeout(20_000),
-    });
+          },
+        ],
+      }],
+    }, { signal: AbortSignal.timeout(20_000) as AbortSignal });
 
-    const data = await res.json() as {
-      choices?: Array<{ message: { content: string } }>;
-      error?: { message: string };
-    };
-
-    if (data.error) {
-      return NextResponse.json({ error: data.error.message }, { status: 400 });
-    }
-
-    const content = data.choices?.[0]?.message?.content ?? '';
+    const content = response.content[0].type === 'text' ? response.content[0].text : '';
     let classificacao: Classificacao;
     try {
-      // Remover blocos de código markdown se presentes
       const json = content.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
       classificacao = JSON.parse(json) as Classificacao;
     } catch {
@@ -121,7 +127,6 @@ Critérios de score 0-10: frio=novos clientes que nunca compraram, quente=remark
     }
 
     // Salvar classificação
-    const supabase = createServerSupabaseClient();
     const tabela = fonte === 'meta_creatives_cache' ? 'meta_creatives_cache' : 'ad_creatives';
 
     await supabase

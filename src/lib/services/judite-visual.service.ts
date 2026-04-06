@@ -1,9 +1,11 @@
-// AGENTE JUDITE — avaliadora de criativos visuais (OpenAI GPT-4o-mini Vision).
+// AGENTE JUDITE — avaliadora de criativos visuais (Anthropic Claude Haiku Vision).
 //         Analisa imagens de anúncios e retorna nota 1-10, pontos positivos/negativos
-//         e sugestões de melhoria. Usa GPT-4o-mini com visão multimodal.
-//         Usa fetch diretamente (padrão do projeto).
+//         e sugestões de melhoria. Usa claude-haiku-4-5-20251001 com visão multimodal.
+//         Migrado de OpenAI GPT-4o-mini Vision para Anthropic Claude.
 
-const OPENAI_BASE = 'https://api.openai.com/v1';
+import Anthropic from '@anthropic-ai/sdk';
+
+const HAIKU_MODEL = process.env.JARVIS_MODEL ?? 'claude-haiku-4-5-20251001';
 
 /* ─── Tipos ────────────────────────────────────────────────────────────────── */
 
@@ -40,22 +42,44 @@ Retorne APENAS JSON válido com este formato:
   "elementos_criticos": ["string (problemas urgentes)"]
 }`;
 
+/* ─── Helper: baixar imagem e converter para base64 ────────────────────────── */
+
+async function downloadImageAsBase64(
+  imageUrl: string,
+): Promise<{ base64: string; mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' }> {
+  const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(10_000) });
+  if (!imgRes.ok) throw new Error(`Falha ao baixar imagem: HTTP ${imgRes.status}`);
+  const contentType = imgRes.headers.get('content-type') ?? 'image/jpeg';
+  const buffer = await imgRes.arrayBuffer();
+  const base64 = Buffer.from(buffer).toString('base64');
+
+  // Mapear content-type para o formato aceito pelo Anthropic
+  let mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' = 'image/jpeg';
+  if (contentType.includes('png')) mediaType = 'image/png';
+  else if (contentType.includes('gif')) mediaType = 'image/gif';
+  else if (contentType.includes('webp')) mediaType = 'image/webp';
+
+  return { base64, mediaType };
+}
+
 /* ─── Função principal ──────────────────────────────────────────────────────── */
 
 /**
- * AGENTE JUDITE — Avalia um criativo visual com GPT-4o-mini Vision.
+ * AGENTE JUDITE — Avalia um criativo visual com Claude Haiku Vision (Anthropic).
  *
- * @param imageUrl    - URL pública da imagem do anúncio
+ * @param imageUrl    - URL pública da imagem do anúncio (será baixada e convertida para base64)
  * @param adContext   - Contexto do anúncio (nome, objetivo, produto)
- * @param apiKey      - OpenAI API Key (usa OPENAI_API_KEY env var se não fornecida)
+ * @param apiKey      - Anthropic API Key (usa ai_provider_config.visual_api_key ou ANTHROPIC_API_KEY)
  */
 export async function juditeEvaluateCreative(
   imageUrl: string,
   adContext: { adName?: string; produto?: string; objetivo?: string },
   apiKey?: string,
 ): Promise<VisualEvaluation> {
-  const key = apiKey || process.env.OPENAI_API_KEY;
-  if (!key) throw new Error('OPENAI_API_KEY não configurada para a Judite');
+  const key = apiKey || process.env.ANTHROPIC_API_KEY;
+  if (!key) throw new Error('ANTHROPIC_API_KEY não configurada para a Judite');
+
+  const client = new Anthropic({ apiKey: key });
 
   const contextText = [
     adContext.adName && `Anúncio: ${adContext.adName}`,
@@ -63,42 +87,46 @@ export async function juditeEvaluateCreative(
     adContext.objetivo && `Objetivo: ${adContext.objetivo}`,
   ].filter(Boolean).join(' | ');
 
-  const userMessage = `Avalie este criativo de anúncio.${contextText ? `\nContexto: ${contextText}` : ''}`;
+  const userText = `Avalie este criativo de anúncio.${contextText ? `\nContexto: ${contextText}` : ''}`;
 
-  const response = await fetch(`${OPENAI_BASE}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${key}`,
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
+  // Baixar imagem e converter para base64 (Anthropic não aceita URLs externas diretamente)
+  const { base64, mediaType } = await downloadImageAsBase64(imageUrl);
+
+  let text = '';
+  try {
+    const response = await client.messages.create({
+      model: HAIKU_MODEL,
       max_tokens: 1000,
-      temperature: 0.3,
-      messages: [
-        { role: 'system', content: JUDITE_SYSTEM_PROMPT },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: userMessage },
-            { type: 'image_url', image_url: { url: imageUrl, detail: 'low' } },
-          ],
-        },
-      ],
-    }),
-  });
+      system: JUDITE_SYSTEM_PROMPT,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: mediaType,
+              data: base64,
+            },
+          },
+          { type: 'text', text: userText },
+        ],
+      }],
+    });
 
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({})) as { error?: { message?: string } };
-    throw new Error(err.error?.message || `OpenAI HTTP ${response.status}`);
+    text = response.content[0].type === 'text' ? response.content[0].text : '';
+  } catch (err) {
+    return {
+      nota: 5,
+      aprovado: false,
+      pontos_positivos: [],
+      pontos_negativos: ['Erro ao processar imagem com a IA'],
+      sugestoes: String(err).slice(0, 300),
+      elementos_criticos: [],
+    };
   }
 
-  const data = await response.json() as {
-    choices: Array<{ message: { content: string } }>;
-  };
-
-  const text = data.choices[0]?.message?.content || '';
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  const jsonMatch = text.replace(/```json|```/g, '').trim().match(/\{[\s\S]*\}/);
 
   if (!jsonMatch) {
     return {

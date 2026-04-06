@@ -7,6 +7,7 @@ import { createServerSupabaseClient } from '@/lib/supabase';
 import { fetchCampaignMetrics, testMetaConnection, pauseAd } from './meta-ads.service';
 import { mudarOrcamento } from './meta-editor.service';
 import { jarvisAnalisarCampanhas, jarvisGerarEstrategia } from './jarvis-trafego.service';
+import { analisarCampanhaComIA } from './analise-campanha.service';
 import type { BrandContext } from './claudio-strategist.service';
 import type { JoseAnalysis } from './jose-analyst.service';
 import type { ClaudioStrategy, AIAction, GeneratedCopy } from './claudio-strategist.service';
@@ -19,6 +20,7 @@ export interface AITeamRunResult {
   joseAnalysis: JoseAnalysis | null;
   claudioStrategy: ClaudioStrategy | null;
   pedroResearch: null;
+  campanhaPipelineActions: number;
   actionsCreated: number;
   copiesCreated: number;
   errors: string[];
@@ -214,6 +216,7 @@ export async function runFullAnalysis(
   let claudioStrategy: ClaudioStrategy | null = null;
   let actionsCreated = 0;
   let copiesCreated = 0;
+  let campanhaPipelineActions = 0;
 
   const runId = await createRunRecord(tenantId);
 
@@ -223,7 +226,7 @@ export async function runFullAnalysis(
     if (!config) {
       errors.push('Tenant sem configuração de IA (ai_provider_config não encontrado)');
       await updateRunRecord(runId, { status: 'failed', error_message: errors[0] });
-      return { runId, tenantId, joseAnalysis, claudioStrategy, pedroResearch: null, actionsCreated, copiesCreated, errors, durationMs: Date.now() - t0 };
+      return { runId, tenantId, joseAnalysis, claudioStrategy, pedroResearch: null, campanhaPipelineActions, actionsCreated, copiesCreated, errors, durationMs: Date.now() - t0 };
     }
 
     // ── 2. Jarvis: buscar métricas + analisar ────────────────────────────
@@ -268,6 +271,19 @@ export async function runFullAnalysis(
       }
     }
 
+    // ── 5b. Pipeline José+Cláudio+Pedro (análise CRM, públicos, tendências) ─
+    // Roda em paralelo ao Jarvis. Resultados vão para ai_action_queue.
+    try {
+      const campanha = await analisarCampanhaComIA(tenantId);
+      campanhaPipelineActions = campanha.actionsCreated;
+      if (campanha.errors.length > 0) {
+        errors.push(...campanha.errors.map(e => `Pipeline CRM: ${e}`));
+      }
+    } catch (err) {
+      errors.push(`Pipeline CRM (José+Cláudio+Pedro): ${String(err)}`);
+      console.error('[Orchestrator] Pipeline CRM falhou:', err);
+    }
+
     // ── 6. Atualizar registro do run ─────────────────────────────────────
     await updateRunRecord(runId, {
       metrics_snapshot: metrics,
@@ -294,7 +310,7 @@ export async function runFullAnalysis(
     console.error('[Orchestrator] Erro fatal:', err);
   }
 
-  return { runId, tenantId, joseAnalysis, claudioStrategy, pedroResearch: null, actionsCreated, copiesCreated, errors, durationMs: Date.now() - t0 };
+  return { runId, tenantId, joseAnalysis, claudioStrategy, pedroResearch: null, campanhaPipelineActions, actionsCreated, copiesCreated, errors, durationMs: Date.now() - t0 };
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
