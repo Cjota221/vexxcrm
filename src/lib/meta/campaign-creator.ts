@@ -133,16 +133,20 @@ export async function createAdSet(
 
   // targeting_automation fica DENTRO de targeting (validado v25.0)
   const targeting: Record<string, unknown> = {
-    geo_locations:       { countries: ['BR'] },
-    age_min:             params.ageMin ?? 25,
-    age_max:             params.ageMax ?? 55,
-    genders:             [2],
-    publisher_platforms: ['facebook', 'instagram'],
-    facebook_positions:  ['feed'],
-    instagram_positions: ['stream', 'story', 'reels'],
+    geo_locations:        { countries: ['BR'] },
+    age_min:              params.ageMin ?? 25,
+    age_max:              params.ageMax ?? 55,
+    genders:              [2],
+    publisher_platforms:  ['facebook', 'instagram'],
+    facebook_positions:   ['feed'],
+    instagram_positions:  ['stream', 'story', 'reels'],
     targeting_automation: { advantage_audience: 0 },
-    interests:           params.interests ?? [],
   };
+
+  // Só adiciona interests se tiver IDs reais
+  if (params.interests && params.interests.length > 0) {
+    targeting.flexible_spec = [{ interests: params.interests }];
+  }
 
   const data = await metaPost<{ id: string }>(
     `${META_AD_ACCOUNT}/adsets`,
