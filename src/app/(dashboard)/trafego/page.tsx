@@ -29,7 +29,7 @@ import {
   Clock, ChevronRight, ChevronLeft, Copy, Pause, Play, Users,
   Image as ImageIcon, FileText, BarChart3, Zap, Target, X,
   Edit2, DollarSign, Loader2, ChevronDown, AlertOctagon, CloudDownload,
-  Plus, Globe, Wand2, Settings, Bot, Link,
+  Plus, Globe, Wand2, Settings, Bot, Link, Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -4057,6 +4057,28 @@ export default function TrafegoPage() {
     finally { setSyncing(false); }
   }
 
+  async function handleDeleteCampaign(campaign: Campaign) {
+    if (!confirm(`Deletar "${campaign.nome}"? Esta ação não pode ser desfeita.`)) return;
+    try {
+      const res = await authFetch(`/api/trafego/editor`, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'deletar_campanha', campaign_id: campaign.id }),
+      });
+      const json = await res.json() as { ok?: boolean; error?: string };
+      if (json.ok) {
+        handleActionComplete(`Campanha "${campaign.nome}" deletada.`);
+        setData(prev => prev ? {
+          ...prev,
+          campaigns: (prev.campaigns || []).filter(c => c.id !== campaign.id),
+        } : prev);
+      } else {
+        setActionFeedback(`Erro: ${json.error || 'Não foi possível deletar'}`);
+      }
+    } catch (e) {
+      setActionFeedback(`Erro: ${String(e)}`);
+    }
+  }
+
   function handleActionComplete(message: string) {
     setActionFeedback(message);
     setTimeout(() => setActionFeedback(null), 5000);
@@ -4174,6 +4196,13 @@ export default function TrafegoPage() {
                                     className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 flex items-center gap-1 whitespace-nowrap transition-colors"
                                   >
                                     Gerir <ChevronRight size={12} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteCampaign(c)}
+                                    className="p-1.5 rounded-lg border border-red-100 text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                                    title="Deletar campanha"
+                                  >
+                                    <Trash2 size={12} />
                                   </button>
                                   <button
                                     onClick={async () => {
