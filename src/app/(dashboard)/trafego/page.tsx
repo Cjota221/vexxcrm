@@ -3986,6 +3986,8 @@ export default function TrafegoPage() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'ACTIVE' | 'PAUSED' | 'WITH_ISSUES' | 'PENDING_REVIEW'>('all');
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [metaPageId, setMetaPageId] = useState('');
+  const [selectedCampaignIds, setSelectedCampaignIds] = useState<Set<string>>(new Set());
+  const [deletingBulk, setDeletingBulk] = useState(false);
   useEffect(() => {
     authFetch('/api/trafego/config/page-id')
       .then(r => r.json())
@@ -4082,6 +4084,43 @@ export default function TrafegoPage() {
     }
   }
 
+  async function handleDeleteBulk() {
+    if (selectedCampaignIds.size === 0) return;
+    if (!confirm(`Deletar ${selectedCampaignIds.size} campanha(s)? Esta ação não pode ser desfeita.`)) return;
+    setDeletingBulk(true);
+    const ids = Array.from(selectedCampaignIds);
+    let deletedCount = 0;
+    const errors: string[] = [];
+    for (const id of ids) {
+      try {
+        const res = await authFetch(`/api/trafego/editor`, {
+          method: 'POST',
+          body: JSON.stringify({ action: 'deletar_campanha', campaign_id: id }),
+        });
+        const json = await res.json() as { ok?: boolean; error?: string };
+        if (json.ok) {
+          deletedCount++;
+        } else {
+          errors.push(json.error || id);
+        }
+      } catch (e) {
+        errors.push(String(e));
+      }
+    }
+    setData(prev => prev ? {
+      ...prev,
+      campaigns: (prev.campaigns || []).filter(c => !selectedCampaignIds.has(c.id)),
+    } : prev);
+    setSelectedCampaignIds(new Set());
+    setDeletingBulk(false);
+    if (errors.length > 0) {
+      setActionFeedback(`${deletedCount} deletada(s). Erros: ${errors.join(', ')}`);
+    } else {
+      setActionFeedback(`${deletedCount} campanha(s) deletada(s) com sucesso.`);
+      setTimeout(() => setActionFeedback(null), 5000);
+    }
+  }
+
   function handleActionComplete(message: string) {
     setActionFeedback(message);
     setTimeout(() => setActionFeedback(null), 5000);
@@ -4157,11 +4196,51 @@ export default function TrafegoPage() {
               if (filtered.length === 0) return (
                 <div className="text-center py-8 text-gray-400 text-sm">Nenhuma campanha com este status</div>
               );
+              const allFilteredSelected = filtered.length > 0 && filtered.every(c => selectedCampaignIds.has(c.id));
+              const someSelected = selectedCampaignIds.size > 0;
               return (
+                <div className="space-y-2">
+                  {someSelected && (
+                    <div className="flex items-center gap-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
+                      <span className="text-xs text-blue-700 font-medium">{selectedCampaignIds.size} selecionada(s)</span>
+                      <button
+                        onClick={handleDeleteBulk}
+                        disabled={deletingBulk}
+                        className="flex items-center gap-1 text-xs px-3 py-1 rounded-lg bg-red-500 text-white hover:bg-red-600 disabled:opacity-50 transition-colors"
+                      >
+                        <Trash2 size={11} />
+                        {deletingBulk ? 'Deletando...' : 'Deletar selecionadas'}
+                      </button>
+                      <button
+                        onClick={() => setSelectedCampaignIds(new Set())}
+                        className="text-xs text-blue-500 hover:text-blue-700 transition-colors ml-auto"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  )}
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-gray-100">
+                        <th className="pb-3 pr-2 w-6">
+                          <input
+                            type="checkbox"
+                            checked={allFilteredSelected}
+                            onChange={e => {
+                              if (e.target.checked) {
+                                setSelectedCampaignIds(prev => new Set([...prev, ...filtered.map(c => c.id)]));
+                              } else {
+                                setSelectedCampaignIds(prev => {
+                                  const next = new Set(prev);
+                                  filtered.forEach(c => next.delete(c.id));
+                                  return next;
+                                });
+                              }
+                            }}
+                            className="cursor-pointer accent-[#1e3a5f]"
+                          />
+                        </th>
                         <th className="text-left text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">Campanha</th>
                         <th className="text-left text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">Status</th>
                         <th className="text-left text-[10px] font-semibold text-gray-600 uppercase tracking-widest pb-3">Saúde</th>
@@ -4174,9 +4253,25 @@ export default function TrafegoPage() {
                     <tbody className="divide-y divide-gray-100">
                       {filtered.map((c) => {
                         const isExpanded = expandedCampaignId === c.id;
+                        const isChecked = selectedCampaignIds.has(c.id);
                         return (
                           <React.Fragment key={c.id}>
-                            <tr className="hover:bg-gray-50 transition-colors group">
+                            <tr className={cn('hover:bg-gray-50 transition-colors group', isChecked && 'bg-blue-50/50')}>
+                              <td className="py-3 pr-2">
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={e => {
+                                    setSelectedCampaignIds(prev => {
+                                      const next = new Set(prev);
+                                      if (e.target.checked) next.add(c.id);
+                                      else next.delete(c.id);
+                                      return next;
+                                    });
+                                  }}
+                                  className="cursor-pointer accent-[#1e3a5f]"
+                                />
+                              </td>
                               <td className="py-3 pr-4">
                                 <div className="font-medium text-gray-800 text-sm">{c.nome}</div>
                                 {c.alerts.length > 0 && (
@@ -4241,7 +4336,7 @@ export default function TrafegoPage() {
                             </tr>
                             {isExpanded && (
                               <tr key={`${c.id}-drill`}>
-                                <td colSpan={7} className="p-0">
+                                <td colSpan={8} className="p-0">
                                   <div className="bg-[#161b24] border-t border-[#242d40] px-6 py-4">
                                     {drillLoading ? (
                                       <div className="flex items-center gap-2 text-gray-400 text-xs py-2">
@@ -4313,6 +4408,7 @@ export default function TrafegoPage() {
                       })}
                     </tbody>
                   </table>
+                </div>
                 </div>
               );
             })()}
