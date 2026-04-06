@@ -1502,6 +1502,8 @@ function NovaCampanhaInner() {
   const [gruposSelecionados, setGruposSelecionados] = useState<GrupoWA[]>([]);
   const [carregandoContatos, setCarregandoContatos] = useState(false);
   const [segmentosRFM, setSegmentosRFM] = useState<string[]>(segmentoParam ? [segmentoParam] : []);
+  // Ref para cancelar fetches antigos quando o usuário clica em múltiplos segmentos
+  const fetchIdRef = useRef(0);
   const [distribuicaoRFM, setDistribuicaoRFM] = useState<Record<string, number>>({});
   const [carregandoDistribuicao, setCarregandoDistribuicao] = useState(false);
   const [blocos, setBlocos] = useState<Bloco[]>([]);
@@ -1657,14 +1659,16 @@ function NovaCampanhaInner() {
     }));
   }, []);
 
-  // Toggle de segmento: adiciona ou remove da lista e recarrega contatos em union
+  // Toggle de segmento: usa functional update para evitar stale closure +
+  // fetch ID para descartar resultados de cliques anteriores (race condition).
   const toggleSegmento = useCallback(async (seg: { nome: string; label: string }, offsetOverride?: number) => {
-    const jaAtivo = segmentosRFM.includes(seg.nome);
-    const novosSegmentos = jaAtivo
-      ? segmentosRFM.filter(s => s !== seg.nome)
-      : [...segmentosRFM, seg.nome];
-
-    setSegmentosRFM(novosSegmentos);
+    // Functional update: sempre lê o estado atual, sem depender do closure
+    let novosSegmentos: string[] = [];
+    setSegmentosRFM(prev => {
+      const jaAtivo = prev.includes(seg.nome);
+      novosSegmentos = jaAtivo ? prev.filter(s => s !== seg.nome) : [...prev, seg.nome];
+      return novosSegmentos;
+    });
     setErro('');
 
     if (novosSegmentos.length === 0) {
@@ -1673,15 +1677,21 @@ function NovaCampanhaInner() {
       return;
     }
 
+    // Incrementa ID — qualquer fetch com ID menor será descartado ao completar
+    fetchIdRef.current += 1;
+    const meuFetchId = fetchIdRef.current;
+
     setCarregandoContatos(true);
     setTotalSegmento(0);
     try {
       const offsetUsado = offsetOverride ?? segmentoOffset;
       const limit = segmentoLote;
-      // Carrega contatos de cada segmento ativo em paralelo
       const resultados = await Promise.all(
         novosSegmentos.map(nome => carregarSegmento(nome, offsetUsado, limit))
       );
+      // Se um fetch mais recente já começou, ignorar este resultado
+      if (fetchIdRef.current !== meuFetchId) return;
+
       // Union sem duplicatas (por id)
       const vistos = new Set<string>();
       const union: Contato[] = [];
@@ -1692,12 +1702,13 @@ function NovaCampanhaInner() {
       }
       setContatos(union);
     } catch (err) {
+      if (fetchIdRef.current !== meuFetchId) return;
       console.error('[toggleSegmento] Erro ao carregar contatos:', err);
       setErro(err instanceof Error ? err.message : 'Erro ao carregar contatos do segmento');
     } finally {
-      setCarregandoContatos(false);
+      if (fetchIdRef.current === meuFetchId) setCarregandoContatos(false);
     }
-  }, [segmentosRFM, segmentoOffset, segmentoLote, carregarSegmento]);
+  }, [segmentoOffset, segmentoLote, carregarSegmento]);
 
   // Pré-carrega contatos se veio da Inteligência via segmentoParam
   useEffect(() => {
