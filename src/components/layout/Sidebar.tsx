@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
+import { useEffect } from 'react';
 import {
   Users,
   Megaphone,
@@ -57,7 +58,17 @@ const NAV_ITEMS: NavItem[] = [
  */
 export function Sidebar() {
   const pathname = usePathname();
-  const { sidebarExpanded, toggleSidebar, mobileSidebarOpen, setMobileSidebarOpen } = useUIStore();
+  const { sidebarExpanded, toggleSidebar, setSidebarExpanded, mobileSidebarOpen, setMobileSidebarOpen } = useUIStore();
+
+  const isTrafego = pathname?.startsWith('/trafego');
+
+  // Auto-colapsa a sidebar global ao entrar no módulo de Tráfego Pago
+  // para dar lugar ao menu contextual de duplo nível
+  useEffect(() => {
+    if (isTrafego) {
+      setSidebarExpanded(false);
+    }
+  }, [isTrafego, setSidebarExpanded]);
 
   // Fecha o drawer quando navega em telas mobile
   const handleNavClick = () => setMobileSidebarOpen(false);
@@ -165,13 +176,15 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* ─── BOTÃO COLAPSAR — apenas no desktop ─── */}
-      <button
-        onClick={toggleSidebar}
-        className="absolute -right-3 top-20 w-6 h-6 bg-crm-primary border border-white/20 rounded-full hidden md:flex items-center justify-center shadow-sm hover:shadow-md transition-shadow text-white/70 hover:text-white z-10"
-      >
-        {sidebarExpanded ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
-      </button>
+      {/* ─── BOTÃO COLAPSAR — apenas no desktop, oculto no módulo Tráfego ─── */}
+      {!isTrafego && (
+        <button
+          onClick={toggleSidebar}
+          className="absolute -right-3 top-20 w-6 h-6 bg-crm-primary border border-white/20 rounded-full hidden md:flex items-center justify-center shadow-sm hover:shadow-md transition-shadow text-white/70 hover:text-white z-10"
+        >
+          {sidebarExpanded ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
+        </button>
+      )}
     </aside>
     </>
   );

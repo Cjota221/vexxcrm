@@ -12,6 +12,7 @@ import { AgenteTrafegoPanel } from '@/components/meta/AgenteTrafegoPanel';
 import { FilaAprovacao } from '@/components/meta/FilaAprovacao';
 import { InicializadorPublicos } from '@/components/meta/InicializadorPublicos';
 import { BibliotecaInteresses } from '@/components/meta/BibliotecaInteresses';
+import { useUIStore } from '@/store/ui';
 
 function authFetch(url: string, options?: RequestInit): Promise<Response> {
   const token = useAuthStore.getState().accessToken;
@@ -3960,15 +3961,17 @@ export default function TrafegoPage() {
   const [data, setData] = useState<MetricsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>('campanhas');
-  const [pendentes, setPendentes] = useState(0);
+
+  // Aba ativa gerenciada no store global para que o TrafegoContextMenu
+  // (renderizado no layout pai) possa lê-la e alterá-la de forma independente.
+  const { trafegoTab: tab, setTrafegoTab: setTab, setTrafegoPendentes } = useUIStore();
 
   useEffect(() => {
     authFetch('/api/meta/campanhas/fila')
       .then(r => r.json())
-      .then((data: unknown) => setPendentes(Array.isArray(data) ? data.length : 0))
+      .then((data: unknown) => setTrafegoPendentes(Array.isArray(data) ? data.length : 0))
       .catch(() => {});
-  }, []);
+  }, [setTrafegoPendentes]);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   const [expandedCampaignId, setExpandedCampaignId] = useState<string | null>(null);
   const [drillAdsets, setDrillAdsets] = useState<MetaAdset[]>([]);
@@ -4317,8 +4320,8 @@ export default function TrafegoPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="w-full px-4 py-6 space-y-4">
+    <div className="min-h-full bg-gray-50">
+      <div className="w-full px-5 py-5 space-y-4">
 
         {/* ─── Cabeçalho ─────────────────────────────────────────────────── */}
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
@@ -4563,79 +4566,13 @@ export default function TrafegoPage() {
           </div>
         )}
 
-        {/* ─── Layout de duas colunas ─────────────────────────────────────── */}
-        <div className="flex gap-5 items-start mt-4">
-
-          {/* Conteúdo principal */}
-          <div className="flex-1 min-w-0">
-            <div className="bg-white rounded-2xl border border-gray-100">
-              <div className="p-5">
-                {renderSecao()}
-              </div>
+        {/* ─── Área de trabalho (ocupa toda a largura disponível) ─────────── */}
+        <div className="mt-4">
+          <div className="bg-white rounded-2xl border border-gray-100">
+            <div className="p-5">
+              {renderSecao()}
             </div>
           </div>
-
-          {/* Menu lateral direito */}
-          <div className="w-52 shrink-0">
-            <div
-              className="rounded-2xl overflow-hidden sticky top-6"
-              style={{ backgroundColor: '#1e3a5f' }}
-            >
-              {/* Header */}
-              <div className="px-4 py-4 border-b border-white/10">
-                <p className="text-[10px] font-bold text-white/50 uppercase tracking-widest">
-                  Módulos
-                </p>
-              </div>
-
-              {/* Itens */}
-              <nav className="p-2 space-y-0.5">
-                {([
-                  { key: 'campanhas',  label: 'Campanhas',     icon: Target },
-                  { key: 'criativos',  label: 'Criativos',     icon: ImageIcon },
-                  { key: 'publicos',   label: 'Públicos',      icon: Users },
-                  { key: 'textos',     label: 'Textos',        icon: FileText },
-                  { key: 'analise',    label: 'Análise',       icon: Zap },
-                  { key: 'relatorio',  label: 'Relatório',     icon: BarChart3 },
-                  { key: 'agente',     label: 'Agente',        icon: Bot },
-                  { key: 'aprovacoes', label: 'Aprovações',    icon: CheckCircle, badge: pendentes },
-                  { key: 'leads',      label: 'Leads',         icon: CloudDownload },
-                  { key: 'config',     label: 'Configurações', icon: Settings },
-                ] as Array<{ key: Tab; label: string; icon: React.ElementType; badge?: number }>).map(item => {
-                  const ativo = tab === item.key;
-                  return (
-                    <button
-                      key={item.key}
-                      onClick={() => setTab(item.key)}
-                      className={cn(
-                        'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-150 relative',
-                        ativo
-                          ? 'bg-white/15 text-white'
-                          : 'text-white/70 hover:bg-white/10 hover:text-white'
-                      )}
-                    >
-                      <item.icon
-                        size={17}
-                        className={cn('shrink-0 transition-colors', ativo ? 'text-white' : 'text-white/60')}
-                      />
-                      <span className="text-sm font-medium truncate">{item.label}</span>
-                      {item.badge !== undefined && item.badge > 0 && (
-                        <span className="ml-auto w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center shrink-0">
-                          {item.badge > 9 ? '9+' : item.badge}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </nav>
-
-              {/* Footer */}
-              <div className="px-4 py-3 border-t border-white/10 mt-1">
-                <p className="text-[10px] text-white/30">Tráfego v2.0</p>
-              </div>
-            </div>
-          </div>
-
         </div>
 
         {/* ─── Pedro — Sazonalidade ────────────────────────────────────────── */}
