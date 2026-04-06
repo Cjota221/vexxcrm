@@ -411,7 +411,7 @@ export async function publicarRascunho(
     : `act_${config.account_id}`;
 
   try {
-    // 0. Carregar base de conhecimento do Jarvis (26 documentos)
+    // 0. Carregar base de conhecimento do Jarvis + apiKey do tenant
     const { data: conhecimentos } = await supabase
       .from('jarvis_knowledge')
       .select('titulo, conteudo, categoria')
@@ -419,12 +419,31 @@ export async function publicarRascunho(
       .eq('ativo', true)
       .limit(30);
 
-    const baseConhecimento = (conhecimentos ?? [])
-      .map(k => `[${(k as Record<string, string>).categoria}] ${(k as Record<string, string>).titulo}: ${(k as Record<string, string>).conteudo}`)
-      .join('\n\n')
-      .slice(0, 6000); // limite para não estourar tokens
+    const docsCarregados = conhecimentos ?? [];
+    // Usar length > 0 para evitar falsy bug com string vazia
+    const baseConhecimento = docsCarregados.length > 0
+      ? docsCarregados
+          .map(k => `[${(k as Record<string, string>).categoria}] ${(k as Record<string, string>).titulo}: ${(k as Record<string, string>).conteudo}`)
+          .join('\n\n')
+          .slice(0, 6000)
+      : undefined; // undefined → Jarvis usa apenas system prompt base
 
-    console.log(`[JARVIS] Base de conhecimento carregada: ${(conhecimentos ?? []).length} documentos`);
+    console.log(`[JARVIS] Base de conhecimento carregada: ${docsCarregados.length} documentos`);
+
+    // Buscar apiKey do tenant (estratégia: banco > env var)
+    const { data: aiConfig } = await supabase
+      .from('ai_provider_config')
+      .select('analytics_api_key, anthropic_api_key')
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+
+    const jarvisApiKey = (aiConfig as Record<string, string> | null)?.anthropic_api_key
+      || (aiConfig as Record<string, string> | null)?.analytics_api_key
+      || process.env.ANTHROPIC_API_KEY;
+
+    if (!jarvisApiKey) {
+      console.warn('[JARVIS] API key Anthropic não encontrada — Jarvis desabilitado para esta publicação');
+    }
 
     // 1. Criar campanha
     const campaignId = await criarCampanha(token, actId, draft.nome, draft.objetivo);
@@ -453,31 +472,39 @@ export async function publicarRascunho(
         );
       }
 
-      // Jarvis escolhe o melhor público quando há mais de um
+      // Jarvis escolhe o melhor público quando há mais de um e apiKey disponível
       let publicoEscolhido = publicosDisponiveis[0];
-      if (publicosDisponiveis.length > 1) {
+      let jarvisDecisao: string | null = null;
+
+      if (publicosDisponiveis.length > 1 && jarvisApiKey) {
         try {
           const selecao = await jarvisSelecionarPublico(
             tipoCampanha,
             publicosDisponiveis,
             {
-              objetivo:              draft.objetivo,
+              objetivo:               draft.objetivo,
               orcamento_diario_reais: Math.round((draft.orcamento_diario ?? 3000) / 100),
-              idade_min:             draft.idade_min ?? 18,
-              idade_max:             draft.idade_max ?? 65,
-              genero:                draft.genero ?? 'all',
+              idade_min:              draft.idade_min ?? 18,
+              idade_max:              draft.idade_max ?? 65,
+              genero:                 draft.genero ?? 'all',
             },
-            undefined, // apiKey — usa env
+            jarvisApiKey,
             baseConhecimento,
           );
           const encontrado = publicosDisponiveis.find(p => p.id === selecao.publico_id);
           if (encontrado) {
             publicoEscolhido = encontrado;
-            console.log(`[JARVIS] Público selecionado: ${selecao.nome} — ${selecao.justificativa}`);
+            jarvisDecisao = `Público: ${selecao.nome} — ${selecao.justificativa}`;
+            console.log(`[JARVIS] ✅ ${jarvisDecisao}`);
           }
         } catch (e) {
-          console.warn('[JARVIS] Falha ao selecionar público, usando o mais recente:', e);
+          jarvisDecisao = `Fallback: primeiro público (erro Jarvis: ${e instanceof Error ? e.message : String(e)})`;
+          console.warn('[JARVIS] ⚠️ Falha ao selecionar público:', e);
         }
+      } else if (!jarvisApiKey) {
+        jarvisDecisao = 'Jarvis desabilitado: API key não configurada';
+      } else {
+        jarvisDecisao = `Apenas 1 público disponível: ${publicosDisponiveis[0].nome}`;
       }
 
       publicoNome = publicoEscolhido.nome ?? 'público selecionado';
@@ -513,29 +540,49 @@ export async function publicarRascunho(
     let texto    = draft.copy_texto?.trim() || '';
     let cta      = draft.copy_cta || '';
 
-    if (!headline || !texto) {
+    let jarvisCopy: string | null = null;
+
+    if ((!headline || !texto) && jarvisApiKey) {
       try {
         const copyGerada = await jarvisGerarCopyRapida(
           {
-            objetivo:       draft.objetivo,
-            tipo_campanha:  tipoCampanha,
-            publico_nome:   publicoNome,
-            tipo_criativo:  criativo.tipo as 'video' | 'imagem',
-            url_destino:    draft.url_destino ?? undefined,
+            objetivo:      draft.objetivo,
+            tipo_campanha: tipoCampanha,
+            publico_nome:  publicoNome,
+            tipo_criativo: criativo.tipo as 'video' | 'imagem',
+            url_destino:   draft.url_destino ?? undefined,
           },
-          undefined, // apiKey — usa env
+          jarvisApiKey,
           baseConhecimento,
         );
-        headline = headline || copyGerada.headline;
-        texto    = texto    || copyGerada.texto;
-        cta      = cta      || copyGerada.cta;
-        console.log(`[JARVIS] Copy gerada — headline: "${headline}" | cta: ${cta}`);
+        // Validar CTA contra objetivo para evitar rejeição da Meta
+        const ctasValidos: Record<string, string[]> = {
+          MESSAGES:        ['WHATSAPP_MESSAGE', 'LEARN_MORE'],
+          LEAD_GENERATION: ['SIGN_UP', 'LEARN_MORE', 'GET_OFFER'],
+          LINK_CLICKS:     ['LEARN_MORE', 'SHOP_NOW', 'GET_OFFER'],
+          CONVERSIONS:     ['SHOP_NOW', 'LEARN_MORE', 'BUY_NOW'],
+          BRAND_AWARENESS: ['LEARN_MORE'],
+        };
+        const ctasPermitidos = ctasValidos[draft.objetivo] ?? ['LEARN_MORE'];
+        const ctaValidado = ctasPermitidos.includes(copyGerada.cta) ? copyGerada.cta : ctasPermitidos[0];
+
+        headline    = headline || copyGerada.headline;
+        texto       = texto    || copyGerada.texto;
+        cta         = cta      || ctaValidado;
+        jarvisCopy  = `Copy gerada por Jarvis — headline: "${headline}" | cta: ${cta}`;
+        console.log(`[JARVIS] ✅ ${jarvisCopy}`);
       } catch (e) {
-        console.warn('[JARVIS] Falha ao gerar copy, usando fallback:', e);
-        headline = headline || draft.nome;
-        texto    = texto    || 'Rasteirinhas femininas no atacado. Revenda e lucre.';
-        cta      = cta      || 'LEARN_MORE';
+        headline   = headline || draft.nome;
+        texto      = texto    || 'Rasteirinhas femininas no atacado. Revenda e lucre.';
+        cta        = cta      || 'LEARN_MORE';
+        jarvisCopy = `Fallback hardcoded (erro Jarvis: ${e instanceof Error ? e.message : String(e)})`;
+        console.warn('[JARVIS] ⚠️ Falha ao gerar copy:', e);
       }
+    } else if (!jarvisApiKey) {
+      headline = headline || draft.nome;
+      texto    = texto    || 'Rasteirinhas femininas no atacado. Revenda e lucre.';
+      cta      = cta      || 'LEARN_MORE';
+      jarvisCopy = 'Jarvis desabilitado: API key não configurada';
     }
 
     const cfgCriativo: ConfiguracaoCriativo = {
@@ -555,7 +602,8 @@ export async function publicarRascunho(
     // 4. Criar ad
     const adId = await criarAd(token, actId, adsetId, creativeId, draft.nome);
 
-    // 5. Salvar resultado
+    // 5. Salvar resultado + log das decisões do Jarvis
+    const jarvisLog = [jarvisDecisao, jarvisCopy].filter(Boolean).join(' | ');
     await supabase
       .from('meta_campaign_drafts')
       .update({
@@ -564,6 +612,7 @@ export async function publicarRascunho(
         meta_adset_id:    adsetId,
         meta_ad_id:       adId,
         erro:             null,
+        ...(jarvisLog ? { jarvis_log: jarvisLog } : {}),
       })
       .eq('id', draftId);
 

@@ -9,11 +9,23 @@ import type { JoseAnalysis } from './jose-analyst.service';
 import type { ClaudioStrategy } from './claudio-strategist.service';
 import type { ClaudioAudienceConfig } from './claudio-audience-creator.service';
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
-
 const JARVIS_MODEL = process.env.JARVIS_MODEL ?? 'claude-haiku-4-5-20251001';
+
+/**
+ * Retorna cliente Anthropic usando apiKey fornecida, variável de ambiente, ou lança erro claro.
+ * Nunca inicializa no nível de módulo para evitar crash quando env var está ausente.
+ */
+function getAnthropicClient(apiKey?: string): Anthropic {
+  const key = apiKey ?? process.env.ANTHROPIC_API_KEY;
+  if (!key) {
+    throw new Error(
+      'API key da Anthropic não configurada. ' +
+      'Adicione ANTHROPIC_API_KEY nas variáveis de ambiente do Netlify ' +
+      'ou configure em Configurações → Integrações de IA.',
+    );
+  }
+  return new Anthropic({ apiKey: key });
+}
 
 const JARVIS_TRAFEGO_SYSTEM = `Você é o JARVIS, motor de inteligência de tráfego pago da CJ Rasteirinhas.
 
@@ -30,7 +42,7 @@ export async function jarvisAnalisarCampanhas(
   metrics: unknown[],
   apiKey?: string,
 ): Promise<JoseAnalysis> {
-  const client = apiKey ? new Anthropic({ apiKey }) : anthropic;
+  const client = getAnthropicClient(apiKey);
 
   const response = await client.messages.create({
     model: JARVIS_MODEL,
@@ -74,7 +86,7 @@ export async function jarvisGerarEstrategia(
   brandContext: { produto: string; publico: string; ticket: string; objetivo: string },
   apiKey?: string,
 ): Promise<ClaudioStrategy> {
-  const client = apiKey ? new Anthropic({ apiKey }) : anthropic;
+  const client = getAnthropicClient(apiKey);
 
   const response = await client.messages.create({
     model: JARVIS_MODEL,
@@ -131,7 +143,7 @@ export async function jarvisGerarResumoPerformance(
   resumo_executivo: string;
   acoes_urgentes: Array<{ campanha_nome: string; acao: string; motivo: string; urgencia: string }>;
 }> {
-  const client = apiKey ? new Anthropic({ apiKey }) : anthropic;
+  const client = getAnthropicClient(apiKey);
 
   const response = await client.messages.create({
     model: JARVIS_MODEL,
@@ -188,7 +200,7 @@ export async function jarvisSelecionarPublico(
   apiKey?: string,
   baseConhecimento?: string,
 ): Promise<{ publico_id: string; nome: string; justificativa: string }> {
-  const client = apiKey ? new Anthropic({ apiKey }) : anthropic;
+  const client = getAnthropicClient(apiKey);
 
   const conhecimentoExtra = baseConhecimento
     ? `\n\nBASE DE CONHECIMENTO DO NEGÓCIO:\n${baseConhecimento}`
@@ -240,7 +252,7 @@ export async function jarvisGerarCopyRapida(
   apiKey?: string,
   baseConhecimento?: string,
 ): Promise<{ headline: string; texto: string; cta: string }> {
-  const client = apiKey ? new Anthropic({ apiKey }) : anthropic;
+  const client = getAnthropicClient(apiKey);
 
   const ctaOpcoes = contexto.objetivo === 'MESSAGES' ? 'WHATSAPP_MESSAGE' :
     contexto.objetivo === 'LEAD_GENERATION' ? 'SIGN_UP' : 'LEARN_MORE';
@@ -294,7 +306,7 @@ export async function jarvisAnalisarParaPublicos(
   dadosCRM: unknown,
   apiKey?: string,
 ): Promise<ClaudioAudienceConfig & { analise_resumo: string }> {
-  const client = apiKey ? new Anthropic({ apiKey }) : anthropic;
+  const client = getAnthropicClient(apiKey);
 
   const response = await client.messages.create({
     model: JARVIS_MODEL,
