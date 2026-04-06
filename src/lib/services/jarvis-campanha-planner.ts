@@ -87,16 +87,17 @@ export async function jarvisPlanejarCampanha(
 
   try {
   const client = getAnthropicClient(anthropicApiKey);
-  const criativosResumidos = criativos.map(c => ({
+
+  // Payload mínimo — só o que o Jarvis precisa pra decidir
+  const criativosSimplificados = criativos.map(c => ({
     id: c.id,
-    nome: c.nome,
+    nome: c.nome.slice(0, 30),
     tipo: c.tipo,
     scores: c.classificacao ? {
       frio:     c.classificacao.adequacao_publico_frio,
       quente:   c.classificacao.adequacao_publico_quente,
       whatsapp: c.classificacao.adequacao_whatsapp,
       tem_cta:  c.classificacao.tem_cta,
-      resumo:   c.classificacao.resumo ?? '',
     } : null,
   }));
 
@@ -111,30 +112,19 @@ export async function jarvisPlanejarCampanha(
     response = await client.messages.create(
       {
         model: JARVIS_MODEL,
-        max_tokens: 1000,
-    system: `Você é o Jarvis, o agente de tráfego da CJ Rasteirinhas.
-CJ Rasteirinhas é uma fábrica de rasteirinhas femininas em Goiânia.
-Público: revendedoras mulheres, 25-55 anos, Brasil.
-Sua tarefa: distribuir criativos entre conjuntos de anúncios de forma inteligente.
-
-Regras:
-- Cada conjunto precisa de no mínimo 3 criativos
-- Sempre criar 3 conjuntos: frio, quente e whatsapp
-- Público FRIO: criativos com alto score frio — vídeos com hooks fortes
-- Público QUENTE: criativos com alto score quente — vídeos de prova social
-- WhatsApp: criativos com alto score whatsapp — vídeos diretos com CTA claro
-- Criativos podem ser usados em mais de um conjunto
-- Se tiver menos de 9 criativos, duplicar os melhores para completar os conjuntos
-- Distribuir orçamento: 40% frio, 30% quente, 30% whatsapp
-
-Responda APENAS em JSON válido, sem markdown, sem explicação fora do JSON.`,
+        max_tokens: 2500,
+    system: `Jarvis, agente de tráfego da CJ Rasteirinhas (rasteirinhas femininas, Goiânia, revendedoras 25-55 anos).
+Distribua os criativos em 3 conjuntos: frio (40% orç), quente (30%), whatsapp (30%).
+Mínimo 3 criativos por conjunto. Pode repetir criativos entre conjuntos.
+IMPORTANTE: JSON MÍNIMO — justificativa máx 15 palavras, resumo_estrategia máx 20 palavras, headline máx 8 palavras, texto máx 15 palavras. JSON precisa caber em 800 tokens.
+Responda APENAS JSON válido, sem markdown.`,
       messages: [{
         role: 'user',
-        content: `Criativos: ${JSON.stringify(criativosResumidos)}
-Objetivo: ${objetivo} | Orçamento: R$${orcamentoTotal}/dia
+        content: `Criativos: ${JSON.stringify(criativosSimplificados)}
+Obj: ${objetivo} | Orç: R$${orcamentoTotal}/dia
 
-JSON exato (sem markdown):
-{"nome_sugerido":"","resumo_estrategia":"2 frases","conjuntos":[{"tipo":"frio","label":"Público Frio","criativo_ids":[],"justificativa":"","orcamento_sugerido":${Math.round(orcamentoTotal * 0.4)}},{"tipo":"quente","label":"Público Quente","criativo_ids":[],"justificativa":"","orcamento_sugerido":${Math.round(orcamentoTotal * 0.3)}},{"tipo":"whatsapp","label":"WhatsApp","criativo_ids":[],"justificativa":"","orcamento_sugerido":${Math.round(orcamentoTotal * 0.3)}}],"copy_por_conjunto":{"frio":{"headline":"","texto":"","cta":"LEARN_MORE"},"quente":{"headline":"","texto":"","cta":"LEARN_MORE"},"whatsapp":{"headline":"","texto":"","cta":"WHATSAPP_MESSAGE"}}}`,
+JSON:
+{"nome_sugerido":"","resumo_estrategia":"","conjuntos":[{"tipo":"frio","label":"Público Frio","criativo_ids":[],"justificativa":"","orcamento_sugerido":${Math.round(orcamentoTotal * 0.4)}},{"tipo":"quente","label":"Público Quente","criativo_ids":[],"justificativa":"","orcamento_sugerido":${Math.round(orcamentoTotal * 0.3)}},{"tipo":"whatsapp","label":"WhatsApp","criativo_ids":[],"justificativa":"","orcamento_sugerido":${Math.round(orcamentoTotal * 0.3)}}],"copy_por_conjunto":{"frio":{"headline":"","texto":"","cta":"LEARN_MORE"},"quente":{"headline":"","texto":"","cta":"LEARN_MORE"},"whatsapp":{"headline":"","texto":"","cta":"WHATSAPP_MESSAGE"}}}`,
       }],
     },
     { signal: abortCtrl.signal },
@@ -154,7 +144,22 @@ JSON exato (sem markdown):
 
   let jarvisRaw: JarvisResposta;
   try {
-    jarvisRaw = JSON.parse(clean) as JarvisResposta;
+    let jsonToParse = clean;
+
+    // Se cortou no meio (max_tokens), tentar recuperar até o último } válido
+    if (response!.stop_reason === 'max_tokens') {
+      console.warn('[Jarvis Planner] Resposta cortada — tentando parsear parcialmente');
+      const ultimoFechamento = clean.lastIndexOf('}');
+      if (ultimoFechamento > 0) {
+        jsonToParse = clean.slice(0, ultimoFechamento + 1);
+        // Fechar chaves abertas se necessário
+        const abre = (jsonToParse.match(/\{/g) ?? []).length;
+        const fecha = (jsonToParse.match(/\}/g) ?? []).length;
+        jsonToParse += '}'.repeat(Math.max(0, abre - fecha));
+      }
+    }
+
+    jarvisRaw = JSON.parse(jsonToParse) as JarvisResposta;
     console.log('[Jarvis Planner] JSON parseado OK — conjuntos:', jarvisRaw.conjuntos?.length);
   } catch (parseErr) {
     console.warn('[Jarvis Planner] Falha no parse, usando fallback. Erro:', String(parseErr));
