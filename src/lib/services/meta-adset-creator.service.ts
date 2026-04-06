@@ -866,8 +866,7 @@ export async function criarCampanhaMultiplosConjuntos(
 
     // optimization_goal: REACH só é válido em OUTCOME_AWARENESS.
     // Quando a campanha é OUTCOME_TRAFFIC (ex: tem conjunto whatsapp), usar IMPRESSIONS para frio.
-    const optGoalFrio = objetivo === 'OUTCOME_AWARENESS' ? 'REACH' : 'IMPRESSIONS';
-    const optGoal = conjunto.tipo === 'frio' ? optGoalFrio : 'LINK_CLICKS';
+    const optGoal = conjunto.tipo === 'frio' ? 'REACH' : 'LINK_CLICKS';
 
     // Targeting simplificado: apenas campos essenciais para evitar conflitos de placement
     const targetingSimples = {
