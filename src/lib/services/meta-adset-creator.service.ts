@@ -674,15 +674,30 @@ export async function criarCampanhaMultiplosConjuntos(
       ? 'Público Frio' : conjunto.tipo === 'quente'
         ? 'Público Quente' : 'WhatsApp';
 
+    // optimization_goal: REACH só é válido em OUTCOME_AWARENESS.
+    // Quando a campanha é OUTCOME_TRAFFIC (ex: tem conjunto whatsapp), usar IMPRESSIONS para frio.
+    const optGoalFrio = objetivo === 'OUTCOME_AWARENESS' ? 'REACH' : 'IMPRESSIONS';
+    const optGoal = conjunto.tipo === 'frio' ? optGoalFrio : 'LINK_CLICKS';
+
+    // Targeting simplificado: apenas campos essenciais para evitar conflitos de placement
+    const targetingSimples = {
+      age_min:       (targetingCompleto.age_min as number)  ?? 25,
+      age_max:       (targetingCompleto.age_max as number)  ?? 55,
+      genders:       (targetingCompleto.genders as number[]) ?? [2],
+      geo_locations: (targetingCompleto.geo_locations as Record<string, unknown>) ?? { countries: ['BR'] },
+      ...(targetingCompleto.flexible_spec  ? { flexible_spec:   targetingCompleto.flexible_spec }  : {}),
+      ...(targetingCompleto.custom_audiences ? { custom_audiences: targetingCompleto.custom_audiences } : {}),
+    };
+
     // Criar adset
     const adset = await metaPost(`${META_BASE}/${actId}/adsets`, {
       name: `${cfg.nome} — ${tipoLabel}`,
       campaign_id: campanha.id,
       daily_budget: String(conjunto.orcamentoDiario),
-      optimization_goal: conjunto.tipo === 'frio' ? 'REACH' : 'LINK_CLICKS',
+      optimization_goal: optGoal,
       billing_event: conjunto.tipo === 'frio' ? 'IMPRESSIONS' : 'LINK_CLICKS',
       bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
-      targeting: targetingCompleto,
+      targeting: targetingSimples,
       status: 'PAUSED',
     }, token);
     if (!adset.id) throw new Error(`Erro adset ${tipoLabel}: ${adset.error?.message}`);
