@@ -203,20 +203,23 @@ export async function POST(req: NextRequest) {
       }
 
       // 3. Criar Custom Audience ENGAGEMENT com rule de visualização de vídeo
+      // Formato legado exigido pela Meta: todos os vídeos em event_sources de UMA rule só,
+      // usando video_time_percentage (≥25%) em vez de video_time (segundos).
       const rule = {
         inclusions: {
           operator: 'or',
-          rules: videoIds.map(videoId => ({
-            event_sources: [{ id: videoId, type: 'video' }],
-            retention_seconds: 2592000, // 30 dias
-            filter: {
-              operator: 'and',
-              filters: [
-                { field: 'event',      operator: 'eq',  value: 'video_watched' },
-                { field: 'video_time', operator: 'gte', value: '3' }, // ≥ 3 segundos
-              ],
+          rules: [
+            {
+              event_sources: videoIds.map(id => ({ id, type: 'video' })),
+              retention_seconds: 2592000, // 30 dias
+              filter: {
+                operator: 'and',
+                filters: [
+                  { field: 'video_time_percentage', operator: 'gte', value: '0.25' }, // ≥ 25%
+                ],
+              },
             },
-          })),
+          ],
         },
       };
 
@@ -381,6 +384,7 @@ export async function POST(req: NextRequest) {
       // 5. Criar Lookalike 1% BR a partir da base de clientes
       const laParams = new URLSearchParams();
       laParams.set('name',               'CJ — Lookalike 1% Compradores BR');
+      laParams.set('subtype',            'LOOKALIKE');
       laParams.set('origin_audience_id', caData.id);
       laParams.set('lookalike_spec',     JSON.stringify({
         ratio:   0.01,
