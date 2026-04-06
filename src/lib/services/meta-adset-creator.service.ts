@@ -205,6 +205,7 @@ async function criarAdset(
     daily_budget:      String(cfg.orcamentoDiario),
     optimization_goal: tipoCfg.optimization_goal,
     billing_event:     tipoCfg.billing_event,
+    bid_strategy:      'LOWEST_COST_WITHOUT_BID_CAP',
     targeting:         targetingFinal,
     targeting_automation: { advantage_audience: 0 },
     status: 'PAUSED',
@@ -428,6 +429,13 @@ export async function publicarRascunho(
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
+
+      if (!publicoAprovado?.meta_audience_id && !publicoAprovado?.targeting) {
+        throw new Error(
+          `Nenhum público aprovado encontrado para o tipo '${tipoCampanha}'. ` +
+          `Acesse a aba Públicos, importe ou crie um público e tente novamente.`,
+        );
+      }
 
       if (publicoAprovado?.meta_audience_id) {
         // Público quente ou lookalike — usa custom_audience por ID
@@ -757,6 +765,7 @@ export async function criarCampanhaMultiplosConjuntos(
       daily_budget: String(conjunto.orcamentoDiario),
       optimization_goal: optGoal,
       billing_event: conjunto.tipo === 'frio' ? 'IMPRESSIONS' : 'LINK_CLICKS',
+      bid_strategy: 'LOWEST_COST_WITHOUT_BID_CAP',
       targeting: targetingSimples,
       targeting_automation: { advantage_audience: 0 },
       status: 'PAUSED',

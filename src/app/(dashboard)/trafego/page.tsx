@@ -2023,10 +2023,10 @@ function PublicosTab() {
     const tipoMap: Record<string, string> = {
       LOOKALIKE:  'lookalike',
       ENGAGEMENT: 'quente',
+      WEBSITE:    'frio',
       CUSTOM:     'retargeting',
-      WEBSITE:    'retargeting',
     };
-    const tipo = tipoMap[subtype] ?? 'retargeting';
+    const tipo = tipoMap[subtype] ?? 'frio';
 
     setMetaAudiences(prev =>
       prev.map(a => a.id === audience.id ? { ...a, importing: true } : a)
