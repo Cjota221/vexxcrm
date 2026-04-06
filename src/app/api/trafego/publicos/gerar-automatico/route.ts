@@ -48,44 +48,77 @@ export async function POST(req: NextRequest) {
       ? config.meta_ad_account_id
       : `act_${config.meta_ad_account_id}`;
 
-    // ── PÚBLICO QUENTE: Custom Audience de engajamento ───────────────────────
+    // ── PÚBLICO QUENTE: Saved Audience com interesses de retargeting ────────────
+    // Custom Audiences de engajamento exigem permissão especial (#3).
+    // Usamos Saved Audience com interesses que representam audiência quente:
+    // comportamentos de compra + interesse em moda — funciona com token padrão.
     if (tipo === 'quente') {
-      const params = new URLSearchParams();
-      params.set('name', NOMES_POR_TIPO.quente);
-      params.set('subtype', 'ENGAGEMENT');
-      params.set('description', 'Pessoas que engajaram com CJ Rasteirinhas nos últimos 30 dias');
-      params.set('access_token', token);
+      // Buscar interesses de alta intenção de compra na Meta API
+      const KEYWORDS_QUENTE = ['moda feminina', 'compras online', 'calçados femininos'];
+      const interessesQuente: Array<{ id: string; name: string }> = [];
 
-      const engRes = await fetch(`${META_BASE}/${accountId}/customaudiences`, {
+      for (const kw of KEYWORDS_QUENTE) {
+        try {
+          const res = await fetch(
+            `${META_BASE}/search?type=adinterest&q=${encodeURIComponent(kw)}&limit=5&locale=pt_BR&access_token=${token}`
+          );
+          if (!res.ok) continue;
+          const data = await res.json() as { data: Array<{ id: string; name: string }> };
+          interessesQuente.push(...(data.data ?? []).slice(0, 2));
+        } catch { continue; }
+      }
+
+      // Deduplicar
+      const unicosQuente = Array.from(new Map(interessesQuente.map(i => [i.id, i])).values()).slice(0, 6);
+
+      const targetingQuente = {
+        geo_locations: { countries: ['BR'] },
+        age_min: 25,
+        age_max: 55,
+        genders: [2],
+        ...(unicosQuente.length > 0
+          ? { flexible_spec: [{ interests: unicosQuente.map(i => ({ id: i.id, name: i.name })) }] }
+          : {}),
+      };
+
+      // Criar Saved Audience (não Custom Audience — não exige permissão especial)
+      const saParams = new URLSearchParams();
+      saParams.set('name', NOMES_POR_TIPO.quente);
+      saParams.set('targeting', JSON.stringify(targetingQuente));
+      saParams.set('access_token', token);
+
+      const saRes  = await fetch(`${META_BASE}/${accountId}/saved_audiences`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body:    params.toString(),
+        body:    saParams.toString(),
       });
-      const engData = await engRes.json() as { id?: string; error?: { message?: string } };
+      const saData = await saRes.json() as { id?: string; error?: { message?: string; error_user_msg?: string } };
 
-      if (!engRes.ok || !engData.id) {
-        return NextResponse.json({
-          error: engData.error?.message || 'Erro ao criar público de engajamento',
-        }, { status: 502 });
-      }
+      const metaAudienceId = saRes.ok && saData.id ? saData.id : null;
+      const statusSalvo    = metaAudienceId ? 'publicado' : 'rascunho';
+      const erroMsg        = !metaAudienceId
+        ? (saData.error?.error_user_msg ?? saData.error?.message ?? 'Salvo localmente (Meta não aceitou)')
+        : null;
 
       const { error: insertErr } = await supabase.from('meta_publicos_aprovados').insert({
         tenant_id:        profile.tenant_id,
         nome:             NOMES_POR_TIPO.quente,
         tipo:             'quente',
-        meta_audience_id: engData.id,
-        status:           'publicado',
-        targeting:        { custom_audiences: [{ id: engData.id }] },
-        interest_ids:     [],
+        meta_audience_id: metaAudienceId,
+        status:           statusSalvo,
+        erro_msg:         erroMsg,
+        targeting:        targetingQuente,
+        interest_ids:     unicosQuente.map(i => i.id),
         criado_por_ia:    true,
       });
       if (insertErr) console.warn('[gerar-automatico] insert quente:', insertErr.message);
 
       return NextResponse.json({
-        ok:               true,
-        nome:             NOMES_POR_TIPO.quente,
-        meta_audience_id: engData.id,
-        tipo:             'quente',
+        ok:   true,
+        nome: NOMES_POR_TIPO.quente,
+        meta_audience_id: metaAudienceId,
+        tipo: 'quente',
+        ...(erroMsg ? { aviso: erroMsg } : {}),
       });
     }
 
@@ -141,19 +174,19 @@ export async function POST(req: NextRequest) {
       });
       const laData = await laRes.json() as { id?: string; error?: { message?: string } };
 
-      if (!laRes.ok || !laData.id) {
-        return NextResponse.json({
-          error: laData.error?.message || 'Erro ao criar lookalike',
-        }, { status: 502 });
-      }
+      const laAudienceId = laRes.ok && laData.id ? laData.id : null;
+      const laErroMsg    = !laAudienceId
+        ? (laData.error?.message ?? 'Salvo localmente (Meta precisou de permissão adicional)')
+        : null;
 
       const { error: insertErr } = await supabase.from('meta_publicos_aprovados').insert({
         tenant_id:        profile.tenant_id,
         nome:             NOMES_POR_TIPO.lookalike,
         tipo:             'lookalike',
-        meta_audience_id: laData.id,
-        status:           'publicado',
-        targeting:        { custom_audiences: [{ id: laData.id }] },
+        meta_audience_id: laAudienceId,
+        status:           laAudienceId ? 'publicado' : 'rascunho',
+        erro_msg:         laErroMsg,
+        targeting:        laAudienceId ? { custom_audiences: [{ id: laAudienceId }] } : {},
         interest_ids:     [],
         criado_por_ia:    true,
       });
@@ -162,8 +195,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         ok:               true,
         nome:             NOMES_POR_TIPO.lookalike,
-        meta_audience_id: laData.id,
+        meta_audience_id: laAudienceId,
         tipo:             'lookalike',
+        ...(laErroMsg ? { aviso: laErroMsg } : {}),
       });
     }
 

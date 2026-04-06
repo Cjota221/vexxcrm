@@ -1977,15 +1977,18 @@ function PublicosTab() {
         nome?: string;
         meta_audience_id?: string;
         interesses_usados?: string[];
+        aviso?: string;
         error?: string;
       };
       if (json.ok) {
-        setFeedbackPublico(
-          `✅ Público "${json.nome}" criado no Meta` +
-          (json.interesses_usados?.length
-            ? ` com ${json.interesses_usados.length} interesses`
-            : '')
-        );
+        const base = json.meta_audience_id
+          ? `✅ Público "${json.nome}" criado no Meta`
+          : `⚠️ Público "${json.nome}" salvo localmente`;
+        const sufixo = json.interesses_usados?.length
+          ? ` com ${json.interesses_usados.length} interesses`
+          : '';
+        const avisoExtra = json.aviso ? ` — ${json.aviso}` : '';
+        setFeedbackPublico(base + sufixo + avisoExtra);
         carregarPublicosAprovados();
       } else {
         setFeedbackPublico(`❌ ${json.error || 'Erro ao gerar público'}`);
