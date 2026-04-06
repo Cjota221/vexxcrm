@@ -35,7 +35,7 @@ export async function PATCH(
 
   const supabase = createServerSupabaseClient();
   const { error } = await supabase
-    .from('meta_audiences')
+    .from('meta_publicos_aprovados')
     .update(updates)
     .eq('id', params.id)
     .eq('tenant_id', tenantId);

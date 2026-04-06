@@ -1945,7 +1945,7 @@ interface PublicoAprovadoItem {
 }
 
 function PublicosTab() {
-  const [subTab, setSubTab] = useState<'criar' | 'lookalike' | 'biblioteca'>('criar');
+  const [subTab, setSubTab] = useState<'criar' | 'lookalike' | 'biblioteca' | 'importar'>('criar');
   const [gerandoTipo, setGerandoTipo] = useState<string | null>(null);
   const [feedbackPublico, setFeedbackPublico] = useState<string | null>(null);
   const [publicosAprovados, setPublicosAprovados] = useState<PublicoAprovadoItem[]>([]);
@@ -1982,6 +1982,97 @@ function PublicosTab() {
   }, []);
 
   useEffect(() => { carregarPublicosAprovados(); }, [carregarPublicosAprovados]);
+
+  // ── Estado e funções para sub-tab "Importar do Meta" ──────────────────────
+  interface MetaCustomAudience {
+    id: string;
+    name: string;
+    subtype?: string;
+    approximate_count_lower_bound?: number;
+    approximate_count_upper_bound?: number;
+    importing?: boolean;
+  }
+  const [metaAudiences, setMetaAudiences] = useState<MetaCustomAudience[]>([]);
+  const [carregandoMeta, setCarregandoMeta] = useState(false);
+  const [importadosIds, setImportadosIds] = useState<Set<string>>(new Set());
+
+  const carregarAudienciasMeta = useCallback(async () => {
+    setCarregandoMeta(true);
+    try {
+      const res = await authFetch('/api/trafego/saved-audiences');
+      if (!res.ok) return;
+      const data = await res.json() as {
+        connected?: boolean;
+        customAudiences?: MetaCustomAudience[];
+      };
+      if (data.connected) {
+        setMetaAudiences(data.customAudiences ?? []);
+      }
+    } catch { /* silencioso */ }
+    finally { setCarregandoMeta(false); }
+  }, []);
+
+  useEffect(() => {
+    if (subTab === 'importar' && metaAudiences.length === 0 && !carregandoMeta) {
+      carregarAudienciasMeta();
+    }
+  }, [subTab, metaAudiences.length, carregandoMeta, carregarAudienciasMeta]);
+
+  async function importarPublicoMeta(audience: MetaCustomAudience) {
+    const subtype = audience.subtype ?? 'CUSTOM';
+    const tipoMap: Record<string, string> = {
+      LOOKALIKE:  'lookalike',
+      ENGAGEMENT: 'quente',
+      CUSTOM:     'retargeting',
+      WEBSITE:    'retargeting',
+    };
+    const tipo = tipoMap[subtype] ?? 'retargeting';
+
+    setMetaAudiences(prev =>
+      prev.map(a => a.id === audience.id ? { ...a, importing: true } : a)
+    );
+    try {
+      const res = await authFetch('/api/trafego/publicos-aprovados', {
+        method: 'POST',
+        body: JSON.stringify({
+          nome:             audience.name,
+          tipo,
+          meta_audience_id: audience.id,
+          targeting:        { custom_audiences: [{ id: audience.id }] },
+        }),
+      });
+      const json = await res.json() as { ok?: boolean; error?: string };
+      if (json.ok) {
+        setImportadosIds(prev => new Set([...prev, audience.id]));
+        carregarPublicosAprovados();
+      } else {
+        setFeedbackPublico(`❌ ${json.error ?? 'Erro ao importar público'}`);
+      }
+    } catch {
+      setFeedbackPublico('❌ Erro de conexão ao importar');
+    } finally {
+      setMetaAudiences(prev =>
+        prev.map(a => a.id === audience.id ? { ...a, importing: false } : a)
+      );
+    }
+  }
+
+  function subtypeBadge(subtype?: string) {
+    const map: Record<string, { label: string; cls: string }> = {
+      LOOKALIKE:  { label: 'LOOKALIKE',  cls: 'bg-purple-900/40 text-purple-300 border border-purple-700/50' },
+      ENGAGEMENT: { label: 'ENGAGEMENT', cls: 'bg-orange-900/40 text-orange-300 border border-orange-700/50' },
+      CUSTOM:     { label: 'CUSTOM',     cls: 'bg-blue-900/40 text-blue-300 border border-blue-700/50' },
+      WEBSITE:    { label: 'WEBSITE',    cls: 'bg-green-900/40 text-green-300 border border-green-700/50' },
+    };
+    const s = subtype ?? 'CUSTOM';
+    const { label, cls } = map[s] ?? { label: s, cls: 'bg-[#1c2333] text-[#94a3b8] border border-[#2a3550]' };
+    return (
+      <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wide', cls)}>
+        {label}
+      </span>
+    );
+  }
+  // ── fim "Importar do Meta" ─────────────────────────────────────────────────
 
   async function gerarPublicoAutomatico(tipo: 'frio' | 'quente' | 'lookalike') {
     setGerandoTipo(tipo);
@@ -2052,12 +2143,13 @@ function PublicosTab() {
   return (
     <div className="space-y-5">
       {/* Pills navigation */}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         {([
           { key: 'criar',      label: 'Criar com IA' },
           { key: 'lookalike',  label: 'Lookalike' },
+          { key: 'importar',   label: 'Importar do Meta' },
           { key: 'biblioteca', label: 'Biblioteca' },
-        ] as { key: 'criar' | 'lookalike' | 'biblioteca'; label: string }[]).map(({ key, label }) => (
+        ] as { key: 'criar' | 'lookalike' | 'importar' | 'biblioteca'; label: string }[]).map(({ key, label }) => (
           <button
             key={key}
             onClick={() => setSubTab(key)}
@@ -2324,6 +2416,115 @@ function PublicosTab() {
       {/* ── Sub-seção: Biblioteca ── */}
       {subTab === 'biblioteca' && (
         <BibliotecaInteresses />
+      )}
+
+      {/* ── Sub-seção: Importar do Meta ── */}
+      {subTab === 'importar' && (
+        <div className="space-y-4">
+          {/* Header */}
+          <div className="bg-[#161b24] rounded-2xl border border-[#2a3550] p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-semibold text-[#e2e8f0] flex items-center gap-2">
+                  <CloudDownload size={16} className="text-[#93c5fd]" />
+                  Públicos do Meta Ads Manager
+                </h3>
+                <p className="text-xs text-[#94a3b8] mt-1">
+                  Custom Audiences já criados na sua conta Meta. Clique em "Importar" para registrá-los no VEXX CRM e usar em campanhas.
+                </p>
+              </div>
+              <button
+                onClick={carregarAudienciasMeta}
+                disabled={carregandoMeta}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-[#1e3a5f] text-[#93c5fd] hover:bg-[#1e3a5f]/80 disabled:opacity-50 transition-colors"
+              >
+                {carregandoMeta
+                  ? <><Loader2 size={12} className="animate-spin" /> Carregando...</>
+                  : <><RefreshCw size={12} /> Atualizar</>
+                }
+              </button>
+            </div>
+          </div>
+
+          {/* Lista de Custom Audiences */}
+          {carregandoMeta ? (
+            <div className="flex items-center justify-center py-12 text-[#64748b]">
+              <Loader2 size={20} className="animate-spin mr-2" />
+              <span className="text-sm">Buscando públicos no Meta...</span>
+            </div>
+          ) : metaAudiences.length === 0 ? (
+            <div className="bg-[#161b24] rounded-2xl border border-[#2a3550] p-8 text-center">
+              <Users size={28} className="text-[#64748b] mx-auto mb-2" />
+              <p className="text-sm text-[#94a3b8]">Nenhuma Custom Audience encontrada.</p>
+              <p className="text-xs text-[#64748b] mt-1">Verifique se o token Meta está configurado e há públicos criados na conta.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {metaAudiences.map(audience => {
+                const alreadyImported = importadosIds.has(audience.id)
+                  || publicosAprovados.some(p => p.meta_audience_id === audience.id);
+                const lower = audience.approximate_count_lower_bound;
+                const upper = audience.approximate_count_upper_bound;
+                const tamanho = formatAudienceSize(lower, upper);
+
+                return (
+                  <div
+                    key={audience.id}
+                    className="bg-[#161b24] rounded-xl border border-[#2a3550] px-4 py-3 flex items-center justify-between gap-3 hover:border-[#1e3a5f] transition-colors"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium text-[#e2e8f0] truncate">{audience.name}</p>
+                        {subtypeBadge(audience.subtype)}
+                      </div>
+                      <p className="text-xs text-[#64748b] mt-0.5">
+                        {tamanho}
+                        {audience.id && <span className="ml-2 opacity-60">· ID {audience.id}</span>}
+                      </p>
+                    </div>
+                    <div className="shrink-0">
+                      {alreadyImported ? (
+                        <span className="flex items-center gap-1.5 text-xs font-medium text-[#059669] bg-green-900/20 border border-green-700/30 px-3 py-1.5 rounded-lg">
+                          <CheckCircle size={13} />
+                          Importado
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => importarPublicoMeta(audience)}
+                          disabled={audience.importing}
+                          className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-[#1e3a5f] text-[#93c5fd] hover:bg-[#1e4a7f] disabled:opacity-50 transition-colors"
+                        >
+                          {audience.importing
+                            ? <><Loader2 size={12} className="animate-spin" /> Importando...</>
+                            : <><CloudDownload size={12} /> Importar</>
+                          }
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Legenda dos tipos */}
+          <div className="bg-[#161b24] rounded-xl border border-[#2a3550] p-4">
+            <p className="text-xs font-semibold text-[#64748b] uppercase tracking-wide mb-2">Tipos de público</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              {[
+                { subtype: 'LOOKALIKE',  desc: 'Similar a uma base semente' },
+                { subtype: 'ENGAGEMENT', desc: 'Engajamento com conteúdo' },
+                { subtype: 'CUSTOM',     desc: 'Lista de clientes' },
+                { subtype: 'WEBSITE',    desc: 'Visitantes via Pixel' },
+              ].map(({ subtype, desc }) => (
+                <div key={subtype} className="flex items-start gap-2">
+                  {subtypeBadge(subtype)}
+                  <span className="text-[#94a3b8] leading-tight">{desc}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

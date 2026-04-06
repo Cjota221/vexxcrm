@@ -308,9 +308,11 @@ export async function POST(req: NextRequest) {
       const emailOnlyRows: string[][] = [];
 
       for (const c of clientes ?? []) {
-        const phone = (c.phone ?? '').replace(/\D/g, '');
-        if (phone.length >= 10) {
-          phoneRows.push([sha256(phone)]);
+        const rawPhone = (c.phone ?? '').replace(/\D/g, '');
+        if (rawPhone.length >= 10) {
+          // Prefixo 55 obrigatório para telefones brasileiros antes do hash SHA-256
+          const normalizedPhone = rawPhone.startsWith('55') ? rawPhone : `55${rawPhone}`;
+          phoneRows.push([sha256(normalizedPhone)]);
         } else if (c.email?.includes('@')) {
           emailOnlyRows.push([sha256(c.email)]);
         }

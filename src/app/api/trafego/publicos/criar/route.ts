@@ -155,9 +155,9 @@ export async function POST(req: NextRequest) {
     // Estimar alcance
     const estimativa = await estimarAlcance(targeting, accountId, token);
 
-    // Salvar no banco local
+    // Salvar no banco local (tabela canônica de públicos aprovados)
     const { data: publico, error: dbErr } = await supabase
-      .from('meta_audiences')
+      .from('meta_publicos_aprovados')
       .insert({
         tenant_id: profile.tenant_id,
         nome: body.nome,
@@ -165,11 +165,12 @@ export async function POST(req: NextRequest) {
           ? `Público de ${body.segmento} criado manualmente`
           : 'Público personalizado',
         targeting,
-        estimativa_alcance_min: estimativa?.min ?? null,
-        estimativa_alcance_max: estimativa?.max ?? null,
+        interest_ids: interessesValidos.map(i => i.id),
+        estimativa_alcance: estimativa?.min ?? null,
+        meta_audience_id: null,
         criado_por_ia: false,
-        tipo: 'interesse',
-        status: 'pronto',
+        tipo: 'frio',
+        status: 'publicado',
       })
       .select('id')
       .single();

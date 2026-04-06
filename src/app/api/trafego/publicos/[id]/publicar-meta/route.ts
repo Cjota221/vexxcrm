@@ -25,9 +25,9 @@ export async function POST(
 
   const supabase = createServerSupabaseClient();
 
-  // Buscar o público no banco
+  // Buscar o público no banco (tabela canônica de públicos aprovados)
   const { data: publico, error: fetchError } = await supabase
-    .from('meta_audiences')
+    .from('meta_publicos_aprovados')
     .select('id, tipo, meta_audience_id, nome')
     .eq('id', params.id)
     .eq('tenant_id', tenantId)
@@ -78,10 +78,10 @@ export async function POST(
       return NextResponse.json({ error: 'Meta não retornou ID do público' }, { status: 500 });
     }
 
-    // Atualizar banco com o ID real do Meta
+    // Atualizar banco com o ID real do Meta (tabela canônica de públicos aprovados)
     await supabase
-      .from('meta_audiences')
-      .update({ meta_audience_id: metaAudienceId, status: 'pronto' })
+      .from('meta_publicos_aprovados')
+      .update({ meta_audience_id: metaAudienceId, status: 'publicado' })
       .eq('id', params.id);
 
     return NextResponse.json({ ok: true, meta_audience_id: metaAudienceId });

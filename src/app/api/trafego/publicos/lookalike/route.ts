@@ -74,15 +74,16 @@ export async function POST(req: NextRequest) {
       }, { status: 502 });
     }
 
-    // Salvar no banco local
-    await supabase.from('meta_audiences').insert({
+    // Salvar no banco local (tabela canônica de públicos aprovados)
+    await supabase.from('meta_publicos_aprovados').insert({
       tenant_id:         profile.tenant_id,
       nome,
       descricao:         `Lookalike ${pct}% baseado em: ${body.origin_audience_name || body.origin_audience_id}`,
       meta_audience_id:  data.id,
       targeting:         { custom_audiences: [{ id: data.id }] },
+      interest_ids:      [],
       tipo:              'lookalike',
-      status:            'pronto',
+      status:            'publicado',
       criado_por_ia:     false,
     });
 

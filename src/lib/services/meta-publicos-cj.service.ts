@@ -422,7 +422,11 @@ export async function criarPublicoListaClientes(
     const schema = ['PHONE', 'EMAIL', 'FN'];
     const rows = clientes
       .map(c => {
-        const phone = c.phone?.replace(/\D/g, '') ?? '';
+        const rawPhone = c.phone?.replace(/\D/g, '') ?? '';
+        // Prefixo 55 obrigatório para telefones brasileiros antes do hash SHA-256
+        const phone = rawPhone && rawPhone.length >= 10
+          ? (rawPhone.startsWith('55') ? rawPhone : `55${rawPhone}`)
+          : '';
         const email = (c.email ?? '').toLowerCase().trim();
         const fn    = (c.name ?? '').split(' ')[0].toLowerCase().trim();
         return [
@@ -502,7 +506,11 @@ export async function criarLookalikeClientes(
     const schema = ['PHONE', 'EMAIL', 'FN'];
     const data = clientes
       .map(c => {
-        const phone     = c.phone?.replace(/\D/g, '') ?? '';
+        const rawPhone  = c.phone?.replace(/\D/g, '') ?? '';
+        // Prefixo 55 obrigatório para telefones brasileiros antes do hash SHA-256
+        const phone = rawPhone && rawPhone.length >= 10
+          ? (rawPhone.startsWith('55') ? rawPhone : `55${rawPhone}`)
+          : '';
         const email     = (c.email ?? '').toLowerCase().trim();
         const firstName = (c.name ?? '').split(' ')[0].toLowerCase().trim();
         return [
