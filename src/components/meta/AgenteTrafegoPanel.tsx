@@ -240,7 +240,7 @@ export function AgenteTrafegoPanel() {
   }
 
   // Buscar criativos quando entrar no modo avançado
-  const fetchCriativos = useCallback(async () => {
+  const fetchCriativos = useCallback(async (): Promise<CriativoDisponivel[]> => {
     setLoadingCriativos(true);
     try {
       const accessToken = useAuthStore.getState().accessToken ?? '';
@@ -273,8 +273,9 @@ export function AgenteTrafegoPanel() {
       const lista = [...mainLista, ...cacheLista];
       setCriativos(lista);
       autoSelecionarJarvis(lista);
+      return lista;
     } catch {
-      // silently fail
+      return [];
     } finally {
       setLoadingCriativos(false);
     }
@@ -402,16 +403,24 @@ export function AgenteTrafegoPanel() {
     setFase('planejando');
     const accessToken = useAuthStore.getState().accessToken ?? '';
 
-    // Garantir criativos carregados
+    // Garantir criativos carregados — fetchCriativos retorna a lista diretamente
     let lista = criativos;
     if (lista.length === 0) {
-      await fetchCriativos();
-      lista = criativos; // state pode não ter atualizado ainda — não crítico, fallback abaixo
+      lista = await fetchCriativos();
     }
 
     const criativoIds = modoAvancado
-      ? [...new Set(conjuntos.flatMap(c => c.criativoIds))]
-      : lista.slice(0, 15).map(c => c.id);
+      ? [...new Set(conjuntos.flatMap(c => c.criativoIds))].filter(Boolean)
+      : lista.slice(0, 15).map(c => c.id).filter(Boolean);
+
+    console.log('[Agente] criativoIds para planejar:', criativoIds.length, criativoIds.slice(0, 3));
+
+    if (criativoIds.length === 0) {
+      console.error('[Agente] Nenhum criativo disponível — abortando planejamento');
+      setFase('config');
+      setPlanejando(false);
+      return;
+    }
 
     try {
       const res = await fetch('/api/meta/agente/planejar', {
