@@ -467,6 +467,7 @@ export function AgenteTrafegoPanel() {
     const nomeBase = nome || planoCampanha?.nome_sugerido || `Agente ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`;
 
     // ── Modo plano Jarvis aprovado ────────────────────────────────────────
+    console.log('[Agente] planoCampanha ao executar:', planoCampanha ? 'presente' : 'ausente');
     if (planoCampanha) {
       const params = new URLSearchParams({
         token:     accessToken,
@@ -477,7 +478,7 @@ export function AgenteTrafegoPanel() {
       });
       if (urlDestino) params.set('urlDestino', urlDestino);
       params.set('plano', JSON.stringify(planoCampanha));
-
+      console.log('[Agente] plano adicionado aos params, tamanho:', JSON.stringify(planoCampanha).length);
       console.log('[Agente] Params enviados para stream:', params.toString().slice(0, 200));
       const es = new EventSource(`/api/meta/agente/stream?${params}`);
       esRef.current = es;

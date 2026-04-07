@@ -1099,10 +1099,12 @@ export async function criarCampanhaCatalogo(
     name:              `[VEXX] ${cfg.nome} — Catálogo`,
     campaign_id:       campaignId,
     daily_budget:      String(cfg.orcamentoDiario),
-    optimization_goal: 'CATALOG_SALE',
+    optimization_goal: 'OFFSITE_CONVERSIONS',
     billing_event:     'IMPRESSIONS',
     promoted_object: {
-      product_set_id: productSetId,
+      product_set_id:    productSetId,
+      pixel_id:          '518376893062766',
+      custom_event_type: 'PURCHASE',
     },
     targeting: {
       age_min:       cfg.idadeMin ?? 18,
