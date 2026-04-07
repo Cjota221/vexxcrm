@@ -52,6 +52,7 @@ export async function GET(req: NextRequest) {
   const urlDestino  = url.searchParams.get('urlDestino') ?? '';
   const conjuntosRaw = url.searchParams.get('conjuntos') ?? '';
   const planoRaw     = url.searchParams.get('plano') ?? '';
+  const planoIdParam = url.searchParams.get('plano_id') ?? '';
   const objetivoParam = url.searchParams.get('objetivo') ?? '';
   // Públicos IA por tipo: {"frio": "audience_id", "quente": "audience_id"}
   let audienciasPorTipo: Partial<Record<TipoCampanha, string>> = {};
@@ -68,7 +69,7 @@ export async function GET(req: NextRequest) {
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
       }
 
-      console.log('[Stream] INICIO — tipos:', tipos, 'modo avancado:', !!conjuntosRaw, 'tem plano:', !!url.searchParams.get('plano'));
+      console.log('[Stream] INICIO — tipos:', tipos, 'modo avancado:', !!conjuntosRaw, 'tem plano:', !!planoRaw, 'tem plano_id:', !!planoIdParam);
 
       // Keepalive: envia comentário SSE a cada 5s para evitar timeout do Netlify (26s max)
       const keepalive = setInterval(() => {
@@ -135,8 +136,25 @@ export async function GET(req: NextRequest) {
           detalhe: criativos.slice(0, 3).map((c: { nome: string }) => c.nome).join(', '),
         });
 
+        // ─── Resolver plano_id → planoRaw (se veio por ID) ───────────────
+        let planoRawFinal = planoRaw;
+        if (planoIdParam && !planoRawFinal) {
+          const { data: memoriaData } = await supabase
+            .from('jarvis_memoria')
+            .select('contexto')
+            .eq('id', planoIdParam)
+            .eq('tenant_id', tenantId)
+            .single();
+          if (memoriaData?.contexto) {
+            planoRawFinal = JSON.stringify(memoriaData.contexto);
+            console.log('[Stream] Plano carregado do Supabase via plano_id:', planoIdParam);
+          } else {
+            console.warn('[Stream] plano_id não encontrado:', planoIdParam);
+          }
+        }
+
         // ─── Modo plano aprovado pelo Jarvis ─────────────────────────────
-        if (planoRaw) {
+        if (planoRawFinal) {
           let plano: {
             nome_sugerido: string;
             objetivo: string;
@@ -149,7 +167,7 @@ export async function GET(req: NextRequest) {
             copy_por_conjunto: Record<string, { headline: string; texto: string; cta: string }>;
           };
           try {
-            plano = JSON.parse(planoRaw);
+            plano = JSON.parse(planoRawFinal);
           } catch {
             send('done', { ok: false, erro: 'Erro ao parsear plano do Jarvis' });
             controller.close();

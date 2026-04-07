@@ -222,6 +222,7 @@ export function AgenteTrafegoPanel() {
   const [previewCriativo, setPreviewCriativo]   = useState<{ id: string; nome: string; url: string | null } | null>(null);
   const [loadingPreview, setLoadingPreview]     = useState(false);
   const [planoCampanha, setPlanoCampanha]       = useState<PlanoCampanha | null>(null);
+  const [planoId, setPlanoId]                   = useState<string | null>(null);
   const [planejando, setPlanejando]             = useState(false);
 
   async function abrirPreview(criativo: CriativoDisponivel) {
@@ -389,6 +390,7 @@ export function AgenteTrafegoPanel() {
     setDone(null);
     setSteps([]);
     setPlanoCampanha(null);
+    setPlanoId(null);
   }
 
   function podeExecutar(): boolean {
@@ -443,6 +445,23 @@ export function AgenteTrafegoPanel() {
         setFase('config');
         return;
       }
+
+      // Salvar plano no Supabase e guardar apenas o ID (plano é grande demais pra query param)
+      const saveRes = await fetch('/api/meta/agente/salvar-plano', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plano }),
+      });
+      if (saveRes.ok) {
+        const { plano_id } = await saveRes.json() as { plano_id?: string };
+        if (plano_id) {
+          console.log('[Agente] Plano salvo, plano_id:', plano_id);
+          setPlanoId(plano_id);
+        }
+      } else {
+        console.warn('[Agente] Falha ao salvar plano no servidor — usará JSON inline como fallback');
+      }
+
       setPlanoCampanha(plano);
       console.log('[Agente] Setando fase plano_aprovacao');
       setFase('plano_aprovacao');
@@ -498,8 +517,14 @@ export function AgenteTrafegoPanel() {
         objetivo,
       });
       if (urlDestino) params.set('urlDestino', urlDestino);
-      params.set('plano', JSON.stringify(planoCampanha));
-      console.log('[Agente] plano adicionado aos params, tamanho:', JSON.stringify(planoCampanha).length);
+      if (planoId) {
+        params.set('plano_id', planoId);
+        console.log('[Agente] plano_id adicionado aos params:', planoId);
+      } else {
+        // Fallback: passar JSON inline (pode estourar limite de URL em alguns casos)
+        params.set('plano', JSON.stringify(planoCampanha));
+        console.log('[Agente] plano JSON inline, tamanho:', JSON.stringify(planoCampanha).length);
+      }
       console.log('[Agente] Params enviados para stream:', params.toString().slice(0, 200));
       const es = new EventSource(`/api/meta/agente/stream?${params}`);
       esRef.current = es;
