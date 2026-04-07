@@ -427,6 +427,7 @@ export function AgenteTrafegoPanel() {
       }
       const plano = await res.json() as PlanoCampanha;
       if (!plano.conjuntos?.length) throw new Error('Plano vazio');
+      console.log('[Agente] Plano recebido do servidor:', JSON.stringify(plano).slice(0, 200));
       setPlanoCampanha(plano);
       setFase('plano_aprovacao');
     } catch (err) {
@@ -467,6 +468,8 @@ export function AgenteTrafegoPanel() {
     const nomeBase = nome || planoCampanha?.nome_sugerido || `Agente ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`;
 
     // ── Modo plano Jarvis aprovado ────────────────────────────────────────
+    console.log('[Agente] Executando — planoCampanha:', !!planoCampanha);
+    console.log('[Agente] fase ao executar:', fase);
     console.log('[Agente] planoCampanha ao executar:', planoCampanha ? 'presente' : 'ausente');
     if (planoCampanha) {
       const params = new URLSearchParams({
@@ -1035,7 +1038,11 @@ export function AgenteTrafegoPanel() {
           Ajustar
         </button>
         <button
-          onClick={executar}
+          onClick={() => {
+            console.log('[Agente] Aprovando plano, fase atual:', fase);
+            console.log('[Agente] planoCampanha existe:', !!planoCampanha);
+            executar();
+          }}
           className="flex-1 py-2.5 bg-[#1e3a5f] text-white text-sm font-medium rounded-xl hover:bg-[#16304f] flex items-center justify-center gap-2"
         >
           <Play size={14} /> Aprovar e executar
