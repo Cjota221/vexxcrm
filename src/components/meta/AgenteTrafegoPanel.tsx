@@ -222,6 +222,7 @@ export function AgenteTrafegoPanel() {
   const [previewCriativo, setPreviewCriativo]   = useState<{ id: string; nome: string; url: string | null } | null>(null);
   const [loadingPreview, setLoadingPreview]     = useState(false);
   const [planoCampanha, setPlanoCampanha]       = useState<PlanoCampanha | null>(null);
+  const [planejando, setPlanejando]             = useState(false);
 
   async function abrirPreview(criativo: CriativoDisponivel) {
     if (criativo.tipo !== 'video') return;
@@ -397,6 +398,7 @@ export function AgenteTrafegoPanel() {
   }
 
   async function gerarPlanoJarvis() {
+    setPlanejando(true);
     setFase('planejando');
     const accessToken = useAuthStore.getState().accessToken ?? '';
 
@@ -440,6 +442,8 @@ export function AgenteTrafegoPanel() {
       console.warn('[Jarvis Planner] Erro, indo para confirmação direta:', err);
       setPlanoCampanha(null);
       setFase('confirmacao');
+    } finally {
+      setPlanejando(false);
     }
   }
 
@@ -920,10 +924,13 @@ export function AgenteTrafegoPanel() {
 
       <button
         onClick={gerarPlanoJarvis}
-        disabled={!podeExecutar()}
+        disabled={!podeExecutar() || planejando}
         className="w-full py-3 bg-[#1e3a5f] text-white text-sm font-medium rounded-xl hover:bg-[#16304f] disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
       >
-        <Sparkles size={15} /> Ver plano do Jarvis
+        {planejando
+          ? <><Loader2 size={15} className="animate-spin" /> Jarvis analisando...</>
+          : <><Sparkles size={15} /> Ver plano do Jarvis</>
+        }
       </button>
     </div>
   );
