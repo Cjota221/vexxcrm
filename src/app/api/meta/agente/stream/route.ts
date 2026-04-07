@@ -68,6 +68,8 @@ export async function GET(req: NextRequest) {
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
       }
 
+      console.log('[Stream] INICIO — tipos:', tipos, 'modo avancado:', !!conjuntosRaw, 'tem plano:', !!url.searchParams.get('plano'));
+
       // Keepalive: envia comentário SSE a cada 5s para evitar timeout do Netlify (26s max)
       const keepalive = setInterval(() => {
         try { controller.enqueue(encoder.encode(': keepalive\n\n')); } catch { /* stream fechado */ }

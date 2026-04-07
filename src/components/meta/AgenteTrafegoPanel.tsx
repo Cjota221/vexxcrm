@@ -478,6 +478,7 @@ export function AgenteTrafegoPanel() {
       if (urlDestino) params.set('urlDestino', urlDestino);
       params.set('plano', JSON.stringify(planoCampanha));
 
+      console.log('[Agente] Params enviados para stream:', params.toString().slice(0, 200));
       const es = new EventSource(`/api/meta/agente/stream?${params}`);
       esRef.current = es;
 
