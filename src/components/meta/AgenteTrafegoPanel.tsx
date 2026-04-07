@@ -426,9 +426,14 @@ export function AgenteTrafegoPanel() {
         throw new Error(err.error ?? 'Erro desconhecido');
       }
       const plano = await res.json() as PlanoCampanha;
-      if (!plano.conjuntos?.length) throw new Error('Plano vazio');
-      console.log('[Agente] Plano recebido do servidor:', JSON.stringify(plano).slice(0, 200));
+      console.log('[Agente] Plano recebido:', JSON.stringify(plano).slice(0, 100));
+      if (!plano || !plano.conjuntos || plano.conjuntos.length === 0) {
+        console.error('[Agente] Plano inválido recebido:', plano);
+        setFase('config');
+        return;
+      }
       setPlanoCampanha(plano);
+      console.log('[Agente] Setando fase plano_aprovacao');
       setFase('plano_aprovacao');
     } catch (err) {
       // Fallback: ir direto para confirmação sem IA
@@ -949,8 +954,17 @@ export function AgenteTrafegoPanel() {
   );
 
   /* ── Plano Aprovação ──────────────────────────────────────────────────── */
-  if (fase === 'plano_aprovacao' && planoCampanha) return (
+  if (fase === 'plano_aprovacao') return (
     <div className="space-y-4">
+      {!planoCampanha && (
+        <div className="space-y-4">
+          <p className="text-sm text-gray-500">Carregando plano do Jarvis...</p>
+          <button onClick={() => setFase('config')} className="text-xs text-gray-400 hover:underline">
+            Voltar
+          </button>
+        </div>
+      )}
+      {planoCampanha && <>
       {/* Header Jarvis */}
       <div className="flex items-center gap-3 p-4 bg-gradient-to-r from-[#1e3a5f]/5 to-purple-50 rounded-2xl border border-[#1e3a5f]/10">
         <div className="w-10 h-10 rounded-xl bg-[#1e3a5f] flex items-center justify-center shrink-0">
@@ -1048,6 +1062,7 @@ export function AgenteTrafegoPanel() {
           <Play size={14} /> Aprovar e executar
         </button>
       </div>
+      </>}
     </div>
   );
 
