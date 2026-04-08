@@ -138,9 +138,8 @@ async function criarCampanha(
   token: string,
   actId: string,
   nome: string,
-  objetivo: string,
+  tipo: TipoCampanha,
 ): Promise<string> {
-  const tipo = objetivoParaTipo(objetivo);
   const data = await metaPost(`${META_BASE}/${actId}/campaigns`, {
     name:              nome,
     objective:         CONFIG_POR_TIPO[tipo].objetivo,
@@ -422,7 +421,43 @@ export async function publicarRascunho(
     : `act_${config.account_id}`;
 
   try {
-    // 0. Carregar base de conhecimento do Jarvis + apiKey do tenant
+    // 0a. Verificar se é campanha de catálogo — delegar para fluxo dedicado
+    if (draft.tipo === 'catalogo') {
+      const { data: aiCfgCat } = await supabase
+        .from('ai_provider_config')
+        .select('meta_catalog_id, meta_page_id')
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      const catId = (aiCfgCat as Record<string, string | null> | null)?.meta_catalog_id;
+      if (!catId) {
+        throw new Error(
+          'Configure o ID do catálogo em Configurações antes de criar campanha de catálogo.',
+        );
+      }
+      const catPageId = (aiCfgCat as Record<string, string | null> | null)?.meta_page_id ?? pageId;
+      const resultado = await criarCampanhaCatalogo(tenantId, {
+        nome:            draft.nome,
+        catalogoId:      catId,
+        orcamentoDiario: draft.orcamento_diario,
+        pageId:          catPageId,
+        paises:          draft.paises ?? ['BR'],
+        idadeMin:        draft.idade_min ?? 18,
+        idadeMax:        draft.idade_max ?? 65,
+      });
+      await supabase
+        .from('meta_campaign_drafts')
+        .update({
+          status:           'publicado',
+          meta_campaign_id: resultado.campaignId,
+          meta_adset_id:    resultado.adsetId,
+          meta_ad_id:       resultado.adId,
+          erro:             null,
+        })
+        .eq('id', draftId);
+      return resultado;
+    }
+
+    // 0b. Carregar base de conhecimento do Jarvis + apiKey do tenant
     const { data: conhecimentos } = await supabase
       .from('jarvis_knowledge')
       .select('titulo, conteudo, categoria')
@@ -457,11 +492,16 @@ export async function publicarRascunho(
       console.warn('[JARVIS] API key Anthropic não encontrada — Jarvis desabilitado para esta publicação');
     }
 
-    // 1. Criar campanha
-    const campaignId = await criarCampanha(token, actId, draft.nome, draft.objetivo);
+    // 2. Resolver público — usa draft.tipo diretamente (não deriva do objetivo)
+    // draft.tipo é a fonte da verdade: 'frio' | 'quente' | 'whatsapp'
+    // objetivoParaTipo é apenas fallback para drafts antigos sem campo tipo
+    const TIPOS_VALIDOS = new Set<string>(['frio', 'quente', 'whatsapp', 'catalogo']);
+    const tipoCampanha: TipoCampanha = (draft.tipo && TIPOS_VALIDOS.has(draft.tipo))
+      ? draft.tipo as TipoCampanha
+      : objetivoParaTipo(draft.objetivo);
 
-    // 2. Resolver público — Jarvis seleciona o melhor dentre todos os aprovados
-    const tipoCampanha = objetivoParaTipo(draft.objetivo);
+    // 1. Criar campanha — objetivo derivado do tipo (não do objetivo string do draft)
+    const campaignId = await criarCampanha(token, actId, draft.nome, tipoCampanha);
     let publicoMetaId: string | undefined = draft.publico_id ?? undefined;
     let targetingAprovado: Record<string, unknown> | undefined = undefined;
     let publicoNome = 'público selecionado';
@@ -791,7 +831,7 @@ export async function criarCampanhaCompleta(
     targetingCompleto = targetingWhatsApp(interesses);
   }
 
-  const campaignId = await criarCampanha(token, actId, cfg.nome, objetivo);
+  const campaignId = await criarCampanha(token, actId, cfg.nome, cfg.tipo);
   const adsetId = await criarAdset(token, actId, campaignId, {
     nome:            cfg.nome,
     objetivo,
@@ -949,8 +989,9 @@ export async function criarCampanhaMultiplosConjuntos(
           custom_audiences: idsQuentes.map(id => ({ id })),
         };
       } else {
+        // Fallback: targeting específico para quente (interesses + remarketing amplo)
         const interesses = await buscarInteressesAtacado(token);
-        targetingCompleto = targetingFrio(interesses);
+        targetingCompleto = targetingQuente(interesses);
       }
 
     } else {

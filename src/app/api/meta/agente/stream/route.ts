@@ -438,10 +438,24 @@ export async function GET(req: NextRequest) {
 
             if (tipo === 'catalogo') {
               // Campanha de catálogo (DPA) — não usa criativo da galeria
-              if (!catalogoId) throw new Error('Catálogo não selecionado');
+              // Resolver catalogoId: URL param > ai_provider_config.meta_catalog_id
+              let catalogoIdResolvido = catalogoId;
+              if (!catalogoIdResolvido) {
+                const { data: catCfg } = await supabase
+                  .from('ai_provider_config')
+                  .select('meta_catalog_id')
+                  .eq('tenant_id', tenantId)
+                  .maybeSingle();
+                catalogoIdResolvido = (catCfg as Record<string, string | null> | null)?.meta_catalog_id ?? '';
+              }
+              if (!catalogoIdResolvido) {
+                throw new Error(
+                  'Configure o ID do catálogo em Configurações antes de criar campanha de catálogo.',
+                );
+              }
               resultado = await criarCampanhaCatalogo(tenantId, {
                 nome:            `${nome} — ${tipoLabel}`,
-                catalogoId,
+                catalogoId:      catalogoIdResolvido,
                 orcamentoDiario: orcPorTipo[tipo] ?? 5000,
                 pageId,
                 paises:          ['BR'],
@@ -471,7 +485,7 @@ export async function GET(req: NextRequest) {
                   tipo: 'campanha_resultado',
                   referencia_id: resultado.campaignId,
                   titulo: `${nome} — ${tipoLabel}`,
-                  contexto: { tipo_campanha: tipo, nome_campanha: nome, orcamento_diario: orcPorTipo[tipo] ?? 5000, catalogo_id: catalogoId, campaign_id: resultado.campaignId, adset_id: resultado.adsetId, ad_id: resultado.adId, criado_em: new Date().toISOString() },
+                  contexto: { tipo_campanha: tipo, nome_campanha: nome, orcamento_diario: orcPorTipo[tipo] ?? 5000, catalogo_id: catalogoIdResolvido, campaign_id: resultado.campaignId, adset_id: resultado.adsetId, ad_id: resultado.adId, criado_em: new Date().toISOString() },
                   resultado: null, aprendizado: null,
                 }).then(({ error: memErr }) => { if (memErr) console.warn('[Jarvis] Erro ao salvar memória catálogo:', memErr.message); });
               }
@@ -480,7 +494,7 @@ export async function GET(req: NextRequest) {
                 id: `campanha_${tipo}`,
                 status: 'ok',
                 label: `${tipoLabel} criada e pausada ✓`,
-                detalhe: `Catálogo: ${catalogoId} · Campaign: ${resultado.campaignId}`,
+                detalhe: `Catálogo: ${catalogoIdResolvido} · Campaign: ${resultado.campaignId}`,
               });
               resultados.push({ tipo, ok: true, campaignId: resultado.campaignId });
             } else {
