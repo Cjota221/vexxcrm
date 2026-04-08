@@ -851,6 +851,77 @@ export async function criarCampanhaCompleta(
   return { campaignId, adsetId, adId };
 }
 
+/* ─── buscarTargetingPorTipo ─────────────────────────────────────────────────── */
+
+async function buscarTargetingPorTipo(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  tenantId: string,
+  tipo: 'frio' | 'quente' | 'whatsapp',
+): Promise<object | null> {
+  // Nível 1: meta_publicos_aprovados.targeting (JSON completo)
+  const { data: publicoAprovado } = await supabase
+    .from('meta_publicos_aprovados')
+    .select('targeting, meta_audience_id, nome')
+    .eq('tenant_id', tenantId)
+    .eq('tipo', tipo)
+    .eq('status', 'publicado')
+    .not('targeting', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+  if (publicoAprovado?.targeting) return publicoAprovado.targeting as object;
+
+  // Nível 2: meta_audiences Custom Audience para quente/whatsapp
+  if (tipo === 'quente' || tipo === 'whatsapp') {
+    const { data: audience } = await supabase
+      .from('meta_audiences')
+      .select('meta_audience_id, nome, targeting')
+      .eq('tenant_id', tenantId)
+      .eq('status', 'pronto')
+      .in('tipo', ['remarketing', 'retargeting'])
+      .not('meta_audience_id', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+    if (audience?.meta_audience_id) {
+      return {
+        custom_audiences: [{ id: audience.meta_audience_id as string }],
+        age_min: 25, age_max: 55, genders: [2],
+        geo_locations: { countries: ['BR'] },
+      };
+    }
+  }
+
+  // Nível 3: meta_audiences targeting para frio
+  if (tipo === 'frio') {
+    const { data: audienceInteresse } = await supabase
+      .from('meta_audiences')
+      .select('targeting, nome')
+      .eq('tenant_id', tenantId)
+      .eq('tipo', 'interesse')
+      .eq('status', 'pronto')
+      .not('targeting', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+    if (audienceInteresse?.targeting) return audienceInteresse.targeting as object;
+  }
+
+  // Fallback: interesses hardcoded Moda Feminina
+  console.warn(`[Jarvis] AVISO: Nenhum público encontrado para tipo ${tipo}. Usando fallback.`);
+  return {
+    age_min: 25, age_max: 55, genders: [2],
+    geo_locations: { countries: ['BR'] },
+    flexible_spec: [{
+      interests: [
+        { id: '6003333608514', name: 'Moda Feminina' },
+        { id: '6003107626192', name: 'Atacado (varejo)' },
+        { id: '6003114185392', name: 'Empreendedorismo' },
+      ],
+    }],
+  };
+}
+
 /* ─── criarCampanhaMultiplosConjuntos ────────────────────────────────────────── */
 
 export interface ConfigConjunto {
@@ -939,90 +1010,13 @@ export async function criarCampanhaMultiplosConjuntos(
 
   // 2. Para cada conjunto, criar adset + N ads
   for (const conjunto of cfg.conjuntos) {
-    // Buscar targeting para o tipo
-    let targetingCompleto: Record<string, unknown>;
-
-    if (conjunto.tipo === 'frio') {
-      // Frio: interesses + Lookalike se disponível
-      const interesses = await buscarInteressesAtacado(token);
-      targetingCompleto = targetingFrio(interesses);
-
-      const { data: lookalikes } = await supabase
-        .from('meta_publicos_aprovados')
-        .select('meta_audience_id')
-        .eq('tenant_id', tenantId)
-        .eq('tipo', 'lookalike')
-        .eq('status', 'publicado')
-        .not('meta_audience_id', 'is', null)
-        .limit(2);
-
-      const idsLookalike = (lookalikes ?? [])
-        .map(p => p.meta_audience_id as string)
-        .filter(Boolean);
-
-      if (idsLookalike.length > 0) {
-        targetingCompleto = {
-          ...targetingCompleto,
-          custom_audiences: idsLookalike.map(id => ({ id })),
-        };
-      }
-
-    } else if (conjunto.tipo === 'quente') {
-      // Quente: públicos aprovados (engajamento + retargeting), fallback interesses
-      const { data: publicosQuentes } = await supabase
-        .from('meta_publicos_aprovados')
-        .select('meta_audience_id')
-        .eq('tenant_id', tenantId)
-        .in('tipo', ['quente', 'retargeting', 'remarketing'])
-        .eq('status', 'publicado')
-        .not('meta_audience_id', 'is', null);
-
-      const idsQuentes = (publicosQuentes ?? [])
-        .map(p => p.meta_audience_id as string)
-        .filter(Boolean)
-        .slice(0, 4); // Meta aceita até 4 custom audiences por adset
-
-      if (idsQuentes.length > 0) {
-        targetingCompleto = {
-          age_min: 22,
-          age_max: 55,
-          genders: [2],
-          geo_locations: { countries: ['BR'] },
-          custom_audiences: idsQuentes.map(id => ({ id })),
-        };
-      } else {
-        // Fallback: targeting quente sem custom audience (broad targeting)
-        targetingCompleto = targetingQuente(null);
-      }
-
-    } else {
-      // WhatsApp: priorizar públicos quentes/retargeting, fallback interesses
-      const { data: publicosQuentes } = await supabase
-        .from('meta_publicos_aprovados')
-        .select('meta_audience_id')
-        .eq('tenant_id', tenantId)
-        .in('tipo', ['quente', 'retargeting'])
-        .eq('status', 'publicado')
-        .not('meta_audience_id', 'is', null)
-        .limit(3);
-
-      const idsQuentes = (publicosQuentes ?? [])
-        .map(p => p.meta_audience_id as string)
-        .filter(Boolean);
-
-      if (idsQuentes.length > 0) {
-        targetingCompleto = {
-          age_min: 25,
-          age_max: 55,
-          genders: [2],
-          geo_locations: { countries: ['BR'] },
-          custom_audiences: idsQuentes.map(id => ({ id })),
-        };
-      } else {
-        const interesses = await buscarInteressesAtacado(token);
-        targetingCompleto = targetingWhatsApp(interesses);
-      }
-    }
+    // Buscar targeting real (3 níveis de fallback) — apenas catalogo não passa por aqui
+    const tipoTargeting = conjunto.tipo === 'catalogo' ? 'frio' : conjunto.tipo;
+    const targetingCompleto: Record<string, unknown> =
+      (await buscarTargetingPorTipo(supabase, tenantId, tipoTargeting) ?? {
+        age_min: 25, age_max: 55, genders: [2],
+        geo_locations: { countries: ['BR'] },
+      }) as Record<string, unknown>;
 
     const tipoLabel = conjunto.tipo === 'frio'
       ? 'Público Frio' : conjunto.tipo === 'quente'
