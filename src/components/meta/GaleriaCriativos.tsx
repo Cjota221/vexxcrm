@@ -3,7 +3,7 @@
 import { useRef, useState, useEffect } from 'react';
 import {
   Upload, Video, Image, Trash2, CheckCircle,
-  Clock, AlertCircle, Play, RefreshCw, X, Loader2, CloudDownload, Search,
+  Clock, AlertCircle, Play, RefreshCw, X, Loader2, CloudDownload, Search, Star,
 } from 'lucide-react';
 import { useAdCreatives, type AdCreative } from '@/hooks/useAdCreatives';
 import { supabase } from '@/lib/supabase';
@@ -24,7 +24,10 @@ async function getAuthHeader(): Promise<string> {
 }
 
 export function GaleriaCriativos() {
-  const { criativos, total, hasMore, loading, loadingMore, uploading, uploadProgress, uploadArquivo, arquivar, retranscrever, recarregar, carregarMais } = useAdCreatives();
+  const { criativos, total, hasMore, loading, loadingMore, uploading, uploadProgress, uploadArquivo, arquivar, fixar, retranscrever, recarregar, carregarMais } = useAdCreatives();
+
+  // Criativo ativo = pinado explicitamente, ou o primeiro da lista ordenada (melhor judite_nota/mais recente)
+  const criativoAtivoId = (criativos.find(c => c.is_pinned) ?? criativos[0])?.id ?? null;
   const inputRef = useRef<HTMLInputElement>(null);
   const [erro, setErro]             = useState<string | null>(null);
   const [filtro, setFiltro]         = useState<'todos' | 'video' | 'imagem'>('todos');
@@ -314,9 +317,11 @@ export function GaleriaCriativos() {
               <CardCriativo
                 key={criativo.id}
                 criativo={criativo}
+                isActive={criativoAtivoId === criativo.id}
                 onArquivar={() => arquivar(criativo.id)}
                 onRetranscrever={() => retranscrever(criativo.id)}
                 onPreview={() => setPreview({ id: criativo.id, nome: criativo.nome })}
+                onPin={() => fixar(criativo.id)}
               />
             ))}
             {cacheItems
@@ -660,14 +665,18 @@ function CardCriativoCache({ item }: { item: CacheCreativo }) {
 
 function CardCriativo({
   criativo,
+  isActive,
   onArquivar,
   onRetranscrever,
   onPreview,
+  onPin,
 }: {
   criativo: AdCreative;
+  isActive: boolean;
   onArquivar: () => void;
   onRetranscrever: () => void;
   onPreview: () => void;
+  onPin: () => void;
 }) {
   const [confirmando, setConfirmando] = useState(false);
   const [thumbUrl, setThumbUrl] = useState<string | null>(criativo.url_preview ?? null);
@@ -731,7 +740,9 @@ function CardCriativo({
   const metaId = criativo.meta_video_id ?? criativo.meta_image_hash;
 
   return (
-    <div className="group relative bg-white border border-gray-100 rounded-2xl overflow-hidden hover:shadow-md transition-shadow">
+    <div className={`group relative bg-white rounded-2xl overflow-hidden hover:shadow-md transition-shadow border ${
+      isActive ? 'border-amber-400 ring-1 ring-amber-300' : 'border-gray-100'
+    }`}>
 
       {/* Thumbnail */}
       <div className="aspect-video bg-gray-100 relative">
@@ -786,6 +797,27 @@ function CardCriativo({
             {criativo.judite_nota.toFixed(1)}
           </span>
         )}
+
+        {/* Badge Ativo para campanhas */}
+        {isActive && (
+          <div className="absolute bottom-1.5 left-1.5 flex items-center gap-1 bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded-md font-semibold shadow">
+            <Star size={9} fill="currentColor" />
+            Ativo para campanhas
+          </div>
+        )}
+
+        {/* Botão pin — sempre visível quando pinado, hover quando não */}
+        <button
+          onClick={e => { e.stopPropagation(); onPin(); }}
+          title={criativo.is_pinned ? 'Remover como preferido' : 'Fixar como preferido para campanhas'}
+          className={`absolute top-1.5 right-1.5 p-1 rounded-lg transition-all ${
+            criativo.is_pinned
+              ? 'bg-amber-500 text-white shadow'
+              : 'bg-black/40 text-white/70 opacity-0 group-hover:opacity-100 hover:bg-amber-500 hover:text-white'
+          }`}
+        >
+          <Star size={11} fill={criativo.is_pinned ? 'currentColor' : 'none'} />
+        </button>
       </div>
 
       {/* Info */}

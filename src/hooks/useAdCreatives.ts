@@ -33,6 +33,7 @@ export interface AdCreative {
   judite_nota: number | null;
   judite_veredicto: string | null;
   judite_aprovado: boolean | null;
+  is_pinned: boolean;
   status: 'processando' | 'pronto' | 'arquivado' | 'erro';
   em_uso_em: number;
   created_at: string;
@@ -223,6 +224,22 @@ export function useAdCreatives() {
     await carregar();
   }
 
+  async function fixar(id: string) {
+    const auth = await getAuthHeader();
+    const res = await fetch(`/api/meta/criativos/${id}/pin`, {
+      method: 'PATCH',
+      headers: { Authorization: auth },
+    });
+    if (res.ok) {
+      const { is_pinned } = await res.json() as { is_pinned: boolean };
+      // Atualiza estado local sem recarregar tudo: desafixar todos, fixar o alvo
+      setCriativos(prev => prev.map(c => ({
+        ...c,
+        is_pinned: c.id === id ? is_pinned : (is_pinned ? false : c.is_pinned),
+      })));
+    }
+  }
+
   async function retranscrever(id: string) {
     const auth = await getAuthHeader();
     await fetch('/api/meta/transcricao', {
@@ -250,6 +267,7 @@ export function useAdCreatives() {
     uploadProgress,
     uploadArquivo,
     arquivar,
+    fixar,
     retranscrever,
     recarregar: carregar,
     carregarMais,

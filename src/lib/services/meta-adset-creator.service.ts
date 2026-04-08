@@ -548,8 +548,32 @@ export async function publicarRascunho(
     });
 
     // 4. Resolver copy — prioridade: draft > aba Textos (ai_generated_copies) > erro
-    const criativo = draft.ad_creatives as { tipo: string; meta_video_id: string | null; meta_image_hash: string | null; url_preview: string | null } | null;
-    if (!criativo) throw new Error('Criativo não encontrado. Selecione um criativo antes de publicar.');
+    let criativo = draft.ad_creatives as { tipo: string; meta_video_id: string | null; meta_image_hash: string | null; url_preview: string | null } | null;
+
+    // Auto-selecionar melhor criativo quando o rascunho não tiver um definido
+    if (!criativo) {
+      const seiseMesesAtras = new Date();
+      seiseMesesAtras.setMonth(seiseMesesAtras.getMonth() - 6);
+      const { data: melhorCriativo } = await supabase
+        .from('ad_creatives')
+        .select('tipo, meta_video_id, meta_image_hash, url_preview')
+        .eq('tenant_id', tenantId)
+        .eq('status', 'pronto')
+        .or('meta_video_id.not.is.null,meta_image_hash.not.is.null')
+        .or(`is_pinned.eq.true,created_at.gte.${seiseMesesAtras.toISOString()}`)
+        .order('is_pinned',   { ascending: false })
+        .order('judite_nota', { ascending: false, nullsFirst: false })
+        .order('created_at',  { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!melhorCriativo) {
+        throw new Error(
+          'Nenhum criativo recente encontrado. Faça upload de um criativo antes de publicar.',
+        );
+      }
+      criativo = melhorCriativo;
+    }
 
     let headline = draft.copy_headline?.trim() || '';
     let texto    = draft.copy_texto?.trim() || '';

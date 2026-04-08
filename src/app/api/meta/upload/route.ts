@@ -28,19 +28,28 @@ export async function GET(req: NextRequest) {
   const limit = parseInt(req.nextUrl.searchParams.get('limit') || '20');
   const offset = (page - 1) * limit;
 
+  // Filtro: últimos 6 meses OU pinado (pinados sempre visíveis)
+  const seiseMesesAtras = new Date();
+  seiseMesesAtras.setMonth(seiseMesesAtras.getMonth() - 6);
+  const filtroData = seiseMesesAtras.toISOString();
+
   const [{ data }, { count }] = await Promise.all([
     supabase
       .from('ad_creatives')
       .select('*')
       .eq('tenant_id', tenantId)
       .neq('status', 'arquivado')
-      .order('created_at', { ascending: false })
+      .or(`is_pinned.eq.true,created_at.gte.${filtroData}`)
+      .order('is_pinned',    { ascending: false })
+      .order('judite_nota',  { ascending: false, nullsFirst: false })
+      .order('created_at',   { ascending: false })
       .range(offset, offset + limit - 1),
     supabase
       .from('ad_creatives')
       .select('*', { count: 'exact', head: true })
       .eq('tenant_id', tenantId)
-      .neq('status', 'arquivado'),
+      .neq('status', 'arquivado')
+      .or(`is_pinned.eq.true,created_at.gte.${filtroData}`),
   ]);
 
   return NextResponse.json({ data: data ?? [], total: count ?? 0 });
