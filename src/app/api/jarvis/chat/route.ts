@@ -579,12 +579,76 @@ export async function POST(req: NextRequest) {
     year: 'numeric',
   });
 
+  // Buscar contexto de tráfego em paralelo para enriquecer o system prompt
+  const [campanhasAtivas, criativosGaleria, memorias] = await Promise.all([
+    supabase
+      .from('meta_campaigns_cache')
+      .select('nome, objetivo, status, metricas')
+      .eq('tenant_id', tenantId)
+      .eq('status', 'ACTIVE')
+      .order('created_at', { ascending: false })
+      .limit(5)
+      .then(r => r.data ?? [])
+      .catch(() => []),
+
+    supabase
+      .from('ad_creatives')
+      .select('id, nome, tipo, classificacao, transcricao')
+      .eq('tenant_id', tenantId)
+      .not('meta_video_id', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(10)
+      .then(r => r.data ?? [])
+      .catch(() => []),
+
+    supabase
+      .from('jarvis_memoria')
+      .select('tipo, titulo, resultado, aprendizado, created_at')
+      .eq('tenant_id', tenantId)
+      .not('aprendizado', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(5)
+      .then(r => r.data ?? [])
+      .catch(() => []),
+  ]);
+
+  // Montar bloco de contexto de tráfego
+  const linhasCampanhas = (campanhasAtivas as Array<{ nome: string; objetivo: string; metricas?: Record<string, unknown> }>)
+    .map(c => `- ${c.nome} (${c.objetivo})${c.metricas ? ` — ROAS: ${(c.metricas as Record<string, unknown>).roas ?? 'N/A'}` : ''}`)
+    .join('\n') || 'Nenhuma campanha ativa no momento.';
+
+  const linhasCriativos = (criativosGaleria as Array<{ nome: string; tipo: string; classificacao?: Record<string, unknown> | null; transcricao?: string | null }>)
+    .map(c => {
+      const cl = c.classificacao as Record<string, unknown> | null;
+      const tc = cl?.tipo_conteudo ?? 'não classificado';
+      const trecho = c.transcricao?.trim().slice(0, 150);
+      return `- "${c.nome}" (${c.tipo}, ${tc as string})${trecho ? `: "${trecho}..."` : ''}`;
+    })
+    .join('\n') || 'Nenhum criativo na galeria.';
+
+  const linhasMemoria = (memorias as Array<{ titulo: string; aprendizado?: string | null }>)
+    .map(m => `- ${m.titulo}: ${m.aprendizado}`)
+    .join('\n') || 'Nenhum aprendizado registrado ainda.';
+
+  const contextoTrafego = `=== CONTEXTO ATUAL (${new Date().toLocaleDateString('pt-BR')}) ===
+CAMPANHAS ATIVAS:
+${linhasCampanhas}
+
+CRIATIVOS DISPONÍVEIS NA GALERIA:
+${linhasCriativos}
+
+APRENDIZADOS RECENTES:
+${linhasMemoria}
+=== FIM DO CONTEXTO ===`;
+
   const JARVIS_SYSTEM = `Você é o JARVIS do VEXX CRM da ${config?.brand_name ?? 'CJ Rasteirinhas'}.
 Hoje: ${hoje}.
 Negócio: atacado de rasteirinhas femininas, Goiânia-BR.
 WhatsApp: 62981480687. Ad Account: act_1244920119465862.
 Seja direto. Máximo 5 linhas por resposta.
-Use as tools para buscar dados reais antes de responder.`;
+Use as tools para buscar dados reais antes de responder.
+
+${contextoTrafego}`;
 
   try {
     // Histórico limitado a 4 mensagens para controlar tokens

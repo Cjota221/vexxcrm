@@ -40,10 +40,10 @@ export async function POST(req: NextRequest) {
 
     const supabase = createServerSupabaseClient();
 
-    // Buscar criativos selecionados com classificações
+    // Buscar criativos selecionados com classificações e transcrição
     const { data: criativos, error: criativosError } = await supabase
       .from('ad_creatives')
-      .select('id, nome, tipo, meta_video_id, meta_image_hash, url_preview, classificacao')
+      .select('id, nome, tipo, meta_video_id, meta_image_hash, url_preview, classificacao, transcricao')
       .eq('tenant_id', tenantId)
       .in('id', criativo_ids);
 
@@ -69,6 +69,7 @@ export async function POST(req: NextRequest) {
       meta_image_hash: c.meta_image_hash ?? undefined,
       url_preview: c.url_preview ?? undefined,
       classificacao: c.classificacao as CriativoSelecionado['classificacao'],
+      transcricao: (c.transcricao as string | null | undefined) ?? undefined,
     }));
 
     console.log('[Planejar Route] Chamando jarvisPlanejarCampanha...');

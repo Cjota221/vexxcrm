@@ -63,6 +63,27 @@ export async function POST(req: NextRequest) {
       token,
     );
 
+    // Registrar na jarvis_memoria para fechar o loop de aprendizado
+    if (result?.campaignId) {
+      supabase.from('jarvis_memoria').insert({
+        tenant_id:    body.tenantId,
+        tipo:         'campanha_resultado',
+        referencia_id: result.campaignId,
+        titulo:       body.campaign.name,
+        contexto: {
+          origem:              'jarvis_chat',
+          meta_campaign_id:    result.campaignId,
+          objetivo:            body.campaign.objective ?? 'OUTCOME_TRAFFIC',
+          orcamento_diario:    body.adset.dailyBudget,
+          criado_em:           new Date().toISOString(),
+        },
+        resultado:   null,
+        aprendizado: null,
+      }).then(({ error: memErr }) => {
+        if (memErr) console.warn('[jarvis/criar-campanha] Erro ao salvar memória:', memErr.message);
+      });
+    }
+
     return NextResponse.json(result);
 
   } catch (err) {

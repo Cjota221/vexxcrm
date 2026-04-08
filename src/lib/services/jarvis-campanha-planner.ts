@@ -5,6 +5,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { createServerSupabaseClient } from '@/lib/supabase';
+import { fetchCampaignMetrics } from './meta-ads.service';
 
 const JARVIS_MODEL = process.env.JARVIS_MODEL ?? 'claude-haiku-4-5-20251001';
 
@@ -32,6 +33,8 @@ export interface CriativoSelecionado {
     tem_cta: boolean;
     resumo?: string;
   } | null;
+  /** Texto bruto da transcrição do vídeo (preenchido pelo n8n via Whisper) */
+  transcricao?: string | null;
 }
 
 export interface PlanoConjunto {
@@ -149,7 +152,7 @@ export async function jarvisPlanejarCampanha(
 
     console.log(`[Jarvis Planner] Base de conhecimento: ${knowledgeDocs?.length ?? 0} documentos`);
 
-    // Payload com tipo_conteudo e tom — essencial para match criativo × público
+    // Payload com tipo_conteudo, tom e transcrição — essencial para match criativo × público
     const criativosSimplificados = criativos.map(c => ({
       id:            c.id,
       nome:          c.nome.slice(0, 30),
@@ -162,7 +165,30 @@ export async function jarvisPlanejarCampanha(
         whatsapp: c.classificacao.adequacao_whatsapp,
         tem_cta:  c.classificacao.tem_cta,
       } : null,
+      // Primeiros 300 chars da transcrição — o que a pessoa realmente disse no vídeo
+      ...(c.transcricao?.trim()
+        ? { transcricao: c.transcricao.trim().slice(0, 300) }
+        : {}),
     }));
+
+    // Buscar performance histórica das últimas campanhas (últimos 30 dias)
+    let blocoPerformance = '';
+    try {
+      const metricas = await fetchCampaignMetrics('last_30d', undefined, tenantId);
+      const comDados = metricas.filter(m => m.spend > 0 || m.impressions > 0).slice(0, 5);
+      if (comDados.length > 0) {
+        const linhas = comDados.map(m => {
+          const cpl = m.conversions > 0 ? (m.spend / m.conversions).toFixed(2) : 'N/A';
+          const roas = m.roas > 0 ? m.roas.toFixed(2) : 'N/A';
+          const ctr  = m.ctr  > 0 ? `${m.ctr.toFixed(2)}%` : 'N/A';
+          return `${m.campaign_name.slice(0, 40)} | ROAS: ${roas} | CPL: R$${cpl} | CTR: ${ctr} | status: ${m.status}`;
+        }).join('\n');
+        blocoPerformance = `PERFORMANCE DAS ÚLTIMAS CAMPANHAS (30 dias):\n${linhas}`;
+        console.log(`[Jarvis Planner] Performance histórica: ${comDados.length} campanhas`);
+      }
+    } catch (perfErr) {
+      console.warn('[Jarvis Planner] Não foi possível buscar performance histórica:', String(perfErr));
+    }
 
     // Distribuição de orçamento por tipo
     const PESOS: Record<string, number> = { frio: 0.4, quente: 0.3, whatsapp: 0.3 };
@@ -200,11 +226,13 @@ export async function jarvisPlanejarCampanha(
     const systemPrompt = [
       `Você é o Jarvis, agente de tráfego da CJ Rasteirinhas.`,
       NEGOCIO_CJ,
+      blocoPerformance || '',
       REGRAS_CRIATIVOS,
       REGRAS_COPY,
       baseConhecimento ? `BASE DE CONHECIMENTO ADICIONAL:\n${baseConhecimento}` : '',
       `Distribua os criativos nos seguintes conjuntos: ${descConjuntos}.`,
       `Mínimo 1 criativo por conjunto. Pode repetir entre conjuntos se necessário.`,
+      `Quando disponível, use o campo "transcricao" dos criativos para entender o conteúdo real do vídeo e decidir qual conjunto é mais adequado.`,
       `Responda APENAS JSON válido, sem markdown, sem texto extra.`,
     ].filter(Boolean).join('\n\n');
 

@@ -13,6 +13,7 @@
 import { NextRequest } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { resolverTokenMeta } from '@/lib/services/meta-token.service';
+import { fetchCampaignMetrics } from '@/lib/services/meta-ads.service';
 import {
   distribuirOrcamento,
   criarCampanhaCompleta,
@@ -24,6 +25,68 @@ import {
 } from '@/lib/services/meta-adset-creator.service';
 
 export const maxDuration = 60;
+
+/* ─── Atualiza memórias antigas com performance real (fire-and-forget) ─────── */
+
+async function atualizarMemoriasAntigas(tenantId: string): Promise<void> {
+  try {
+    const supabase = createServerSupabaseClient();
+    const tresDiasAtras = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Buscar registros com resultado null, campaign_id preenchido e criados há > 3 dias
+    const { data: memorias } = await supabase
+      .from('jarvis_memoria')
+      .select('id, referencia_id, contexto')
+      .eq('tenant_id', tenantId)
+      .eq('tipo', 'campanha_resultado')
+      .is('resultado', null)
+      .not('referencia_id', 'is', null)
+      .lt('created_at', tresDiasAtras)
+      .limit(3);
+
+    if (!memorias || memorias.length === 0) return;
+
+    // Buscar métricas uma vez só (evita N chamadas à Meta API)
+    const metricas = await fetchCampaignMetrics('last_30d', undefined, tenantId);
+    const metricasMap = new Map(metricas.map(m => [m.campaign_id, m]));
+
+    for (const mem of memorias) {
+      const campaignId = mem.referencia_id as string;
+      const m = metricasMap.get(campaignId);
+      if (!m || (m.spend === 0 && m.impressions === 0)) continue;
+
+      const resultado = {
+        roas:        m.roas,
+        cpl:         m.conversions > 0 ? parseFloat((m.spend / m.conversions).toFixed(2)) : null,
+        ctr:         m.ctr,
+        spend:       m.spend,
+        impressions: m.impressions,
+        conversions: m.conversions,
+      };
+
+      let aprendizado = `Campanha "${m.campaign_name.slice(0, 40)}" (${m.objective}): `;
+      if (m.roas >= 3) {
+        aprendizado += `Alta performance — ROAS ${m.roas.toFixed(2)}x. Replicar público e criativo.`;
+      } else if (m.roas >= 1.5) {
+        aprendizado += `Performance média — ROAS ${m.roas.toFixed(2)}x. Otimizar copy ou criativo.`;
+      } else if (m.spend > 0) {
+        aprendizado += `Baixa performance — ROAS ${m.roas.toFixed(2)}x. Revisar público ou criativo.`;
+      } else {
+        aprendizado += `Sem gasto registrado nos últimos 30 dias.`;
+      }
+
+      await supabase
+        .from('jarvis_memoria')
+        .update({ resultado, aprendizado })
+        .eq('id', mem.id)
+        .eq('tenant_id', tenantId);
+
+      console.log(`[Jarvis Memória] Atualizado registro ${mem.id} — ROAS: ${m.roas.toFixed(2)}`);
+    }
+  } catch (err) {
+    console.warn('[Jarvis Memória] Erro ao atualizar memórias antigas:', String(err));
+  }
+}
 
 /* ─── Auth via token query param ─────────────────────────────────────────── */
 
@@ -87,6 +150,9 @@ export async function GET(req: NextRequest) {
           return;
         }
         send('step', { id: 'auth', status: 'ok', label: 'Autenticado' });
+
+        // Fire-and-forget: atualizar memórias antigas com performance real
+        setTimeout(() => { atualizarMemoriasAntigas(tenantId).catch(() => {}); }, 0);
 
         // 2. Verificar token Meta
         send('step', { id: 'meta', status: 'running', label: 'Verificando token Meta...' });
