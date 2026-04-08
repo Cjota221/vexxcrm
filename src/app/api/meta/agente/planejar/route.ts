@@ -24,11 +24,12 @@ export async function POST(req: NextRequest) {
       criativo_ids?: string[];
       objetivo?: string;
       orcamento_total?: number;
+      tipos?: string[];
     };
 
     console.log('[Planejar Route] body recebido:', JSON.stringify(body));
 
-    const { criativo_ids, objetivo, orcamento_total } = body;
+    const { criativo_ids, objetivo, orcamento_total, tipos } = body;
 
     if (!criativo_ids?.length || !objetivo || !orcamento_total) {
       return NextResponse.json(
@@ -76,6 +77,7 @@ export async function POST(req: NextRequest) {
       criativosMapped,
       objetivo,
       orcamento_total,
+      tipos,
     );
 
     console.log('[Planejar Route] Plano gerado OK — conjuntos:', plano.conjuntos?.length);

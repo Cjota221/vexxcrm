@@ -192,6 +192,9 @@ export async function GET(req: NextRequest) {
             } : {}),
           }));
 
+          const totalCriativos = conjuntosConfig.reduce((a, c) => a + c.criativos.length, 0);
+          const tiposDesc = conjuntosConfig.map(c => c.tipo).join(', ');
+          send('step', { id: 'inicio_plano', status: 'ok', label: `Iniciando — Tipo: ${tiposDesc} | ${totalCriativos} criativo(s) selecionado(s)` });
           send('step', { id: 'multi', status: 'running', label: `Criando campanha com ${conjuntosConfig.length} conjunto(s) (plano Jarvis)...` });
 
           // Buscar nomes dos públicos aprovados para exibir no log

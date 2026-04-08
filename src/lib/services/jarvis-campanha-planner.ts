@@ -35,7 +35,7 @@ export interface CriativoSelecionado {
 }
 
 export interface PlanoConjunto {
-  tipo: 'frio' | 'quente' | 'whatsapp';
+  tipo: 'frio' | 'quente' | 'whatsapp' | 'catalogo';
   label: string;
   criativos: CriativoSelecionado[];
   justificativa: string;
@@ -53,6 +53,8 @@ export interface PlanoCampanha {
     texto: string;
     cta: string;
   }>;
+  /** Aviso exibido ao usuário na tela de aprovação do plano */
+  aviso?: string;
 }
 
 /* ─── Resposta bruta do Jarvis ───────────────────────────────────────────── */
@@ -61,7 +63,7 @@ interface JarvisResposta {
   nome_sugerido: string;
   resumo_estrategia: string;
   conjuntos: Array<{
-    tipo: 'frio' | 'quente' | 'whatsapp';
+    tipo: 'frio' | 'quente' | 'whatsapp' | 'catalogo';
     label: string;
     criativo_ids: string[];
     justificativa: string;
@@ -113,9 +115,17 @@ export async function jarvisPlanejarCampanha(
   criativos: CriativoSelecionado[],
   objetivo: string,
   orcamentoTotal: number,
+  tipos?: string[],
   anthropicApiKey?: string,
 ): Promise<PlanoCampanha> {
-  console.log('[Jarvis Planner] INICIO — criativos:', criativos.length, 'objetivo:', objetivo);
+  // Tipos válidos (sem catálogo — catálogo não usa planner de criativos)
+  const tiposParaPlanejar = (tipos ?? ['frio', 'quente', 'whatsapp'])
+    .filter(t => t !== 'catalogo' && ['frio', 'quente', 'whatsapp'].includes(t));
+  const tiposFinais = tiposParaPlanejar.length > 0
+    ? tiposParaPlanejar
+    : ['frio', 'quente', 'whatsapp'];
+
+  console.log('[Jarvis Planner] INICIO — criativos:', criativos.length, 'objetivo:', objetivo, 'tipos:', tiposFinais);
 
   try {
     const supabase = createServerSupabaseClient();
@@ -154,6 +164,38 @@ export async function jarvisPlanejarCampanha(
       } : null,
     }));
 
+    // Distribuição de orçamento por tipo
+    const PESOS: Record<string, number> = { frio: 0.4, quente: 0.3, whatsapp: 0.3 };
+    const pesoTotal = tiposFinais.reduce((acc, t) => acc + (PESOS[t] ?? 0.33), 0);
+    const orcPorTipo = Object.fromEntries(
+      tiposFinais.map(t => [t, Math.round(orcamentoTotal * (PESOS[t] ?? 0.33) / pesoTotal)])
+    );
+
+    const LABEL: Record<string, string> = { frio: 'Público Frio', quente: 'Público Quente', whatsapp: 'WhatsApp' };
+    const CTA_DEFAULT: Record<string, string> = { whatsapp: 'WHATSAPP_MESSAGE' };
+
+    // Descrição dinâmica dos conjuntos para o prompt
+    const descConjuntos = tiposFinais.map(t => {
+      const pct = Math.round(((PESOS[t] ?? 0.33) / pesoTotal) * 100);
+      return `${LABEL[t] ?? t} (${pct}% orç)`;
+    }).join(', ');
+
+    // Template JSON dinâmico baseado nos tipos solicitados
+    const jsonTemplate = JSON.stringify({
+      nome_sugerido: '',
+      resumo_estrategia: '',
+      conjuntos: tiposFinais.map(t => ({
+        tipo: t,
+        label: LABEL[t] ?? t,
+        criativo_ids: [] as string[],
+        justificativa: '',
+        orcamento_sugerido: orcPorTipo[t] ?? Math.round(orcamentoTotal / tiposFinais.length),
+      })),
+      copy_por_conjunto: Object.fromEntries(
+        tiposFinais.map(t => [t, { headline: '', texto: '', cta: CTA_DEFAULT[t] ?? 'LEARN_MORE' }])
+      ),
+    });
+
     // System prompt completo com contexto real do negócio
     const systemPrompt = [
       `Você é o Jarvis, agente de tráfego da CJ Rasteirinhas.`,
@@ -161,7 +203,7 @@ export async function jarvisPlanejarCampanha(
       REGRAS_CRIATIVOS,
       REGRAS_COPY,
       baseConhecimento ? `BASE DE CONHECIMENTO ADICIONAL:\n${baseConhecimento}` : '',
-      `Distribua os criativos em 3 conjuntos: frio (40% orç), quente (30%), whatsapp (30%).`,
+      `Distribua os criativos nos seguintes conjuntos: ${descConjuntos}.`,
       `Mínimo 1 criativo por conjunto. Pode repetir entre conjuntos se necessário.`,
       `Responda APENAS JSON válido, sem markdown, sem texto extra.`,
     ].filter(Boolean).join('\n\n');
@@ -182,10 +224,10 @@ export async function jarvisPlanejarCampanha(
           messages: [{
             role:    'user',
             content: `Criativos disponíveis: ${JSON.stringify(criativosSimplificados)}
-Objetivo: ${objetivo} | Orçamento: R$${orcamentoTotal}/dia
+Objetivo: ${objetivo} | Orçamento: R$${orcamentoTotal}/dia | Conjuntos: ${tiposFinais.join(', ')}
 
-Retorne JSON com esta estrutura exata:
-{"nome_sugerido":"","resumo_estrategia":"","conjuntos":[{"tipo":"frio","label":"Público Frio","criativo_ids":[],"justificativa":"","orcamento_sugerido":${Math.round(orcamentoTotal * 0.4)}},{"tipo":"quente","label":"Público Quente","criativo_ids":[],"justificativa":"","orcamento_sugerido":${Math.round(orcamentoTotal * 0.3)}},{"tipo":"whatsapp","label":"WhatsApp","criativo_ids":[],"justificativa":"","orcamento_sugerido":${Math.round(orcamentoTotal * 0.3)}}],"copy_por_conjunto":{"frio":{"headline":"","texto":"","cta":"LEARN_MORE"},"quente":{"headline":"","texto":"","cta":"LEARN_MORE"},"whatsapp":{"headline":"","texto":"","cta":"WHATSAPP_MESSAGE"}}}`,
+Retorne JSON com esta estrutura exata (apenas os conjuntos listados acima):
+${jsonTemplate}`,
           }],
         },
         { signal: abortCtrl.signal },
@@ -223,7 +265,7 @@ Retorne JSON com esta estrutura exata:
       console.log('[Jarvis Planner] JSON parseado OK — conjuntos:', jarvisRaw.conjuntos?.length);
     } catch (parseErr) {
       console.warn('[Jarvis Planner] Falha no parse, usando fallback. Erro:', String(parseErr));
-      jarvisRaw = fallbackDistribuicao(criativos, objetivo, orcamentoTotal);
+      jarvisRaw = fallbackDistribuicao(criativos, objetivo, orcamentoTotal, tiposFinais);
     }
 
     // Montar PlanoCampanha com criativos reais (não só IDs)
@@ -287,10 +329,16 @@ function fallbackDistribuicao(
   criativos: CriativoSelecionado[],
   objetivo: string,
   orcamentoTotal: number,
+  tipos?: string[],
 ): JarvisResposta {
+  const tiposUsados = (tipos ?? ['frio', 'quente', 'whatsapp']).filter(t => t !== 'catalogo');
+
   // Fallback considera tipo_conteudo para match semântico
-  const TIPOS_FRIO     = new Set(['apresentacao_produto', 'catalogo', 'lifestyle']);
-  const TIPOS_QUENTE   = new Set(['depoimento', 'prova_social', 'resultado_revendedora', 'unboxing']);
+  const TIPOS_FRIO   = new Set(['apresentacao_produto', 'catalogo', 'lifestyle']);
+  const TIPOS_QUENTE = new Set(['depoimento', 'prova_social', 'resultado_revendedora', 'unboxing']);
+
+  const PESOS_FB: Record<string, number> = { frio: 0.4, quente: 0.3, whatsapp: 0.3 };
+  const pesoTotal = tiposUsados.reduce((acc, t) => acc + (PESOS_FB[t] ?? 0.33), 0);
 
   function topIds(
     scoreKey: 'adequacao_publico_frio' | 'adequacao_publico_quente' | 'adequacao_whatsapp',
@@ -304,7 +352,6 @@ function fallbackDistribuicao(
         return true;
       })
       .sort((a, b) => {
-        // Prioriza criativos do tipo semântico correto
         const tcA = a.classificacao?.tipo_conteudo ?? '';
         const tcB = b.classificacao?.tipo_conteudo ?? '';
         const bonusA = preferTipos?.has(tcA) ? 2 : 0;
@@ -319,36 +366,46 @@ function fallbackDistribuicao(
     return top;
   }
 
+  const CONJUNTOS_CFG: Record<string, {
+    label: string;
+    scoreKey: 'adequacao_publico_frio' | 'adequacao_publico_quente' | 'adequacao_whatsapp';
+    preferTipos?: Set<string>;
+    excludeTipos?: Set<string>;
+    justificativa: string;
+  }> = {
+    frio:     { label: 'Público Frio',   scoreKey: 'adequacao_publico_frio',   preferTipos: TIPOS_FRIO,   excludeTipos: TIPOS_QUENTE, justificativa: 'Criativos de apresentação para público que não conhece a marca.' },
+    quente:   { label: 'Público Quente', scoreKey: 'adequacao_publico_quente', preferTipos: TIPOS_QUENTE, excludeTipos: TIPOS_FRIO,   justificativa: 'Prova social e depoimentos para público que já engajou.' },
+    whatsapp: { label: 'WhatsApp',       scoreKey: 'adequacao_whatsapp',       preferTipos: TIPOS_QUENTE, excludeTipos: undefined,    justificativa: 'Vídeos diretos com CTA para conversa no WhatsApp.' },
+  };
+
+  const COPY_FB: Record<string, { headline: string; texto: string; cta: string }> = {
+    frio:     { headline: 'Rasteirinhas direto da fábrica', texto: 'Mínimo 5 pares, R$25 a R$49,90/par. Seja uma revendedora CJ.', cta: 'LEARN_MORE' },
+    quente:   { headline: 'Você já nos conhece!',           texto: 'Novidades na coleção. Peça mínima: 5 pares.', cta: 'LEARN_MORE' },
+    whatsapp: { headline: 'Fale com a gente agora',         texto: 'Condições de atacado direto da fábrica. Pedido mínimo: 5 pares.', cta: 'WHATSAPP_MESSAGE' },
+  };
+
+  const conjuntos = tiposUsados.map(t => {
+    const cfg = CONJUNTOS_CFG[t];
+    const orcPct = (PESOS_FB[t] ?? 0.33) / pesoTotal;
+    return {
+      tipo: t as 'frio' | 'quente' | 'whatsapp',
+      label: cfg?.label ?? t,
+      criativo_ids: cfg
+        ? topIds(cfg.scoreKey, cfg.preferTipos, cfg.excludeTipos)
+        : [criativos[0]?.id].filter(Boolean) as string[],
+      justificativa: cfg?.justificativa ?? '',
+      orcamento_sugerido: Math.round(orcamentoTotal * orcPct),
+    };
+  });
+
+  const copy_por_conjunto = Object.fromEntries(
+    tiposUsados.map(t => [t, COPY_FB[t] ?? { headline: 'CJ Rasteirinhas', texto: 'Rasteirinhas direto da fábrica.', cta: 'LEARN_MORE' }])
+  );
+
   return {
     nome_sugerido:     `Agente ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`,
     resumo_estrategia: 'Distribuição automática com match semântico criativo × público.',
-    conjuntos: [
-      {
-        tipo:               'frio',
-        label:              'Público Frio',
-        criativo_ids:       topIds('adequacao_publico_frio', TIPOS_FRIO, TIPOS_QUENTE),
-        justificativa:      'Criativos de apresentação priorizados para público que não conhece a marca.',
-        orcamento_sugerido: Math.round(orcamentoTotal * 0.4),
-      },
-      {
-        tipo:               'quente',
-        label:              'Público Quente',
-        criativo_ids:       topIds('adequacao_publico_quente', TIPOS_QUENTE, TIPOS_FRIO),
-        justificativa:      'Prova social e depoimentos para público que já engajou.',
-        orcamento_sugerido: Math.round(orcamentoTotal * 0.3),
-      },
-      {
-        tipo:               'whatsapp',
-        label:              'WhatsApp',
-        criativo_ids:       topIds('adequacao_whatsapp', TIPOS_QUENTE),
-        justificativa:      'Vídeos diretos com CTA para conversa no WhatsApp.',
-        orcamento_sugerido: Math.round(orcamentoTotal * 0.3),
-      },
-    ],
-    copy_por_conjunto: {
-      frio:     { headline: 'Rasteirinhas direto da fábrica',  texto: 'Mínimo 5 pares, R$25 a R$49,90/par. Seja uma revendedora CJ.',         cta: 'LEARN_MORE'        },
-      quente:   { headline: 'Você já nos conhece!',            texto: 'Novidades na coleção. Peça mínima: 5 pares. Conheça os novos modelos.', cta: 'LEARN_MORE'        },
-      whatsapp: { headline: 'Fale com a gente agora',          texto: 'Condições de atacado direto da fábrica. Pedido mínimo: 5 pares.',       cta: 'WHATSAPP_MESSAGE'  },
-    },
+    conjuntos,
+    copy_por_conjunto,
   };
 }

@@ -67,6 +67,7 @@ interface CriativoDisponivel {
   meta_image_hash: string | null;
   classificacao?: CriativoClassificacao | null;
   transcricao_status?: string | null;
+  is_pinned?: boolean;
   metaCacheId?: string;
 }
 
@@ -427,9 +428,33 @@ export function AgenteTrafegoPanel() {
       return;
     }
 
+    // PROBLEMA 2: se só catálogo foi selecionado, pular o planner — catálogo não usa criativos da galeria
+    const tiposNaoCatalogo = tipos.filter(t => t !== 'catalogo');
+    if (!modoAvancado && tiposNaoCatalogo.length === 0) {
+      console.log('[Agente] Apenas catálogo selecionado — pulando planner, indo para confirmação');
+      setPlanejando(false);
+      setFase('confirmacao');
+      return;
+    }
+
+    // PROBLEMA 1: priorizar criativos marcados com ⭐ (is_pinned)
+    let criativosParaPlanejar = lista;
+    let usouTodosCriativos = false;
+    if (!modoAvancado) {
+      const pinados = lista.filter(c => c.is_pinned);
+      if (pinados.length > 0) {
+        criativosParaPlanejar = pinados;
+        console.log('[Agente] Usando criativos pinados:', pinados.length);
+      } else {
+        criativosParaPlanejar = lista.slice(0, 15);
+        usouTodosCriativos = true;
+        console.log('[Agente] Nenhum pinado — usando primeiros', criativosParaPlanejar.length);
+      }
+    }
+
     const criativoIds = modoAvancado
       ? [...new Set(conjuntos.flatMap(c => c.criativoIds))].filter(Boolean)
-      : lista.slice(0, 15).map(c => c.id).filter(Boolean);
+      : criativosParaPlanejar.map(c => c.id).filter(Boolean);
 
     console.log('[Agente] criativoIds para planejar:', criativoIds.length, criativoIds.slice(0, 3));
 
@@ -449,6 +474,7 @@ export function AgenteTrafegoPanel() {
           criativo_ids: [...new Set(criativoIds)].filter(id => !id.startsWith('cache:')),
           objetivo,
           orcamento_total: orcamento,
+          tipos: modoAvancado ? undefined : tiposNaoCatalogo,
         }),
       });
       if (!res.ok) {
@@ -461,6 +487,10 @@ export function AgenteTrafegoPanel() {
         console.error('[Agente] Plano inválido recebido:', plano);
         setFase('config');
         return;
+      }
+      // PROBLEMA 1: adicionar aviso se usou todos os criativos (sem pinned)
+      if (usouTodosCriativos) {
+        plano.aviso = 'Nenhum criativo marcado com ⭐ — usando todos os disponíveis. Marque criativos na galeria para priorizar os melhores.';
       }
 
       // Salvar plano no Supabase e guardar apenas o ID (plano é grande demais pra query param)
@@ -526,6 +556,20 @@ export function AgenteTrafegoPanel() {
     console.log('[Agente] fase ao executar:', fase);
     console.log('[Agente] planoCampanha ao executar:', planoCampanha ? 'presente' : 'ausente');
     if (planoCampanha) {
+      // Adicionar etapas do plano ao pipeline visual
+      setSteps([
+        { id: 'auth',         status: 'pending', label: 'Verificar credenciais' },
+        { id: 'meta',         status: 'pending', label: 'Verificar token Meta' },
+        { id: 'criativos',    status: 'pending', label: 'Analisar criativos' },
+        { id: 'inicio_plano', status: 'pending', label: 'Iniciando plano Jarvis' },
+        { id: 'multi',        status: 'pending', label: `Criar campanha (${planoCampanha.conjuntos.length} conjunto${planoCampanha.conjuntos.length > 1 ? 's' : ''})` },
+        ...planoCampanha.conjuntos.map(c => ({
+          id:     `conjunto_${c.tipo}`,
+          status: 'pending' as const,
+          label:  `Conjunto ${c.label}`,
+        })),
+      ]);
+
       const params = new URLSearchParams({
         token:     accessToken,
         orcamento: String(orcamento),
@@ -1023,6 +1067,14 @@ export function AgenteTrafegoPanel() {
         </div>
       )}
       {planoCampanha && <>
+      {/* Aviso (ex: nenhum criativo pinado) */}
+      {planoCampanha.aviso && (
+        <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700">
+          <AlertCircle size={13} className="shrink-0 mt-0.5" />
+          <span>{planoCampanha.aviso}</span>
+        </div>
+      )}
+
       {/* Header Jarvis */}
       <div className="flex items-center gap-3 p-4 bg-gradient-to-r from-[#1e3a5f]/5 to-purple-50 rounded-2xl border border-[#1e3a5f]/10">
         <div className="w-10 h-10 rounded-xl bg-[#1e3a5f] flex items-center justify-center shrink-0">

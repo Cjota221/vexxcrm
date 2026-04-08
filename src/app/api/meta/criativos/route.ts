@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
 
   let query = supabase
     .from('ad_creatives')
-    .select('id, nome, tipo, meta_video_id, meta_image_hash, url_preview, classificacao, transcricao_status, created_at')
+    .select('id, nome, tipo, meta_video_id, meta_image_hash, url_preview, classificacao, transcricao_status, is_pinned, created_at')
     .eq('tenant_id', tenantId)
     .in('status', ['pronto', 'processando'])   // inclui criativos ainda sendo classificados
     .or('meta_video_id.not.is.null,meta_image_hash.not.is.null')
