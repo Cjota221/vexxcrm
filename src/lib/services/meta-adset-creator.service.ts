@@ -989,9 +989,8 @@ export async function criarCampanhaMultiplosConjuntos(
           custom_audiences: idsQuentes.map(id => ({ id })),
         };
       } else {
-        // Fallback: targeting específico para quente (interesses + remarketing amplo)
-        const interesses = await buscarInteressesAtacado(token);
-        targetingCompleto = targetingQuente(interesses);
+        // Fallback: targeting quente sem custom audience (broad targeting)
+        targetingCompleto = targetingQuente(null);
       }
 
     } else {
