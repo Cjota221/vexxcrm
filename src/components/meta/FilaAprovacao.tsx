@@ -5,7 +5,7 @@ import { useAuthStore } from '@/store/auth';
 import {
   CheckCircle, XCircle, Edit2, Play,
   Clock, Loader2, ChevronDown, ChevronUp,
-  Users, MessageCircle, TrendingUp, Zap, Trash2, AlertTriangle,
+  Users, MessageCircle, TrendingUp, Zap, Trash2, AlertTriangle, Sparkles, RotateCcw,
 } from 'lucide-react';
 
 interface AdCreative {
@@ -49,6 +49,15 @@ export function FilaAprovacao() {
   const [excluindoTudo, setExcluindoTudo] = useState(false);
   const [confirmarLimpar, setConfirmarLimpar] = useState(false);
   const [feedback, setFeedback]         = useState<{ id: string; msg: string; ok: boolean } | null>(null);
+
+  // IA copy
+  const [melhorandoHeadline, setMelhorandoHeadline] = useState(false);
+  const [melhorandoBody, setMelhorandoBody]         = useState(false);
+  const [gerandoVariacoes, setGerandoVariacoes]     = useState(false);
+  const [headlineOriginal, setHeadlineOriginal]     = useState<string | null>(null);
+  const [bodyOriginal, setBodyOriginal]             = useState<string | null>(null);
+  const [variacoes, setVariacoes]                   = useState<Array<{ headline: string; texto: string }>>([]);
+  const [erroIA, setErroIA]                         = useState<string | null>(null);
 
   function authHeader(): HeadersInit {
     const token = useAuthStore.getState().accessToken;
@@ -118,6 +127,55 @@ export function FilaAprovacao() {
       }
     } finally {
       setExcluindo(null);
+    }
+  }
+
+  async function melhorarTexto(campo: 'headline' | 'body') {
+    const modo = campo === 'headline' ? 'melhorar_headline' : 'melhorar_body';
+    const texto = campo === 'headline' ? headline : bodyText;
+    if (!texto.trim()) return;
+
+    if (campo === 'headline') { setMelhorandoHeadline(true); setHeadlineOriginal(headline); }
+    else { setMelhorandoBody(true); setBodyOriginal(bodyText); }
+    setErroIA(null);
+    try {
+      const res = await fetch('/api/meta/campanhas/ia-copy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ modo, headline: campo === 'headline' ? texto : undefined, body: campo === 'body' ? texto : undefined }),
+      });
+      const data = await res.json() as { resultado?: string; error?: string };
+      if (data.resultado) {
+        if (campo === 'headline') setHeadline(data.resultado);
+        else setBodyText(data.resultado);
+      } else {
+        setErroIA(data.error ?? 'Erro ao melhorar texto');
+      }
+    } catch {
+      setErroIA('Erro de conexão com a IA');
+    } finally {
+      if (campo === 'headline') setMelhorandoHeadline(false);
+      else setMelhorandoBody(false);
+    }
+  }
+
+  async function gerarVariacoes() {
+    setGerandoVariacoes(true);
+    setErroIA(null);
+    setVariacoes([]);
+    try {
+      const res = await fetch('/api/meta/campanhas/ia-copy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ modo: 'variacoes', headline, body: bodyText }),
+      });
+      const data = await res.json() as { variacoes?: Array<{ headline: string; texto: string }>; error?: string };
+      if (data.variacoes) setVariacoes(data.variacoes);
+      else setErroIA(data.error ?? 'Erro ao gerar variações');
+    } catch {
+      setErroIA('Erro de conexão com a IA');
+    } finally {
+      setGerandoVariacoes(false);
     }
   }
 
@@ -282,24 +340,113 @@ export function FilaAprovacao() {
               {isExpanded && (
                 <div className="mt-4 pt-4 border-t border-gray-100 space-y-3">
                   {isEditando ? (
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       <p className="text-xs font-medium text-gray-600">Editar copy:</p>
-                      <input
-                        type="text"
-                        value={headline}
-                        onChange={e => setHeadline(e.target.value)}
-                        placeholder="Título do anúncio"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/30"
-                      />
-                      <textarea
-                        value={bodyText}
-                        onChange={e => setBodyText(e.target.value)}
-                        placeholder="Texto principal do anúncio"
-                        rows={3}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/30 resize-none"
-                      />
+
+                      {/* Headline */}
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={headline}
+                            onChange={e => setHeadline(e.target.value)}
+                            placeholder="Título do anúncio"
+                            className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/30"
+                          />
+                          <button
+                            onClick={() => melhorarTexto('headline')}
+                            disabled={melhorandoHeadline || !headline.trim()}
+                            title="Melhorar com IA"
+                            className="shrink-0 flex items-center gap-1 px-2 py-2 text-xs bg-[#1e3a5f] text-white rounded-xl hover:bg-[#2a3550] disabled:opacity-50 transition-colors"
+                          >
+                            {melhorandoHeadline
+                              ? <Loader2 size={12} className="animate-spin" />
+                              : <Sparkles size={12} />
+                            }
+                          </button>
+                          {headlineOriginal !== null && headlineOriginal !== headline && (
+                            <button
+                              onClick={() => { setHeadline(headlineOriginal); setHeadlineOriginal(null); }}
+                              title="Desfazer melhoria"
+                              className="shrink-0 p-2 text-gray-400 hover:text-gray-600 rounded-xl border border-gray-200 hover:bg-gray-50"
+                            >
+                              <RotateCcw size={12} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Body */}
+                      <div className="space-y-1">
+                        <div className="flex items-start gap-2">
+                          <textarea
+                            value={bodyText}
+                            onChange={e => setBodyText(e.target.value)}
+                            placeholder="Texto principal do anúncio"
+                            rows={3}
+                            className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/30 resize-none"
+                          />
+                          <div className="flex flex-col gap-1 shrink-0">
+                            <button
+                              onClick={() => melhorarTexto('body')}
+                              disabled={melhorandoBody || !bodyText.trim()}
+                              title="Melhorar com IA"
+                              className="flex items-center gap-1 px-2 py-2 text-xs bg-[#1e3a5f] text-white rounded-xl hover:bg-[#2a3550] disabled:opacity-50 transition-colors"
+                            >
+                              {melhorandoBody
+                                ? <Loader2 size={12} className="animate-spin" />
+                                : <Sparkles size={12} />
+                              }
+                            </button>
+                            {bodyOriginal !== null && bodyOriginal !== bodyText && (
+                              <button
+                                onClick={() => { setBodyText(bodyOriginal); setBodyOriginal(null); }}
+                                title="Desfazer melhoria"
+                                className="p-2 text-gray-400 hover:text-gray-600 rounded-xl border border-gray-200 hover:bg-gray-50"
+                              >
+                                <RotateCcw size={12} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Botão variações */}
                       <button
-                        onClick={() => setEditando(null)}
+                        onClick={gerarVariacoes}
+                        disabled={gerandoVariacoes}
+                        className="flex items-center gap-1.5 text-xs px-3 py-2 border border-[#2a3550] text-[#1e3a5f] rounded-xl hover:bg-[#1e3a5f]/5 disabled:opacity-50 transition-colors w-full justify-center"
+                      >
+                        {gerandoVariacoes
+                          ? <><Loader2 size={12} className="animate-spin" /> Gerando variações...</>
+                          : <><Sparkles size={12} /> Sugerir 3 variações com IA</>
+                        }
+                      </button>
+
+                      {/* Erro IA */}
+                      {erroIA && (
+                        <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-xl">{erroIA}</p>
+                      )}
+
+                      {/* Cards de variações */}
+                      {variacoes.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium text-gray-500">Escolha uma variação:</p>
+                          {variacoes.map((v, i) => (
+                            <button
+                              key={i}
+                              onClick={() => { setHeadline(v.headline); setBodyText(v.texto); setVariacoes([]); }}
+                              className="w-full text-left px-3 py-2 border border-[#2a3550]/40 rounded-xl hover:border-[#1e3a5f] hover:bg-[#1e3a5f]/5 transition-colors space-y-0.5"
+                            >
+                              <p className="text-xs font-semibold text-gray-800">{v.headline}</p>
+                              <p className="text-xs text-gray-500 line-clamp-2">{v.texto}</p>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      <button
+                        onClick={() => { setEditando(null); setVariacoes([]); setErroIA(null); setHeadlineOriginal(null); setBodyOriginal(null); }}
                         className="text-xs text-gray-400 hover:text-gray-600"
                       >
                         Cancelar edição
