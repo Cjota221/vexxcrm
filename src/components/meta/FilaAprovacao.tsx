@@ -144,7 +144,9 @@ export function FilaAprovacao() {
         headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify({ modo, headline: campo === 'headline' ? texto : undefined, body: campo === 'body' ? texto : undefined }),
       });
-      const data = await res.json() as { resultado?: string; error?: string };
+      let data: { resultado?: string; error?: string };
+      try { data = await res.json() as typeof data; }
+      catch { setErroIA(`Erro ${res.status} ao melhorar texto`); return; }
       if (data.resultado) {
         if (campo === 'headline') setHeadline(data.resultado);
         else setBodyText(data.resultado);
@@ -152,7 +154,7 @@ export function FilaAprovacao() {
         setErroIA(data.error ?? 'Erro ao melhorar texto');
       }
     } catch {
-      setErroIA('Erro de conexão com a IA');
+      setErroIA('Erro de conexão');
     } finally {
       if (campo === 'headline') setMelhorandoHeadline(false);
       else setMelhorandoBody(false);
@@ -169,11 +171,13 @@ export function FilaAprovacao() {
         headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify({ modo: 'variacoes', headline, body: bodyText }),
       });
-      const data = await res.json() as { variacoes?: Array<{ headline: string; texto: string }>; error?: string };
+      let data: { variacoes?: Array<{ headline: string; texto: string }>; error?: string };
+      try { data = await res.json() as typeof data; }
+      catch { setErroIA(`Erro ${res.status}: resposta inválida do servidor`); return; }
       if (data.variacoes) setVariacoes(data.variacoes);
       else setErroIA(data.error ?? 'Erro ao gerar variações');
     } catch {
-      setErroIA('Erro de conexão com a IA');
+      setErroIA('Erro de conexão');
     } finally {
       setGerandoVariacoes(false);
     }
