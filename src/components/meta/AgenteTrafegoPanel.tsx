@@ -245,12 +245,18 @@ export function AgenteTrafegoPanel() {
     setLoadingCriativos(true);
     try {
       const accessToken = useAuthStore.getState().accessToken ?? '';
+      // meses=0 → sem filtro de data; inclui todos os criativos pronto/processando
       const [resMain, resCache] = await Promise.all([
-        fetch('/api/meta/criativos?limit=50&meses=12', { headers: { Authorization: `Bearer ${accessToken}` } }),
+        fetch('/api/meta/criativos?limit=100&meses=0', { headers: { Authorization: `Bearer ${accessToken}` } }),
         fetch('/api/meta/criativos-cache',              { headers: { Authorization: `Bearer ${accessToken}` } }),
       ]);
 
-      const mainData  = resMain.ok  ? await resMain.json()  as { criativos?: CriativoDisponivel[] }            : null;
+      if (!resMain.ok) {
+        const errData = await resMain.json().catch(() => ({})) as { error?: string };
+        throw new Error(errData.error ?? `Erro ${resMain.status} ao buscar criativos`);
+      }
+
+      const mainData  = await resMain.json() as { criativos?: CriativoDisponivel[] };
       const cacheData = resCache.ok ? await resCache.json() as { criativos?: Array<{ id: string; nome: string; tipo: string; url_thumb?: string | null }> } : null;
 
       const mainLista: CriativoDisponivel[] = mainData?.criativos ?? [];
@@ -275,8 +281,9 @@ export function AgenteTrafegoPanel() {
       setCriativos(lista);
       autoSelecionarJarvis(lista);
       return lista;
-    } catch {
-      return [];
+    } catch (err) {
+      console.error('[Agente] fetchCriativos falhou:', err instanceof Error ? err.message : err);
+      throw err; // propaga para gerarPlanoJarvis mostrar erro ao usuário
     } finally {
       setLoadingCriativos(false);
     }
@@ -405,10 +412,19 @@ export function AgenteTrafegoPanel() {
     setFase('planejando');
     const accessToken = useAuthStore.getState().accessToken ?? '';
 
-    // Garantir criativos carregados — fetchCriativos retorna a lista diretamente
+    // Garantir criativos carregados — fetchCriativos propaga erros
     let lista = criativos;
-    if (lista.length === 0) {
-      lista = await fetchCriativos();
+    try {
+      if (lista.length === 0) {
+        lista = await fetchCriativos();
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Erro ao carregar criativos';
+      console.error('[Agente] fetchCriativos falhou:', msg);
+      setDone({ ok: false, erro: msg });
+      setFase('concluido');
+      setPlanejando(false);
+      return;
     }
 
     const criativoIds = modoAvancado
@@ -419,7 +435,8 @@ export function AgenteTrafegoPanel() {
 
     if (criativoIds.length === 0) {
       console.error('[Agente] Nenhum criativo disponível — abortando planejamento');
-      setFase('config');
+      setDone({ ok: false, erro: 'Nenhum criativo disponível. Faça upload de vídeos ou imagens na aba Criativos e tente novamente.' });
+      setFase('concluido');
       setPlanejando(false);
       return;
     }

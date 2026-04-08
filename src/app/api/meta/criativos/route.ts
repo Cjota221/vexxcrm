@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     .from('ad_creatives')
     .select('id, nome, tipo, meta_video_id, meta_image_hash, url_preview, classificacao, transcricao_status, created_at')
     .eq('tenant_id', tenantId)
-    .eq('status', 'pronto')
+    .in('status', ['pronto', 'processando'])   // inclui criativos ainda sendo classificados
     .or('meta_video_id.not.is.null,meta_image_hash.not.is.null')
     .order('created_at', { ascending: false })
     .limit(limit);
