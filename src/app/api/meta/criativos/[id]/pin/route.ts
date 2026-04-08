@@ -1,8 +1,8 @@
 /**
  * PATCH /api/meta/criativos/[id]/pin
- * Toggle: pina o criativo como preferido para campanhas automáticas.
- * Se já estava pinado → desafixar. Se não estava → fixar e desafixar todos os outros.
- * Apenas um criativo por tenant pode estar pinado simultaneamente.
+ * Toggle: pina/desafixar um criativo da pool de campanhas automáticas.
+ * Múltiplos criativos podem estar pinados simultaneamente — todos formam a pool.
+ * O sistema escolhe o de melhor performance dentro da pool ao publicar.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -38,15 +38,6 @@ export async function PATCH(
   }
 
   const novoEstado = !criativo.is_pinned;
-
-  if (novoEstado) {
-    // Pinar: desafixar todos os outros do tenant antes
-    await supabase
-      .from('ad_creatives')
-      .update({ is_pinned: false })
-      .eq('tenant_id', tenantId)
-      .neq('id', id);
-  }
 
   await supabase
     .from('ad_creatives')

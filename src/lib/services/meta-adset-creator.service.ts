@@ -550,29 +550,44 @@ export async function publicarRascunho(
     // 4. Resolver copy — prioridade: draft > aba Textos (ai_generated_copies) > erro
     let criativo = draft.ad_creatives as { tipo: string; meta_video_id: string | null; meta_image_hash: string | null; url_preview: string | null } | null;
 
-    // Auto-selecionar melhor criativo quando o rascunho não tiver um definido
+    // Auto-selecionar melhor criativo quando o rascunho não tiver um definido.
+    // Prioridade: pool de pinados (melhor judite_nota) → recentes 6 meses (melhor judite_nota)
     if (!criativo) {
-      const seiseMesesAtras = new Date();
-      seiseMesesAtras.setMonth(seiseMesesAtras.getMonth() - 6);
-      const { data: melhorCriativo } = await supabase
+      const baseQuery = supabase
         .from('ad_creatives')
         .select('tipo, meta_video_id, meta_image_hash, url_preview')
         .eq('tenant_id', tenantId)
         .eq('status', 'pronto')
-        .or('meta_video_id.not.is.null,meta_image_hash.not.is.null')
-        .or(`is_pinned.eq.true,created_at.gte.${seiseMesesAtras.toISOString()}`)
-        .order('is_pinned',   { ascending: false })
+        .or('meta_video_id.not.is.null,meta_image_hash.not.is.null');
+
+      // 1ª tentativa: dentro da pool de pinados
+      const { data: pinado } = await baseQuery
+        .eq('is_pinned', true)
         .order('judite_nota', { ascending: false, nullsFirst: false })
         .order('created_at',  { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (!melhorCriativo) {
-        throw new Error(
-          'Nenhum criativo recente encontrado. Faça upload de um criativo antes de publicar.',
-        );
+      if (pinado) {
+        criativo = pinado;
+      } else {
+        // 2ª tentativa: melhor dos últimos 6 meses (sem pin obrigatório)
+        const seiseMesesAtras = new Date();
+        seiseMesesAtras.setMonth(seiseMesesAtras.getMonth() - 6);
+        const { data: recente } = await baseQuery
+          .gte('created_at', seiseMesesAtras.toISOString())
+          .order('judite_nota', { ascending: false, nullsFirst: false })
+          .order('created_at',  { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (!recente) {
+          throw new Error(
+            'Nenhum criativo recente encontrado. Faça upload de um criativo antes de publicar.',
+          );
+        }
+        criativo = recente;
       }
-      criativo = melhorCriativo;
     }
 
     let headline = draft.copy_headline?.trim() || '';

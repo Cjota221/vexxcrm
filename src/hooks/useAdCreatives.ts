@@ -232,11 +232,10 @@ export function useAdCreatives() {
     });
     if (res.ok) {
       const { is_pinned } = await res.json() as { is_pinned: boolean };
-      // Atualiza estado local sem recarregar tudo: desafixar todos, fixar o alvo
-      setCriativos(prev => prev.map(c => ({
-        ...c,
-        is_pinned: c.id === id ? is_pinned : (is_pinned ? false : c.is_pinned),
-      })));
+      // Toggle simples: só atualiza o criativo alvo
+      setCriativos(prev => prev.map(c =>
+        c.id === id ? { ...c, is_pinned } : c
+      ));
     }
   }
 

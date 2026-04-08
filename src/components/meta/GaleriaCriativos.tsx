@@ -26,8 +26,14 @@ async function getAuthHeader(): Promise<string> {
 export function GaleriaCriativos() {
   const { criativos, total, hasMore, loading, loadingMore, uploading, uploadProgress, uploadArquivo, arquivar, fixar, retranscrever, recarregar, carregarMais } = useAdCreatives();
 
-  // Criativo ativo = pinado explicitamente, ou o primeiro da lista ordenada (melhor judite_nota/mais recente)
-  const criativoAtivoId = (criativos.find(c => c.is_pinned) ?? criativos[0])?.id ?? null;
+  // Pool de pinados — todos marcados com estrela são "ativos para campanhas"
+  // Se nenhum pinado, destaca o primeiro da lista (melhor performance/mais recente)
+  const temPinados = criativos.some(c => c.is_pinned);
+  const criativosPinadosIds = new Set(
+    temPinados
+      ? criativos.filter(c => c.is_pinned).map(c => c.id)
+      : criativos.slice(0, 1).map(c => c.id)
+  );
   const inputRef = useRef<HTMLInputElement>(null);
   const [erro, setErro]             = useState<string | null>(null);
   const [filtro, setFiltro]         = useState<'todos' | 'video' | 'imagem'>('todos');
@@ -317,7 +323,7 @@ export function GaleriaCriativos() {
               <CardCriativo
                 key={criativo.id}
                 criativo={criativo}
-                isActive={criativoAtivoId === criativo.id}
+                isActive={criativosPinadosIds.has(criativo.id)}
                 onArquivar={() => arquivar(criativo.id)}
                 onRetranscrever={() => retranscrever(criativo.id)}
                 onPreview={() => setPreview({ id: criativo.id, nome: criativo.nome })}
