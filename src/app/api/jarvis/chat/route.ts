@@ -581,35 +581,44 @@ export async function POST(req: NextRequest) {
 
   // Buscar contexto de tráfego em paralelo para enriquecer o system prompt
   const [campanhasAtivas, criativosGaleria, memorias] = await Promise.all([
-    supabase
-      .from('meta_campaigns_cache')
-      .select('nome, objetivo, status, metricas')
-      .eq('tenant_id', tenantId)
-      .eq('status', 'ACTIVE')
-      .order('created_at', { ascending: false })
-      .limit(5)
-      .then(r => r.data ?? [])
-      .catch(() => []),
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('meta_campaigns_cache')
+          .select('nome, objetivo, status, metricas')
+          .eq('tenant_id', tenantId)
+          .eq('status', 'ACTIVE')
+          .order('created_at', { ascending: false })
+          .limit(5);
+        return data ?? [];
+      } catch { return []; }
+    })(),
 
-    supabase
-      .from('ad_creatives')
-      .select('id, nome, tipo, classificacao, transcricao')
-      .eq('tenant_id', tenantId)
-      .not('meta_video_id', 'is', null)
-      .order('created_at', { ascending: false })
-      .limit(10)
-      .then(r => r.data ?? [])
-      .catch(() => []),
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('ad_creatives')
+          .select('id, nome, tipo, classificacao, transcricao')
+          .eq('tenant_id', tenantId)
+          .not('meta_video_id', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(10);
+        return data ?? [];
+      } catch { return []; }
+    })(),
 
-    supabase
-      .from('jarvis_memoria')
-      .select('tipo, titulo, resultado, aprendizado, created_at')
-      .eq('tenant_id', tenantId)
-      .not('aprendizado', 'is', null)
-      .order('created_at', { ascending: false })
-      .limit(5)
-      .then(r => r.data ?? [])
-      .catch(() => []),
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('jarvis_memoria')
+          .select('tipo, titulo, resultado, aprendizado, created_at')
+          .eq('tenant_id', tenantId)
+          .not('aprendizado', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(5);
+        return data ?? [];
+      } catch { return []; }
+    })(),
   ]);
 
   // Montar bloco de contexto de tráfego
