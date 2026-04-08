@@ -14,7 +14,7 @@ import {
   targetingQuente,
   targetingWhatsApp,
 } from './meta-publicos-cj.service';
-import { jarvisSelecionarPublico, jarvisGerarCopyRapida } from './jarvis-trafego.service';
+import { jarvisSelecionarPublico } from './jarvis-trafego.service';
 
 /* ─── Tipos ─────────────────────────────────────────────────────────────────── */
 
@@ -547,7 +547,7 @@ export async function publicarRascunho(
       targetingCompleto: targetingAprovado,
     });
 
-    // 4. Resolver copy — Jarvis gera se o rascunho não tiver headline ou texto
+    // 4. Resolver copy — prioridade: draft > aba Textos (ai_generated_copies) > erro
     const criativo = draft.ad_creatives as { tipo: string; meta_video_id: string | null; meta_image_hash: string | null; url_preview: string | null } | null;
     if (!criativo) throw new Error('Criativo não encontrado. Selecione um criativo antes de publicar.');
 
@@ -555,49 +555,42 @@ export async function publicarRascunho(
     let texto    = draft.copy_texto?.trim() || '';
     let cta      = draft.copy_cta || '';
 
-    // jarvisCopy já declarado no escopo externo acima
+    // Se o rascunho não tem texto próprio, buscar copy aprovado/rascunho da aba Textos
+    if (!headline || !texto) {
+      const { data: savedCopy } = await supabase
+        .from('ai_generated_copies')
+        .select('headline, texto_principal, cta')
+        .eq('tenant_id', tenantId)
+        .in('status', ['approved', 'draft'])
+        .order('status', { ascending: true }) // 'approved' vem antes de 'draft'
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-    if ((!headline || !texto) && jarvisApiKey) {
-      try {
-        const copyGerada = await jarvisGerarCopyRapida(
-          {
-            objetivo:      draft.objetivo,
-            tipo_campanha: tipoCampanha,
-            publico_nome:  publicoNome,
-            tipo_criativo: criativo.tipo as 'video' | 'imagem',
-            url_destino:   draft.url_destino ?? undefined,
-          },
-          jarvisApiKey,
-          baseConhecimento,
+      if (savedCopy) {
+        headline = headline || savedCopy.headline;
+        texto    = texto    || savedCopy.texto_principal;
+        cta      = cta      || (savedCopy.cta as string);
+        jarvisCopy = `Texto da aba Textos: "${headline}"`;
+        console.log(`[COPY] ✅ Usando copy salvo — headline: "${headline}"`);
+      } else {
+        throw new Error(
+          'Crie pelo menos um texto na aba Textos antes de publicar a campanha.',
         );
-        // Validar CTA contra objetivo para evitar rejeição da Meta
-        const ctasValidos: Record<string, string[]> = {
-          MESSAGES:        ['WHATSAPP_MESSAGE', 'LEARN_MORE'],
-          LEAD_GENERATION: ['SIGN_UP', 'LEARN_MORE', 'GET_OFFER'],
-          LINK_CLICKS:     ['LEARN_MORE', 'SHOP_NOW', 'GET_OFFER'],
-          CONVERSIONS:     ['SHOP_NOW', 'LEARN_MORE', 'BUY_NOW'],
-          BRAND_AWARENESS: ['LEARN_MORE'],
-        };
-        const ctasPermitidos = ctasValidos[draft.objetivo] ?? ['LEARN_MORE'];
-        const ctaValidado = ctasPermitidos.includes(copyGerada.cta) ? copyGerada.cta : ctasPermitidos[0];
-
-        headline    = headline || copyGerada.headline;
-        texto       = texto    || copyGerada.texto;
-        cta         = cta      || ctaValidado;
-        jarvisCopy  = `Copy gerada por Jarvis — headline: "${headline}" | cta: ${cta}`;
-        console.log(`[JARVIS] ✅ ${jarvisCopy}`);
-      } catch (e) {
-        headline   = headline || draft.nome;
-        texto      = texto    || 'Rasteirinhas femininas no atacado. Revenda e lucre.';
-        cta        = cta      || 'LEARN_MORE';
-        jarvisCopy = `Fallback hardcoded (erro Jarvis: ${e instanceof Error ? e.message : String(e)})`;
-        console.warn('[JARVIS] ⚠️ Falha ao gerar copy:', e);
       }
-    } else if (!jarvisApiKey) {
-      headline = headline || draft.nome;
-      texto    = texto    || 'Rasteirinhas femininas no atacado. Revenda e lucre.';
-      cta      = cta      || 'LEARN_MORE';
-      jarvisCopy = 'Jarvis desabilitado: API key não configurada';
+    }
+
+    // Validar CTA contra o objetivo para evitar rejeição da Meta
+    const ctasValidos: Record<string, string[]> = {
+      MESSAGES:        ['WHATSAPP_MESSAGE', 'LEARN_MORE'],
+      LEAD_GENERATION: ['SIGN_UP', 'LEARN_MORE', 'GET_OFFER'],
+      LINK_CLICKS:     ['LEARN_MORE', 'SHOP_NOW', 'GET_OFFER'],
+      CONVERSIONS:     ['SHOP_NOW', 'LEARN_MORE', 'BUY_NOW'],
+      BRAND_AWARENESS: ['LEARN_MORE'],
+    };
+    const ctasPermitidos = ctasValidos[draft.objetivo] ?? ['LEARN_MORE'];
+    if (!cta || !ctasPermitidos.includes(cta)) {
+      cta = ctasPermitidos[0];
     }
 
     const cfgCriativo: ConfiguracaoCriativo = {

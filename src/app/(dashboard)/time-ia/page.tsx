@@ -304,6 +304,7 @@ export default function TimeIAPage() {
   });
   const [savingConfig, setSavingConfig] = useState(false);
   const [configSaved, setConfigSaved] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [runningAnalysis, setRunningAnalysis] = useState(false);
   const [activeTab, setActiveTab] = useState<'aprovacao' | 'copies' | 'config'>('aprovacao');
@@ -367,6 +368,7 @@ export default function TimeIAPage() {
 
   async function handleSaveConfig() {
     setSavingConfig(true);
+    setConfigError(null);
     try {
       // Se a OpenAI key compartilhada foi preenchida, propagar para todos os agentes que usam OpenAI
       const payload = { ...config };
@@ -375,13 +377,19 @@ export default function TimeIAPage() {
         payload.research_api_key = payload.analytics_api_key;
         payload.visual_api_key   = payload.analytics_api_key;
       }
-      await authFetch('/api/ai-team/config', {
+      const res = await authFetch('/api/ai-team/config', {
         method: 'PUT',
         body: JSON.stringify(payload),
       });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: `HTTP ${res.status}` })) as { error?: string };
+        throw new Error(errData.error || `Erro ${res.status}`);
+      }
       setConfigSaved(true);
       setTimeout(() => setConfigSaved(false), 3000);
       await loadData();
+    } catch (err) {
+      setConfigError(err instanceof Error ? err.message : String(err));
     } finally {
       setSavingConfig(false);
     }
@@ -726,6 +734,14 @@ export default function TimeIAPage() {
               ))}
             </div>
           </div>
+
+          {/* Erro ao salvar */}
+          {configError && (
+            <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
+              <XCircle size={15} className="shrink-0" />
+              {configError}
+            </div>
+          )}
 
           {/* Botão salvar */}
           <button

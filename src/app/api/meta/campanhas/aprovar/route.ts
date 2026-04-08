@@ -11,6 +11,7 @@ import { META_BASE } from '@/lib/meta-config';
 import {
   criarAdCreative,
   criarAd,
+  publicarRascunho,
   type ConfiguracaoCriativo,
 } from '@/lib/services/meta-adset-creator.service';
 
@@ -73,6 +74,37 @@ export async function POST(req: NextRequest) {
   }
 
   if (body.acao === 'aprovar') {
+    // ── Caso 0: draft nunca foi enviado ao Meta — criar campanha+adset+ad agora ──
+    if (!draft.meta_campaign_id) {
+      const { data: aiCfg } = await supabase
+        .from('ai_provider_config')
+        .select('meta_page_id')
+        .eq('tenant_id', tenantId)
+        .single();
+      const pageId = aiCfg?.meta_page_id ?? '110009834520002';
+      const whatsappNumber = draft.copy_cta === 'WHATSAPP_MESSAGE' ? '5562993044255' : undefined;
+
+      try {
+        await supabase
+          .from('meta_campaign_drafts')
+          .update({ status: 'publicando' })
+          .eq('id', body.draftId);
+
+        const resultado = await publicarRascunho(tenantId, body.draftId, pageId, whatsappNumber);
+        draft.meta_campaign_id = resultado.campaignId;
+        draft.meta_adset_id    = resultado.adsetId;
+        draft.meta_ad_id       = resultado.adId;
+      } catch (pubErr) {
+        const msg = pubErr instanceof Error ? pubErr.message : String(pubErr);
+        console.error('[aprovar] Erro ao publicar rascunho no Meta:', msg);
+        await supabase
+          .from('meta_campaign_drafts')
+          .update({ status: 'erro', erro: msg })
+          .eq('id', body.draftId);
+        return NextResponse.json({ error: `Falha ao criar campanha no Meta: ${msg}` }, { status: 500 });
+      }
+    }
+
     // Se o ad não foi criado (agente criou campanha+adset mas falhou no ad), criar agora
     if (!draft.meta_ad_id && draft.meta_adset_id && draft.criativo_id) {
       try {
