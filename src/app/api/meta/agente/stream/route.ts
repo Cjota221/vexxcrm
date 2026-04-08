@@ -194,6 +194,17 @@ export async function GET(req: NextRequest) {
 
           send('step', { id: 'multi', status: 'running', label: `Criando campanha com ${conjuntosConfig.length} conjunto(s) (plano Jarvis)...` });
 
+          // Buscar nomes dos públicos aprovados para exibir no log
+          const { data: publicosAprovados } = await supabase
+            .from('meta_publicos_aprovados')
+            .select('tipo, nome, meta_audience_id')
+            .eq('tenant_id', tenantId)
+            .eq('status', 'publicado');
+          const nomePublicoPorTipo = (publicosAprovados ?? []).reduce<Record<string, string>>((acc, p) => {
+            if (!acc[p.tipo] && p.nome) acc[p.tipo] = p.nome;
+            return acc;
+          }, {});
+
           try {
             const resultado = await criarCampanhaMultiplosConjuntos(tenantId, {
               nome: nomeUsado,
@@ -218,6 +229,17 @@ export async function GET(req: NextRequest) {
               const copy = plano.copy_por_conjunto?.[cj.tipo];
               const adIds = cj.ads.map(a => a.adId);
 
+              // Montar jarvis_log rico com todas as decisões do Jarvis
+              const criativosNomes = planoCj?.criativos?.map(c => c.tipo ?? 'criativo').join(', ') ?? '';
+              const publicoNome = nomePublicoPorTipo[cj.tipo === 'frio' ? 'lookalike' : cj.tipo === 'quente' ? 'quente' : 'quente'] ?? '';
+              const jarvisLogParts = [
+                `Plano Jarvis: ${planoCj?.criativos?.length ?? 0} criativo(s)`,
+                criativosNomes ? `Tipos: ${criativosNomes}` : '',
+                copy?.headline ? `Headline: "${copy.headline}"` : '',
+                publicoNome ? `Público: ${publicoNome}` : '',
+                `Adset: ${cj.adsetId}`,
+              ].filter(Boolean);
+
               await supabase.from('meta_campaign_drafts').insert({
                 tenant_id: tenantId,
                 nome: `${nomeUsado} — ${tipoLabel}`,
@@ -232,15 +254,20 @@ export async function GET(req: NextRequest) {
                 copy_headline: copy?.headline ?? `${adIds.length} criativo(s)`,
                 copy_texto: copy?.texto ?? null,
                 copy_cta: copy?.cta ?? 'LEARN_MORE',
-                jarvis_log: `Plano Jarvis: ${planoCj?.criativos?.length ?? 0} criativos`.slice(0, 500),
+                jarvis_log: jarvisLogParts.join(' | ').slice(0, 500),
               });
 
               const erros = cj.erros?.length ? ` | ⚠️ ${cj.erros.length} com erro` : '';
+              const detalheStep = [
+                copy?.headline ? `"${copy.headline}"` : '',
+                publicoNome ? `Público: ${publicoNome}` : '',
+                `Adset: ${cj.adsetId}`,
+              ].filter(Boolean).join(' · ');
               send('step', {
                 id: `conjunto_${cj.tipo}`,
                 status: cj.ads.length > 0 ? 'ok' : 'error',
                 label: `${tipoLabel} — ${cj.ads.length} criativo(s) ✓${erros}`,
-                detalhe: `Adset: ${cj.adsetId}`,
+                detalhe: detalheStep,
               });
             }
 

@@ -29,6 +29,7 @@ export async function GET(req: NextRequest) {
       copy_headline, copy_texto, copy_cta,
       meta_campaign_id, meta_adset_id, meta_ad_id,
       created_at, criativo_id, criativo_url_preview,
+      jarvis_log,
       ad_creatives (nome, url_preview, classificacao)
     `)
     .eq('tenant_id', tenantId)

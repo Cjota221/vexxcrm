@@ -27,6 +27,7 @@ interface DraftCampanha {
   criativo_id: string | null;
   criativo_url_preview: string | null;
   created_at: string;
+  jarvis_log: string | null;
   // Supabase pode retornar como array ou objeto dependendo da relação
   ad_creatives: AdCreative | AdCreative[] | null;
 }
@@ -494,6 +495,16 @@ export function FilaAprovacao() {
                   {draft.meta_campaign_id && (
                     <div className="text-xs text-gray-400 font-mono">
                       Campaign ID: {draft.meta_campaign_id}
+                    </div>
+                  )}
+
+                  {draft.jarvis_log && (
+                    <div className="mt-2 px-3 py-2 bg-[#1e3a5f]/5 border border-[#1e3a5f]/10 rounded-xl">
+                      <p className="text-xs font-medium text-[#1e3a5f] mb-0.5 flex items-center gap-1">
+                        <Sparkles size={11} />
+                        Decisões do Jarvis
+                      </p>
+                      <p className="text-xs text-gray-600 whitespace-pre-line">{draft.jarvis_log}</p>
                     </div>
                   )}
                 </div>

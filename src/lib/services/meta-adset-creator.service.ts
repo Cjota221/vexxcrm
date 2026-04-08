@@ -863,6 +863,8 @@ export interface ConfigConjunto {
     url_preview?: string;
     tipo: 'video' | 'imagem';
   }>;
+  /** Copy gerado pelo Jarvis para este conjunto — sobrescreve os textos padrão */
+  copyOverride?: { headline: string; texto: string; cta: string };
 }
 
 export interface ConfigCampanhaAvancada {
@@ -1071,9 +1073,9 @@ export async function criarCampanhaMultiplosConjuntos(
             metaVideoId: criativo.meta_video_id,
             metaImageHash: criativo.meta_image_hash,
             imageUrl: criativo.url_preview,
-            headline: `${cfg.nome} — ${tipoLabel}`,
-            texto: 'Conheça nossas rasteirinhas. Qualidade garantida.',
-            cta: conjunto.tipo === 'whatsapp' ? 'WHATSAPP_MESSAGE' : 'LEARN_MORE',
+            headline: conjunto.copyOverride?.headline ?? `${cfg.nome} — ${tipoLabel}`,
+            texto: conjunto.copyOverride?.texto ?? 'Conheça nossas rasteirinhas. Qualidade garantida.',
+            cta: conjunto.copyOverride?.cta ?? (conjunto.tipo === 'whatsapp' ? 'WHATSAPP_MESSAGE' : 'LEARN_MORE'),
             pageId: cfg.pageId,
             whatsappNumber: conjunto.tipo === 'whatsapp' ? cfg.whatsappNumber : undefined,
             urlDestino: conjunto.tipo !== 'whatsapp' ? cfg.urlDestino : undefined,

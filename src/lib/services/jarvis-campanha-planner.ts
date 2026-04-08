@@ -74,6 +74,38 @@ interface JarvisResposta {
   }>;
 }
 
+/* ─── Contexto fixo do negócio CJ ───────────────────────────────────────── */
+
+const NEGOCIO_CJ = `NEGÓCIO: CJ Rasteirinhas — atacado de rasteirinhas femininas, fabricação própria, Goiânia-GO.
+PRODUTO: Rasteirinhas femininas. Pedido mínimo: 5 pares. Preço atacado: R$25 a R$49,90/par.
+PÚBLICO: Mulheres 25-55 anos que querem renda extra revendendo. Empreendedoras e revendedoras.
+SEM PROMOÇÕES ATIVAS no momento — não há descontos percentuais, frete grátis ou ofertas temporárias.
+REGRA ANTI-ALUCINAÇÃO: NUNCA invente descontos, percentuais, condições de frete, cupons,
+prazos de oferta ou qualquer informação que não foi fornecida explicitamente neste contexto.
+Se não tem dados, não mencione. Use apenas fatos reais acima.`;
+
+const REGRAS_CRIATIVOS = `REGRAS DE DISTRIBUIÇÃO CRIATIVO × PÚBLICO:
+- FRIO (nunca viu a marca): use apresentacao_produto, catalogo, lifestyle.
+  NUNCA use unboxing, depoimento ou prova_social em público frio — eles não conhecem a marca ainda.
+- QUENTE (já engajou com a marca): use depoimento, prova_social, resultado_revendedora, unboxing.
+- WHATSAPP: use vídeos curtos e diretos com CTA para conversa. prova_social e depoimento funcionam bem.
+
+Match tipo_conteudo → conjunto permitido:
+apresentacao_produto → frio
+catalogo → frio
+lifestyle → frio
+depoimento → quente, whatsapp
+unboxing → quente, whatsapp
+prova_social → quente, whatsapp
+outro/desconhecido → qualquer conjunto`;
+
+const REGRAS_COPY = `REGRAS DE COPY:
+- headline: máx 40 caracteres. Direto. Focado no benefício real (renda extra, revenda, qualidade).
+- texto: máx 125 caracteres. Urgente mas real. Sem promoções inventadas.
+- Frio: foque em apresentar o produto/oportunidade de negócio.
+- Quente: foque em recomprar, novidades, expandir o negócio.
+- WhatsApp: foque em conversa, atendimento, condições de atacado.`;
+
 /* ─── Função principal ───────────────────────────────────────────────────── */
 
 export async function jarvisPlanejarCampanha(
@@ -86,135 +118,161 @@ export async function jarvisPlanejarCampanha(
   console.log('[Jarvis Planner] INICIO — criativos:', criativos.length, 'objetivo:', objetivo);
 
   try {
-  const client = getAnthropicClient(anthropicApiKey);
+    const supabase = createServerSupabaseClient();
+    const client   = getAnthropicClient(anthropicApiKey);
 
-  // Payload mínimo — só o que o Jarvis precisa pra decidir
-  const criativosSimplificados = criativos.map(c => ({
-    id: c.id,
-    nome: c.nome.slice(0, 30),
-    tipo: c.tipo,
-    scores: c.classificacao ? {
-      frio:     c.classificacao.adequacao_publico_frio,
-      quente:   c.classificacao.adequacao_publico_quente,
-      whatsapp: c.classificacao.adequacao_whatsapp,
-      tem_cta:  c.classificacao.tem_cta,
-    } : null,
-  }));
+    // Buscar base de conhecimento do tenant (jarvis_knowledge)
+    const { data: knowledgeDocs } = await supabase
+      .from('jarvis_knowledge')
+      .select('titulo, conteudo, categoria')
+      .eq('tenant_id', tenantId)
+      .eq('ativo', true)
+      .order('created_at', { ascending: false })
+      .limit(15);
 
-  const abortCtrl = new AbortController();
-  const timeoutId = setTimeout(() => abortCtrl.abort(), 20000);
+    const baseConhecimento = (knowledgeDocs && knowledgeDocs.length > 0)
+      ? knowledgeDocs
+          .map(k => `[${(k as Record<string, string>).categoria}] ${(k as Record<string, string>).titulo}: ${(k as Record<string, string>).conteudo}`)
+          .join('\n')
+          .slice(0, 2500)
+      : null;
 
-  console.log('[Jarvis Planner] Chamando Anthropic API...');
-  const startAnthro = Date.now();
+    console.log(`[Jarvis Planner] Base de conhecimento: ${knowledgeDocs?.length ?? 0} documentos`);
 
-  let response: Awaited<ReturnType<typeof client.messages.create>>;
-  try {
-    response = await client.messages.create(
-      {
-        model: JARVIS_MODEL,
-        max_tokens: 2500,
-    system: `Jarvis, agente de tráfego da CJ Rasteirinhas (rasteirinhas femininas, Goiânia, revendedoras 25-55 anos).
-Distribua os criativos em 3 conjuntos: frio (40% orç), quente (30%), whatsapp (30%).
-Mínimo 3 criativos por conjunto. Pode repetir criativos entre conjuntos.
-IMPORTANTE: JSON MÍNIMO — justificativa máx 15 palavras, resumo_estrategia máx 20 palavras, headline máx 8 palavras, texto máx 15 palavras. JSON precisa caber em 800 tokens.
-Responda APENAS JSON válido, sem markdown.`,
-      messages: [{
-        role: 'user',
-        content: `Criativos: ${JSON.stringify(criativosSimplificados)}
-Obj: ${objetivo} | Orç: R$${orcamentoTotal}/dia
+    // Payload com tipo_conteudo e tom — essencial para match criativo × público
+    const criativosSimplificados = criativos.map(c => ({
+      id:            c.id,
+      nome:          c.nome.slice(0, 30),
+      tipo:          c.tipo,
+      tipo_conteudo: c.classificacao?.tipo_conteudo ?? 'desconhecido',
+      tom:           c.classificacao?.tom ?? 'neutro',
+      scores: c.classificacao ? {
+        frio:     c.classificacao.adequacao_publico_frio,
+        quente:   c.classificacao.adequacao_publico_quente,
+        whatsapp: c.classificacao.adequacao_whatsapp,
+        tem_cta:  c.classificacao.tem_cta,
+      } : null,
+    }));
 
-JSON:
+    // System prompt completo com contexto real do negócio
+    const systemPrompt = [
+      `Você é o Jarvis, agente de tráfego da CJ Rasteirinhas.`,
+      NEGOCIO_CJ,
+      REGRAS_CRIATIVOS,
+      REGRAS_COPY,
+      baseConhecimento ? `BASE DE CONHECIMENTO ADICIONAL:\n${baseConhecimento}` : '',
+      `Distribua os criativos em 3 conjuntos: frio (40% orç), quente (30%), whatsapp (30%).`,
+      `Mínimo 1 criativo por conjunto. Pode repetir entre conjuntos se necessário.`,
+      `Responda APENAS JSON válido, sem markdown, sem texto extra.`,
+    ].filter(Boolean).join('\n\n');
+
+    const abortCtrl = new AbortController();
+    const timeoutId = setTimeout(() => abortCtrl.abort(), 25000);
+
+    console.log('[Jarvis Planner] Chamando Anthropic API...');
+    const startAnthro = Date.now();
+
+    let response: Awaited<ReturnType<typeof client.messages.create>>;
+    try {
+      response = await client.messages.create(
+        {
+          model:      JARVIS_MODEL,
+          max_tokens: 2500,
+          system:     systemPrompt,
+          messages: [{
+            role:    'user',
+            content: `Criativos disponíveis: ${JSON.stringify(criativosSimplificados)}
+Objetivo: ${objetivo} | Orçamento: R$${orcamentoTotal}/dia
+
+Retorne JSON com esta estrutura exata:
 {"nome_sugerido":"","resumo_estrategia":"","conjuntos":[{"tipo":"frio","label":"Público Frio","criativo_ids":[],"justificativa":"","orcamento_sugerido":${Math.round(orcamentoTotal * 0.4)}},{"tipo":"quente","label":"Público Quente","criativo_ids":[],"justificativa":"","orcamento_sugerido":${Math.round(orcamentoTotal * 0.3)}},{"tipo":"whatsapp","label":"WhatsApp","criativo_ids":[],"justificativa":"","orcamento_sugerido":${Math.round(orcamentoTotal * 0.3)}}],"copy_por_conjunto":{"frio":{"headline":"","texto":"","cta":"LEARN_MORE"},"quente":{"headline":"","texto":"","cta":"LEARN_MORE"},"whatsapp":{"headline":"","texto":"","cta":"WHATSAPP_MESSAGE"}}}`,
-      }],
-    },
-    { signal: abortCtrl.signal },
-    );
-  } finally {
-    clearTimeout(timeoutId);
-  }
-
-  console.log('[Jarvis Planner] Anthropic respondeu em', Date.now() - startAnthro, 'ms');
-  console.log('[Jarvis Planner] stop_reason:', response!.stop_reason);
-
-  const text = response!.content[0].type === 'text' ? response!.content[0].text : '{}';
-  const clean = text.replace(/```json|```/g, '').trim();
-
-  console.log('[Jarvis Planner] Response body raw:', text.slice(0, 500));
-  console.log('[Jarvis Planner] Parseando JSON...');
-
-  let jarvisRaw: JarvisResposta;
-  try {
-    let jsonToParse = clean;
-
-    // Se cortou no meio (max_tokens), tentar recuperar até o último } válido
-    if (response!.stop_reason === 'max_tokens') {
-      console.warn('[Jarvis Planner] Resposta cortada — tentando parsear parcialmente');
-      const ultimoFechamento = clean.lastIndexOf('}');
-      if (ultimoFechamento > 0) {
-        jsonToParse = clean.slice(0, ultimoFechamento + 1);
-        // Fechar chaves abertas se necessário
-        const abre = (jsonToParse.match(/\{/g) ?? []).length;
-        const fecha = (jsonToParse.match(/\}/g) ?? []).length;
-        jsonToParse += '}'.repeat(Math.max(0, abre - fecha));
-      }
+          }],
+        },
+        { signal: abortCtrl.signal },
+      );
+    } finally {
+      clearTimeout(timeoutId);
     }
 
-    jarvisRaw = JSON.parse(jsonToParse) as JarvisResposta;
-    console.log('[Jarvis Planner] JSON parseado OK — conjuntos:', jarvisRaw.conjuntos?.length);
-  } catch (parseErr) {
-    console.warn('[Jarvis Planner] Falha no parse, usando fallback. Erro:', String(parseErr));
-    jarvisRaw = fallbackDistribuicao(criativos, objetivo, orcamentoTotal);
-  }
+    console.log('[Jarvis Planner] Anthropic respondeu em', Date.now() - startAnthro, 'ms');
+    console.log('[Jarvis Planner] stop_reason:', response!.stop_reason);
 
-  // Montar PlanoCampanha com criativos reais (não só IDs)
-  const criativosMap = new Map(criativos.map(c => [c.id, c]));
-  const conjuntos: PlanoConjunto[] = (jarvisRaw.conjuntos ?? []).map(cj => {
-    const criativosDoConjunto = (cj.criativo_ids ?? [])
-      .map(id => criativosMap.get(id))
-      .filter((c): c is CriativoSelecionado => c != null);
-    return {
-      tipo: cj.tipo,
-      label: cj.label ?? cj.tipo,
-      criativos: criativosDoConjunto,
-      justificativa: cj.justificativa ?? '',
-      orcamento_sugerido: cj.orcamento_sugerido ?? Math.round(orcamentoTotal / 3),
-    };
-  });
+    const text  = response!.content[0].type === 'text' ? response!.content[0].text : '{}';
+    const clean = text.replace(/```json|```/g, '').trim();
 
-  const plano: PlanoCampanha = {
-    objetivo,
-    nome_sugerido: jarvisRaw.nome_sugerido ?? `Agente ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`,
-    orcamento_total: orcamentoTotal,
-    conjuntos,
-    resumo_estrategia: jarvisRaw.resumo_estrategia ?? '',
-    copy_por_conjunto: jarvisRaw.copy_por_conjunto ?? {},
-  };
+    console.log('[Jarvis Planner] Response body raw:', text.slice(0, 500));
+    console.log('[Jarvis Planner] Parseando JSON...');
 
-  console.log('[Jarvis Planner] Plano montado — conjuntos:', conjuntos.length);
+    let jarvisRaw: JarvisResposta;
+    try {
+      let jsonToParse = clean;
 
-  // Salvar plano na memória do Jarvis — fire-and-forget (não bloqueia o retorno)
-  console.log('[Jarvis Planner] Salvando na jarvis_memoria...');
-  const supabase = createServerSupabaseClient();
-  supabase.from('jarvis_memoria').insert({
-    tenant_id: tenantId,
-    tipo: 'plano_campanha',
-    titulo: plano.nome_sugerido,
-    contexto: {
-      objetivo,
-      orcamento_total: orcamentoTotal,
-      total_criativos: criativos.length,
-      conjuntos: conjuntos.map(c => ({ tipo: c.tipo, total_criativos: c.criativos.length })),
-    },
-    resultado: null,
-    aprendizado: null,
-  })
-    .then(({ error }) => {
-      if (error) console.warn('[Jarvis] Erro ao salvar plano:', error.message);
-      else console.log('[Jarvis] Plano salvo');
+      // Se cortou no meio (max_tokens), tentar recuperar até o último } válido
+      if (response!.stop_reason === 'max_tokens') {
+        console.warn('[Jarvis Planner] Resposta cortada — tentando parsear parcialmente');
+        const ultimoFechamento = clean.lastIndexOf('}');
+        if (ultimoFechamento > 0) {
+          jsonToParse = clean.slice(0, ultimoFechamento + 1);
+          const abre  = (jsonToParse.match(/\{/g) ?? []).length;
+          const fecha = (jsonToParse.match(/\}/g) ?? []).length;
+          jsonToParse += '}'.repeat(Math.max(0, abre - fecha));
+        }
+      }
+
+      jarvisRaw = JSON.parse(jsonToParse) as JarvisResposta;
+      console.log('[Jarvis Planner] JSON parseado OK — conjuntos:', jarvisRaw.conjuntos?.length);
+    } catch (parseErr) {
+      console.warn('[Jarvis Planner] Falha no parse, usando fallback. Erro:', String(parseErr));
+      jarvisRaw = fallbackDistribuicao(criativos, objetivo, orcamentoTotal);
+    }
+
+    // Montar PlanoCampanha com criativos reais (não só IDs)
+    const criativosMap = new Map(criativos.map(c => [c.id, c]));
+    const conjuntos: PlanoConjunto[] = (jarvisRaw.conjuntos ?? []).map(cj => {
+      const criativosDoConjunto = (cj.criativo_ids ?? [])
+        .map(id => criativosMap.get(id))
+        .filter((c): c is CriativoSelecionado => c != null);
+      return {
+        tipo:              cj.tipo,
+        label:             cj.label ?? cj.tipo,
+        criativos:         criativosDoConjunto,
+        justificativa:     cj.justificativa ?? '',
+        orcamento_sugerido: cj.orcamento_sugerido ?? Math.round(orcamentoTotal / 3),
+      };
     });
 
-  // Retornar imediatamente sem esperar o save
-  return plano;
+    const plano: PlanoCampanha = {
+      objetivo,
+      nome_sugerido:      jarvisRaw.nome_sugerido ?? `Agente ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`,
+      orcamento_total:    orcamentoTotal,
+      conjuntos,
+      resumo_estrategia:  jarvisRaw.resumo_estrategia ?? '',
+      copy_por_conjunto:  jarvisRaw.copy_por_conjunto ?? {},
+    };
+
+    console.log('[Jarvis Planner] Plano montado — conjuntos:', conjuntos.length);
+
+    // Salvar plano na memória — fire-and-forget
+    supabase.from('jarvis_memoria').insert({
+      tenant_id: tenantId,
+      tipo:      'plano_campanha',
+      titulo:    plano.nome_sugerido,
+      contexto: {
+        objetivo,
+        orcamento_total: orcamentoTotal,
+        total_criativos: criativos.length,
+        usou_base_conhecimento: !!baseConhecimento,
+        conjuntos: conjuntos.map(c => ({ tipo: c.tipo, total_criativos: c.criativos.length })),
+      },
+      resultado:   null,
+      aprendizado: null,
+    })
+      .then(({ error }) => {
+        if (error) console.warn('[Jarvis] Erro ao salvar plano:', error.message);
+        else console.log('[Jarvis] Plano salvo');
+      });
+
+    return plano;
 
   } catch (err) {
     console.error('[Jarvis Planner] ERRO COMPLETO:', err);
@@ -230,30 +288,67 @@ function fallbackDistribuicao(
   objetivo: string,
   orcamentoTotal: number,
 ): JarvisResposta {
-  function topIds(scoreKey: 'adequacao_publico_frio' | 'adequacao_publico_quente' | 'adequacao_whatsapp'): string[] {
-    const sorted = [...criativos].sort((a, b) => {
-      const sa = a.classificacao?.[scoreKey] ?? 5;
-      const sb = b.classificacao?.[scoreKey] ?? 5;
-      return sb - sa;
-    });
-    const top = sorted.slice(0, 3).map(c => c.id);
-    // Completar com duplicatas se necessário
-    while (top.length < 3 && criativos.length > 0) top.push(criativos[0].id);
+  // Fallback considera tipo_conteudo para match semântico
+  const TIPOS_FRIO     = new Set(['apresentacao_produto', 'catalogo', 'lifestyle']);
+  const TIPOS_QUENTE   = new Set(['depoimento', 'prova_social', 'resultado_revendedora', 'unboxing']);
+
+  function topIds(
+    scoreKey: 'adequacao_publico_frio' | 'adequacao_publico_quente' | 'adequacao_whatsapp',
+    preferTipos?: Set<string>,
+    excludeTipos?: Set<string>,
+  ): string[] {
+    const candidatos = [...criativos]
+      .filter(c => {
+        const tc = c.classificacao?.tipo_conteudo ?? '';
+        if (excludeTipos && excludeTipos.has(tc)) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        // Prioriza criativos do tipo semântico correto
+        const tcA = a.classificacao?.tipo_conteudo ?? '';
+        const tcB = b.classificacao?.tipo_conteudo ?? '';
+        const bonusA = preferTipos?.has(tcA) ? 2 : 0;
+        const bonusB = preferTipos?.has(tcB) ? 2 : 0;
+        const sa = (a.classificacao?.[scoreKey] ?? 5) + bonusA;
+        const sb = (b.classificacao?.[scoreKey] ?? 5) + bonusB;
+        return sb - sa;
+      });
+
+    const top = candidatos.slice(0, 3).map(c => c.id);
+    while (top.length < 1 && criativos.length > 0) top.push(criativos[0].id);
     return top;
   }
 
   return {
-    nome_sugerido: `Agente ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`,
-    resumo_estrategia: 'Distribuição automática baseada nos scores de classificação dos criativos.',
+    nome_sugerido:     `Agente ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`,
+    resumo_estrategia: 'Distribuição automática com match semântico criativo × público.',
     conjuntos: [
-      { tipo: 'frio',     label: 'Público Frio',    criativo_ids: topIds('adequacao_publico_frio'),    justificativa: 'Melhores scores para público frio.',    orcamento_sugerido: Math.round(orcamentoTotal * 0.4) },
-      { tipo: 'quente',   label: 'Público Quente',  criativo_ids: topIds('adequacao_publico_quente'),  justificativa: 'Melhores scores para público quente.',  orcamento_sugerido: Math.round(orcamentoTotal * 0.3) },
-      { tipo: 'whatsapp', label: 'WhatsApp',         criativo_ids: topIds('adequacao_whatsapp'),        justificativa: 'Melhores scores para WhatsApp.',        orcamento_sugerido: Math.round(orcamentoTotal * 0.3) },
+      {
+        tipo:               'frio',
+        label:              'Público Frio',
+        criativo_ids:       topIds('adequacao_publico_frio', TIPOS_FRIO, TIPOS_QUENTE),
+        justificativa:      'Criativos de apresentação priorizados para público que não conhece a marca.',
+        orcamento_sugerido: Math.round(orcamentoTotal * 0.4),
+      },
+      {
+        tipo:               'quente',
+        label:              'Público Quente',
+        criativo_ids:       topIds('adequacao_publico_quente', TIPOS_QUENTE, TIPOS_FRIO),
+        justificativa:      'Prova social e depoimentos para público que já engajou.',
+        orcamento_sugerido: Math.round(orcamentoTotal * 0.3),
+      },
+      {
+        tipo:               'whatsapp',
+        label:              'WhatsApp',
+        criativo_ids:       topIds('adequacao_whatsapp', TIPOS_QUENTE),
+        justificativa:      'Vídeos diretos com CTA para conversa no WhatsApp.',
+        orcamento_sugerido: Math.round(orcamentoTotal * 0.3),
+      },
     ],
     copy_por_conjunto: {
-      frio:     { headline: 'Rasteirinhas direto da fábrica', texto: 'Mínimo 5 pares. Entrega para todo o Brasil. Seja uma revendedora CJ.', cta: 'LEARN_MORE' },
-      quente:   { headline: 'Você já nos conhece!',           texto: 'Aproveite as novidades da coleção. Novas cores, novos modelos.', cta: 'LEARN_MORE' },
-      whatsapp: { headline: 'Fale com a gente agora',         texto: 'Condições especiais de atacado. Entrega garantida para revendedoras.', cta: 'WHATSAPP_MESSAGE' },
+      frio:     { headline: 'Rasteirinhas direto da fábrica',  texto: 'Mínimo 5 pares, R$25 a R$49,90/par. Seja uma revendedora CJ.',         cta: 'LEARN_MORE'        },
+      quente:   { headline: 'Você já nos conhece!',            texto: 'Novidades na coleção. Peça mínima: 5 pares. Conheça os novos modelos.', cta: 'LEARN_MORE'        },
+      whatsapp: { headline: 'Fale com a gente agora',          texto: 'Condições de atacado direto da fábrica. Pedido mínimo: 5 pares.',       cta: 'WHATSAPP_MESSAGE'  },
     },
   };
 }
