@@ -92,51 +92,84 @@ async function criarCampanhaInteligente(
 
   const resultados: unknown[] = [];
 
+  // Pré-buscar vídeos da Meta API para usar em todos os conjuntos
+  let videosDisponiveisIds: string[] = params.video_ids ?? [];
+  if (videosDisponiveisIds.length === 0) {
+    try {
+      const videosRes = await metaGet(token, `${actId}/advideos`, {
+        fields: 'id',
+        limit: '4',
+      }) as { data?: Array<{ id: string }> };
+      videosDisponiveisIds = (videosRes.data ?? []).map(v => v.id);
+    } catch {
+      // sem vídeos disponíveis — criará adsets sem anúncios
+    }
+  }
+
   for (const tipo of params.tipos_publico) {
     try {
-      // ── Buscar público por tipo ──
-      let targeting: Record<string, unknown> | null = null;
+      // ── Buscar público por tipo — usando meta_audience_id corretamente ──
+      const t: Record<string, unknown> = {};
+      let audienceId: string | null = null;
 
       if (tipo === 'frio') {
         const { data } = await supabase
           .from('meta_publicos_aprovados')
           .select('targeting, meta_audience_id, nome')
           .eq('tenant_id', tenantId)
-          .in('tipo', ['interesse', 'custom'])
+          .eq('tipo', 'frio')
           .eq('status', 'publicado')
-          .not('meta_audience_id', 'is', null)
           .order('created_at', { ascending: false })
           .limit(1)
           .single();
-        targeting = data?.targeting ?? null;
+
+        if (data?.targeting) Object.assign(t, data.targeting as Record<string, unknown>);
+        if (data?.meta_audience_id) audienceId = data.meta_audience_id;
+
+        // Nenhum público cadastrado → fallback de interesses
+        if (!data?.targeting && !data?.meta_audience_id) {
+          t.flexible_spec = [{
+            interests: [
+              { id: '6003107626192', name: 'Atacado (varejo)' },
+              { id: '6003333608514', name: 'Moda Feminina' },
+              { id: '6003114185392', name: 'Empreendedorismo' },
+            ],
+          }];
+        }
+
       } else if (tipo === 'quente') {
-        const { data } = await supabase
-          .from('meta_publicos_aprovados')
-          .select('targeting, meta_audience_id, nome')
+        // Tentativa 1: meta_audiences (remarketing/retargeting com status pronto)
+        const { data: ma } = await supabase
+          .from('meta_audiences')
+          .select('meta_audience_id')
           .eq('tenant_id', tenantId)
-          .in('subtype', ['ENGAGEMENT', 'WEBSITE', 'CUSTOM'])
-          .eq('status', 'publicado')
+          .in('tipo', ['remarketing', 'retargeting'])
+          .eq('status', 'pronto')
           .not('meta_audience_id', 'is', null)
           .order('created_at', { ascending: false })
           .limit(1)
           .single();
-        if (!data) {
-          const { data: d2 } = await supabase
+
+        if (ma?.meta_audience_id) {
+          audienceId = ma.meta_audience_id;
+        } else {
+          // Tentativa 2: meta_publicos_aprovados tipo quente
+          const { data: mp } = await supabase
             .from('meta_publicos_aprovados')
-            .select('targeting, meta_audience_id, nome')
+            .select('targeting, meta_audience_id')
             .eq('tenant_id', tenantId)
-            .in('tipo', ['engajamento', 'remarketing', 'website'])
+            .eq('tipo', 'quente')
             .eq('status', 'publicado')
-            .not('meta_audience_id', 'is', null)
             .order('created_at', { ascending: false })
             .limit(1)
             .single();
-          targeting = d2?.targeting ?? null;
-        } else {
-          targeting = data.targeting ?? null;
+
+          if (mp?.targeting) Object.assign(t, mp.targeting as Record<string, unknown>);
+          if (mp?.meta_audience_id) audienceId = mp.meta_audience_id;
         }
+
       } else if (tipo === 'whatsapp') {
-        // Lookalike primeiro
+        // Tentativa 1: lookalike
         const { data: la } = await supabase
           .from('meta_publicos_aprovados')
           .select('targeting, meta_audience_id, nome')
@@ -147,46 +180,33 @@ async function criarCampanhaInteligente(
           .order('created_at', { ascending: false })
           .limit(1)
           .single();
-        if (la?.targeting) {
-          targeting = la.targeting;
+
+        if (la?.meta_audience_id) {
+          audienceId = la.meta_audience_id;
+          if (la.targeting) Object.assign(t, la.targeting as Record<string, unknown>);
         } else {
-          // Fallback: remarketing (NUNCA interesses)
+          // Fallback: mesmo público quente (NUNCA interesses para whatsapp)
           const { data: re } = await supabase
-            .from('meta_publicos_aprovados')
-            .select('targeting, meta_audience_id, nome')
+            .from('meta_audiences')
+            .select('meta_audience_id')
             .eq('tenant_id', tenantId)
-            .in('tipo', ['engajamento', 'remarketing', 'website'])
-            .eq('status', 'publicado')
+            .in('tipo', ['remarketing', 'retargeting'])
+            .eq('status', 'pronto')
             .not('meta_audience_id', 'is', null)
             .order('created_at', { ascending: false })
             .limit(1)
             .single();
-          targeting = re?.targeting ?? null;
+
+          if (re?.meta_audience_id) audienceId = re.meta_audience_id;
         }
       }
 
-      // Fallback mínimo sem interesses para whatsapp
-      if (!targeting) {
-        targeting = {
-          geo_locations: { countries: ['BR'] },
-          age_min: 25,
-          age_max: 55,
-          genders: [2],
-          ...(tipo !== 'whatsapp' ? {
-            flexible_spec: [{
-              interests: [
-                { id: '6003333608514', name: 'Moda Feminina' },
-                { id: '6003107626192', name: 'Atacado (varejo)' },
-              ],
-            }],
-          } : {}),
-        };
+      // Se encontrou audience_id, injetar em custom_audiences (sobrescreve qualquer valor do banco)
+      if (audienceId) {
+        t.custom_audiences = [{ id: audienceId }];
       }
 
-      // Sanitizar targeting: remover arrays vazios e injetar campos obrigatórios dentro do objeto
-      const t = targeting as Record<string, unknown>;
-
-      // Remover arrays vazios (interests: [], behaviors: [], etc.) dentro de flexible_spec
+      // Limpar flexible_spec com arrays vazios
       if (Array.isArray(t.flexible_spec)) {
         t.flexible_spec = (t.flexible_spec as Array<Record<string, unknown>>)
           .map(spec => {
@@ -201,24 +221,24 @@ async function criarCampanhaInteligente(
         if ((t.flexible_spec as unknown[]).length === 0) delete t.flexible_spec;
       }
 
-      // Garantir defaults de geo/age/gender
-      if (!t.geo_locations) t.geo_locations = { countries: ['BR'] };
-      if (!t.age_min)       t.age_min = 25;
-      if (!t.age_max)       t.age_max = 55;
-      if (!t.genders)       t.genders = [2];
+      // Nunca mandar custom_audiences vazio
+      if (Array.isArray(t.custom_audiences) && (t.custom_audiences as unknown[]).length === 0) {
+        delete t.custom_audiences;
+      }
 
-      // Placements DENTRO do targeting (spec validada)
-      t.publisher_platforms   = ['facebook', 'instagram'];
-      t.facebook_positions    = ['feed'];
-      t.instagram_positions   = ['stream', 'story', 'reels'];
-
-      // targeting_automation SEMPRE dentro do targeting
+      // Campos obrigatórios (aplicar sempre por cima)
+      t.geo_locations        = (t.geo_locations as unknown) ?? { countries: ['BR'] };
+      t.age_min              = (t.age_min as unknown) ?? 25;
+      t.age_max              = (t.age_max as unknown) ?? 55;
+      t.genders              = (t.genders as unknown) ?? [2];
       t.targeting_automation = { advantage_audience: 0 };
+      t.publisher_platforms  = ['facebook', 'instagram'];
+      t.facebook_positions   = ['feed'];
+      t.instagram_positions  = ['stream', 'story', 'reels'];
 
-      const videoId = params.video_ids?.[0];
       const nomeBase = `[Jarvis] ${tipo.toUpperCase()} — ${new Date().toLocaleDateString('pt-BR')}`;
 
-      // 1. Campaign — sem bid_strategy (pertence ao adset)
+      // 1. Campaign
       const camp = await metaPost(token, `${actId}/campaigns`, {
         name:                            nomeBase,
         objective:                       objetivoMeta,
@@ -227,7 +247,7 @@ async function criarCampanhaInteligente(
         is_adset_budget_sharing_enabled: false,
       });
 
-      // 2. Adset — payload validado no Graph Explorer
+      // 2. Adset
       const adset = await metaPost(token, `${actId}/adsets`, {
         name:              `${nomeBase} — Conjunto`,
         campaign_id:       camp.id,
@@ -239,44 +259,50 @@ async function criarCampanhaInteligente(
         targeting:         t,
       });
 
-      // 3. Ad Creative + Ad (apenas se tiver video_id)
-      let adId: string | null = null;
-      if (videoId) {
-        const creative = await metaPost(token, `${actId}/adcreatives`, {
-          name:  `${nomeBase} — Criativo`,
-          object_story_spec: {
-            page_id:           pageId,
-            video_data: {
-              video_id:  videoId,
-              message:   'Conheça nossas rasteirinhas. Qualidade garantida.',
-              call_to_action: {
-                type: tipo === 'whatsapp' ? 'WHATSAPP_MESSAGE' : 'LEARN_MORE',
-                value: { link: `https://www.facebook.com/${pageId}` },
+      // 3. Criar múltiplos ads — um por video_id (máx 4)
+      const videosParaUsar = videosDisponiveisIds.slice(0, 4);
+      const adsIds: string[] = [];
+
+      for (let idx = 0; idx < videosParaUsar.length; idx++) {
+        const vid = videosParaUsar[idx];
+        try {
+          const creative = await metaPost(token, `${actId}/adcreatives`, {
+            name: `${nomeBase} — Criativo ${idx + 1}`,
+            object_story_spec: {
+              page_id: pageId,
+              video_data: {
+                video_id: vid,
+                message: 'Conheça nossas rasteirinhas. Qualidade garantida.',
+                call_to_action: {
+                  type:  tipo === 'whatsapp' ? 'WHATSAPP_MESSAGE' : 'LEARN_MORE',
+                  value: { link: `https://www.facebook.com/${pageId}` },
+                },
               },
             },
-          },
-        });
-
-        const ad = await metaPost(token, `${actId}/ads`, {
-          name:        `${nomeBase} — Anúncio`,
-          adset_id:    adset.id,
-          creative:    { creative_id: creative.id },
-          status:      'PAUSED',
-        });
-        adId = ad.id as string;
+          });
+          const ad = await metaPost(token, `${actId}/ads`, {
+            name:     `${nomeBase} — Anúncio ${idx + 1}`,
+            adset_id: adset.id,
+            creative: { creative_id: creative.id },
+            status:   'PAUSED',
+          });
+          adsIds.push(ad.id as string);
+        } catch (adErr) {
+          console.error(`[Jarvis] Erro ao criar ad ${idx + 1} para ${tipo}:`, adErr);
+        }
       }
 
       // Salvar em meta_campaign_drafts
       await supabase.from('meta_campaign_drafts').insert({
-        tenant_id:   tenantId,
-        nome:        nomeBase,
-        objetivo:    objetivoMeta,
+        tenant_id:        tenantId,
+        nome:             nomeBase,
+        objetivo:         objetivoMeta,
         tipo,
-        status:      'publicado',
+        status:           'publicado',
         meta_campaign_id: camp.id as string,
         meta_adset_id:    adset.id as string,
-        meta_ad_id:       adId,
-        created_at:  new Date().toISOString(),
+        meta_ad_id:       adsIds[0] ?? null,
+        created_at:       new Date().toISOString(),
       });
 
       resultados.push({
@@ -284,7 +310,8 @@ async function criarCampanhaInteligente(
         ok: true,
         campaign_id: camp.id,
         adset_id:    adset.id,
-        ad_id:       adId,
+        ads_ids:     adsIds,
+        total_ads:   adsIds.length,
         nome:        nomeBase,
       });
     } catch (err) {
