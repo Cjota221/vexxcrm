@@ -8,7 +8,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
-import { resolverTokenMeta } from '@/lib/services/meta-token.service';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { META_BASE } from '@/lib/meta-config';
 
@@ -429,9 +428,21 @@ export async function POST(req: NextRequest) {
   const { acao, params = {} } = body;
 
   try {
-    const tokenInfo = await resolverTokenMeta(tenantId);
-    const { token, account_id } = tokenInfo;
-    const actId = account_id ?? 'act_1244920119465862';
+    const supabase = createServerSupabaseClient();
+    const { data: tenant } = await supabase
+      .from('tenants')
+      .select('meta_access_token')
+      .eq('id', tenantId)
+      .single();
+
+    if (!tenant?.meta_access_token) {
+      return NextResponse.json({ error: 'Token Meta não configurado' }, { status: 400 });
+    }
+
+    const META_TOKEN = tenant.meta_access_token;
+    const META_ACCOUNT = 'act_1244920119465862';
+    const token = META_TOKEN;
+    const actId = META_ACCOUNT;
 
     switch (acao) {
       case 'buscar_contexto': {
