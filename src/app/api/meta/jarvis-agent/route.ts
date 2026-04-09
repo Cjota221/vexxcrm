@@ -27,8 +27,14 @@ async function metaPost(token: string, path: string, body: Record<string, unknow
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...body, access_token: token }),
   });
+  if (!res.ok) {
+    const errorText = await res.text();
+    let errorData: unknown;
+    try { errorData = JSON.parse(errorText); } catch { errorData = errorText; }
+    throw new Error(JSON.stringify(errorData));
+  }
   const json = await res.json() as Record<string, unknown>;
-  if (json.error) throw new Error((json.error as Record<string, string>).message ?? JSON.stringify(json.error));
+  if (json.error) throw new Error(JSON.stringify(json.error));
   return json;
 }
 
@@ -247,7 +253,7 @@ async function criarCampanhaInteligente(
         audienceId          = planoConj.meta_audience_id;
         if (planoConj.targeting_base) Object.assign(t, planoConj.targeting_base);
         if (planoConj.publico_nome)   publicoNome = planoConj.publico_nome;
-        videosParaEsteConj  = planoConj.video_ids.slice(0, 4);
+        videosParaEsteConj  = planoConj.video_ids.slice(0, 2);
       } else {
         // ── Fazer lookup do banco ──
         if (tipo === 'frio') {
@@ -307,7 +313,7 @@ async function criarCampanhaInteligente(
         const totalTipos = params.tipos_publico.length;
         if (videosDisponiveis.length > 0) {
           const ids: string[] = [];
-          for (let j = 0; j < 4; j++) ids.push(videosDisponiveis[(idxTipo + j * totalTipos) % videosDisponiveis.length].id);
+          for (let j = 0; j < 2; j++) ids.push(videosDisponiveis[(idxTipo + j * totalTipos) % videosDisponiveis.length].id);
           videosParaEsteConj = [...new Set(ids)];
         }
       }
@@ -362,10 +368,8 @@ async function criarCampanhaInteligente(
             message: 'Conheça nossas rasteirinhas. Comece com R$130 e revenda com lucro!',
             title:   'CJ Rasteirinhas — Seja uma Revendedora',
             call_to_action: {
-              type:  tipo === 'whatsapp' ? 'WHATSAPP_MESSAGE' : 'LEARN_MORE',
-              value: tipo === 'whatsapp'
-                ? { app_destination: 'WHATSAPP', link: 'https://wa.me/5562981480687' }
-                : { link: 'https://wa.me/5562981480687' },
+              type:  'LEARN_MORE',
+              value: { link: 'https://wa.me/5562981480687' },
             },
           };
           if (thumbUrl) videoData.image_url = thumbUrl;
