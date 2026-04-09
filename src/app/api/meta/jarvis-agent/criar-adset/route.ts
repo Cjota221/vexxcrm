@@ -49,6 +49,7 @@ export async function POST(req: NextRequest) {
     targeting_base:     Record<string, unknown>;
     meta_audience_id:   string | null;
     objetivo?:          string;
+    publico_nome?:      string;
   };
   try { body = await req.json(); } catch {
     return NextResponse.json({ error: 'Body inválido' }, { status: 400 });
@@ -112,9 +113,12 @@ export async function POST(req: NextRequest) {
         meta_campaign_id: body.campaign_id,
         meta_adset_id:    adset.id as string,
         meta_ad_id:       null,
+        jarvis_log:       `Público: ${body.publico_nome ?? 'não identificado'} | Adset: ${adset.id}`,
         created_at:       new Date().toISOString(),
       });
-    } catch { /* não bloqueia se o draft falhar */ }
+    } catch (insertErr: any) {
+      console.error('[criar-adset] Erro ao salvar draft:', JSON.stringify(insertErr));
+    }
 
     return NextResponse.json({ adset_id: adset.id });
   } catch (err) {
