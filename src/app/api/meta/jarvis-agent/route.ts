@@ -46,7 +46,7 @@ async function buscarContexto(token: string, actId: string) {
       limit: '20',
     }),
     metaGet(token, `${actId}/advideos`, {
-      fields: 'id,title,thumbnails,length',
+      fields: 'id,title,thumbnails,length,created_time',
       limit: '20',
     }),
     metaGet(token, `${actId}/insights`, {
@@ -64,6 +64,133 @@ async function buscarContexto(token: string, actId: string) {
   };
 }
 
+/* ─── ACAO: montar_plano ──────────────────────────────────────────────────── */
+
+async function montarPlano(
+  token: string,
+  actId: string,
+  tenantId: string,
+  params: {
+    objetivo: string;
+    orcamento_diario: number;
+    tipos_publico: Array<'frio' | 'quente' | 'whatsapp'>;
+  },
+) {
+  const supabase = createServerSupabaseClient();
+
+  interface RawVideo {
+    id: string;
+    title?: string;
+    thumbnails?: { data?: Array<{ uri: string }> };
+    length?: number;
+    created_time?: string;
+  }
+
+  // 1. Buscar vídeos com metadados completos
+  const videosRes = await metaGet(token, `${actId}/advideos`, {
+    fields: 'id,title,thumbnails,length,created_time',
+    limit: '20',
+  }) as { data?: RawVideo[] };
+
+  const todosVideos = (videosRes.data ?? []).map(v => ({
+    id:           v.id,
+    title:        v.title || `Vídeo ${v.id.slice(-6)}`,
+    thumbnail:    v.thumbnails?.data?.[0]?.uri ?? null,
+    length:       v.length ?? null,
+    created_time: v.created_time ?? null,
+  }));
+
+  const OBJETIVO_MAP: Record<string, string> = {
+    OUTCOME_SALES: 'OUTCOME_SALES',
+    OUTCOME_LEADS: 'OUTCOME_LEADS',
+    MESSAGES:      'OUTCOME_TRAFFIC',
+  };
+  const objetivoMeta  = OBJETIVO_MAP[params.objetivo] ?? 'OUTCOME_TRAFFIC';
+  const orcCentavos   = Math.round(params.orcamento_diario * 100);
+  const orcPorTipo    = Math.round(orcCentavos / (params.tipos_publico.length || 1));
+  const totalTipos    = params.tipos_publico.length;
+  const conjuntos     = [];
+
+  for (let i = 0; i < params.tipos_publico.length; i++) {
+    const tipo = params.tipos_publico[i];
+    let publicoNome    = tipo === 'frio' ? 'Público Frio' : tipo === 'quente' ? 'Público Quente' : 'WhatsApp';
+    let metaAudienceId: string | null = null;
+    const targetingBase: Record<string, unknown> = {};
+
+    if (tipo === 'frio') {
+      const { data } = await supabase
+        .from('meta_publicos_aprovados')
+        .select('targeting, meta_audience_id, nome')
+        .eq('tenant_id', tenantId).eq('tipo', 'frio').eq('status', 'publicado')
+        .order('created_at', { ascending: false }).limit(1).single();
+      if (data?.nome)             publicoNome    = data.nome;
+      if (data?.meta_audience_id) metaAudienceId = data.meta_audience_id;
+      if (data?.targeting)        Object.assign(targetingBase, data.targeting as Record<string, unknown>);
+    } else if (tipo === 'quente') {
+      const { data: ma } = await supabase
+        .from('meta_audiences')
+        .select('meta_audience_id, nome')
+        .eq('tenant_id', tenantId).in('tipo', ['remarketing', 'retargeting'])
+        .eq('status', 'pronto').not('meta_audience_id', 'is', null)
+        .order('created_at', { ascending: false }).limit(1).single();
+      if (ma?.meta_audience_id) {
+        metaAudienceId = ma.meta_audience_id; publicoNome = ma.nome ?? 'Remarketing';
+      } else {
+        const { data: mp } = await supabase
+          .from('meta_publicos_aprovados')
+          .select('targeting, meta_audience_id, nome')
+          .eq('tenant_id', tenantId).eq('tipo', 'quente').eq('status', 'publicado')
+          .order('created_at', { ascending: false }).limit(1).single();
+        if (mp?.nome)             publicoNome    = mp.nome;
+        if (mp?.meta_audience_id) metaAudienceId = mp.meta_audience_id;
+        if (mp?.targeting)        Object.assign(targetingBase, mp.targeting as Record<string, unknown>);
+      }
+    } else if (tipo === 'whatsapp') {
+      const { data: la } = await supabase
+        .from('meta_publicos_aprovados')
+        .select('targeting, meta_audience_id, nome')
+        .eq('tenant_id', tenantId).eq('tipo', 'lookalike').eq('status', 'publicado')
+        .not('meta_audience_id', 'is', null)
+        .order('created_at', { ascending: false }).limit(1).single();
+      if (la?.meta_audience_id) {
+        metaAudienceId = la.meta_audience_id; publicoNome = la.nome ?? 'Lookalike';
+        if (la.targeting) Object.assign(targetingBase, la.targeting as Record<string, unknown>);
+      } else {
+        const { data: re } = await supabase
+          .from('meta_audiences')
+          .select('meta_audience_id, nome')
+          .eq('tenant_id', tenantId).in('tipo', ['remarketing', 'retargeting'])
+          .eq('status', 'pronto').not('meta_audience_id', 'is', null)
+          .order('created_at', { ascending: false }).limit(1).single();
+        if (re?.meta_audience_id) { metaAudienceId = re.meta_audience_id; publicoNome = re.nome ?? 'Remarketing'; }
+      }
+    }
+
+    // Distribuir vídeos em rotação entre conjuntos (sem repetir se possível)
+    const videosDoConjunto: typeof todosVideos = [];
+    if (todosVideos.length > 0) {
+      const seen = new Set<string>();
+      for (let j = 0; j < 4; j++) {
+        const v = todosVideos[(i + j * totalTipos) % todosVideos.length];
+        if (!seen.has(v.id)) { seen.add(v.id); videosDoConjunto.push(v); }
+      }
+    }
+
+    conjuntos.push({
+      tipo,
+      publico_nome:     publicoNome,
+      meta_audience_id: metaAudienceId,
+      targeting_base:   targetingBase,
+      orcamento_reais:  orcPorTipo / 100,
+      objetivo:         objetivoMeta,
+      video_ids:        videosDoConjunto.map(v => v.id),
+      videos:           videosDoConjunto,
+    });
+  }
+
+  return { conjuntos, objetivo: objetivoMeta, orcamento_total: params.orcamento_diario };
+}
+
 /* ─── ACAO 2: criar_campanha_inteligente ──────────────────────────────────── */
 
 async function criarCampanhaInteligente(
@@ -72,161 +199,132 @@ async function criarCampanhaInteligente(
   tenantId: string,
   params: {
     objetivo: string;
-    orcamento_diario: number; // em reais
+    orcamento_diario: number;
     tipos_publico: Array<'frio' | 'quente' | 'whatsapp'>;
-    video_ids: string[];
     page_id: string;
+    // Plano pré-construído pelo montar_plano — skip DB lookups se fornecido
+    conjuntos_plano?: Array<{
+      tipo: 'frio' | 'quente' | 'whatsapp';
+      meta_audience_id: string | null;
+      targeting_base?: Record<string, unknown>;
+      video_ids: string[];
+      publico_nome?: string;
+    }>;
   },
 ) {
   const supabase = createServerSupabaseClient();
-  const pageId = params.page_id ?? '101337882545607';
+  const pageId            = params.page_id ?? '101337882545607';
   const orcamentoCentavos = Math.round(params.orcamento_diario * 100);
   const orcamentoPorTipo  = Math.round(orcamentoCentavos / (params.tipos_publico.length || 1));
 
   const OBJETIVO_MAP: Record<string, string> = {
-    OUTCOME_SALES:  'OUTCOME_SALES',
-    OUTCOME_LEADS:  'OUTCOME_LEADS',
-    MESSAGES:       'OUTCOME_TRAFFIC',
+    OUTCOME_SALES: 'OUTCOME_SALES',
+    OUTCOME_LEADS: 'OUTCOME_LEADS',
+    MESSAGES:      'OUTCOME_TRAFFIC',
   };
   const objetivoMeta = OBJETIVO_MAP[params.objetivo] ?? 'OUTCOME_TRAFFIC';
-
   const resultados: unknown[] = [];
 
-  // Pré-buscar vídeos da Meta API para usar em todos os conjuntos
-  let videosDisponiveisIds: string[] = params.video_ids ?? [];
-  if (videosDisponiveisIds.length === 0) {
+  // Pré-buscar vídeos só se não houver plano
+  let videosDisponiveisIds: string[] = [];
+  if (!params.conjuntos_plano) {
     try {
-      const videosRes = await metaGet(token, `${actId}/advideos`, {
-        fields: 'id',
-        limit: '4',
-      }) as { data?: Array<{ id: string }> };
-      videosDisponiveisIds = (videosRes.data ?? []).map(v => v.id);
-    } catch {
-      // sem vídeos disponíveis — criará adsets sem anúncios
-    }
+      const vr = await metaGet(token, `${actId}/advideos`, { fields: 'id', limit: '20' }) as { data?: Array<{ id: string }> };
+      videosDisponiveisIds = (vr.data ?? []).map(v => v.id);
+    } catch { /* sem vídeos */ }
   }
 
   for (const tipo of params.tipos_publico) {
     try {
-      // ── Buscar público por tipo — usando meta_audience_id corretamente ──
+      const planoConj = params.conjuntos_plano?.find(c => c.tipo === tipo);
       const t: Record<string, unknown> = {};
       let audienceId: string | null = null;
+      let publicoNome = tipo === 'frio' ? 'Público Frio' : tipo === 'quente' ? 'Público Quente' : 'WhatsApp';
+      let videosParaEsteConj: string[] = [];
 
-      if (tipo === 'frio') {
-        const { data } = await supabase
-          .from('meta_publicos_aprovados')
-          .select('targeting, meta_audience_id, nome')
-          .eq('tenant_id', tenantId)
-          .eq('tipo', 'frio')
-          .eq('status', 'publicado')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-
-        if (data?.targeting) Object.assign(t, data.targeting as Record<string, unknown>);
-        if (data?.meta_audience_id) audienceId = data.meta_audience_id;
-
-        // Nenhum público cadastrado → fallback de interesses
-        if (!data?.targeting && !data?.meta_audience_id) {
-          t.flexible_spec = [{
-            interests: [
+      if (planoConj) {
+        // ── Usar dados do plano pré-construído ──
+        audienceId          = planoConj.meta_audience_id;
+        if (planoConj.targeting_base) Object.assign(t, planoConj.targeting_base);
+        if (planoConj.publico_nome)   publicoNome = planoConj.publico_nome;
+        videosParaEsteConj  = planoConj.video_ids.slice(0, 4);
+      } else {
+        // ── Fazer lookup do banco ──
+        if (tipo === 'frio') {
+          const { data } = await supabase
+            .from('meta_publicos_aprovados').select('targeting, meta_audience_id, nome')
+            .eq('tenant_id', tenantId).eq('tipo', 'frio').eq('status', 'publicado')
+            .order('created_at', { ascending: false }).limit(1).single();
+          if (data?.targeting)        Object.assign(t, data.targeting as Record<string, unknown>);
+          if (data?.meta_audience_id) audienceId = data.meta_audience_id;
+          if (data?.nome)             publicoNome = data.nome;
+          if (!data?.targeting && !data?.meta_audience_id) {
+            t.flexible_spec = [{ interests: [
               { id: '6003107626192', name: 'Atacado (varejo)' },
               { id: '6003333608514', name: 'Moda Feminina' },
               { id: '6003114185392', name: 'Empreendedorismo' },
-            ],
-          }];
-        }
-
-      } else if (tipo === 'quente') {
-        // Tentativa 1: meta_audiences (remarketing/retargeting com status pronto)
-        const { data: ma } = await supabase
-          .from('meta_audiences')
-          .select('meta_audience_id')
-          .eq('tenant_id', tenantId)
-          .in('tipo', ['remarketing', 'retargeting'])
-          .eq('status', 'pronto')
-          .not('meta_audience_id', 'is', null)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-
-        if (ma?.meta_audience_id) {
-          audienceId = ma.meta_audience_id;
-        } else {
-          // Tentativa 2: meta_publicos_aprovados tipo quente
-          const { data: mp } = await supabase
-            .from('meta_publicos_aprovados')
-            .select('targeting, meta_audience_id')
-            .eq('tenant_id', tenantId)
-            .eq('tipo', 'quente')
-            .eq('status', 'publicado')
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
-
-          if (mp?.targeting) Object.assign(t, mp.targeting as Record<string, unknown>);
-          if (mp?.meta_audience_id) audienceId = mp.meta_audience_id;
-        }
-
-      } else if (tipo === 'whatsapp') {
-        // Tentativa 1: lookalike
-        const { data: la } = await supabase
-          .from('meta_publicos_aprovados')
-          .select('targeting, meta_audience_id, nome')
-          .eq('tenant_id', tenantId)
-          .eq('tipo', 'lookalike')
-          .eq('status', 'publicado')
-          .not('meta_audience_id', 'is', null)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-
-        if (la?.meta_audience_id) {
-          audienceId = la.meta_audience_id;
-          if (la.targeting) Object.assign(t, la.targeting as Record<string, unknown>);
-        } else {
-          // Fallback: mesmo público quente (NUNCA interesses para whatsapp)
-          const { data: re } = await supabase
-            .from('meta_audiences')
-            .select('meta_audience_id')
-            .eq('tenant_id', tenantId)
-            .in('tipo', ['remarketing', 'retargeting'])
-            .eq('status', 'pronto')
+            ]}];
+          }
+        } else if (tipo === 'quente') {
+          const { data: ma } = await supabase
+            .from('meta_audiences').select('meta_audience_id, nome')
+            .eq('tenant_id', tenantId).in('tipo', ['remarketing', 'retargeting'])
+            .eq('status', 'pronto').not('meta_audience_id', 'is', null)
+            .order('created_at', { ascending: false }).limit(1).single();
+          if (ma?.meta_audience_id) {
+            audienceId = ma.meta_audience_id; if (ma.nome) publicoNome = ma.nome;
+          } else {
+            const { data: mp } = await supabase
+              .from('meta_publicos_aprovados').select('targeting, meta_audience_id, nome')
+              .eq('tenant_id', tenantId).eq('tipo', 'quente').eq('status', 'publicado')
+              .order('created_at', { ascending: false }).limit(1).single();
+            if (mp?.targeting)        Object.assign(t, mp.targeting as Record<string, unknown>);
+            if (mp?.meta_audience_id) audienceId = mp.meta_audience_id;
+            if (mp?.nome)             publicoNome = mp.nome;
+          }
+        } else if (tipo === 'whatsapp') {
+          const { data: la } = await supabase
+            .from('meta_publicos_aprovados').select('targeting, meta_audience_id, nome')
+            .eq('tenant_id', tenantId).eq('tipo', 'lookalike').eq('status', 'publicado')
             .not('meta_audience_id', 'is', null)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
+            .order('created_at', { ascending: false }).limit(1).single();
+          if (la?.meta_audience_id) {
+            audienceId = la.meta_audience_id;
+            if (la.targeting) Object.assign(t, la.targeting as Record<string, unknown>);
+            if (la.nome)      publicoNome = la.nome;
+          } else {
+            const { data: re } = await supabase
+              .from('meta_audiences').select('meta_audience_id, nome')
+              .eq('tenant_id', tenantId).in('tipo', ['remarketing', 'retargeting'])
+              .eq('status', 'pronto').not('meta_audience_id', 'is', null)
+              .order('created_at', { ascending: false }).limit(1).single();
+            if (re?.meta_audience_id) { audienceId = re.meta_audience_id; if (re.nome) publicoNome = re.nome; }
+          }
+        }
 
-          if (re?.meta_audience_id) audienceId = re.meta_audience_id;
+        // Distribuir vídeos em rotação
+        const idxTipo   = params.tipos_publico.indexOf(tipo);
+        const totalTipos = params.tipos_publico.length;
+        if (videosDisponiveisIds.length > 0) {
+          const ids: string[] = [];
+          for (let j = 0; j < 4; j++) ids.push(videosDisponiveisIds[(idxTipo + j * totalTipos) % videosDisponiveisIds.length]);
+          videosParaEsteConj = [...new Set(ids)];
         }
       }
 
-      // Se encontrou audience_id, injetar em custom_audiences (sobrescreve qualquer valor do banco)
-      if (audienceId) {
-        t.custom_audiences = [{ id: audienceId }];
-      }
+      // Injetar audience_id
+      if (audienceId) t.custom_audiences = [{ id: audienceId }];
 
-      // Limpar flexible_spec com arrays vazios
+      // Limpar arrays vazios
       if (Array.isArray(t.flexible_spec)) {
         t.flexible_spec = (t.flexible_spec as Array<Record<string, unknown>>)
-          .map(spec => {
-            const clean: Record<string, unknown> = {};
-            for (const [k, v] of Object.entries(spec)) {
-              if (Array.isArray(v) && v.length === 0) continue;
-              clean[k] = v;
-            }
-            return clean;
-          })
+          .map(spec => Object.fromEntries(Object.entries(spec).filter(([, v]) => !Array.isArray(v) || v.length > 0)))
           .filter(spec => Object.keys(spec).length > 0);
         if ((t.flexible_spec as unknown[]).length === 0) delete t.flexible_spec;
       }
+      if (Array.isArray(t.custom_audiences) && (t.custom_audiences as unknown[]).length === 0) delete t.custom_audiences;
 
-      // Nunca mandar custom_audiences vazio
-      if (Array.isArray(t.custom_audiences) && (t.custom_audiences as unknown[]).length === 0) {
-        delete t.custom_audiences;
-      }
-
-      // Campos obrigatórios (aplicar sempre por cima)
+      // Campos obrigatórios
       t.geo_locations        = (t.geo_locations as unknown) ?? { countries: ['BR'] };
       t.age_min              = (t.age_min as unknown) ?? 25;
       t.age_max              = (t.age_max as unknown) ?? 55;
@@ -240,51 +338,43 @@ async function criarCampanhaInteligente(
 
       // 1. Campaign
       const camp = await metaPost(token, `${actId}/campaigns`, {
-        name:                            nomeBase,
-        objective:                       objetivoMeta,
-        status:                          'PAUSED',
-        special_ad_categories:           [],
-        is_adset_budget_sharing_enabled: false,
+        name: nomeBase, objective: objetivoMeta, status: 'PAUSED',
+        special_ad_categories: [], is_adset_budget_sharing_enabled: false,
       });
 
       // 2. Adset
       const adset = await metaPost(token, `${actId}/adsets`, {
-        name:              `${nomeBase} — Conjunto`,
-        campaign_id:       camp.id,
-        daily_budget:      orcamentoPorTipo,
-        billing_event:     'IMPRESSIONS',
-        optimization_goal: 'LINK_CLICKS',
-        bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
-        status:            'PAUSED',
-        targeting:         t,
+        name: `${nomeBase} — Conjunto`, campaign_id: camp.id,
+        daily_budget: orcamentoPorTipo, billing_event: 'IMPRESSIONS',
+        optimization_goal: 'LINK_CLICKS', bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+        status: 'PAUSED', targeting: t,
       });
 
-      // 3. Criar múltiplos ads — um por video_id (máx 4)
-      const videosParaUsar = videosDisponiveisIds.slice(0, 4);
+      // 3. Um ad por video_id (máx 4)
       const adsIds: string[] = [];
-
-      for (let idx = 0; idx < videosParaUsar.length; idx++) {
-        const vid = videosParaUsar[idx];
+      for (let idx = 0; idx < videosParaEsteConj.length; idx++) {
+        const vid = videosParaEsteConj[idx];
         try {
           const creative = await metaPost(token, `${actId}/adcreatives`, {
-            name: `${nomeBase} — Criativo ${idx + 1}`,
+            name: `Creative ${vid}`,
             object_story_spec: {
               page_id: pageId,
               video_data: {
                 video_id: vid,
-                message: 'Conheça nossas rasteirinhas. Qualidade garantida.',
+                message: 'Conheça nossas rasteirinhas. Comece com R$130 e revenda com lucro!',
+                title:   'CJ Rasteirinhas — Seja uma Revendedora',
                 call_to_action: {
                   type:  tipo === 'whatsapp' ? 'WHATSAPP_MESSAGE' : 'LEARN_MORE',
-                  value: { link: `https://www.facebook.com/${pageId}` },
+                  value: tipo === 'whatsapp'
+                    ? { app_destination: 'WHATSAPP', link: 'https://wa.me/5562981480687' }
+                    : { link: 'https://www.instagram.com/cjrasteirinhas' },
                 },
               },
             },
           });
           const ad = await metaPost(token, `${actId}/ads`, {
-            name:     `${nomeBase} — Anúncio ${idx + 1}`,
-            adset_id: adset.id,
-            creative: { creative_id: creative.id },
-            status:   'PAUSED',
+            name: `${nomeBase} — Anúncio ${idx + 1}`, adset_id: adset.id,
+            creative: { creative_id: creative.id }, status: 'PAUSED',
           });
           adsIds.push(ad.id as string);
         } catch (adErr) {
@@ -294,26 +384,14 @@ async function criarCampanhaInteligente(
 
       // Salvar em meta_campaign_drafts
       await supabase.from('meta_campaign_drafts').insert({
-        tenant_id:        tenantId,
-        nome:             nomeBase,
-        objetivo:         objetivoMeta,
-        tipo,
-        status:           'publicado',
-        meta_campaign_id: camp.id as string,
-        meta_adset_id:    adset.id as string,
-        meta_ad_id:       adsIds[0] ?? null,
-        created_at:       new Date().toISOString(),
+        tenant_id: tenantId, nome: nomeBase, objetivo: objetivoMeta, tipo,
+        status: 'publicado', meta_campaign_id: camp.id as string,
+        meta_adset_id: adset.id as string, meta_ad_id: adsIds[0] ?? null,
+        created_at: new Date().toISOString(),
       });
 
-      resultados.push({
-        tipo,
-        ok: true,
-        campaign_id: camp.id,
-        adset_id:    adset.id,
-        ads_ids:     adsIds,
-        total_ads:   adsIds.length,
-        nome:        nomeBase,
-      });
+      resultados.push({ tipo, ok: true, campaign_id: camp.id, adset_id: adset.id,
+        ads_ids: adsIds, total_ads: adsIds.length, publico_nome: publicoNome, nome: nomeBase });
     } catch (err) {
       resultados.push({ tipo, ok: false, erro: String(err) });
     }
@@ -503,13 +581,28 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(resultado);
       }
 
+      case 'montar_plano': {
+        const resultado = await montarPlano(token, actId, tenantId, {
+          objetivo:         String(params.objetivo ?? 'OUTCOME_TRAFFIC'),
+          orcamento_diario: Number(params.orcamento_diario ?? 50),
+          tipos_publico:    (params.tipos_publico as Array<'frio' | 'quente' | 'whatsapp'>) ?? ['frio'],
+        });
+        return NextResponse.json(resultado);
+      }
+
       case 'criar_campanha_inteligente': {
         const resultado = await criarCampanhaInteligente(token, actId, tenantId, {
-          objetivo:      String(params.objetivo ?? 'OUTCOME_TRAFFIC'),
+          objetivo:         String(params.objetivo ?? 'OUTCOME_TRAFFIC'),
           orcamento_diario: Number(params.orcamento_diario ?? 50),
-          tipos_publico: (params.tipos_publico as Array<'frio' | 'quente' | 'whatsapp'>) ?? ['frio'],
-          video_ids:     (params.video_ids as string[]) ?? [],
-          page_id:       String(params.page_id ?? '101337882545607'),
+          tipos_publico:    (params.tipos_publico as Array<'frio' | 'quente' | 'whatsapp'>) ?? ['frio'],
+          page_id:          String(params.page_id ?? '101337882545607'),
+          conjuntos_plano:  params.conjuntos_plano as Array<{
+            tipo: 'frio' | 'quente' | 'whatsapp';
+            meta_audience_id: string | null;
+            targeting_base?: Record<string, unknown>;
+            video_ids: string[];
+            publico_nome?: string;
+          }> | undefined,
         });
         return NextResponse.json(resultado);
       }

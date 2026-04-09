@@ -5,11 +5,11 @@ import { useAuthStore } from '@/store/auth';
 import {
   Bot, RefreshCw, Loader2, CheckCircle, XCircle, AlertTriangle,
   TrendingUp, Users, Video, BarChart3, Play, Pause,
-  DollarSign, Zap, ChevronRight, Eye,
+  DollarSign, Zap, ChevronRight, Eye, Clock, History, Target,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-/* ─── Helpers ─────────────────────────────────────────────────────────────── */
+/* ─── Auth helper ─────────────────────────────────────────────────────────── */
 
 function authFetch(url: string, options?: RequestInit) {
   const token = useAuthStore.getState().accessToken;
@@ -33,17 +33,32 @@ async function callJarvis(acao: string, params: Record<string, unknown> = {}) {
   return json;
 }
 
+/* ─── Formatters ──────────────────────────────────────────────────────────── */
+
 function fmtBRL(v: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 }
 
+function fmtDuracao(secs: number): string {
+  const m = Math.floor(secs / 60);
+  const s = Math.round(secs % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function fmtData(iso: string): string {
+  try { return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }); }
+  catch { return ''; }
+}
+
+/* ─── Toast ───────────────────────────────────────────────────────────────── */
+
 function Toast({ msg, tipo }: { msg: string; tipo: 'ok' | 'erro' }) {
   return (
     <div className={cn(
-      'fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg text-sm font-medium',
+      'fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg text-sm font-medium max-w-sm',
       tipo === 'ok' ? 'bg-green-900 text-green-100' : 'bg-red-900 text-red-100',
     )}>
-      {tipo === 'ok' ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+      {tipo === 'ok' ? <CheckCircle className="w-4 h-4 shrink-0" /> : <XCircle className="w-4 h-4 shrink-0" />}
       {msg}
     </div>
   );
@@ -59,7 +74,7 @@ interface Campanha {
   daily_budget?: string;
 }
 
-interface Publico {
+interface PublicoMeta {
   id: string;
   name: string;
   subtype: string;
@@ -67,29 +82,72 @@ interface Publico {
   approximate_count_upper_bound?: number;
 }
 
-interface Video {
+// Vídeo como vem da Meta API (buscar_contexto)
+interface VideoRaw {
   id: string;
   title?: string;
   length?: number;
-  thumbnails?: { uri?: string };
+  created_time?: string;
+  thumbnails?: { data?: Array<{ uri: string }> };
+}
+
+// Vídeo normalizado (retornado pelo montar_plano)
+interface VideoInfo {
+  id: string;
+  title: string;
+  thumbnail: string | null;
+  length: number | null;
+  created_time: string | null;
 }
 
 interface InsightCampanha {
   campaign_id?: string;
   campaign_name?: string;
   spend?: string;
-  impressions?: string;
-  clicks?: string;
   ctr?: string;
-  cpm?: string;
   purchase_roas?: Array<{ value: string }>;
 }
 
 interface Contexto {
   campanhas: Campanha[];
-  publicos:  Publico[];
-  videos:    Video[];
+  publicos:  PublicoMeta[];
+  videos:    VideoRaw[];
   insights:  InsightCampanha[];
+}
+
+interface PlanoConjunto {
+  tipo: 'frio' | 'quente' | 'whatsapp';
+  publico_nome: string;
+  meta_audience_id: string | null;
+  targeting_base?: Record<string, unknown>;
+  orcamento_reais: number;
+  objetivo: string;
+  video_ids: string[];
+  videos: VideoInfo[];
+}
+
+interface Plano {
+  conjuntos: PlanoConjunto[];
+  objetivo: string;
+  orcamento_total: number;
+}
+
+interface ResultadoConjunto {
+  tipo: string;
+  ok: boolean;
+  campaign_id?: string;
+  adset_id?: string;
+  ads_ids?: string[];
+  total_ads?: number;
+  publico_nome?: string;
+  nome?: string;
+  erro?: string;
+}
+
+interface CampanhaHistorico {
+  nome: string;
+  conjuntos: ResultadoConjunto[];
+  criado_em: string;
 }
 
 interface Sugestao {
@@ -102,45 +160,93 @@ interface Sugestao {
   metricas?:        Record<string, number>;
 }
 
-/* ─── Section 1: Visão Atual ──────────────────────────────────────────────── */
+/* ─── Helpers visuais ─────────────────────────────────────────────────────── */
 
-function VisaoAtual() {
+function Section({ titulo, icon, children }: { titulo: string; icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="bg-[#161b24] border border-[#2a3550] rounded-xl p-4 space-y-3">
+      <h3 className="text-sm font-semibold text-white flex items-center gap-2">{icon}{titulo}</h3>
+      {children}
+    </div>
+  );
+}
+
+function Empty({ texto }: { texto: string }) {
+  return <p className="text-xs text-[#6b7fa3] text-center py-3">{texto}</p>;
+}
+
+const TIPO_LABEL: Record<string, string> = { frio: 'Público Frio', quente: 'Público Quente', whatsapp: 'WhatsApp' };
+const TIPO_EMOJI: Record<string, string> = { frio: '❄️', quente: '🔥', whatsapp: '💬' };
+const OBJETIVO_LABEL: Record<string, string> = {
+  OUTCOME_SALES: 'Vendas', OUTCOME_LEADS: 'Leads', OUTCOME_TRAFFIC: 'Tráfego',
+};
+
+/* ─── Thumbnail de vídeo (VideoCard) ─────────────────────────────────────── */
+
+function VideoThumb({ thumb, title, length, created_time }: {
+  thumb?: string | null; title?: string; length?: number | null; created_time?: string | null;
+}) {
+  return (
+    <div className="bg-[#0d1117] rounded-lg border border-[#2a3550] overflow-hidden">
+      {thumb ? (
+        <img src={thumb} alt={title ?? ''} className="w-full h-16 object-cover" />
+      ) : (
+        <div className="w-full h-16 flex items-center justify-center bg-[#1a2030]">
+          <Video className="w-5 h-5 text-[#6b7fa3]" />
+        </div>
+      )}
+      <div className="p-1.5">
+        <p className="text-xs text-white truncate">{title ?? '—'}</p>
+        <div className="flex items-center gap-1.5 mt-0.5">
+          {length != null && <span className="text-xs text-[#6b7fa3]">{fmtDuracao(length)}</span>}
+          {created_time && <span className="text-xs text-[#6b7fa3]">{fmtData(created_time)}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  SECAO 1 — Visão Atual                                                      */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+interface VisaoAtualProps {
+  contexto: Contexto | null;
+  setContexto: (c: Contexto) => void;
+}
+
+function VisaoAtual({ contexto, setContexto }: VisaoAtualProps) {
   const [loading, setLoading] = useState(false);
-  const [contexto, setContexto] = useState<Contexto | null>(null);
-  const [toast, setToast] = useState<{ msg: string; tipo: 'ok' | 'erro' } | null>(null);
+  const [toast,   setToast]   = useState<{ msg: string; tipo: 'ok' | 'erro' } | null>(null);
 
   const sincronizar = useCallback(async () => {
     setLoading(true);
     try {
       const data = await callJarvis('buscar_contexto');
       setContexto(data);
-      setToast({ msg: 'Contexto sincronizado com sucesso!', tipo: 'ok' });
+      setToast({ msg: 'Contexto sincronizado!', tipo: 'ok' });
     } catch (err) {
       setToast({ msg: String(err), tipo: 'erro' });
     } finally {
       setLoading(false);
       setTimeout(() => setToast(null), 4000);
     }
-  }, []);
+  }, [setContexto]);
 
   const totalSpend = contexto?.insights.reduce((s, i) => s + parseFloat(i.spend ?? '0'), 0) ?? 0;
   const avgCtr     = contexto?.insights.length
-    ? contexto.insights.reduce((s, i) => s + parseFloat(i.ctr ?? '0'), 0) / contexto.insights.length
-    : 0;
-  const avgRoas = contexto?.insights.length
-    ? contexto.insights.reduce((s, i) => s + parseFloat(i.purchase_roas?.[0]?.value ?? '0'), 0) / contexto.insights.length
-    : 0;
+    ? contexto.insights.reduce((s, i) => s + parseFloat(i.ctr ?? '0'), 0) / contexto.insights.length : 0;
+  const avgRoas    = contexto?.insights.length
+    ? contexto.insights.reduce((s, i) => s + parseFloat(i.purchase_roas?.[0]?.value ?? '0'), 0) / contexto.insights.length : 0;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-          <BarChart3 className="w-5 h-5 text-blue-400" />
-          Visão Atual
+          <BarChart3 className="w-5 h-5 text-blue-400" /> Visão Atual
         </h2>
         <button
-          onClick={sincronizar}
-          disabled={loading}
+          onClick={sincronizar} disabled={loading}
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1e3a5f] text-white text-sm font-medium hover:bg-blue-700 transition disabled:opacity-50"
         >
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
@@ -155,20 +261,16 @@ function VisaoAtual() {
         </div>
       )}
 
-      {loading && (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
-        </div>
-      )}
+      {loading && <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-blue-400" /></div>}
 
       {contexto && (
         <>
           {/* Métricas resumo */}
           <div className="grid grid-cols-3 gap-4">
             {[
-              { label: 'Gasto 7 dias', valor: fmtBRL(totalSpend), icon: DollarSign, cor: 'text-yellow-400' },
-              { label: 'CTR médio',    valor: `${(avgCtr * 100).toFixed(2)}%`, icon: TrendingUp, cor: 'text-blue-400' },
-              { label: 'ROAS médio',  valor: `${avgRoas.toFixed(2)}x`, icon: Zap, cor: 'text-green-400' },
+              { label: 'Gasto 7 dias', valor: fmtBRL(totalSpend),          icon: DollarSign, cor: 'text-yellow-400' },
+              { label: 'CTR médio',    valor: `${(avgCtr * 100).toFixed(2)}%`, icon: TrendingUp,  cor: 'text-blue-400' },
+              { label: 'ROAS médio',   valor: `${avgRoas.toFixed(2)}x`,    icon: Zap,         cor: 'text-green-400' },
             ].map(m => (
               <div key={m.label} className="bg-[#161b24] border border-[#2a3550] rounded-xl p-4">
                 <div className="flex items-center gap-2 mb-1">
@@ -190,13 +292,9 @@ function VisaoAtual() {
                   <p className="text-xs text-[#6b7fa3]">{c.objective ?? '—'}</p>
                 </div>
                 <div className="flex items-center gap-3">
-                  {c.daily_budget && (
-                    <span className="text-xs text-[#6b7fa3]">{fmtBRL(parseFloat(c.daily_budget) / 100)}/dia</span>
-                  )}
-                  <span className={cn(
-                    'text-xs px-2 py-1 rounded-full font-medium',
-                    c.status === 'ACTIVE' ? 'bg-green-900 text-green-300' : 'bg-yellow-900 text-yellow-300',
-                  )}>
+                  {c.daily_budget && <span className="text-xs text-[#6b7fa3]">{fmtBRL(parseFloat(c.daily_budget) / 100)}/dia</span>}
+                  <span className={cn('text-xs px-2 py-1 rounded-full font-medium',
+                    c.status === 'ACTIVE' ? 'bg-green-900 text-green-300' : 'bg-yellow-900 text-yellow-300')}>
                     {c.status}
                   </span>
                 </div>
@@ -224,26 +322,18 @@ function VisaoAtual() {
             </div>
           </Section>
 
-          {/* Vídeos */}
+          {/* Vídeos — com thumbnail corrigida (thumbnails.data[0].uri) */}
           <Section titulo="Vídeos Disponíveis" icon={<Video className="w-4 h-4 text-orange-400" />}>
             {contexto.videos.length === 0 && <Empty texto="Nenhum vídeo encontrado." />}
             <div className="grid grid-cols-3 gap-2">
               {contexto.videos.slice(0, 9).map(v => (
-                <div key={v.id} className="bg-[#0d1117] rounded-lg border border-[#2a3550] overflow-hidden">
-                  {v.thumbnails?.uri ? (
-                    <img src={v.thumbnails.uri} alt={v.title ?? ''} className="w-full h-20 object-cover" />
-                  ) : (
-                    <div className="w-full h-20 flex items-center justify-center bg-[#1a2030]">
-                      <Video className="w-6 h-6 text-[#6b7fa3]" />
-                    </div>
-                  )}
-                  <div className="p-2">
-                    <p className="text-xs text-white truncate">{v.title ?? `Vídeo ${v.id}`}</p>
-                    {v.length && (
-                      <p className="text-xs text-[#6b7fa3] mt-0.5">{Math.round(v.length)}s</p>
-                    )}
-                  </div>
-                </div>
+                <VideoThumb
+                  key={v.id}
+                  thumb={v.thumbnails?.data?.[0]?.uri}
+                  title={v.title || `Vídeo ${v.id.slice(-6)}`}
+                  length={v.length}
+                  created_time={v.created_time}
+                />
               ))}
             </div>
           </Section>
@@ -255,81 +345,110 @@ function VisaoAtual() {
   );
 }
 
-/* ─── Section 2: Criar Campanha ───────────────────────────────────────────── */
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  SECAO 2 — Criar Campanha                                                   */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
-function CriarCampanha() {
-  const [objetivo,     setObjetivo]     = useState<string>('OUTCOME_SALES');
-  const [orcamento,    setOrcamento]    = useState<string>('50');
-  const [tiposFrios,   setTiposFrios]   = useState<boolean>(true);
-  const [tiposQuentes, setTiposQuentes] = useState<boolean>(false);
-  const [tiposWa,      setTiposWa]      = useState<boolean>(false);
-  const [videoIds,     setVideoIds]     = useState<string>('');
-  const [plano,        setPlano]        = useState<Record<string, unknown> | null>(null);
-  const [loading,      setLoading]      = useState(false);
-  const [subindo,      setSubindo]      = useState(false);
-  const [toast,        setToast]        = useState<{ msg: string; tipo: 'ok' | 'erro' } | null>(null);
+interface CriarCampanhaProps {
+  historico:     CampanhaHistorico[];
+  addHistorico:  (c: CampanhaHistorico) => void;
+}
+
+function CriarCampanha({ historico, addHistorico }: CriarCampanhaProps) {
+  const [objetivo,      setObjetivo]      = useState<string>('OUTCOME_SALES');
+  const [orcamento,     setOrcamento]     = useState<string>('60');
+  const [tipoFrio,      setTipoFrio]      = useState(true);
+  const [tipoQuente,    setTipoQuente]    = useState(false);
+  const [tipoWa,        setTipoWa]        = useState(false);
+  const [plano,         setPlano]         = useState<Plano | null>(null);
+  const [loadingPlano,  setLoadingPlano]  = useState(false);
+  const [loadingSubir,  setLoadingSubir]  = useState(false);
+  const [toast,         setToast]         = useState<{ msg: string; tipo: 'ok' | 'erro' } | null>(null);
 
   const tiposEscolhidos = [
-    tiposFrios   ? 'frio'     : null,
-    tiposQuentes ? 'quente'   : null,
-    tiposWa      ? 'whatsapp' : null,
+    tipoFrio   ? 'frio'     : null,
+    tipoQuente ? 'quente'   : null,
+    tipoWa     ? 'whatsapp' : null,
   ].filter(Boolean) as Array<'frio' | 'quente' | 'whatsapp'>;
+
+  const mostrarToast = (msg: string, tipo: 'ok' | 'erro') => {
+    setToast({ msg, tipo });
+    setTimeout(() => setToast(null), 5000);
+  };
 
   const montarPlano = useCallback(async () => {
     if (tiposEscolhidos.length === 0) {
-      setToast({ msg: 'Selecione ao menos um tipo de público.', tipo: 'erro' });
-      setTimeout(() => setToast(null), 3000);
+      mostrarToast('Selecione ao menos um tipo de público.', 'erro');
       return;
     }
-    setLoading(true);
+    setLoadingPlano(true);
     setPlano(null);
     try {
-      const data = await callJarvis('criar_campanha_inteligente', {
+      const data = await callJarvis('montar_plano', {
         objetivo,
-        orcamento_diario: parseFloat(orcamento) || 50,
+        orcamento_diario: parseFloat(orcamento) || 60,
         tipos_publico:    tiposEscolhidos,
-        video_ids:        videoIds.split(',').map(s => s.trim()).filter(Boolean),
-        page_id:          '101337882545607',
       });
-      setPlano(data);
+      setPlano(data as Plano);
     } catch (err) {
-      setToast({ msg: String(err), tipo: 'erro' });
+      mostrarToast(String(err), 'erro');
     } finally {
-      setLoading(false);
-      setTimeout(() => setToast(null), 4000);
+      setLoadingPlano(false);
     }
-  }, [objetivo, orcamento, tiposEscolhidos, videoIds]);
+  }, [objetivo, orcamento, tiposEscolhidos]);
 
   const aprovarESubir = useCallback(async () => {
     if (!plano) return;
-    setSubindo(true);
+    setLoadingSubir(true);
     try {
-      setToast({ msg: 'Campanha criada com sucesso no Meta Ads!', tipo: 'ok' });
+      const data = await callJarvis('criar_campanha_inteligente', {
+        objetivo:         plano.objetivo,
+        orcamento_diario: plano.orcamento_total,
+        tipos_publico:    plano.conjuntos.map(c => c.tipo),
+        page_id:          '101337882545607',
+        conjuntos_plano:  plano.conjuntos.map(c => ({
+          tipo:             c.tipo,
+          meta_audience_id: c.meta_audience_id,
+          targeting_base:   c.targeting_base,
+          video_ids:        c.video_ids,
+          publico_nome:     c.publico_nome,
+        })),
+      }) as { resultados: ResultadoConjunto[] };
+
+      addHistorico({
+        nome:       `Campanha ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`,
+        conjuntos:  data.resultados,
+        criado_em:  new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      });
+
+      const ok   = data.resultados.filter(r => r.ok).length;
+      const fail = data.resultados.filter(r => !r.ok).length;
+      mostrarToast(
+        fail === 0
+          ? `${ok} conjunto(s) criado(s) com sucesso no Meta Ads!`
+          : `${ok} criado(s), ${fail} com erro.`,
+        fail === 0 ? 'ok' : 'erro',
+      );
       setPlano(null);
     } catch (err) {
-      setToast({ msg: String(err), tipo: 'erro' });
+      mostrarToast(String(err), 'erro');
     } finally {
-      setSubindo(false);
-      setTimeout(() => setToast(null), 4000);
+      setLoadingSubir(false);
     }
-  }, [plano]);
-
-  const resultados = (plano as { resultados?: Array<Record<string, unknown>> } | null)?.resultados ?? [];
+  }, [plano, addHistorico]);
 
   return (
     <div className="space-y-6">
       <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-        <Zap className="w-5 h-5 text-yellow-400" />
-        Criar Campanha
+        <Zap className="w-5 h-5 text-yellow-400" /> Criar Campanha
       </h2>
 
+      {/* Formulário */}
       <div className="grid grid-cols-2 gap-4">
-        {/* Objetivo */}
         <div>
           <label className="block text-xs text-[#6b7fa3] mb-1.5">Objetivo</label>
           <select
-            value={objetivo}
-            onChange={e => setObjetivo(e.target.value)}
+            value={objetivo} onChange={e => { setObjetivo(e.target.value); setPlano(null); }}
             className="w-full bg-[#161b24] border border-[#2a3550] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
           >
             <option value="OUTCOME_SALES">Vendas</option>
@@ -337,99 +456,134 @@ function CriarCampanha() {
             <option value="MESSAGES">Mensagens (WhatsApp)</option>
           </select>
         </div>
-
-        {/* Orçamento */}
         <div>
           <label className="block text-xs text-[#6b7fa3] mb-1.5">Orçamento diário (R$)</label>
           <input
-            type="number"
-            value={orcamento}
-            onChange={e => setOrcamento(e.target.value)}
-            min={1}
+            type="number" value={orcamento} min={1}
+            onChange={e => { setOrcamento(e.target.value); setPlano(null); }}
             className="w-full bg-[#161b24] border border-[#2a3550] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-            placeholder="50"
           />
         </div>
       </div>
 
-      {/* Tipos de público */}
       <div>
         <label className="block text-xs text-[#6b7fa3] mb-2">Tipos de público</label>
-        <div className="flex gap-3">
+        <div className="flex gap-4">
           {[
-            { label: 'Frio',     value: tiposFrios,   set: setTiposFrios,   cor: 'text-blue-400' },
-            { label: 'Quente',   value: tiposQuentes, set: setTiposQuentes, cor: 'text-orange-400' },
-            { label: 'WhatsApp', value: tiposWa,      set: setTiposWa,      cor: 'text-green-400' },
+            { label: '❄️ Frio',     value: tipoFrio,   set: (v: boolean) => { setTipoFrio(v);   setPlano(null); }, cor: 'text-blue-400' },
+            { label: '🔥 Quente',   value: tipoQuente, set: (v: boolean) => { setTipoQuente(v); setPlano(null); }, cor: 'text-orange-400' },
+            { label: '💬 WhatsApp', value: tipoWa,     set: (v: boolean) => { setTipoWa(v);     setPlano(null); }, cor: 'text-green-400' },
           ].map(t => (
             <label key={t.label} className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={t.value}
-                onChange={() => t.set(!t.value)}
-                className="accent-blue-500 w-4 h-4"
-              />
+              <input type="checkbox" checked={t.value} onChange={() => t.set(!t.value)} className="accent-blue-500 w-4 h-4" />
               <span className={cn('text-sm font-medium', t.cor)}>{t.label}</span>
             </label>
           ))}
         </div>
       </div>
 
-      {/* IDs de vídeo */}
-      <div>
-        <label className="block text-xs text-[#6b7fa3] mb-1.5">
-          IDs de vídeo (separados por vírgula — deixe vazio para criar sem anúncio)
-        </label>
-        <input
-          type="text"
-          value={videoIds}
-          onChange={e => setVideoIds(e.target.value)}
-          className="w-full bg-[#161b24] border border-[#2a3550] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-          placeholder="123456789, 987654321"
-        />
-      </div>
-
       <button
-        onClick={montarPlano}
-        disabled={loading}
+        onClick={montarPlano} disabled={loadingPlano}
         className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#1e3a5f] text-white font-medium hover:bg-blue-700 transition disabled:opacity-50"
       >
-        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bot className="w-4 h-4" />}
+        {loadingPlano ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bot className="w-4 h-4" />}
         Jarvis, monta o plano
       </button>
 
       {/* Plano gerado */}
-      {resultados.length > 0 && (
-        <div className="bg-[#161b24] border border-[#2a3550] rounded-xl p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-white">Plano gerado pelo Jarvis</h3>
-          {resultados.map((r, i) => (
-            <div key={i} className={cn(
-              'flex items-center justify-between p-3 rounded-lg',
-              r.ok ? 'bg-green-950 border border-green-800' : 'bg-red-950 border border-red-800',
-            )}>
-              <div>
-                <p className="text-sm font-medium text-white capitalize">{String(r.tipo)}</p>
-                {r.ok ? (
-                  <p className="text-xs text-[#6b7fa3] mt-0.5">
-                    Campaign {String(r.campaign_id)} • Adset {String(r.adset_id)}
-                  </p>
-                ) : (
-                  <p className="text-xs text-red-400 mt-0.5">{String(r.erro)}</p>
-                )}
+      {plano && (
+        <div className="space-y-4">
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+            <Target className="w-4 h-4 text-blue-400" />
+            Plano gerado pelo Jarvis
+          </h3>
+
+          {plano.conjuntos.map(conj => (
+            <div key={conj.tipo} className="bg-[#161b24] border border-[#2a3550] rounded-xl p-4 space-y-3">
+              {/* Header do conjunto */}
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-white">
+                  {TIPO_EMOJI[conj.tipo]} {TIPO_LABEL[conj.tipo]}
+                </h4>
+                <span className="text-xs text-blue-400">{fmtBRL(conj.orcamento_reais)}/dia</span>
               </div>
-              {r.ok
-                ? <CheckCircle className="w-5 h-5 text-green-400" />
-                : <XCircle className="w-5 h-5 text-red-400" />}
+
+              {/* Detalhes */}
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-[#0d1117] rounded-lg p-2">
+                  <span className="text-[#6b7fa3]">Público </span>
+                  <span className="text-white font-medium">{conj.publico_nome}</span>
+                </div>
+                <div className="bg-[#0d1117] rounded-lg p-2">
+                  <span className="text-[#6b7fa3]">Objetivo </span>
+                  <span className="text-white font-medium">{OBJETIVO_LABEL[conj.objetivo] ?? conj.objetivo}</span>
+                </div>
+              </div>
+
+              {/* Criativos selecionados */}
+              {conj.videos.length > 0 ? (
+                <div>
+                  <p className="text-xs text-[#6b7fa3] mb-2">
+                    Criativos selecionados ({conj.videos.length}):
+                  </p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {conj.videos.map(v => (
+                      <VideoThumb
+                        key={v.id}
+                        thumb={v.thumbnail}
+                        title={v.title}
+                        length={v.length}
+                        created_time={v.created_time}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-yellow-400">⚠ Nenhum vídeo encontrado na conta — adset será criado sem anúncio.</p>
+              )}
             </div>
           ))}
 
           <button
-            onClick={aprovarESubir}
-            disabled={subindo}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-[#059669] text-white font-medium hover:bg-emerald-600 transition disabled:opacity-50"
+            onClick={aprovarESubir} disabled={loadingSubir}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-[#059669] text-white font-semibold hover:bg-emerald-600 transition disabled:opacity-50"
           >
-            {subindo ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+            {loadingSubir ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
             Aprovar e subir agora
           </button>
+        </div>
+      )}
+
+      {/* Histórico da sessão */}
+      {historico.length > 0 && (
+        <div className="pt-2">
+          <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+            <History className="w-4 h-4 text-blue-400" />
+            Últimas campanhas criadas (sessão atual)
+          </h3>
+          <div className="space-y-2">
+            {historico.map((h, i) => (
+              <div key={i} className="bg-[#161b24] border border-[#2a3550] rounded-xl p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium text-white">{h.nome}</p>
+                  <span className="text-xs text-[#6b7fa3] flex items-center gap-1">
+                    <Clock className="w-3 h-3" />{h.criado_em}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {h.conjuntos.map((c, j) => (
+                    <span key={j} className={cn(
+                      'text-xs px-2 py-1 rounded-full font-medium',
+                      c.ok ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300',
+                    )}>
+                      {TIPO_EMOJI[c.tipo] ?? ''} {TIPO_LABEL[c.tipo] ?? c.tipo}
+                      {c.ok ? ` · ${c.total_ads ?? 0} ad(s)` : ' · erro'}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -438,14 +592,15 @@ function CriarCampanha() {
   );
 }
 
-/* ─── Section 3: Otimizações Pendentes ───────────────────────────────────── */
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  SECAO 3 — Otimizações Pendentes                                            */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 function OtimizacoesPendentes() {
-  const [loading,     setLoading]     = useState(false);
-  const [executando,  setExecutando]  = useState<string | null>(null);
-  const [sugestoes,   setSugestoes]   = useState<Sugestao[]>([]);
-  const [ignoradas,   setIgnoradas]   = useState<Set<string>>(new Set());
-  const [toast,       setToast]       = useState<{ msg: string; tipo: 'ok' | 'erro' } | null>(null);
+  const [loading,    setLoading]    = useState(false);
+  const [executando, setExecutando] = useState<string | null>(null);
+  const [sugestoes,  setSugestoes]  = useState<Sugestao[]>([]);
+  const [toast,      setToast]      = useState<{ msg: string; tipo: 'ok' | 'erro' } | null>(null);
 
   const analisar = useCallback(async () => {
     setLoading(true);
@@ -464,12 +619,8 @@ function OtimizacoesPendentes() {
   const aprovar = useCallback(async (s: Sugestao) => {
     setExecutando(s.adset_id);
     try {
-      await callJarvis('executar_otimizacao', {
-        adset_id: s.adset_id,
-        acao:     s.acao,
-        valor:    s.valor,
-      });
-      setToast({ msg: `Ação "${s.acao}" executada com sucesso.`, tipo: 'ok' });
+      await callJarvis('executar_otimizacao', { adset_id: s.adset_id, acao: s.acao, valor: s.valor });
+      setToast({ msg: `Ação "${s.acao}" executada.`, tipo: 'ok' });
       setSugestoes(prev => prev.filter(x => x.adset_id !== s.adset_id));
     } catch (err) {
       setToast({ msg: String(err), tipo: 'erro' });
@@ -479,35 +630,25 @@ function OtimizacoesPendentes() {
     }
   }, []);
 
-  const ignorar = (s: Sugestao) => {
-    setIgnoradas(prev => new Set(prev).add(s.adset_id));
-    setSugestoes(prev => prev.filter(x => x.adset_id !== s.adset_id));
-  };
+  const ignorar = (s: Sugestao) => setSugestoes(prev => prev.filter(x => x.adset_id !== s.adset_id));
 
-  const ACAO_LABEL: Record<string, string>  = {
-    pausar:            'Pausar',
-    ativar:            'Ativar',
-    aumentar_orcamento:'Aumentar orçamento +20%',
-    trocar_criativo:   'Trocar criativo',
+  const ACAO_LABEL: Record<string, string> = {
+    pausar: 'Pausar', ativar: 'Ativar',
+    aumentar_orcamento: 'Aumentar orçamento +20%', trocar_criativo: 'Trocar criativo',
   };
-
   const ACAO_ICON: Record<string, React.ReactNode> = {
-    pausar:            <Pause className="w-4 h-4" />,
-    ativar:            <Play className="w-4 h-4" />,
-    aumentar_orcamento:<TrendingUp className="w-4 h-4" />,
-    trocar_criativo:   <Eye className="w-4 h-4" />,
+    pausar: <Pause className="w-4 h-4" />, ativar: <Play className="w-4 h-4" />,
+    aumentar_orcamento: <TrendingUp className="w-4 h-4" />, trocar_criativo: <Eye className="w-4 h-4" />,
   };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-          <AlertTriangle className="w-5 h-5 text-yellow-400" />
-          Otimizações Pendentes
+          <AlertTriangle className="w-5 h-5 text-yellow-400" /> Otimizações Pendentes
         </h2>
         <button
-          onClick={analisar}
-          disabled={loading}
+          onClick={analisar} disabled={loading}
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1e3a5f] text-white text-sm font-medium hover:bg-blue-700 transition disabled:opacity-50"
         >
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
@@ -522,11 +663,7 @@ function OtimizacoesPendentes() {
         </div>
       )}
 
-      {loading && (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
-        </div>
-      )}
+      {loading && <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-blue-400" /></div>}
 
       {sugestoes.map(s => (
         <div key={s.adset_id} className="bg-[#161b24] border border-[#2a3550] rounded-xl p-4">
@@ -534,33 +671,26 @@ function OtimizacoesPendentes() {
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-white truncate">{s.adset_nome}</p>
               <p className="text-sm text-yellow-300 mt-1 flex items-center gap-1.5">
-                {ACAO_ICON[s.acao]}
-                {ACAO_LABEL[s.acao] ?? s.acao}
+                {ACAO_ICON[s.acao]} {ACAO_LABEL[s.acao] ?? s.acao}
               </p>
               <p className="text-xs text-[#6b7fa3] mt-1">{s.motivo}</p>
               <p className="text-xs text-blue-400 mt-0.5 flex items-center gap-1">
-                <ChevronRight className="w-3 h-3" />
-                {s.impacto_estimado}
+                <ChevronRight className="w-3 h-3" />{s.impacto_estimado}
               </p>
             </div>
-
             <div className="flex flex-col gap-2">
               <button
-                onClick={() => aprovar(s)}
-                disabled={executando === s.adset_id}
+                onClick={() => aprovar(s)} disabled={executando === s.adset_id}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#059669] text-white text-xs font-medium hover:bg-emerald-600 transition disabled:opacity-50"
               >
-                {executando === s.adset_id
-                  ? <Loader2 className="w-3 h-3 animate-spin" />
-                  : <CheckCircle className="w-3 h-3" />}
+                {executando === s.adset_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
                 Aprovar
               </button>
               <button
                 onClick={() => ignorar(s)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2a3550] text-[#6b7fa3] text-xs font-medium hover:text-white transition"
               >
-                <XCircle className="w-3 h-3" />
-                Ignorar
+                <XCircle className="w-3 h-3" /> Ignorar
               </button>
             </div>
           </div>
@@ -572,35 +702,26 @@ function OtimizacoesPendentes() {
   );
 }
 
-/* ─── Helpers visuais ─────────────────────────────────────────────────────── */
-
-function Section({ titulo, icon, children }: { titulo: string; icon: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div className="bg-[#161b24] border border-[#2a3550] rounded-xl p-4 space-y-3">
-      <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-        {icon}
-        {titulo}
-      </h3>
-      {children}
-    </div>
-  );
-}
-
-function Empty({ texto }: { texto: string }) {
-  return <p className="text-xs text-[#6b7fa3] text-center py-3">{texto}</p>;
-}
-
-/* ─── Panel principal ─────────────────────────────────────────────────────── */
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  Panel principal — estado compartilhado ao nível do painel                  */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 type TabJarvis = 'visao' | 'criar' | 'otimizar';
 
 export function JarvisAgentPanel() {
-  const [tab, setTab] = useState<TabJarvis>('visao');
+  // Estado compartilhado — persiste ao trocar de aba
+  const [contexto,  setContexto]  = useState<Contexto | null>(null);
+  const [historico, setHistorico] = useState<CampanhaHistorico[]>([]);
+  const [tab,       setTab]       = useState<TabJarvis>('visao');
+
+  const addHistorico = useCallback((c: CampanhaHistorico) => {
+    setHistorico(prev => [c, ...prev]);
+  }, []);
 
   const TABS: { id: TabJarvis; label: string; icon: React.ReactNode }[] = [
-    { id: 'visao',   label: 'Visão Atual',          icon: <BarChart3 className="w-4 h-4" /> },
-    { id: 'criar',   label: 'Criar Campanha',        icon: <Zap className="w-4 h-4" /> },
-    { id: 'otimizar',label: 'Otimizações Pendentes', icon: <AlertTriangle className="w-4 h-4" /> },
+    { id: 'visao',    label: 'Visão Atual',           icon: <BarChart3 className="w-4 h-4" /> },
+    { id: 'criar',    label: 'Criar Campanha',         icon: <Zap className="w-4 h-4" /> },
+    { id: 'otimizar', label: 'Otimizações Pendentes',  icon: <AlertTriangle className="w-4 h-4" /> },
   ];
 
   return (
@@ -620,26 +741,22 @@ export function JarvisAgentPanel() {
       <div className="flex gap-1 px-6 pb-4 border-b border-[#2a3550]">
         {TABS.map(t => (
           <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
+            key={t.id} onClick={() => setTab(t.id)}
             className={cn(
               'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition',
-              tab === t.id
-                ? 'bg-[#1e3a5f] text-white'
-                : 'text-[#6b7fa3] hover:text-white hover:bg-[#161b24]',
+              tab === t.id ? 'bg-[#1e3a5f] text-white' : 'text-[#6b7fa3] hover:text-white hover:bg-[#161b24]',
             )}
           >
-            {t.icon}
-            {t.label}
+            {t.icon}{t.label}
           </button>
         ))}
       </div>
 
-      {/* Content */}
+      {/* Content — todos os componentes montados mas só o ativo visível */}
       <div className="p-6">
-        {tab === 'visao'    && <VisaoAtual />}
-        {tab === 'criar'    && <CriarCampanha />}
-        {tab === 'otimizar' && <OtimizacoesPendentes />}
+        <div className={tab === 'visao'    ? '' : 'hidden'}><VisaoAtual contexto={contexto} setContexto={setContexto} /></div>
+        <div className={tab === 'criar'    ? '' : 'hidden'}><CriarCampanha historico={historico} addHistorico={addHistorico} /></div>
+        <div className={tab === 'otimizar' ? '' : 'hidden'}><OtimizacoesPendentes /></div>
       </div>
     </div>
   );
