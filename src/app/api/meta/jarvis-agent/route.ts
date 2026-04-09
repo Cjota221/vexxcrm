@@ -198,7 +198,7 @@ async function criarCampanhaInteligente(
         objective:            objetivoMeta,
         status:               'PAUSED',
         special_ad_categories: [],
-        bid_strategy:         'LOWEST_COST_WITHOUT_BID_CAP',
+        bid_strategy:         'LOWEST_COST_WITHOUT_CAP',
       });
 
       // 2. Adset
