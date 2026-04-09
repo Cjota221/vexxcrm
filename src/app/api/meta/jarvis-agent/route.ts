@@ -224,15 +224,15 @@ async function criarCampanhaInteligente(
   };
   const objetivoMeta = OBJETIVO_MAP[params.objetivo] ?? 'OUTCOME_TRAFFIC';
   const resultados: unknown[] = [];
+  const errosAds: string[] = [];
 
-  // Pré-buscar vídeos só se não houver plano
-  let videosDisponiveisIds: string[] = [];
-  if (!params.conjuntos_plano) {
-    try {
-      const vr = await metaGet(token, `${actId}/advideos`, { fields: 'id', limit: '20' }) as { data?: Array<{ id: string }> };
-      videosDisponiveisIds = (vr.data ?? []).map(v => v.id);
-    } catch { /* sem vídeos */ }
-  }
+  // Pré-buscar vídeos com thumbnails (para image_url no adcreative e rotação de IDs)
+  interface VideoDisp { id: string; thumbnails?: { data?: Array<{ uri: string }> } }
+  let videosDisponiveis: VideoDisp[] = [];
+  try {
+    const vr = await metaGet(token, `${actId}/advideos`, { fields: 'id,thumbnails', limit: '20' }) as { data?: VideoDisp[] };
+    videosDisponiveis = vr.data ?? [];
+  } catch { /* sem vídeos */ }
 
   for (const tipo of params.tipos_publico) {
     try {
@@ -305,9 +305,9 @@ async function criarCampanhaInteligente(
         // Distribuir vídeos em rotação
         const idxTipo   = params.tipos_publico.indexOf(tipo);
         const totalTipos = params.tipos_publico.length;
-        if (videosDisponiveisIds.length > 0) {
+        if (videosDisponiveis.length > 0) {
           const ids: string[] = [];
-          for (let j = 0; j < 4; j++) ids.push(videosDisponiveisIds[(idxTipo + j * totalTipos) % videosDisponiveisIds.length]);
+          for (let j = 0; j < 4; j++) ids.push(videosDisponiveis[(idxTipo + j * totalTipos) % videosDisponiveis.length].id);
           videosParaEsteConj = [...new Set(ids)];
         }
       }
@@ -355,30 +355,32 @@ async function criarCampanhaInteligente(
       for (let idx = 0; idx < videosParaEsteConj.length; idx++) {
         const vid = videosParaEsteConj[idx];
         try {
+          const videoInfo = videosDisponiveis.find(v => v.id === vid);
+          const thumbUrl  = videoInfo?.thumbnails?.data?.[0]?.uri;
+          const videoData: Record<string, unknown> = {
+            video_id: vid,
+            message: 'Conheça nossas rasteirinhas. Comece com R$130 e revenda com lucro!',
+            title:   'CJ Rasteirinhas — Seja uma Revendedora',
+            call_to_action: {
+              type:  tipo === 'whatsapp' ? 'WHATSAPP_MESSAGE' : 'LEARN_MORE',
+              value: tipo === 'whatsapp'
+                ? { app_destination: 'WHATSAPP', link: 'https://wa.me/5562981480687' }
+                : { link: 'https://wa.me/5562981480687' },
+            },
+          };
+          if (thumbUrl) videoData.image_url = thumbUrl;
           const creative = await metaPost(token, `${actId}/adcreatives`, {
             name: `Creative ${vid}`,
-            object_story_spec: {
-              page_id: pageId,
-              video_data: {
-                video_id: vid,
-                message: 'Conheça nossas rasteirinhas. Comece com R$130 e revenda com lucro!',
-                title:   'CJ Rasteirinhas — Seja uma Revendedora',
-                call_to_action: {
-                  type:  tipo === 'whatsapp' ? 'WHATSAPP_MESSAGE' : 'LEARN_MORE',
-                  value: tipo === 'whatsapp'
-                    ? { app_destination: 'WHATSAPP', link: 'https://wa.me/5562981480687' }
-                    : { link: 'https://www.instagram.com/cjrasteirinhas' },
-                },
-              },
-            },
+            object_story_spec: { page_id: pageId, video_data: videoData },
           });
           const ad = await metaPost(token, `${actId}/ads`, {
             name: `${nomeBase} — Anúncio ${idx + 1}`, adset_id: adset.id,
             creative: { creative_id: creative.id }, status: 'PAUSED',
           });
           adsIds.push(ad.id as string);
-        } catch (adErr) {
-          console.error(`[Jarvis] Erro ao criar ad ${idx + 1} para ${tipo}:`, adErr);
+        } catch (adErr: any) {
+          console.error(`[Jarvis] Erro adcreative ${idx + 1} para ${tipo}:`, JSON.stringify(adErr));
+          errosAds.push(`${tipo} vídeo ${idx + 1}: ${adErr?.message || JSON.stringify(adErr)}`);
         }
       }
 
@@ -397,7 +399,7 @@ async function criarCampanhaInteligente(
     }
   }
 
-  return { resultados, total: resultados.length };
+  return { resultados, total: resultados.length, erros_ads: errosAds, ok: errosAds.length === 0 };
 }
 
 /* ─── ACAO 3: otimizar_campanhas ──────────────────────────────────────────── */
