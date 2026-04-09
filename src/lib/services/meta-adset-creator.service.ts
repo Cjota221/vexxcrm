@@ -876,9 +876,9 @@ async function buscarTargetingPorTipo(
     }
   }
 
-  // WHATSAPP → Lookalike 1%
+  // WHATSAPP → Lookalike 1% (preferencial)
   if (tipo === 'whatsapp') {
-    const { data } = await supabase
+    const { data: lookalike } = await supabase
       .from('meta_publicos_aprovados')
       .select('targeting, meta_audience_id, nome')
       .eq('tenant_id', tenantId)
@@ -888,13 +888,38 @@ async function buscarTargetingPorTipo(
       .order('created_at', { ascending: false })
       .limit(1)
       .single()
-    if (data?.targeting) {
-      console.log(`[Jarvis] WHATSAPP → ${data.nome}`)
-      return data.targeting
+    if (lookalike?.targeting) {
+      console.log(`[Jarvis] WHATSAPP → lookalike: ${lookalike.nome}`)
+      return lookalike.targeting
+    }
+
+    // Fallback: Custom Audience de remarketing (NUNCA interesses para WhatsApp)
+    const { data: remarketing } = await supabase
+      .from('meta_publicos_aprovados')
+      .select('targeting, meta_audience_id, nome')
+      .eq('tenant_id', tenantId)
+      .in('tipo', ['engajamento', 'remarketing', 'website'])
+      .eq('status', 'publicado')
+      .not('meta_audience_id', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+    if (remarketing?.targeting) {
+      console.log(`[Jarvis] WHATSAPP fallback → remarketing: ${remarketing.nome}`)
+      return remarketing.targeting
+    }
+
+    // Último recurso: targeting mínimo sem interesses
+    console.warn('[Jarvis] WHATSAPP → sem público cadastrado, usando targeting mínimo sem interesses')
+    return {
+      age_min: 25,
+      age_max: 55,
+      geo_locations: { countries: ['BR'] },
+      targeting_automation: { advantage_audience: 0 },
     }
   }
 
-  // FALLBACK
+  // FALLBACK genérico (frio/quente sem público cadastrado)
   console.warn(`[Jarvis] FALLBACK targeting para tipo: ${tipo}`)
   return {
     age_min: 25,
