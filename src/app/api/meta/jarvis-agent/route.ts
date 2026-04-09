@@ -168,10 +168,10 @@ async function criarCampanhaInteligente(
       // Fallback mínimo sem interesses para whatsapp
       if (!targeting) {
         targeting = {
+          geo_locations: { countries: ['BR'] },
           age_min: 25,
           age_max: 55,
-          geo_locations: { countries: ['BR'] },
-          targeting_automation: { advantage_audience: 0 },
+          genders: [2],
           ...(tipo !== 'whatsapp' ? {
             flexible_spec: [{
               interests: [
@@ -183,34 +183,60 @@ async function criarCampanhaInteligente(
         };
       }
 
-      // Garantir targeting_automation no objeto
-      if (!targeting.targeting_automation) {
-        targeting.targeting_automation = { advantage_audience: 0 };
+      // Sanitizar targeting: remover arrays vazios e injetar campos obrigatórios dentro do objeto
+      const t = targeting as Record<string, unknown>;
+
+      // Remover arrays vazios (interests: [], behaviors: [], etc.) dentro de flexible_spec
+      if (Array.isArray(t.flexible_spec)) {
+        t.flexible_spec = (t.flexible_spec as Array<Record<string, unknown>>)
+          .map(spec => {
+            const clean: Record<string, unknown> = {};
+            for (const [k, v] of Object.entries(spec)) {
+              if (Array.isArray(v) && v.length === 0) continue;
+              clean[k] = v;
+            }
+            return clean;
+          })
+          .filter(spec => Object.keys(spec).length > 0);
+        if ((t.flexible_spec as unknown[]).length === 0) delete t.flexible_spec;
       }
+
+      // Garantir defaults de geo/age/gender
+      if (!t.geo_locations) t.geo_locations = { countries: ['BR'] };
+      if (!t.age_min)       t.age_min = 25;
+      if (!t.age_max)       t.age_max = 55;
+      if (!t.genders)       t.genders = [2];
+
+      // Placements DENTRO do targeting (spec validada)
+      t.publisher_platforms   = ['facebook', 'instagram'];
+      t.facebook_positions    = ['feed'];
+      t.instagram_positions   = ['stream', 'story', 'reels'];
+
+      // targeting_automation SEMPRE dentro do targeting
+      t.targeting_automation = { advantage_audience: 0 };
 
       const videoId = params.video_ids?.[0];
       const nomeBase = `[Jarvis] ${tipo.toUpperCase()} — ${new Date().toLocaleDateString('pt-BR')}`;
 
-      // 1. Campaign
+      // 1. Campaign — sem bid_strategy (pertence ao adset)
       const camp = await metaPost(token, `${actId}/campaigns`, {
-        name:                 nomeBase,
-        objective:            objetivoMeta,
-        status:               'PAUSED',
-        special_ad_categories: [],
-        bid_strategy:         'LOWEST_COST_WITHOUT_CAP',
+        name:                            nomeBase,
+        objective:                       objetivoMeta,
+        status:                          'PAUSED',
+        special_ad_categories:           [],
+        is_adset_budget_sharing_enabled: false,
       });
 
-      // 2. Adset
+      // 2. Adset — payload validado no Graph Explorer
       const adset = await metaPost(token, `${actId}/adsets`, {
-        name:               `${nomeBase} — Conjunto`,
-        campaign_id:        camp.id,
-        daily_budget:       orcamentoPorTipo,
-        billing_event:      'IMPRESSIONS',
-        optimization_goal:  tipo === 'frio' ? 'REACH' : 'LINK_CLICKS',
-        bid_strategy:       'LOWEST_COST_WITHOUT_BID_CAP',
-        status:             'PAUSED',
-        targeting,
-        publisher_platforms: ['facebook', 'instagram'],
+        name:              `${nomeBase} — Conjunto`,
+        campaign_id:       camp.id,
+        daily_budget:      orcamentoPorTipo,
+        billing_event:     'IMPRESSIONS',
+        optimization_goal: 'LINK_CLICKS',
+        bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
+        status:            'PAUSED',
+        targeting:         t,
       });
 
       // 3. Ad Creative + Ad (apenas se tiver video_id)
