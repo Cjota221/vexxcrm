@@ -33,6 +33,13 @@ async function callJarvis(acao: string, params: Record<string, unknown> = {}) {
   return json;
 }
 
+async function atomicPost(url: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const res = await authFetch(url, { method: 'POST', body: JSON.stringify(body) });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error ?? JSON.stringify(json));
+  return json as Record<string, unknown>;
+}
+
 /* ─── Formatters ──────────────────────────────────────────────────────────── */
 
 function fmtBRL(v: number) {
@@ -363,6 +370,7 @@ function CriarCampanha({ historico, addHistorico }: CriarCampanhaProps) {
   const [plano,         setPlano]         = useState<Plano | null>(null);
   const [loadingPlano,  setLoadingPlano]  = useState(false);
   const [loadingSubir,  setLoadingSubir]  = useState(false);
+  const [progresso,     setProgresso]     = useState<string[]>([]);
   const [toast,         setToast]         = useState<{ msg: string; tipo: 'ok' | 'erro' } | null>(null);
 
   const tiposEscolhidos = [
@@ -400,34 +408,95 @@ function CriarCampanha({ historico, addHistorico }: CriarCampanhaProps) {
   const aprovarESubir = useCallback(async () => {
     if (!plano) return;
     setLoadingSubir(true);
+    setProgresso([]);
+    const add = (msg: string) => setProgresso(prev => [...prev, msg]);
+    const PAGE_ID  = '101337882545607';
+    const dataStr  = new Date().toLocaleDateString('pt-BR');
+    const horaStr  = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const resultadosConjuntos: ResultadoConjunto[] = [];
+
     try {
-      const data = await callJarvis('criar_campanha_inteligente', {
-        objetivo:         plano.objetivo,
-        orcamento_diario: plano.orcamento_total,
-        tipos_publico:    plano.conjuntos.map(c => c.tipo),
-        page_id:          '101337882545607',
-        conjuntos_plano:  plano.conjuntos.map(c => ({
-          tipo:             c.tipo,
-          meta_audience_id: c.meta_audience_id,
-          targeting_base:   c.targeting_base,
-          video_ids:        c.video_ids,
-          publico_nome:     c.publico_nome,
-        })),
-      }) as { resultados: ResultadoConjunto[] };
+      // 1. Criar campanha (1 chamada Meta)
+      add('⏳ Criando campanha...');
+      const { campaign_id } = await atomicPost('/api/meta/jarvis-agent/criar-campanha', {
+        objetivo:  plano.objetivo,
+        nome_base: `[Jarvis] ${dataStr}`,
+      });
+      add('✅ Campanha criada');
+
+      // 2. Para cada conjunto: adset + criativos
+      for (const conj of plano.conjuntos) {
+        const nomeBase = `[Jarvis] ${conj.tipo.toUpperCase()} — ${dataStr}`;
+
+        // 2a. Adset (1 chamada Meta)
+        add(`⏳ Criando adset ${TIPO_EMOJI[conj.tipo]} ${TIPO_LABEL[conj.tipo]}...`);
+        let adset_id: string;
+        try {
+          const res = await atomicPost('/api/meta/jarvis-agent/criar-adset', {
+            campaign_id:        campaign_id as string,
+            tipo:               conj.tipo,
+            nome_base:          nomeBase,
+            orcamento_centavos: Math.round(conj.orcamento_reais * 100),
+            targeting_base:     conj.targeting_base ?? {},
+            meta_audience_id:   conj.meta_audience_id,
+            objetivo:           plano.objetivo,
+          });
+          adset_id = res.adset_id as string;
+          add(`✅ Adset ${TIPO_LABEL[conj.tipo]} criado`);
+        } catch (err) {
+          add(`❌ Adset ${TIPO_LABEL[conj.tipo]}: ${String(err)}`);
+          resultadosConjuntos.push({ tipo: conj.tipo, ok: false, erro: String(err) });
+          continue;
+        }
+
+        // 2b. Criativos (máx 2, cada um = 2 chamadas Meta)
+        const adsIds: string[] = [];
+        const vidsParaCriar = conj.video_ids.slice(0, 2);
+        for (let i = 0; i < vidsParaCriar.length; i++) {
+          const vid       = vidsParaCriar[i];
+          const videoInfo = conj.videos.find(v => v.id === vid);
+          add(`⏳ Criativo ${i + 1} ${TIPO_EMOJI[conj.tipo]} ${TIPO_LABEL[conj.tipo]}...`);
+          try {
+            const res = await atomicPost('/api/meta/jarvis-agent/criar-criativo', {
+              adset_id,
+              video_id:  vid,
+              tipo:      conj.tipo,
+              nome_base: nomeBase,
+              page_id:   PAGE_ID,
+              thumb_url: videoInfo?.thumbnail ?? undefined,
+              indice:    i + 1,
+            });
+            adsIds.push(res.ad_id as string);
+            add(`✅ Criativo ${i + 1} ${TIPO_EMOJI[conj.tipo]} criado`);
+          } catch (err) {
+            add(`❌ Criativo ${i + 1} ${TIPO_EMOJI[conj.tipo]}: ${String(err)}`);
+          }
+        }
+
+        resultadosConjuntos.push({
+          tipo: conj.tipo, ok: true,
+          campaign_id: campaign_id as string,
+          adset_id,
+          ads_ids:     adsIds,
+          total_ads:   adsIds.length,
+          publico_nome: conj.publico_nome,
+          nome:        nomeBase,
+        });
+      }
 
       addHistorico({
-        nome:       `Campanha ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`,
-        conjuntos:  data.resultados,
-        criado_em:  new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        nome:      `Campanha ${dataStr} ${horaStr}`,
+        conjuntos: resultadosConjuntos,
+        criado_em: horaStr,
       });
 
-      const ok   = data.resultados.filter(r => r.ok).length;
-      const fail = data.resultados.filter(r => !r.ok).length;
+      const okCount   = resultadosConjuntos.filter(r => r.ok).length;
+      const failCount = resultadosConjuntos.filter(r => !r.ok).length;
       mostrarToast(
-        fail === 0
-          ? `${ok} conjunto(s) criado(s) com sucesso no Meta Ads!`
-          : `${ok} criado(s), ${fail} com erro.`,
-        fail === 0 ? 'ok' : 'erro',
+        failCount === 0
+          ? `${okCount} conjunto(s) criado(s) com sucesso!`
+          : `${okCount} criado(s), ${failCount} com erro.`,
+        failCount === 0 ? 'ok' : 'erro',
       );
       setPlano(null);
     } catch (err) {
@@ -551,6 +620,20 @@ function CriarCampanha({ historico, addHistorico }: CriarCampanhaProps) {
             {loadingSubir ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
             Aprovar e subir agora
           </button>
+        </div>
+      )}
+
+      {/* Progresso da criação em tempo real */}
+      {progresso.length > 0 && (
+        <div className="bg-[#0d1117] border border-[#2a3550] rounded-xl p-4 space-y-1 max-h-52 overflow-y-auto">
+          <p className="text-xs text-[#6b7fa3] font-medium mb-2">Progresso da criação:</p>
+          {progresso.map((p, i) => (
+            <p key={i} className={cn(
+              'text-xs font-mono',
+              p.startsWith('✅') ? 'text-green-400' : p.startsWith('❌') ? 'text-red-400' : 'text-[#6b7fa3]',
+            )}>{p}</p>
+          ))}
+          {loadingSubir && <span className="inline-block mt-1"><Loader2 className="w-3 h-3 animate-spin text-blue-400" /></span>}
         </div>
       )}
 
