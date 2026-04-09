@@ -925,7 +925,7 @@ async function buscarTargetingPorTipo(
       // 1. meta_publicos_aprovados tipo='lookalike' (Lookalike 1% Compradores BR)
       const { data: lookalike } = await supabase
         .from('meta_publicos_aprovados')
-        .select('meta_audience_id')
+        .select('targeting, meta_audience_id, nome')
         .eq('tenant_id', tenantId)
         .eq('tipo', 'lookalike')
         .eq('status', 'publicado')
@@ -933,12 +933,9 @@ async function buscarTargetingPorTipo(
         .order('created_at', { ascending: false })
         .limit(1)
         .single();
-      if (lookalike?.meta_audience_id) {
-        return {
-          custom_audiences: [{ id: lookalike.meta_audience_id as string }],
-          age_min: 25, age_max: 55, genders: [2],
-          geo_locations: { countries: ['BR'] },
-        };
+      if (lookalike?.targeting) {
+        console.log(`[Jarvis] WhatsApp → Lookalike encontrado: ${lookalike.nome as string}`);
+        return lookalike.targeting as object;
       }
 
       // 2. meta_audiences remarketing/retargeting
