@@ -858,68 +858,126 @@ async function buscarTargetingPorTipo(
   tenantId: string,
   tipo: 'frio' | 'quente' | 'whatsapp',
 ): Promise<object | null> {
-  // Nível 1: meta_publicos_aprovados.targeting (JSON completo)
-  const { data: publicoAprovado } = await supabase
-    .from('meta_publicos_aprovados')
-    .select('targeting, meta_audience_id, nome')
-    .eq('tenant_id', tenantId)
-    .eq('tipo', tipo)
-    .eq('status', 'publicado')
-    .not('targeting', 'is', null)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single();
-  if (publicoAprovado?.targeting) return publicoAprovado.targeting as object;
+  try {
+    if (tipo === 'frio') {
+      // 1. meta_publicos_aprovados tipo='frio'
+      const { data: publico } = await supabase
+        .from('meta_publicos_aprovados')
+        .select('targeting')
+        .eq('tenant_id', tenantId)
+        .eq('tipo', 'frio')
+        .eq('status', 'publicado')
+        .not('targeting', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      if (publico?.targeting) return publico.targeting as object;
 
-  // Nível 2: meta_audiences Custom Audience para quente/whatsapp
-  if (tipo === 'quente' || tipo === 'whatsapp') {
-    const { data: audience } = await supabase
-      .from('meta_audiences')
-      .select('meta_audience_id, nome, targeting')
-      .eq('tenant_id', tenantId)
-      .eq('status', 'pronto')
-      .in('tipo', ['remarketing', 'retargeting'])
-      .not('meta_audience_id', 'is', null)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-    if (audience?.meta_audience_id) {
-      return {
-        custom_audiences: [{ id: audience.meta_audience_id as string }],
-        age_min: 25, age_max: 55, genders: [2],
-        geo_locations: { countries: ['BR'] },
-      };
+      // 2. meta_audiences tipo='interesse'
+      const { data: interesse } = await supabase
+        .from('meta_audiences')
+        .select('targeting')
+        .eq('tenant_id', tenantId)
+        .eq('tipo', 'interesse')
+        .eq('status', 'pronto')
+        .not('targeting', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      if (interesse?.targeting) return interesse.targeting as object;
     }
-  }
 
-  // Nível 3: meta_audiences targeting para frio
-  if (tipo === 'frio') {
-    const { data: audienceInteresse } = await supabase
-      .from('meta_audiences')
-      .select('targeting, nome')
-      .eq('tenant_id', tenantId)
-      .eq('tipo', 'interesse')
-      .eq('status', 'pronto')
-      .not('targeting', 'is', null)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-    if (audienceInteresse?.targeting) return audienceInteresse.targeting as object;
-  }
+    if (tipo === 'quente') {
+      // 1. meta_audiences Custom Audience remarketing/retargeting
+      const { data: audience } = await supabase
+        .from('meta_audiences')
+        .select('meta_audience_id')
+        .eq('tenant_id', tenantId)
+        .in('tipo', ['remarketing', 'retargeting'])
+        .eq('status', 'pronto')
+        .not('meta_audience_id', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      if (audience?.meta_audience_id) {
+        return {
+          custom_audiences: [{ id: audience.meta_audience_id as string }],
+          age_min: 25, age_max: 55, genders: [2],
+          geo_locations: { countries: ['BR'] },
+        };
+      }
 
-  // Fallback: interesses hardcoded Moda Feminina
-  console.warn(`[Jarvis] AVISO: Nenhum público encontrado para tipo ${tipo}. Usando fallback.`);
-  return {
-    age_min: 25, age_max: 55, genders: [2],
-    geo_locations: { countries: ['BR'] },
-    flexible_spec: [{
-      interests: [
-        { id: '6003333608514', name: 'Moda Feminina' },
-        { id: '6003107626192', name: 'Atacado (varejo)' },
-        { id: '6003114185392', name: 'Empreendedorismo' },
-      ],
-    }],
-  };
+      // 2. meta_publicos_aprovados tipo='quente'
+      const { data: publico } = await supabase
+        .from('meta_publicos_aprovados')
+        .select('targeting')
+        .eq('tenant_id', tenantId)
+        .eq('tipo', 'quente')
+        .in('status', ['publicado', 'rascunho'])
+        .not('targeting', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      if (publico?.targeting) return publico.targeting as object;
+    }
+
+    if (tipo === 'whatsapp') {
+      // 1. meta_publicos_aprovados tipo='lookalike' (Lookalike 1% Compradores BR)
+      const { data: lookalike } = await supabase
+        .from('meta_publicos_aprovados')
+        .select('meta_audience_id')
+        .eq('tenant_id', tenantId)
+        .eq('tipo', 'lookalike')
+        .eq('status', 'publicado')
+        .not('meta_audience_id', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      if (lookalike?.meta_audience_id) {
+        return {
+          custom_audiences: [{ id: lookalike.meta_audience_id as string }],
+          age_min: 25, age_max: 55, genders: [2],
+          geo_locations: { countries: ['BR'] },
+        };
+      }
+
+      // 2. meta_audiences remarketing/retargeting
+      const { data: audience } = await supabase
+        .from('meta_audiences')
+        .select('meta_audience_id')
+        .eq('tenant_id', tenantId)
+        .in('tipo', ['remarketing', 'retargeting'])
+        .eq('status', 'pronto')
+        .not('meta_audience_id', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      if (audience?.meta_audience_id) {
+        return {
+          custom_audiences: [{ id: audience.meta_audience_id as string }],
+          age_min: 25, age_max: 55, genders: [2],
+          geo_locations: { countries: ['BR'] },
+        };
+      }
+    }
+
+    // Fallback: interesses hardcoded Moda Feminina
+    console.warn(`[Jarvis] AVISO: Nenhum público encontrado para tipo ${tipo}. Usando fallback.`);
+    return {
+      age_min: 25, age_max: 55, genders: [2],
+      geo_locations: { countries: ['BR'] },
+      flexible_spec: [{
+        interests: [
+          { id: '6003333608514', name: 'Moda Feminina' },
+          { id: '6003107626192', name: 'Atacado (varejo)' },
+          { id: '6003114185392', name: 'Empreendedorismo' },
+        ],
+      }],
+    };
+  } catch (err) {
+    console.error(`[Jarvis] Erro ao buscar targeting para tipo ${tipo}:`, err);
+    return null;
+  }
 }
 
 /* ─── criarCampanhaMultiplosConjuntos ────────────────────────────────────────── */
