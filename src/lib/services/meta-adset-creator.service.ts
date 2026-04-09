@@ -790,45 +790,20 @@ export async function criarCampanhaCompleta(
 
   const objetivo = TIPO_OBJETIVO[cfg.tipo];
 
-  // Montar targeting de alta performance para cada tipo de campanha
+  // Montar targeting: público manual tem prioridade, senão busca por tipo no banco
+  const supabase = createServerSupabaseClient();
   let targetingCompleto: Record<string, unknown>;
   if (cfg.publico_meta_id) {
-    // Público IA selecionado manualmente — usa direto, sem criar targeting automático
     targetingCompleto = {
       age_min: cfg.idadeMin ?? 18,
       age_max: cfg.idadeMax ?? 65,
       geo_locations: { countries: cfg.paises ?? ['BR'] },
       custom_audiences: [{ id: cfg.publico_meta_id }],
     };
-  } else if (cfg.tipo === 'frio') {
-    const interesses = await buscarInteressesAtacado(token);
-    targetingCompleto = targetingFrio(interesses);
-  } else if (cfg.tipo === 'quente') {
-    let audienceId: string | null = null;
-    let visitantesId: string | null = null;
-    try {
-      [audienceId, visitantesId] = await Promise.all([
-        criarPublicoEngajamentoReal(actId, token, tenantId, 30),
-        criarPublicoVisitantesSite(actId, token, tenantId, 30),
-      ]);
-    } catch (err) {
-      console.warn('[criarCampanhaCompleta] Públicos quente falharam, usando targeting amplo:', err);
-    }
-    const customAudiences = [audienceId, visitantesId]
-      .filter((id): id is string => Boolean(id))
-      .map(id => ({ id }));
-    if (customAudiences.length === 0) {
-      const interesses = await buscarInteressesAtacado(token);
-      targetingCompleto = targetingFrio(interesses);
-    } else {
-      targetingCompleto = {
-        ...targetingQuente(audienceId ?? visitantesId),
-        custom_audiences: customAudiences,
-      };
-    }
+  } else if (cfg.tipo === 'frio' || cfg.tipo === 'quente' || cfg.tipo === 'whatsapp') {
+    targetingCompleto = (await buscarTargetingPorTipo(supabase, tenantId, cfg.tipo)) as Record<string, unknown>;
   } else {
-    const interesses = await buscarInteressesAtacado(token);
-    targetingCompleto = targetingWhatsApp(interesses);
+    targetingCompleto = { age_min: 25, age_max: 55, genders: [2], geo_locations: { countries: ['BR'] } };
   }
 
   const campaignId = await criarCampanha(token, actId, cfg.nome, cfg.tipo);
