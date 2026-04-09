@@ -63,7 +63,8 @@ interface Publico {
   id: string;
   name: string;
   subtype: string;
-  approximate_count?: number;
+  approximate_count_lower_bound?: number;
+  approximate_count_upper_bound?: number;
 }
 
 interface Video {
@@ -212,8 +213,10 @@ function VisaoAtual() {
                   <p className="text-sm font-medium text-white truncate">{p.name}</p>
                   <div className="flex items-center justify-between mt-1">
                     <span className="text-xs text-[#6b7fa3]">{p.subtype}</span>
-                    {p.approximate_count && (
-                      <span className="text-xs text-blue-400">~{(p.approximate_count / 1000).toFixed(0)}K</span>
+                    {p.approximate_count_lower_bound && (
+                      <span className="text-xs text-blue-400">
+                        ~{(p.approximate_count_lower_bound / 1000).toFixed(0)}–{((p.approximate_count_upper_bound ?? p.approximate_count_lower_bound) / 1000).toFixed(0)}K
+                      </span>
                     )}
                   </div>
                 </div>

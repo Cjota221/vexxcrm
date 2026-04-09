@@ -43,7 +43,7 @@ async function buscarContexto(token: string, actId: string) {
       limit: '10',
     }),
     metaGet(token, `${actId}/customaudiences`, {
-      fields: 'id,name,subtype,approximate_count',
+      fields: 'id,name,subtype,approximate_count_lower_bound,approximate_count_upper_bound',
       limit: '20',
     }),
     metaGet(token, `${actId}/advideos`, {
