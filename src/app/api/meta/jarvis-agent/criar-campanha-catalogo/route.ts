@@ -142,7 +142,7 @@ export async function POST(req: NextRequest) {
         meta_campaign_id: camp.id   as string,
         meta_adset_id:    adset.id  as string,
         meta_ad_id:       ad.id     as string,
-        jarvis_log:       `Catálogo ${CATALOG_ID} | Pixel ${PIXEL_ID}`,
+        jarvis_log:       `Catálogo ${CATALOG_ID}`,
         created_at:       new Date().toISOString(),
       });
     } catch (dbErr) {
