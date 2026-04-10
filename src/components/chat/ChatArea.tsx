@@ -238,8 +238,10 @@ export function ChatArea({
       });
 
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Erro no upload');
+        const text = await res.text().catch(() => '');
+        let errMsg = `Erro no upload (${res.status})`;
+        try { errMsg = (JSON.parse(text) as { error?: string })?.error || errMsg; } catch { /* resposta não-JSON */ }
+        throw new Error(errMsg);
       }
 
       const { url, mimeType } = await res.json();
