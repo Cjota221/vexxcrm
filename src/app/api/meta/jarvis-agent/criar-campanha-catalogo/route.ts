@@ -11,7 +11,6 @@ import { createServerSupabaseClient } from '@/lib/supabase';
 import { META_BASE } from '@/lib/meta-config';
 
 const CATALOG_ID = '373597670167329';
-const PIXEL_ID   = '518376893062766';
 const PAGE_ID    = '101337882545607';
 const LINK_LOJA  = 'https://cjotarasteirinhas.com.br/c/atacado/produtos/62981480687';
 
@@ -87,12 +86,10 @@ export async function POST(req: NextRequest) {
       campaign_id:       camp.id,
       daily_budget:      Math.round(orcamentoDiario * 100),
       billing_event:     'IMPRESSIONS',
-      optimization_goal: 'OFFSITE_CONVERSIONS',
+      optimization_goal: 'LINK_CLICKS',
       bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
       promoted_object: {
         product_catalog_id: CATALOG_ID,
-        pixel_id:           PIXEL_ID,
-        custom_event_type:  'PURCHASE',
       },
       targeting: {
         geo_locations:         { countries: ['BR'] },
