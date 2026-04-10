@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Search, Upload, Loader2, MapPin, X } from 'lucide-react';
 import { PLPedido, PLPedidoUpdate, Contato, useContatosPL, uploadPLImagem } from '@/hooks/use-private-label';
 import { Input } from '@/components/ui/Input';
@@ -17,9 +17,8 @@ export function ClienteSidebar({ pedido, isSaving, onUpdate }: Props) {
   const [showDropdown, setShowDropdown] = useState(false);
   const { data: contatos = [] } = useContatosPL(buscaContato);
 
-  const [buscandoCep,   setBuscandoCep]   = useState(false);
+  const [buscandoCep,    setBuscandoCep]    = useState(false);
   const [uploadandoLogo, setUploadandoLogo] = useState(false);
-  const logoInputRef = useRef<HTMLInputElement>(null);
 
   const [frete,    setFrete]    = useState(String(pedido.frete    ?? 0));
   const [desconto, setDesconto] = useState(String(pedido.desconto ?? 0));
@@ -103,9 +102,10 @@ export function ClienteSidebar({ pedido, isSaving, onUpdate }: Props) {
 
       {/* Logo */}
       <div>
-        <label className="label">Logo do cliente</label>
+        <span className="label">Logo do cliente</span>
         <div className="flex items-center gap-3 mt-1.5">
-          {pedido.cliente_logo_url ? (
+          {/* Thumbnail com botão de remover */}
+          {pedido.cliente_logo_url && (
             <div className="relative w-14 h-14 rounded-xl overflow-hidden border border-surface-border shrink-0">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={pedido.cliente_logo_url} alt="Logo" className="w-full h-full object-contain" />
@@ -116,19 +116,26 @@ export function ClienteSidebar({ pedido, isSaving, onUpdate }: Props) {
                 <X size={10} className="text-white" />
               </button>
             </div>
-          ) : (
-            <div className="w-14 h-14 rounded-xl bg-surface-50 border border-dashed border-surface-300 flex items-center justify-center shrink-0">
-              <Upload size={16} className="text-txt-secondary" />
-            </div>
           )}
-          <button
-            onClick={() => logoInputRef.current?.click()}
-            disabled={uploadandoLogo}
-            className="text-sm text-crm-primary hover:underline disabled:opacity-50"
+
+          {/* Label clicável abre o file picker diretamente */}
+          <label
+            htmlFor="logo-upload"
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg border border-surface-border bg-surface-50 cursor-pointer hover:bg-surface-100 transition-colors text-sm text-txt-primary ${uploadandoLogo ? 'opacity-50 pointer-events-none' : ''}`}
           >
-            {uploadandoLogo ? 'Enviando…' : 'Trocar logo'}
-          </button>
-          <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
+            {uploadandoLogo
+              ? <Loader2 size={14} className="animate-spin text-txt-secondary" />
+              : <Upload size={14} className="text-txt-secondary" />
+            }
+            {uploadandoLogo ? 'Enviando…' : pedido.cliente_logo_url ? 'Trocar logo' : 'Enviar logo'}
+          </label>
+          <input
+            id="logo-upload"
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleLogoChange}
+          />
         </div>
       </div>
 
