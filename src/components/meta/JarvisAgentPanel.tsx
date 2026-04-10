@@ -893,7 +893,7 @@ function CriarCampanhaCatalogo() {
         '✅ Criativo carrossel criado',
         '✅ Anúncio criado',
       ]);
-      mostrarToast(`Campanha de catálogo criada! ID: ${res.campaign_id}`, 'ok');
+      mostrarToast(`Campanha de catálogo criada! ID: ${res.campaign_id as string}`, 'ok');
       setAberto(false);
     } catch (err) {
       setProgresso(prev => [...prev.slice(0, -1), `❌ ${String(err)}`]);
