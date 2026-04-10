@@ -200,7 +200,7 @@ export default function PedidosAtacadoPage() {
   /* Cria pedido em rascunho e navega para edição */
   async function handleNovoPedido() {
     try {
-      const pedido = await criar();
+      const pedido = await criar({});
       router.push(`/pedidos/${pedido.id}`);
     } catch (err) {
       console.error('Erro ao criar pedido:', err);
