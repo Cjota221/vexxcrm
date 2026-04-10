@@ -32,6 +32,12 @@ const ALLOWED_MIME: Record<string, string> = {
  * Upload de arquivo para Supabase Storage.
  * Retorna URL pública para enviar via Evolution API.
  */
+export async function GET() {
+  const hasServiceKey = !!process.env.SUPABASE_SERVICE_KEY;
+  const hasUrl        = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
+  return NextResponse.json({ ok: true, hasServiceKey, hasUrl });
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { tenantId } = await getTenantFromRequest(request);
@@ -91,10 +97,8 @@ export async function POST(request: NextRequest) {
       size: file.size,
     });
   } catch (err: unknown) {
-    console.error('[upload] Error:', err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Erro no upload' },
-      { status: 500 }
-    );
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[upload] Error:', msg);
+    return NextResponse.json({ error: msg || 'Erro desconhecido no upload' }, { status: 500 });
   }
 }
