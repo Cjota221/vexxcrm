@@ -572,20 +572,18 @@ export async function POST(req: NextRequest) {
 
   try {
     const supabase = createServerSupabaseClient();
-    const { data: tenant } = await supabase
-      .from('tenants')
-      .select('meta_access_token')
-      .eq('id', tenantId)
+    const { data: config } = await supabase
+      .from('ai_provider_config')
+      .select('meta_access_token, meta_ad_account_id')
+      .eq('tenant_id', tenantId)
       .single();
 
-    if (!tenant?.meta_access_token) {
-      return NextResponse.json({ error: 'Token Meta não configurado' }, { status: 400 });
+    if (!config?.meta_access_token) {
+      return NextResponse.json({ error: 'Token Meta não configurado em ai_provider_config' }, { status: 400 });
     }
 
-    const META_TOKEN = tenant.meta_access_token;
-    const META_ACCOUNT = 'act_1244920119465862';
-    const token = META_TOKEN;
-    const actId = META_ACCOUNT;
+    const token = config.meta_access_token;
+    const actId = config.meta_ad_account_id ?? 'act_1244920119465862';
 
     switch (acao) {
       case 'buscar_contexto': {

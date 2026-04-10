@@ -10,7 +10,7 @@ import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { META_BASE } from '@/lib/meta-config';
 
-const META_ACCOUNT = 'act_1244920119465862';
+// actId vem de ai_provider_config em tempo de execução
 
 async function metaPost(token: string, path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const res = await fetch(`${META_BASE}/${path}`, {
@@ -38,9 +38,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
   }
 
-  // Supress unused-var warning for tenantId (used only for auth)
-  void tenantId;
-
   let body: {
     adset_id:  string;
     video_id:  string;
@@ -56,12 +53,16 @@ export async function POST(req: NextRequest) {
 
   try {
     const supabase = createServerSupabaseClient();
-    const { data: tenant } = await supabase
-      .from('tenants').select('meta_access_token').eq('id', tenantId).single();
-    if (!tenant?.meta_access_token) {
-      return NextResponse.json({ error: 'Token Meta não configurado' }, { status: 400 });
+    const { data: config } = await supabase
+      .from('ai_provider_config')
+      .select('meta_access_token, meta_ad_account_id')
+      .eq('tenant_id', tenantId)
+      .single();
+    if (!config?.meta_access_token) {
+      return NextResponse.json({ error: 'Token Meta não configurado em ai_provider_config' }, { status: 400 });
     }
-    const token   = tenant.meta_access_token;
+    const token   = config.meta_access_token;
+    const actId   = config.meta_ad_account_id ?? 'act_1244920119465862';
     const pageId  = body.page_id ?? '101337882545607';
     const indice  = body.indice ?? 1;
 
@@ -80,13 +81,13 @@ export async function POST(req: NextRequest) {
     if (body.thumb_url) videoData.image_url = body.thumb_url;
 
     // ── Criar adcreative ──────────────────────────────────────────────────
-    const creative = await metaPost(token, `${META_ACCOUNT}/adcreatives`, {
+    const creative = await metaPost(token, `${actId}/adcreatives`, {
       name: `Creative ${body.video_id}`,
       object_story_spec: { page_id: pageId, video_data: videoData },
     });
 
     // ── Criar ad ──────────────────────────────────────────────────────────
-    const ad = await metaPost(token, `${META_ACCOUNT}/ads`, {
+    const ad = await metaPost(token, `${actId}/ads`, {
       name:      `${body.nome_base} — Anúncio ${indice}`,
       adset_id:  body.adset_id,
       creative:  { creative_id: creative.id },

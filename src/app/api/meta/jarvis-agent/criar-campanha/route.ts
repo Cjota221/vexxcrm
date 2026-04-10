@@ -10,7 +10,7 @@ import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { META_BASE } from '@/lib/meta-config';
 
-const META_ACCOUNT = 'act_1244920119465862';
+// actId vem de ai_provider_config em tempo de execução
 
 async function metaPost(token: string, path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const res = await fetch(`${META_BASE}/${path}`, {
@@ -45,12 +45,16 @@ export async function POST(req: NextRequest) {
 
   try {
     const supabase = createServerSupabaseClient();
-    const { data: tenant } = await supabase
-      .from('tenants').select('meta_access_token').eq('id', tenantId).single();
-    if (!tenant?.meta_access_token) {
-      return NextResponse.json({ error: 'Token Meta não configurado' }, { status: 400 });
+    const { data: config } = await supabase
+      .from('ai_provider_config')
+      .select('meta_access_token, meta_ad_account_id')
+      .eq('tenant_id', tenantId)
+      .single();
+    if (!config?.meta_access_token) {
+      return NextResponse.json({ error: 'Token Meta não configurado em ai_provider_config' }, { status: 400 });
     }
-    const token = tenant.meta_access_token;
+    const token = config.meta_access_token;
+    const actId = config.meta_ad_account_id ?? 'act_1244920119465862';
 
     const OBJETIVO_MAP: Record<string, string> = {
       OUTCOME_SALES: 'OUTCOME_SALES',
@@ -59,7 +63,7 @@ export async function POST(req: NextRequest) {
     };
     const objetivoMeta = OBJETIVO_MAP[body.objetivo ?? ''] ?? 'OUTCOME_TRAFFIC';
 
-    const camp = await metaPost(token, `${META_ACCOUNT}/campaigns`, {
+    const camp = await metaPost(token, `${actId}/campaigns`, {
       name:    body.nome_base ?? `[Jarvis] ${new Date().toLocaleDateString('pt-BR')}`,
       objective: objetivoMeta,
       status:  'PAUSED',
