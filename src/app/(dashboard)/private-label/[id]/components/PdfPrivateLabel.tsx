@@ -145,7 +145,7 @@ export function PdfPrivateLabel({ pedido, itens }: Props) {
   const [gerando,  setGerando]  = useState<'cliente' | 'producao' | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [enviado,  setEnviado]  = useState(false);
-  const token = useAuthStore((s) => s.session?.access_token);
+  const token = useAuthStore((s) => s.accessToken);
 
   async function gerarPdf(modo: 'cliente' | 'producao') {
     setGerando(modo);
