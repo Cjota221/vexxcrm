@@ -7,7 +7,28 @@ import { formatCurrency } from '@/lib/utils';
 
 interface Props { pedido: PLPedido; itens: PLItem[]; }
 
-function buildPdfHtml(pedido: PLPedido, itens: PLItem[], modo: 'cliente' | 'producao'): string {
+async function toBase64(url: string): Promise<string> {
+  try {
+    const res  = await fetch(url);
+    const blob = await res.blob();
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload  = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return '';
+  }
+}
+
+function buildPdfHtml(
+  pedido: PLPedido,
+  itens: PLItem[],
+  modo: 'cliente' | 'producao',
+  fotoMap: Record<string, string>,
+  logoBase64: string,
+): string {
   const isCliente = modo === 'cliente';
   const now = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
 
@@ -15,14 +36,19 @@ function buildPdfHtml(pedido: PLPedido, itens: PLItem[], modo: 'cliente' | 'prod
     const gradeCells = GRADE_TAMANHOS.map(t =>
       `<td style="border:1px solid #e2e8f0;padding:6px 4px;text-align:center;font-size:12px;">${item.grade[t] || 0}</td>`,
     ).join('');
+    const fotoSrc = fotoMap[item.id] || '';
+    const fotoCell = `<td style="border:1px solid #e2e8f0;padding:4px;text-align:center;width:60px;">
+      ${fotoSrc ? `<img src="${fotoSrc}" style="width:52px;height:52px;object-fit:cover;border-radius:6px;" />` : '<div style="width:52px;height:52px;background:#f1f5f9;border-radius:6px;display:inline-block;"></div>'}
+    </td>`;
     return `<tr>
-      <td style="border:1px solid #e2e8f0;padding:6px 8px;font-size:12px;">${item.nome ?? '—'}</td>
-      ${isCliente ? `<td style="border:1px solid #e2e8f0;padding:6px 8px;font-size:12px;">${item.cores ?? '—'}</td>` : ''}
+      ${fotoCell}
+      <td style="border:1px solid #e2e8f0;padding:6px 8px;font-size:12px;vertical-align:middle;">${item.nome ?? '—'}</td>
+      ${isCliente ? `<td style="border:1px solid #e2e8f0;padding:6px 8px;font-size:12px;vertical-align:middle;">${item.cores ?? '—'}</td>` : ''}
       ${gradeCells}
-      <td style="border:1px solid #e2e8f0;padding:6px;text-align:center;font-size:12px;font-weight:600;">${item.total_pares}</td>
+      <td style="border:1px solid #e2e8f0;padding:6px;text-align:center;font-size:12px;font-weight:600;vertical-align:middle;">${item.total_pares}</td>
       ${isCliente ? `
-        <td style="border:1px solid #e2e8f0;padding:6px 8px;text-align:right;font-size:12px;">${formatCurrency(item.valor_unitario)}</td>
-        <td style="border:1px solid #e2e8f0;padding:6px 8px;text-align:right;font-size:12px;font-weight:600;">${formatCurrency(item.subtotal)}</td>
+        <td style="border:1px solid #e2e8f0;padding:6px 8px;text-align:right;font-size:12px;vertical-align:middle;">${formatCurrency(item.valor_unitario)}</td>
+        <td style="border:1px solid #e2e8f0;padding:6px 8px;text-align:right;font-size:12px;font-weight:600;vertical-align:middle;">${formatCurrency(item.subtotal)}</td>
       ` : ''}
     </tr>`;
   }).join('');
@@ -48,7 +74,7 @@ function buildPdfHtml(pedido: PLPedido, itens: PLItem[], modo: 'cliente' | 'prod
         <p style="margin:0;font-size:12px;color:#94a3b8;">Emitido em ${now}</p>
         ${pedido.prazo_entrega ? `<p style="margin:4px 0 0;font-size:12px;color:#64748b;">Prazo: <strong>${pedido.prazo_entrega}</strong></p>` : ''}
       </div>
-      ${pedido.cliente_logo_url ? `<img src="${pedido.cliente_logo_url}" style="max-height:60px;max-width:120px;object-fit:contain;" alt="Logo" />` : ''}
+      ${logoBase64 ? `<img src="${logoBase64}" style="max-height:60px;max-width:120px;object-fit:contain;" alt="Logo" />` : ''}
     </div>
     <div style="margin-bottom:24px;padding:12px 16px;background:#f8faff;border-radius:8px;">
       <h2 style="margin:0 0 8px;font-size:13px;color:#6366f1;text-transform:uppercase;letter-spacing:.05em;">Cliente</h2>
@@ -60,6 +86,7 @@ function buildPdfHtml(pedido: PLPedido, itens: PLItem[], modo: 'cliente' | 'prod
     <table>
       <thead>
         <tr>
+          <th style="border:1px solid #e2e8f0;padding:8px;background:#f8fafc;width:60px;">Foto</th>
           <th style="border:1px solid #e2e8f0;padding:8px;background:#f8fafc;text-align:left;">Produto</th>
           ${isCliente ? '<th style="border:1px solid #e2e8f0;padding:8px;background:#f8fafc;">Cores</th>' : ''}
           ${GRADE_TAMANHOS.map(t => `<th style="border:1px solid #e2e8f0;padding:8px;background:#f8fafc;text-align:center;">${t}</th>`).join('')}
@@ -81,12 +108,20 @@ export function PdfPrivateLabel({ pedido, itens }: Props) {
   async function gerarPdf(modo: 'cliente' | 'producao') {
     setGerando(modo);
     try {
-      const html = buildPdfHtml(pedido, itens, modo);
-      const win  = window.open('', '_blank', 'width=900,height=700');
+      // Converte todas as imagens para base64 antes de renderizar
+      const [logoBase64, ...fotosBase64] = await Promise.all([
+        pedido.cliente_logo_url ? toBase64(pedido.cliente_logo_url) : Promise.resolve(''),
+        ...itens.map(i => i.foto_url ? toBase64(i.foto_url) : Promise.resolve('')),
+      ]);
+      const fotoMap: Record<string, string> = {};
+      itens.forEach((item, idx) => { fotoMap[item.id] = fotosBase64[idx] ?? ''; });
+
+      const html = buildPdfHtml(pedido, itens, modo, fotoMap, logoBase64);
+      const win  = window.open('', '_blank', 'width=960,height=700');
       if (!win) { alert('Permite pop-ups para gerar o PDF.'); return; }
       win.document.write(html);
       win.document.close();
-      await new Promise(r => setTimeout(r, 800));
+      await new Promise(r => setTimeout(r, 400));
       const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([import('jspdf'), import('html2canvas')]);
       const canvas  = await html2canvas(win.document.body, { scale: 2, useCORS: true });
       win.close();
