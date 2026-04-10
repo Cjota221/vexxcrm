@@ -450,6 +450,7 @@ async function otimizarCampanhas(token: string, actId: string) {
         sugestoes.push({
           adset_id:        adset.id,
           adset_nome:      adset.name,
+          campaign_id:     adset.campaign_id,
           acao:            'pausar',
           motivo:          `CPL R$${cpl.toFixed(2)} acima do limite de R$25`,
           impacto_estimado: 'Redução de desperdício de verba',
@@ -461,6 +462,7 @@ async function otimizarCampanhas(token: string, actId: string) {
         sugestoes.push({
           adset_id:        adset.id,
           adset_nome:      adset.name,
+          campaign_id:     adset.campaign_id,
           acao:            'trocar_criativo',
           motivo:          `CTR ${(ctr * 100).toFixed(2)}% abaixo de 0,5% com ${clicks} cliques`,
           impacto_estimado: 'Melhora de engajamento',
@@ -472,6 +474,7 @@ async function otimizarCampanhas(token: string, actId: string) {
         sugestoes.push({
           adset_id:        adset.id,
           adset_nome:      adset.name,
+          campaign_id:     adset.campaign_id,
           acao:            'pausar',
           motivo:          `Frequência ${frequency.toFixed(1)}x — público saturado`,
           impacto_estimado: 'Evita desgaste de público',
@@ -483,6 +486,7 @@ async function otimizarCampanhas(token: string, actId: string) {
         sugestoes.push({
           adset_id:        adset.id,
           adset_nome:      adset.name,
+          campaign_id:     adset.campaign_id,
           acao:            'aumentar_orcamento',
           valor:           1.2, // +20%
           motivo:          `ROAS ${roas.toFixed(1)}x — alta performance`,

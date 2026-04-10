@@ -165,6 +165,7 @@ interface Sugestao {
   impacto_estimado: string;
   valor?:           number;
   metricas?:        Record<string, number>;
+  campaign_id?:     string;
 }
 
 /* ─── Helpers visuais ─────────────────────────────────────────────────────── */
@@ -223,8 +224,46 @@ interface VisaoAtualProps {
 }
 
 function VisaoAtual({ contexto, setContexto }: VisaoAtualProps) {
-  const [loading, setLoading] = useState(false);
-  const [toast,   setToast]   = useState<{ msg: string; tipo: 'ok' | 'erro' } | null>(null);
+  const [loading,         setLoading]         = useState(false);
+  const [toast,           setToast]           = useState<{ msg: string; tipo: 'ok' | 'erro' } | null>(null);
+  const [inlineSugestoes, setInlineSugestoes] = useState<Record<string, Sugestao[]>>({});
+  const [analisando,      setAnalisando]      = useState<string | null>(null);
+  const [executandoId,    setExecutandoId]    = useState<string | null>(null);
+
+  const analisarCampanha = useCallback(async (campaignId: string) => {
+    setAnalisando(campaignId);
+    try {
+      const data = await callJarvis('otimizar_campanhas');
+      const filtradas = ((data.sugestoes ?? []) as Sugestao[]).filter(s => s.campaign_id === campaignId);
+      setInlineSugestoes(prev => ({ ...prev, [campaignId]: filtradas }));
+      if (filtradas.length === 0) {
+        setToast({ msg: 'Jarvis não encontrou otimizações para esta campanha.', tipo: 'ok' });
+        setTimeout(() => setToast(null), 4000);
+      }
+    } catch (err) {
+      setToast({ msg: String(err), tipo: 'erro' });
+      setTimeout(() => setToast(null), 4000);
+    } finally {
+      setAnalisando(null);
+    }
+  }, []);
+
+  const aprovarInline = useCallback(async (campaignId: string, s: Sugestao) => {
+    setExecutandoId(s.adset_id + s.acao);
+    try {
+      await callJarvis('executar_otimizacao', { adset_id: s.adset_id, acao: s.acao, valor: s.valor });
+      setInlineSugestoes(prev => ({
+        ...prev,
+        [campaignId]: (prev[campaignId] ?? []).filter(x => !(x.adset_id === s.adset_id && x.acao === s.acao)),
+      }));
+      setToast({ msg: `Ação "${s.acao}" executada.`, tipo: 'ok' });
+    } catch (err) {
+      setToast({ msg: String(err), tipo: 'erro' });
+    } finally {
+      setExecutandoId(null);
+      setTimeout(() => setToast(null), 4000);
+    }
+  }, []);
 
   const sincronizar = useCallback(async () => {
     setLoading(true);
@@ -293,18 +332,58 @@ function VisaoAtual({ contexto, setContexto }: VisaoAtualProps) {
           <Section titulo="Campanhas Ativas" icon={<BarChart3 className="w-4 h-4 text-blue-400" />}>
             {contexto.campanhas.length === 0 && <Empty texto="Nenhuma campanha encontrada." />}
             {contexto.campanhas.map(c => (
-              <div key={c.id} className="flex items-center justify-between p-3 bg-[#0d1117] rounded-lg border border-[#2a3550]">
-                <div>
-                  <p className="text-sm font-medium text-white">{c.name}</p>
-                  <p className="text-xs text-[#6b7fa3]">{c.objective ?? '—'}</p>
+              <div key={c.id}>
+                <div className="flex items-center justify-between p-3 bg-[#0d1117] rounded-lg border border-[#2a3550]">
+                  <div>
+                    <p className="text-sm font-medium text-white">{c.name}</p>
+                    <p className="text-xs text-[#6b7fa3]">{c.objective ?? '—'}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {c.daily_budget && <span className="text-xs text-[#6b7fa3]">{fmtBRL(parseFloat(c.daily_budget) / 100)}/dia</span>}
+                    <span className={cn('text-xs px-2 py-1 rounded-full font-medium',
+                      c.status === 'ACTIVE' ? 'bg-green-900 text-green-300' : 'bg-yellow-900 text-yellow-300')}>
+                      {c.status}
+                    </span>
+                    <button
+                      onClick={() => analisarCampanha(c.id)}
+                      disabled={analisando === c.id}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg bg-[#1e3a5f] text-white text-xs font-medium hover:bg-blue-700 transition disabled:opacity-50"
+                    >
+                      {analisando === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+                      Otimizar
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  {c.daily_budget && <span className="text-xs text-[#6b7fa3]">{fmtBRL(parseFloat(c.daily_budget) / 100)}/dia</span>}
-                  <span className={cn('text-xs px-2 py-1 rounded-full font-medium',
-                    c.status === 'ACTIVE' ? 'bg-green-900 text-green-300' : 'bg-yellow-900 text-yellow-300')}>
-                    {c.status}
-                  </span>
-                </div>
+
+                {/* Sugestões inline por campanha */}
+                {(inlineSugestoes[c.id] ?? []).length > 0 && (
+                  <div className="mt-1 space-y-1 pl-3 border-l-2 border-[#1e3a5f] ml-2">
+                    {inlineSugestoes[c.id].map((s, i) => (
+                      <div key={`${s.adset_id}-${i}`} className="flex items-center justify-between p-2 bg-[#161b24] border border-[#2a3550] rounded-lg">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium text-white truncate">{s.adset_nome}</p>
+                          <p className="text-xs text-yellow-300 mt-0.5">{s.acao} — {s.motivo}</p>
+                        </div>
+                        <div className="flex gap-1.5 ml-3 shrink-0">
+                          <button
+                            onClick={() => aprovarInline(c.id, s)}
+                            disabled={executandoId === s.adset_id + s.acao}
+                            className="px-2 py-1 rounded bg-[#059669] text-white text-xs hover:bg-emerald-600 transition disabled:opacity-50"
+                          >
+                            {executandoId === s.adset_id + s.acao ? <Loader2 className="w-3 h-3 animate-spin" /> : '✓'}
+                          </button>
+                          <button
+                            onClick={() => setInlineSugestoes(prev => ({
+                              ...prev,
+                              [c.id]: prev[c.id].filter((_, j) => j !== i),
+                            }))}
+                            className="px-2 py-1 rounded bg-[#2a3550] text-[#6b7fa3] text-xs hover:text-white transition"
+                          >✕</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </Section>
