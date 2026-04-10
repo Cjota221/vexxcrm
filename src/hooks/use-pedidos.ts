@@ -192,7 +192,7 @@ export function useCreatePedido() {
   const user = useAuthStore((s) => s.user);
 
   return useMutation({
-    mutationFn: async (dados?: PedidoUpdate) => {
+    mutationFn: async (dados: PedidoUpdate | void) => {
       if (!user?.tenant_id) throw new Error('Usuário não autenticado');
 
       const { data, error } = await supabase
