@@ -44,6 +44,7 @@ export interface PLPedido {
   frete:            number;
   desconto:         number;
   total:            number;
+  silk_logo:        boolean;
   prazo_entrega?:   string | null;
   observacoes?:     string | null;
   status:           StatusPL;
@@ -187,7 +188,7 @@ export function useCreatePLPedido() {
       if (!user?.tenant_id) throw new Error('Usuário não autenticado');
       const { data, error } = await supabase
         .from('private_label_pedidos')
-        .insert({ tenant_id: user.tenant_id, status: 'rascunho', frete: 0, desconto: 0, total: 0, prazo_entrega: '15 a 20 dias úteis após a confirmação de pagamento' })
+        .insert({ tenant_id: user.tenant_id, status: 'rascunho', frete: 0, desconto: 0, total: 0, silk_logo: false, prazo_entrega: '15 a 20 dias úteis após a confirmação de pagamento' })
         .select()
         .single();
       if (error) throw new Error(error.message);

@@ -213,8 +213,29 @@ export function ClienteSidebar({ pedido, isSaving, onUpdate }: Props) {
         />
       </div>
 
+      {/* Silk screen */}
+      <div className="border-t border-surface-200 pt-4">
+        <label className="flex items-center justify-between cursor-pointer gap-3">
+          <div>
+            <p className="text-sm font-medium text-txt-primary">Silk screen na logo</p>
+            <p className="text-xs text-txt-secondary">Acréscimo de R$ 100,00 por pedido</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onUpdate({ silk_logo: !pedido.silk_logo })}
+            className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none ${
+              pedido.silk_logo ? 'bg-crm-primary' : 'bg-surface-300'
+            }`}
+          >
+            <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition-transform ${
+              pedido.silk_logo ? 'translate-x-5' : 'translate-x-0'
+            }`} />
+          </button>
+        </label>
+      </div>
+
       {/* Frete / Desconto / Total */}
-      <div className="border-t border-surface-200 pt-4 space-y-3">
+      <div className="space-y-3">
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className="label">Frete (R$)</label>

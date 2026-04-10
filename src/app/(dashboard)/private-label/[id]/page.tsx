@@ -38,12 +38,13 @@ export default function PrivateLabelFormPage() {
   useEffect(() => {
     if (!pedido || !itens.length) return;
     const subtotalItens = itens.reduce((s, i) => s + i.subtotal, 0);
-    const novoTotal     = subtotalItens + (pedido.frete ?? 0) - (pedido.desconto ?? 0);
+    const silk          = pedido.silk_logo ? 100 : 0;
+    const novoTotal     = subtotalItens + (pedido.frete ?? 0) - (pedido.desconto ?? 0) + silk;
     if (Math.abs(novoTotal - pedido.total) > 0.001) {
       update({ id, total: novoTotal }).catch(console.error);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [itens, pedido?.frete, pedido?.desconto]);
+  }, [itens, pedido?.frete, pedido?.desconto, pedido?.silk_logo]);
 
   if (loadingPedido) {
     return (
@@ -144,7 +145,8 @@ export default function PrivateLabelFormPage() {
                 onTotalChange={() => {
                   if (!pedido) return;
                   const subtotalItens = itens.reduce((s, i) => s + i.subtotal, 0);
-                  update({ id, total: subtotalItens + (pedido.frete ?? 0) - (pedido.desconto ?? 0) }).catch(console.error);
+                  const silk          = pedido.silk_logo ? 100 : 0;
+                  update({ id, total: subtotalItens + (pedido.frete ?? 0) - (pedido.desconto ?? 0) + silk }).catch(console.error);
                 }}
               />
             )}

@@ -60,6 +60,7 @@ function buildPdfHtml(
     <div style="margin-top:24px;border-top:2px solid #6366f1;padding-top:16px;">
       <table style="width:280px;margin-left:auto;border-collapse:collapse;">
         <tr><td style="padding:4px 8px;font-size:13px;color:#64748b;">Subtotal itens</td><td style="padding:4px 8px;font-size:13px;text-align:right;">${formatCurrency(itens.reduce((s, i) => s + i.subtotal, 0))}</td></tr>
+        ${pedido.silk_logo ? `<tr><td style="padding:4px 8px;font-size:13px;color:#64748b;">Silk screen na logo</td><td style="padding:4px 8px;font-size:13px;text-align:right;">${formatCurrency(100)}</td></tr>` : ''}
         <tr><td style="padding:4px 8px;font-size:13px;color:#64748b;">Frete</td><td style="padding:4px 8px;font-size:13px;text-align:right;">${formatCurrency(pedido.frete)}</td></tr>
         <tr><td style="padding:4px 8px;font-size:13px;color:#64748b;">Desconto</td><td style="padding:4px 8px;font-size:13px;text-align:right;color:#dc2626;">- ${formatCurrency(pedido.desconto)}</td></tr>
         <tr style="border-top:1px solid #e2e8f0;"><td style="padding:8px;font-size:15px;font-weight:700;">TOTAL</td><td style="padding:8px;font-size:15px;font-weight:700;text-align:right;color:#6366f1;">${formatCurrency(pedido.total)}</td></tr>
