@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { META_BASE } from '@/lib/meta-config';
+import { escolherPublicos } from '@/lib/services/jarvis-audience-selector';
 
 const PAGE_ID   = '101337882545607';
 const LINK_LOJA = 'https://cjotarasteirinhas.com.br/c/atacado/produtos/62981480687';
@@ -83,6 +84,23 @@ export async function POST(req: NextRequest) {
     });
 
     /* ── Passo 2: Adset (sem promoted_object) ────────────────────────── */
+    const audienceSel = await escolherPublicos(supabase, tenantId, token, actId, 'catalogo');
+    console.log('[criar-campanha-catalogo] Jarvis escolheu públicos:', audienceSel);
+
+    const targeting: Record<string, unknown> = {
+      geo_locations:        { countries: ['BR'] },
+      age_min:              25,
+      age_max:              55,
+      genders:              [2],
+      targeting_automation: { advantage_audience: 0 },
+      publisher_platforms:  ['facebook', 'instagram'],
+      facebook_positions:   ['feed'],
+      instagram_positions:  ['stream', 'story', 'reels'],
+    };
+    if (audienceSel.ids.length > 0) {
+      targeting.custom_audiences = audienceSel.ids.map(id => ({ id }));
+    }
+
     const adset = await metaPost(token, `${actId}/adsets`, {
       name:              `${nomeBase} — Conjunto`,
       campaign_id:       camp.id,
@@ -90,16 +108,7 @@ export async function POST(req: NextRequest) {
       billing_event:     'IMPRESSIONS',
       optimization_goal: 'LINK_CLICKS',
       bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
-      targeting: {
-        geo_locations:        { countries: ['BR'] },
-        age_min:              25,
-        age_max:              55,
-        genders:              [2],
-        targeting_automation: { advantage_audience: 0 },
-        publisher_platforms:  ['facebook', 'instagram'],
-        facebook_positions:   ['feed'],
-        instagram_positions:  ['stream', 'story', 'reels'],
-      },
+      targeting,
       status: 'PAUSED',
     });
 
@@ -151,7 +160,7 @@ export async function POST(req: NextRequest) {
         meta_campaign_id: camp.id  as string,
         meta_adset_id:    adset.id as string,
         meta_ad_id:       ad.id    as string,
-        jarvis_log:       'Link carousel — vincular catálogo manualmente no Meta Ads Manager',
+        jarvis_log:       `Link carousel — vincular catálogo manualmente no Meta Ads Manager | ${audienceSel.justificativa}`,
         created_at:       new Date().toISOString(),
       });
     } catch (dbErr) {

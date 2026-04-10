@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { META_BASE } from '@/lib/meta-config';
+import { escolherPublicos } from '@/lib/services/jarvis-audience-selector';
 
 // actId vem de ai_provider_config em tempo de execução
 
@@ -68,10 +69,21 @@ export async function POST(req: NextRequest) {
     const token = config.meta_access_token;
     const actId = config.meta_ad_account_id ?? 'act_1244920119465862';
 
+    // ── Selecionar públicos autonomamente ─────────────────────────────────
+    const audienceSel = await escolherPublicos(supabase, tenantId, token, actId, body.tipo);
+    console.log('[criar-adset] Jarvis escolheu públicos:', audienceSel);
+
     // ── Montar targeting ──────────────────────────────────────────────────
     const t: Record<string, unknown> = { ...(body.targeting_base ?? {}) };
 
-    if (body.meta_audience_id) t.custom_audiences = [{ id: body.meta_audience_id }];
+    // Prioridade: seleção autônoma > meta_audience_id do body
+    const audienceIds = audienceSel.ids.length > 0
+      ? audienceSel.ids
+      : body.meta_audience_id ? [body.meta_audience_id] : [];
+
+    if (audienceIds.length > 0) {
+      t.custom_audiences = audienceIds.map(id => ({ id }));
+    }
 
     // Limpar flexible_spec com arrays vazios
     if (Array.isArray(t.flexible_spec)) {
@@ -117,7 +129,7 @@ export async function POST(req: NextRequest) {
         meta_campaign_id: body.campaign_id,
         meta_adset_id:    adset.id as string,
         meta_ad_id:       null,
-        jarvis_log:       `Público: ${body.publico_nome ?? 'não identificado'} | Adset: ${adset.id}`,
+        jarvis_log:       `Público: ${body.publico_nome ?? 'não identificado'} | Adset: ${adset.id} | ${audienceSel.justificativa}`,
         created_at:       new Date().toISOString(),
       });
     } catch (insertErr: any) {
