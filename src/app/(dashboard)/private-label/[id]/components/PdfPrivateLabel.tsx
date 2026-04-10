@@ -46,10 +46,8 @@ function buildPdfHtml(
       ${isCliente ? `<td style="border:1px solid #e2e8f0;padding:6px 8px;font-size:12px;vertical-align:middle;">${item.cores ?? '—'}</td>` : ''}
       ${gradeCells}
       <td style="border:1px solid #e2e8f0;padding:6px;text-align:center;font-size:12px;font-weight:600;vertical-align:middle;">${item.total_pares}</td>
-      ${isCliente ? `
-        <td style="border:1px solid #e2e8f0;padding:6px 8px;text-align:right;font-size:12px;vertical-align:middle;">${formatCurrency(item.valor_unitario)}</td>
-        <td style="border:1px solid #e2e8f0;padding:6px 8px;text-align:right;font-size:12px;font-weight:600;vertical-align:middle;">${formatCurrency(item.subtotal)}</td>
-      ` : ''}
+      <td style="border:1px solid #e2e8f0;padding:6px 8px;text-align:right;font-size:12px;vertical-align:middle;">${formatCurrency(item.valor_unitario)}</td>
+      <td style="border:1px solid #e2e8f0;padding:6px 8px;text-align:right;font-size:12px;font-weight:600;vertical-align:middle;">${formatCurrency(item.subtotal)}</td>
     </tr>`;
   }).join('');
 
@@ -90,8 +88,9 @@ function buildPdfHtml(
           <th style="border:1px solid #e2e8f0;padding:8px;background:#f8fafc;text-align:left;">Produto</th>
           ${isCliente ? '<th style="border:1px solid #e2e8f0;padding:8px;background:#f8fafc;">Cores</th>' : ''}
           ${GRADE_TAMANHOS.map(t => `<th style="border:1px solid #e2e8f0;padding:8px;background:#f8fafc;text-align:center;">${t}</th>`).join('')}
-          <th style="border:1px solid #e2e8f0;padding:8px;background:#f8fafc;text-align:center;">Total</th>
-          ${isCliente ? '<th style="border:1px solid #e2e8f0;padding:8px;background:#f8fafc;text-align:right;">Preço Un.</th><th style="border:1px solid #e2e8f0;padding:8px;background:#f8fafc;text-align:right;">Subtotal</th>' : ''}
+          <th style="border:1px solid #e2e8f0;padding:8px;background:#f8fafc;text-align:center;">Total Pares</th>
+          <th style="border:1px solid #e2e8f0;padding:8px;background:#f8fafc;text-align:right;">Preço Un.</th>
+          <th style="border:1px solid #e2e8f0;padding:8px;background:#f8fafc;text-align:right;">Subtotal</th>
         </tr>
       </thead>
       <tbody>${linhasItens}</tbody>
