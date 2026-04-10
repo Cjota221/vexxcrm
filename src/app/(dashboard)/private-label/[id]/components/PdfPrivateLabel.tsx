@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { FileDown, Loader2 } from 'lucide-react';
+import { FileDown, Loader2, Send } from 'lucide-react';
 import { PLPedido, PLItem, GRADE_TAMANHOS } from '@/hooks/use-private-label';
 import { formatCurrency } from '@/lib/utils';
+import { useAuthStore } from '@/store/auth';
 
 interface Props { pedido: PLPedido; itens: PLItem[]; }
 
@@ -101,8 +102,50 @@ function buildPdfHtml(
   </body></html>`;
 }
 
+/** Gera blob do PDF do cliente (para upload/envio) */
+async function gerarBlob(
+  pedido: PLPedido,
+  itens: PLItem[],
+): Promise<Blob> {
+  const [fotoMap, logoBase64] = await Promise.all([
+    Promise.all(itens.map(i => i.foto_url ? toBase64(i.foto_url) : Promise.resolve('')))
+      .then(arr => Object.fromEntries(itens.map((i, idx) => [i.id, arr[idx]]))),
+    pedido.cliente_logo_url ? toBase64(pedido.cliente_logo_url) : Promise.resolve(''),
+  ]);
+
+  const html = buildPdfHtml(pedido, itens, 'cliente', fotoMap, logoBase64);
+
+  const win = window.open('', '_blank', 'width=960,height=700');
+  if (!win) throw new Error('Pop-up bloqueado');
+  win.document.write(html);
+  win.document.close();
+  await new Promise(r => setTimeout(r, 400));
+
+  const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([
+    import('jspdf'), import('html2canvas'),
+  ]);
+  const canvas  = await html2canvas(win.document.body, { scale: 2, useCORS: true });
+  win.close();
+
+  const imgData = canvas.toDataURL('image/png');
+  const pdf     = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const w = pdf.internal.pageSize.getWidth();
+  const h = (canvas.height * w) / canvas.width;
+  let y = 0;
+  const pageH = pdf.internal.pageSize.getHeight();
+  while (y < h) {
+    if (y > 0) pdf.addPage();
+    pdf.addImage(imgData, 'PNG', 0, -y, w, h);
+    y += pageH;
+  }
+  return pdf.output('blob');
+}
+
 export function PdfPrivateLabel({ pedido, itens }: Props) {
-  const [gerando, setGerando] = useState<'cliente' | 'producao' | null>(null);
+  const [gerando,  setGerando]  = useState<'cliente' | 'producao' | null>(null);
+  const [enviando, setEnviando] = useState(false);
+  const [enviado,  setEnviado]  = useState(false);
+  const token = useAuthStore((s) => s.session?.access_token);
 
   async function gerarPdf(modo: 'cliente' | 'producao') {
     setGerando(modo);
@@ -143,19 +186,76 @@ export function PdfPrivateLabel({ pedido, itens }: Props) {
     }
   }
 
+  async function enviarWhatsApp() {
+    if (!pedido.cliente_telefone) {
+      alert('Cadastre o telefone do cliente antes de enviar.');
+      return;
+    }
+    setEnviando(true);
+    try {
+      const blob = await gerarBlob(pedido, itens);
+
+      const formData = new FormData();
+      const nomeArq  = `PL_${(pedido.cliente_nome ?? 'pedido').replace(/\s+/g, '_')}.pdf`;
+      formData.append('file', blob, nomeArq);
+
+      const uploadRes  = await fetch('/api/upload', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+      if (!uploadRes.ok) throw new Error('Falha no upload do PDF');
+      const { url } = await uploadRes.json() as { url: string };
+
+      const sendRes = await fetch('/api/whatsapp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({
+          to:       pedido.cliente_telefone,
+          type:     'document',
+          mediaUrl: url,
+          caption:  `Pedido Private Label — ${pedido.cliente_nome ?? ''}`,
+        }),
+      });
+      if (!sendRes.ok) {
+        const err = await sendRes.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error ?? 'Falha ao enviar');
+      }
+
+      setEnviado(true);
+      setTimeout(() => setEnviado(false), 4000);
+    } catch (err: any) {
+      alert(`Erro ao enviar: ${err?.message ?? err}`);
+    } finally {
+      setEnviando(false);
+    }
+  }
+
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 flex-wrap">
       {(['cliente', 'producao'] as const).map(modo => (
         <button
           key={modo}
           onClick={() => gerarPdf(modo)}
-          disabled={!!gerando}
+          disabled={!!gerando || enviando}
           className="btn btn-ghost btn-sm"
         >
           {gerando === modo ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />}
           PDF {modo === 'cliente' ? 'Cliente' : 'Produção'}
         </button>
       ))}
+
+      <button
+        onClick={enviarWhatsApp}
+        disabled={!!gerando || enviando}
+        className={`btn btn-sm ${enviado ? 'btn-success' : 'btn-primary'}`}
+        title={pedido.cliente_telefone ? `Enviar para ${pedido.cliente_telefone}` : 'Telefone não cadastrado'}
+      >
+        {enviando
+          ? <Loader2 size={14} className="animate-spin" />
+          : <Send size={14} />}
+        {enviado ? 'Enviado!' : 'Enviar no WhatsApp'}
+      </button>
     </div>
   );
 }

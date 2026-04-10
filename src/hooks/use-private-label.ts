@@ -187,7 +187,7 @@ export function useCreatePLPedido() {
       if (!user?.tenant_id) throw new Error('Usuário não autenticado');
       const { data, error } = await supabase
         .from('private_label_pedidos')
-        .insert({ tenant_id: user.tenant_id, status: 'rascunho', frete: 0, desconto: 0, total: 0 })
+        .insert({ tenant_id: user.tenant_id, status: 'rascunho', frete: 0, desconto: 0, total: 0, prazo_entrega: '15 a 20 dias úteis após a confirmação de pagamento' })
         .select()
         .single();
       if (error) throw new Error(error.message);
