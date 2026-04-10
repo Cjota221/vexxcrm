@@ -1,6 +1,8 @@
 /**
  * POST /api/meta/jarvis-agent/criar-campanha-catalogo
- * Cria campanha completa de catálogo carrossel em 4 passos sequenciais.
+ * Cria campanha OUTCOME_TRAFFIC + link carousel (sem DPA / promoted_object).
+ * O catálogo será vinculado manualmente no Meta Ads Manager após a criação.
+ *
  * Body: { orcamento_diario: number }
  * Returns: { campaign_id, adset_id, creative_id, ad_id, ok: true }
  */
@@ -10,9 +12,8 @@ import { getTenantFromRequest } from '@/lib/auth-helpers';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { META_BASE } from '@/lib/meta-config';
 
-const CATALOG_ID = '373597670167329';
-const PAGE_ID    = '101337882545607';
-const LINK_LOJA  = 'https://cjotarasteirinhas.com.br/c/atacado/produtos/62981480687';
+const PAGE_ID   = '101337882545607';
+const LINK_LOJA = 'https://cjotarasteirinhas.com.br/c/atacado/produtos/62981480687';
 
 async function metaPost(
   token: string,
@@ -39,7 +40,8 @@ export async function POST(req: NextRequest) {
   /* ── Auth ──────────────────────────────────────────────────────────── */
   let tenantId: string;
   try {
-    ({ tenantId } = await getTenantFromRequest(req));
+    const auth = await getTenantFromRequest(req);
+    tenantId = auth.tenantId;
   } catch {
     return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
   }
@@ -67,20 +69,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const token  = config.meta_access_token;
-    const actId  = config.meta_ad_account_id ?? 'act_1244920119465862';
+    const token    = config.meta_access_token as string;
+    const actId    = (config.meta_ad_account_id as string | null) ?? 'act_1244920119465862';
     const nomeBase = `[Jarvis] Catálogo — ${new Date().toLocaleDateString('pt-BR')}`;
 
-    /* ── Passo 1: Campanha ───────────────────────────────────────────── */
+    /* ── Passo 1: Campanha (OUTCOME_TRAFFIC) ─────────────────────────── */
     const camp = await metaPost(token, `${actId}/campaigns`, {
       name:                            nomeBase,
-      objective:                       'OUTCOME_SALES',
+      objective:                       'OUTCOME_TRAFFIC',
       status:                          'PAUSED',
       special_ad_categories:           [],
       is_adset_budget_sharing_enabled: false,
     });
 
-    /* ── Passo 2: Adset ──────────────────────────────────────────────── */
+    /* ── Passo 2: Adset (sem promoted_object) ────────────────────────── */
     const adset = await metaPost(token, `${actId}/adsets`, {
       name:              `${nomeBase} — Conjunto`,
       campaign_id:       camp.id,
@@ -88,47 +90,43 @@ export async function POST(req: NextRequest) {
       billing_event:     'IMPRESSIONS',
       optimization_goal: 'LINK_CLICKS',
       bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
-      promoted_object: {
-        product_catalog_id: CATALOG_ID,
-      },
       targeting: {
-        geo_locations:         { countries: ['BR'] },
-        age_min:               25,
-        age_max:               55,
-        genders:               [2],
-        targeting_automation:  { advantage_audience: 0 },
-        publisher_platforms:   ['facebook', 'instagram'],
-        facebook_positions:    ['feed'],
-        instagram_positions:   ['stream', 'story', 'reels'],
+        geo_locations:        { countries: ['BR'] },
+        age_min:              25,
+        age_max:              55,
+        genders:              [2],
+        targeting_automation: { advantage_audience: 0 },
+        publisher_platforms:  ['facebook', 'instagram'],
+        facebook_positions:   ['feed'],
+        instagram_positions:  ['stream', 'story', 'reels'],
       },
       status: 'PAUSED',
     });
 
-    /* ── Passo 3: Adcreative carrossel ───────────────────────────────── */
+    /* ── Passo 3: Adcreative link simples ────────────────────────────── */
     const creative = await metaPost(token, `${actId}/adcreatives`, {
-      name: 'Creative Catálogo',
+      name: `Creative Catálogo — ${nomeBase}`,
       object_story_spec: {
-        page_id:       PAGE_ID,
-        template_data: {
+        page_id: PAGE_ID,
+        link_data: {
+          link:        LINK_LOJA,
+          name:        'CJ Rasteirinhas — Atacado',
+          description: 'Rasteirinhas por atacado direto da fábrica',
+          message:     'Revenda rasteirinhas CJ! Pedido mínimo 5 pares a partir de R$25/par',
           call_to_action: {
             type:  'SHOP_NOW',
             value: { link: LINK_LOJA },
           },
-          description: 'Rasteirinhas por atacado direto da fábrica',
-          link:        LINK_LOJA,
-          message:     'Revenda rasteirinhas CJ! Pedido mínimo 5 pares a partir de R$25/par',
-          name:        'CJ Rasteirinhas — Atacado',
         },
       },
-      product_set_id: CATALOG_ID,
     });
 
     /* ── Passo 4: Ad ─────────────────────────────────────────────────── */
     const ad = await metaPost(token, `${actId}/ads`, {
-      name:      `${nomeBase} — Anúncio`,
-      adset_id:  adset.id,
-      creative:  { creative_id: creative.id },
-      status:    'PAUSED',
+      name:     `${nomeBase} — Anúncio`,
+      adset_id: adset.id,
+      creative: { creative_id: creative.id },
+      status:   'PAUSED',
     });
 
     /* ── Salvar rascunho ─────────────────────────────────────────────── */
@@ -136,13 +134,13 @@ export async function POST(req: NextRequest) {
       await supabase.from('meta_campaign_drafts').insert({
         tenant_id:        tenantId,
         nome:             nomeBase,
-        objetivo:         'OUTCOME_SALES',
+        objetivo:         'OUTCOME_TRAFFIC',
         tipo:             'catalogo',
         status:           'publicado',
-        meta_campaign_id: camp.id   as string,
-        meta_adset_id:    adset.id  as string,
-        meta_ad_id:       ad.id     as string,
-        jarvis_log:       `Catálogo ${CATALOG_ID}`,
+        meta_campaign_id: camp.id  as string,
+        meta_adset_id:    adset.id as string,
+        meta_ad_id:       ad.id    as string,
+        jarvis_log:       'Link carousel — vincular catálogo manualmente no Meta Ads Manager',
         created_at:       new Date().toISOString(),
       });
     } catch (dbErr) {
