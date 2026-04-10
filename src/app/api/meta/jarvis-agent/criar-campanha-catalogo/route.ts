@@ -103,6 +103,17 @@ export async function POST(req: NextRequest) {
       status: 'PAUSED',
     });
 
+    /* ── Debug: listar product_sets do catálogo ─────────────────────── */
+    try {
+      const psRes = await fetch(
+        `${META_BASE}/373597670167329/product_sets?fields=id,name,filter&access_token=${token}`,
+      );
+      const psJson = await psRes.json();
+      console.log('[Catálogo] Product sets:', JSON.stringify(psJson));
+    } catch (psErr) {
+      console.log('[Catálogo] Erro ao buscar product_sets:', String(psErr));
+    }
+
     /* ── Passo 3: Adcreative link simples ────────────────────────────── */
     const creative = await metaPost(token, `${actId}/adcreatives`, {
       name: `Creative Catálogo — ${nomeBase}`,
