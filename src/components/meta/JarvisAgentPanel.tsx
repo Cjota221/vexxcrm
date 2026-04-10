@@ -5,7 +5,7 @@ import { useAuthStore } from '@/store/auth';
 import {
   Bot, RefreshCw, Loader2, CheckCircle, XCircle, AlertTriangle,
   TrendingUp, Users, Video, BarChart3, Play, Pause,
-  DollarSign, Zap, ChevronRight, Eye, Clock, History, Target,
+  DollarSign, Zap, ChevronRight, Eye, Clock, History, Target, ShoppingBag,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -865,6 +865,105 @@ function OtimizacoesPendentes() {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */
+/*  Campanha de Catálogo Carrossel                                              */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+function CriarCampanhaCatalogo() {
+  const [aberto,    setAberto]    = useState(false);
+  const [orcamento, setOrcamento] = useState('50');
+  const [loading,   setLoading]   = useState(false);
+  const [progresso, setProgresso] = useState<string[]>([]);
+  const [toast,     setToast]     = useState<{ msg: string; tipo: 'ok' | 'erro' } | null>(null);
+
+  const mostrarToast = (msg: string, tipo: 'ok' | 'erro') => {
+    setToast({ msg, tipo });
+    setTimeout(() => setToast(null), 5000);
+  };
+
+  const criar = useCallback(async () => {
+    setLoading(true);
+    setProgresso(['⏳ Criando campanha de catálogo...']);
+    try {
+      const res = await atomicPost('/api/meta/jarvis-agent/criar-campanha-catalogo', {
+        orcamento_diario: parseFloat(orcamento) || 50,
+      });
+      setProgresso([
+        '✅ Campanha criada',
+        '✅ Conjunto de anúncios criado',
+        '✅ Criativo carrossel criado',
+        '✅ Anúncio criado',
+      ]);
+      mostrarToast(`Campanha de catálogo criada! ID: ${res.campaign_id}`, 'ok');
+      setAberto(false);
+    } catch (err) {
+      setProgresso(prev => [...prev.slice(0, -1), `❌ ${String(err)}`]);
+      mostrarToast(String(err), 'erro');
+    } finally {
+      setLoading(false);
+    }
+  }, [orcamento]);
+
+  return (
+    <div className="border-t border-[#2a3550] pt-6 mt-6">
+      {/* Botão de toggle */}
+      <button
+        onClick={() => { setAberto(v => !v); setProgresso([]); }}
+        className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#1a2a1a] border border-[#2a5530] text-green-300 font-medium hover:bg-[#1f3a1f] transition w-full justify-center"
+      >
+        <ShoppingBag className="w-4 h-4" />
+        🛍️ Criar Campanha de Catálogo
+      </button>
+
+      {/* Formulário */}
+      {aberto && (
+        <div className="mt-4 bg-[#161b24] border border-[#2a3550] rounded-xl p-4 space-y-4">
+          <div className="flex items-center gap-2 mb-1">
+            <ShoppingBag className="w-4 h-4 text-green-400" />
+            <h3 className="text-sm font-semibold text-white">Campanha de Catálogo Carrossel</h3>
+          </div>
+          <p className="text-xs text-[#6b7fa3]">
+            Objetivo: Vendas · Otimização: Conversões · Pixel conectado · Público BR 25–55 feminino
+          </p>
+
+          <div>
+            <label className="block text-xs text-[#6b7fa3] mb-1.5">Orçamento diário (R$)</label>
+            <input
+              type="number" min={5} value={orcamento}
+              onChange={e => setOrcamento(e.target.value)}
+              className="w-full bg-[#0d1117] border border-[#2a3550] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-green-500"
+            />
+          </div>
+
+          <button
+            onClick={criar} disabled={loading}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-[#059669] text-white font-semibold hover:bg-emerald-600 transition disabled:opacity-50"
+          >
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+            {loading ? 'Criando...' : 'Criar agora'}
+          </button>
+        </div>
+      )}
+
+      {/* Progresso */}
+      {progresso.length > 0 && (
+        <div className="mt-3 bg-[#0d1117] border border-[#2a3550] rounded-xl p-4 space-y-1">
+          <p className="text-xs text-[#6b7fa3] font-medium mb-2">Progresso:</p>
+          {progresso.map((p, i) => (
+            <p key={i} className={cn(
+              'text-xs font-mono',
+              p.startsWith('✅') ? 'text-green-400' : p.startsWith('❌') ? 'text-red-400' : 'text-[#6b7fa3]',
+            )}>{p}</p>
+          ))}
+          {loading && <Loader2 className="w-3 h-3 animate-spin text-green-400 mt-1" />}
+        </div>
+      )}
+
+      {toast && <Toast msg={toast.msg} tipo={toast.tipo} />}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
 /*  Panel principal — estado compartilhado ao nível do painel                  */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
@@ -917,7 +1016,10 @@ export function JarvisAgentPanel() {
       {/* Content — todos os componentes montados mas só o ativo visível */}
       <div className="p-6">
         <div className={tab === 'visao'    ? '' : 'hidden'}><VisaoAtual contexto={contexto} setContexto={setContexto} /></div>
-        <div className={tab === 'criar'    ? '' : 'hidden'}><CriarCampanha historico={historico} addHistorico={addHistorico} /></div>
+        <div className={tab === 'criar'    ? '' : 'hidden'}>
+          <CriarCampanha historico={historico} addHistorico={addHistorico} />
+          <CriarCampanhaCatalogo />
+        </div>
         <div className={tab === 'otimizar' ? '' : 'hidden'}><OtimizacoesPendentes /></div>
       </div>
     </div>
