@@ -70,15 +70,12 @@ export async function POST(req: NextRequest) {
       video_id: body.video_id,
       message:  'Conheça nossas rasteirinhas. Comece com R$130 e revenda com lucro!',
       title:    'CJ Rasteirinhas — Seja uma Revendedora',
-      call_to_action: body.tipo === 'whatsapp'
-        ? {
-            type:  'WHATSAPP_MESSAGE',
-            value: { app_destination: 'WHATSAPP', page_whatsapp_number: '5562981480687' },
-          }
-        : {
-            type:  'LEARN_MORE',
-            value: { link: 'https://cjotarasteirinhas.com.br/c/atacado/produtos/62981480687' },
-          },
+      call_to_action: {
+        type:  'LEARN_MORE',
+        value: { link: body.tipo === 'whatsapp'
+          ? 'https://wa.me/5562981480687'
+          : 'https://cjotarasteirinhas.com.br/c/atacado/produtos/62981480687' },
+      },
     };
     if (body.thumb_url) videoData.image_url = body.thumb_url;
 
