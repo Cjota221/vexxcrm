@@ -39,6 +39,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Clientes',               href: '/clientes',    icon: <Users size={20} /> },
   { label: 'Reativação',             href: '/reativacao',  icon: <UserX size={20} /> },
   { label: 'Pedidos',                href: '/pedidos',     icon: <Package size={20} /> },
+  { label: 'Private Label',          href: '/private-label', icon: <Tag size={20} /> },
   { label: 'Produtos',               href: '/produtos',    icon: <ShoppingBag size={20} /> },
   { label: 'Campanhas',              href: '/campanhas',   icon: <Megaphone size={20} /> },
   { label: 'Etiquetas',              href: '/etiquetas',   icon: <Tag size={20} /> },
