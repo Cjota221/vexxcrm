@@ -13,6 +13,7 @@ import { JarvisAgentPanel } from '@/components/meta/JarvisAgentPanel';
 import { FilaAprovacao } from '@/components/meta/FilaAprovacao';
 import { InicializadorPublicos } from '@/components/meta/InicializadorPublicos';
 import { BibliotecaInteresses } from '@/components/meta/BibliotecaInteresses';
+import { FunilConversao } from '@/components/trafego/FunilConversao';
 import { useUIStore } from '@/store/ui';
 
 function authFetch(url: string, options?: RequestInit): Promise<Response> {
@@ -4421,7 +4422,40 @@ export default function TrafegoPage() {
       case 'criativos':  return <GaleriaCriativos />;
       case 'publicos':   return <PublicosTab />;
       case 'textos':     return <TextosTab copies={copies} />;
-      case 'analise':    return <AnaliseTab />;
+      case 'analise':
+        return (
+          <div className="space-y-6">
+            {/* Funil de conversão — dados do período selecionado */}
+            {data?.connected && data.summary && (() => {
+              const s = data.summary;
+              return (
+                <FunilConversao
+                  totalGasto={s.totalSpend}
+                  etapas={[
+                    {
+                      nome: 'Cliques',
+                      valor: s.totalClicks,
+                      metricaEsquerda: { label: 'CPC', valor: s.totalCpc, prefixo: 'R$ ' },
+                    },
+                    {
+                      nome: 'Leads',
+                      valor: s.totalLeads,
+                      metricaEsquerda: { label: 'CPL', valor: s.totalCpl, prefixo: 'R$ ' },
+                    },
+                    {
+                      nome: 'Vendas',
+                      valor: s.totalRevenue > 0 ? Math.round(s.totalRevenue / (s.totalCpl || 1)) : 0,
+                      metricaDireita: { label: 'ROAS', valor: s.totalRoas, sufixo: 'x' },
+                    },
+                  ]}
+                  totalVendas={s.totalRevenue}
+                  roas={s.totalRoas}
+                />
+              );
+            })()}
+            <AnaliseTab />
+          </div>
+        );
       case 'relatorio':  return <RelatorioTab />;
       case 'agente':     return <JarvisAgentPanel />;
       case 'aprovacoes': return <FilaAprovacao />;
