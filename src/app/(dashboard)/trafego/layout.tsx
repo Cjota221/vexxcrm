@@ -21,7 +21,7 @@ export default function TrafegoLayout({
       <TrafegoContextMenu />
 
       {/* Nível 3: Área de Trabalho */}
-      <div className="flex-1 overflow-y-auto min-w-0 bg-gray-50 pb-24 md:pb-0">
+      <div className="flex-1 overflow-y-auto min-w-0 bg-gray-50 pb-32 md:pb-0">
         {children}
       </div>
     </div>

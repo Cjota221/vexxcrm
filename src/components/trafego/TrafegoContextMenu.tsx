@@ -162,6 +162,7 @@ export function TrafegoContextMenu() {
     trafegoPendentes,
     sidebarExpanded,
     toggleSidebar,
+    mobileSidebarOpen,
   } = useUIStore();
 
   const [activeGroup, setActiveGroup] = useState<string>(() =>
@@ -284,7 +285,10 @@ export function TrafegoContextMenu() {
           MOBILE — Bottom Navigation fixo
           Visível apenas abaixo de md
       ═══════════════════════════════════════════════════════════════ */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#0d1117] border-t border-[#1c2333]">
+      <nav className={cn(
+        "md:hidden fixed bottom-0 left-0 right-0 z-[45] bg-[#0d1117] border-t border-[#1c2333]",
+        mobileSidebarOpen && "hidden"
+      )}>
 
         {/* Strip de sub-abas — aparece quando o grupo ativo tem > 1 aba */}
         {hasMultipleSubs && (
