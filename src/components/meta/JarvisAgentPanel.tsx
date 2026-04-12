@@ -993,8 +993,8 @@ export function JarvisAgentPanel() {
           <Bot className="w-5 h-5 text-white" />
         </div>
         <div>
-          <h1 className="text-lg font-bold text-white">Agente Jarvis</h1>
-          <p className="text-xs text-[#6b7fa3]">Dados em tempo real da Meta API</p>
+          <h1 className="text-lg font-bold text-white">Jarvis — Gestor de Tráfego</h1>
+          <p className="text-xs text-[#6b7fa3]">Cria e otimiza campanhas Meta Ads</p>
         </div>
       </div>
 

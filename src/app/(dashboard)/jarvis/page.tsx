@@ -232,6 +232,14 @@ export default function JarvisPage() {
         <p className="text-sm text-txt-secondary mt-1">
           Motor de inteligência central do VEXX CRM
         </p>
+        {/* Atalho para o Jarvis de Tráfego */}
+        <a
+          href="/trafego?tab=agente"
+          className="inline-flex items-center gap-2 mt-3 px-4 py-2 rounded-xl bg-crm-primary/10 border border-crm-primary/20 text-sm font-medium text-crm-primary hover:bg-crm-primary/20 transition-colors"
+        >
+          <TrendingUp size={15} />
+          Criar campanha no Meta →
+        </a>
       </div>
 
       <div className="flex gap-5 flex-1 min-h-0">
