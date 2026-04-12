@@ -8,10 +8,8 @@ import { AddAccountModal } from '@/components/trafego/AddAccountModal';
 import { MetaTokenConfig } from '@/components/meta/MetaTokenConfig';
 import { GaleriaCriativos } from '@/components/meta/GaleriaCriativos';
 import { CriadorCampanha } from '@/components/meta/CriadorCampanha';
-import { AgenteTrafegoPanel } from '@/components/meta/AgenteTrafegoPanel';
 import { JarvisAgentPanel } from '@/components/meta/JarvisAgentPanel';
 import { FilaAprovacao } from '@/components/meta/FilaAprovacao';
-import { InicializadorPublicos } from '@/components/meta/InicializadorPublicos';
 import { BibliotecaInteresses } from '@/components/meta/BibliotecaInteresses';
 import { FunilConversao } from '@/components/trafego/FunilConversao';
 import { useUIStore } from '@/store/ui';
@@ -4464,7 +4462,6 @@ export default function TrafegoPage() {
       case 'consolidado': return <ConsolidadoTab />;
       case 'abtest':     return <ABTestTab />;
       case 'catalogo':   return <CatalogoTab />;
-      case 'biblioteca': return null;
       case 'config':
         return (
           <div className="max-w-lg">
