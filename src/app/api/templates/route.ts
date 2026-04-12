@@ -9,6 +9,7 @@ import { createServerSupabaseClient } from '@/lib/supabase';
  * compatível com o EmbeddedCampaignPanel.
  */
 export async function GET(request: NextRequest) {
+  console.warn('[DEPRECATED] Esta rota v1 será removida. Use /api/v2/templates');
   try {
     const { tenantId } = await getTenantFromRequest(request);
     const supabase = createServerSupabaseClient();
@@ -56,6 +57,7 @@ export async function GET(request: NextRequest) {
  * Body: { name, description?, blocks: Array<{ tipo, conteudo, ... }> }
  */
 export async function POST(request: NextRequest) {
+  console.warn('[DEPRECATED] Esta rota v1 será removida. Use /api/v2/templates');
   try {
     const { tenantId, userId } = await getTenantFromRequest(request);
     const supabase = createServerSupabaseClient();

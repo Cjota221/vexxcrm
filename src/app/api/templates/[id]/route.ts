@@ -9,6 +9,7 @@ type Params = { params: Promise<{ id: string }> };
  * Atualiza nome, descrição e blocos de um template existente.
  */
 export async function PUT(request: NextRequest, { params }: Params) {
+  console.warn('[DEPRECATED] Esta rota v1 será removida. Use /api/v2/templates/:id');
   try {
     const { tenantId } = await getTenantFromRequest(request);
     const { id } = await params;
@@ -70,6 +71,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
  * Arquiva (soft-delete) um template alterando status para 'inativo'.
  */
 export async function DELETE(request: NextRequest, { params }: Params) {
+  console.warn('[DEPRECATED] Esta rota v1 será removida. Use /api/v2/templates/:id');
   try {
     const { tenantId } = await getTenantFromRequest(request);
     const { id } = await params;

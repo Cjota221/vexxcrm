@@ -15,6 +15,7 @@ import type { TemplateBlock } from '@/types';
  * Body: { templateId, to, variables?: Record<string, string>, clientId?: string }
  */
 export async function POST(request: NextRequest) {
+  console.warn('[DEPRECATED] Esta rota v1 será removida. Use /api/v2/templates/send');
   try {
     const { tenantId } = await getTenantFromRequest(request);
     const supabase = createServerSupabaseClient();
