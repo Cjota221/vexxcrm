@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { FileDown, Loader2, Send } from 'lucide-react';
-import { PLPedido, PLItem, GRADE_TAMANHOS } from '@/hooks/use-private-label';
+import { PLPedido, PLItem, GRADE_TAMANHOS } from '@/hooks/usePrivateLabel';
 import { formatCurrency } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
 

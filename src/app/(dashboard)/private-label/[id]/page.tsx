@@ -3,7 +3,7 @@
 import { useRef, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Tag, Loader2 } from 'lucide-react';
-import { usePLPedido, usePLItens, useUpdatePLPedido, PLPedidoUpdate, StatusPL } from '@/hooks/use-private-label';
+import { usePLPedido, usePLItens, useUpdatePLPedido, PLPedidoUpdate, StatusPL } from '@/hooks/usePrivateLabel';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';

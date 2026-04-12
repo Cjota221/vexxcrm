@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Tag, Plus, Search, FileText, Trash2, Eye, CheckCircle2, XCircle, Clock, Package, Loader2 } from 'lucide-react';
-import { usePLPedidos, useCreatePLPedido, useDeletePLPedido, StatusPL, PLPedido } from '@/hooks/use-private-label';
+import { usePLPedidos, useCreatePLPedido, useDeletePLPedido, StatusPL, PLPedido } from '@/hooks/usePrivateLabel';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';

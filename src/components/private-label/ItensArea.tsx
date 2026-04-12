@@ -5,7 +5,7 @@ import { Plus, Trash2, Upload, Loader2, Package } from 'lucide-react';
 import {
   PLItem, PLItemUpdate, GradePL, GRADE_TAMANHOS, GRADE_VAZIA,
   useCreatePLItem, useUpdatePLItem, useDeletePLItem, uploadPLImagem,
-} from '@/hooks/use-private-label';
+} from '@/hooks/usePrivateLabel';
 import { formatCurrency } from '@/lib/utils';
 
 interface Props {

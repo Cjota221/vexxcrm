@@ -1,6 +1,6 @@
 'use client';
 
-import { SyncDashboard } from '@/components/crm/sync-dashboard';
+import { SyncDashboard } from '@/components/crm/SyncDashboard';
 
 export default function EngenhariaDadosPage() {
   return (

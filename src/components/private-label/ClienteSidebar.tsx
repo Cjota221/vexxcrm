@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Search, Upload, Loader2, MapPin, X } from 'lucide-react';
-import { PLPedido, PLPedidoUpdate, Contato, useContatosPL, uploadPLImagem } from '@/hooks/use-private-label';
+import { PLPedido, PLPedidoUpdate, Contato, useContatosPL, uploadPLImagem } from '@/hooks/usePrivateLabel';
 import { Input } from '@/components/ui/Input';
 import { formatCurrency } from '@/lib/utils';
 
