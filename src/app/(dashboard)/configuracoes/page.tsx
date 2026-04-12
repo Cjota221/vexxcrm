@@ -1345,5 +1345,33 @@ function DataEngineeringCard() {
 }
 
 function MaintenanceTab() {
-  return (<div className="space-y-6"><SystemHealthCheck /></div>);
+  return (
+    <div className="space-y-6">
+      <SystemHealthCheck />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Link
+          href="/manutencao"
+          className="flex items-center gap-3 p-4 rounded-xl border border-surface-border bg-surface-50 hover:bg-surface-100 transition-colors"
+        >
+          <Wrench size={20} className="text-txt-secondary shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-txt-primary">Manutenção</p>
+            <p className="text-xs text-txt-secondary">Ferramentas de manutenção do sistema</p>
+          </div>
+          <ArrowRight size={16} className="ml-auto text-txt-secondary" />
+        </Link>
+        <Link
+          href="/engenharia-dados"
+          className="flex items-center gap-3 p-4 rounded-xl border border-surface-border bg-surface-50 hover:bg-surface-100 transition-colors"
+        >
+          <Database size={20} className="text-txt-secondary shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-txt-primary">Engenharia de Dados</p>
+            <p className="text-xs text-txt-secondary">Pipelines, transformações e diagnósticos</p>
+          </div>
+          <ArrowRight size={16} className="ml-auto text-txt-secondary" />
+        </Link>
+      </div>
+    </div>
+  );
 }
