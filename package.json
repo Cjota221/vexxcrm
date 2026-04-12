@@ -7,7 +7,9 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "author": "VEXX CRM Team",
   "license": "UNLICENSED",
@@ -42,9 +44,12 @@
   "devDependencies": {
     "@types/pg": "^8.16.0",
     "@types/react-window": "^1.8.8",
+    "@vitest/ui": "^4.1.4",
     "critters": "^0.0.23",
     "dotenv": "^17.3.1",
     "eslint": "^9.39.2",
-    "eslint-config-next": "^16.1.6"
+    "eslint-config-next": "^16.1.6",
+    "vite-tsconfig-paths": "^6.1.1",
+    "vitest": "^4.1.4"
   }
 }
