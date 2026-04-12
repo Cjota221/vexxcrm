@@ -72,9 +72,9 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'vexx-auth',
-      partialize: (state) => ({
-        accessToken: state.accessToken,
-      }),
+      // accessToken removido do localStorage por segurança (XSS).
+      // A sessão é restaurada via supabase.auth.getSession() em providers.tsx.
+      partialize: () => ({}),
     }
   )
 );
