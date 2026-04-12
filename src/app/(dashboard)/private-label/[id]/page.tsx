@@ -7,9 +7,9 @@ import { usePLPedido, usePLItens, useUpdatePLPedido, PLPedidoUpdate, StatusPL } 
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { ClienteSidebar }  from './components/ClienteSidebar';
-import { ItensArea }       from './components/ItensArea';
-import { PdfPrivateLabel } from './components/PdfPrivateLabel';
+import { ClienteSidebar }  from '@/components/private-label/ClienteSidebar';
+import { ItensArea }       from '@/components/private-label/ItensArea';
+import { PdfPrivateLabel } from '@/components/private-label/PdfPrivateLabel';
 
 const STATUS_CFG: Record<StatusPL, { label: string; variant: 'warning' | 'success' | 'danger' }> = {
   rascunho:   { label: 'Rascunho',   variant: 'warning' },
