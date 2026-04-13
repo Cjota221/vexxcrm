@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Trophy, Medal, Award, Users, TrendingUp, DollarSign, ChevronDown, ChevronUp, Bot } from 'lucide-react';
+import { Trophy, Medal, Award, Users, TrendingUp, DollarSign, ChevronDown, ChevronUp, Bot, Download } from 'lucide-react';
 import { useTicketSegmentation, type ResumoSegmento, type ClienteSegmentado } from '@/hooks/useIntelligence';
 import { cn } from '@/lib/utils';
 import type { ClientListItem } from './ClientListDrawer';
@@ -158,8 +158,53 @@ function SegmentCard({
   );
 }
 
+function cleanPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  return digits.startsWith('55') && digits.length > 11 ? digits.slice(2) : digits;
+}
+
 export function TicketSegmentation({ onAskAnne }: TicketSegmentationProps) {
   const { data, isLoading, error, refetch } = useTicketSegmentation();
+
+  function exportToCSV(): void {
+    if (!data) {
+      console.warn('[TicketSegmentation] exportToCSV: dados não carregados');
+      return;
+    }
+
+    const allClients: ClienteSegmentado[] = [
+      ...data.grandes.clientes,
+      ...data.medios.clientes,
+      ...data.pequenos.clientes,
+    ];
+
+    if (allClients.length === 0) {
+      console.warn('[TicketSegmentation] exportToCSV: lista vazia, nada a exportar');
+      return;
+    }
+
+    const header = 'nome,telefone,total_pedidos,valor_total';
+    const rows = allClients
+      .sort((a, b) => b.ltv - a.ltv)
+      .map((c) =>
+        [
+          `"${c.nome.replace(/"/g, '""')}"`,
+          cleanPhone(c.telefone),
+          c.total_pedidos,
+          c.ltv.toFixed(2),
+        ].join(',')
+      );
+
+    const csv = [header, ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const today = new Date().toISOString().slice(0, 10);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `maiores-compradores-${today}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   if (isLoading) {
     return (
@@ -207,13 +252,22 @@ export function TicketSegmentation({ onAskAnne }: TicketSegmentationProps) {
             <p className="text-xs text-txt-muted">Por ticket médio <strong>por pedido</strong> — {total} clientes com pedidos</p>
           </div>
         </div>
-        <button
-          onClick={() => refetch()}
-          className="text-xs text-txt-muted hover:text-txt-primary transition-colors"
-          title="Atualizar"
-        >
-          ↻
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={exportToCSV}
+            className="border border-[#1e3a5f] text-[#1e3a5f] hover:bg-[#1e3a5f] hover:text-white rounded-xl px-4 py-2 text-sm font-medium flex items-center gap-2 transition-colors"
+          >
+            <Download size={14} />
+            Exportar Contatos
+          </button>
+          <button
+            onClick={() => refetch()}
+            className="text-xs text-txt-muted hover:text-txt-primary transition-colors"
+            title="Atualizar"
+          >
+            ↻
+          </button>
+        </div>
       </div>
 
       {/* Cards */}
