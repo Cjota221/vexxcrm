@@ -8,8 +8,8 @@ import {
   MoreVertical, TrendingUp, AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { usePedidos, useCreatePedido, useDeletePedido } from '@/hooks/use-pedidos';
-import type { Pedido, StatusPedido } from '@/hooks/use-pedidos';
+import { usePedidos, useCreatePedido, useDeletePedido } from '@/hooks/usePedidos';
+import type { Pedido, StatusPedido } from '@/hooks/usePedidos';
 
 /* ─── Helpers ────────────────────────────────────────────────────────────── */
 
