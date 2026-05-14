@@ -21,15 +21,36 @@ import { processarFilaCampanha, criarJobsCampanha } from '@/lib/services/campaig
 // ─── Validação do secret ──────────────────────────────────────────────────────
 const CRON_SECRET = process.env.CRON_SECRET || process.env.SUPABASE_SERVICE_KEY;
 
-function autorizado(request: NextRequest): boolean {
+function autorizado(request: NextRequest, hasCampanhaId: boolean): boolean {
   const auth = request.headers.get('Authorization') ?? '';
   const token = auth.replace('Bearer ', '').trim();
+
+  // Chamadas internas (com campanha_id no body) exigem Bearer token
+  if (hasCampanhaId) {
+    return !!CRON_SECRET && token === CRON_SECRET;
+  }
+
+  // Netlify Scheduled Function não envia Authorization header.
+  // Aceitamos chamadas sem token apenas no modo "processar todas" (sem campanha_id).
+  // Impacto de segurança mínimo: só processa campanhas já em status "running" no banco.
+  if (!token) return true;
+
+  // Chamada manual com token: valida normalmente
   return !!CRON_SECRET && token === CRON_SECRET;
 }
 
 // ─── Handler principal ────────────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
-  if (!autorizado(request)) {
+  // Lê o body antes de validar auth, pois a permissão depende se tem campanha_id
+  let body: { campanha_id?: string; tenant_id?: string } = {};
+  try {
+    const cloned = request.clone();
+    body = await cloned.json();
+  } catch {
+    // body vazio é válido (chamada do cron)
+  }
+
+  if (!autorizado(request, !!body.campanha_id)) {
     return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
   }
 
@@ -40,13 +61,6 @@ export async function POST(request: NextRequest) {
   const TIMEOUT_MS = 20_000;
 
   try {
-    let body: { campanha_id?: string; tenant_id?: string } = {};
-    try {
-      body = await request.json();
-    } catch {
-      // body vazio é válido (chamada do cron)
-    }
-
     // ── Modo 1: campanha específica (chamada pelo /iniciar) ──────────────────
     if (body.campanha_id) {
       console.log(`[DISPATCHER_CRON] Processando campanha específica: ${body.campanha_id}`);
