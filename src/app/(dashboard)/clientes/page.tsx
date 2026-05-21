@@ -327,6 +327,45 @@ export default function ClientesPage() {
   // Selecao
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  // Export all
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportAll = async () => {
+    setIsExporting(true);
+    try {
+      const allClients: { name: string | null; phone: string; email: string | null }[] = [];
+      let page = 1;
+      const perPageExport = 1000;
+      while (true) {
+        const res = await api.get<{ data: any[]; total_pages: number }>(
+          '/api/clients',
+          { page: String(page), per_page: String(perPageExport) }
+        );
+        if (res.error) throw new Error(res.error);
+        const raw = res.data as any;
+        const rows: any[] = raw?.data ?? [];
+        rows.forEach((c) => allClients.push({ name: c.name, phone: c.phone, email: c.email }));
+        if (page >= (raw?.total_pages ?? 1)) break;
+        page++;
+      }
+      const csv = [
+        'Nome,Telefone,Email',
+        ...allClients.map((c) =>
+          `"${(c.name ?? '').replace(/"/g, '""')}","${(c.phone ?? '').replace(/"/g, '""')}","${(c.email ?? '').replace(/"/g, '""')}"`
+        ),
+      ].join('\n');
+      const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `contatos-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   // Stats (uma única query)
   const { data: stats, isLoading: statsLoading } = useClientStats();
 
@@ -411,7 +450,13 @@ export default function ClientesPage() {
           <h1 className="text-2xl font-bold text-txt-primary">Clientes</h1>
           <p className="text-sm text-txt-secondary mt-1">{(stats?.total ?? total).toLocaleString('pt-BR')} clientes no total</p>
         </div>
-        <SentinelaButton />
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={handleExportAll} disabled={isExporting}>
+            {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+            {isExporting ? 'Exportando…' : 'Exportar contatos'}
+          </Button>
+          <SentinelaButton />
+        </div>
       </div>
 
       {/* ── Origem dos Contatos ──────────────────────────── */}
