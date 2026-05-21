@@ -202,6 +202,17 @@ body {
   background-color: #e2e8f0;
 }
 
+.btn-outline {
+  background-color: #ffffff;
+  color: #1e3a5f;
+  border: 1px solid #cbd5e1;
+}
+
+.btn-outline:hover:not(:disabled) {
+  background-color: #f8fafc;
+  border-color: #1e3a5f;
+}
+
 .btn-success {
   background-color: #059669;
   color: #ffffff;
