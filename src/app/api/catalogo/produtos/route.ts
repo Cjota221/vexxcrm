@@ -6,25 +6,74 @@ import type { ProdutoCatalogo } from '@/app/catalogo/[slug]/catalogo.types'
 const cache = new Map<string, { data: ProdutoCatalogo[]; ts: number }>()
 const CACHE_TTL = 60_000
 
+type VariacaoCatalogo = {
+  nome: string
+  estoque: number
+  ativa: boolean
+}
+
+function toNumber(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value.replace(',', '.'))
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+  return 0
+}
+
+/**
+ * Extrai variações/tamanhos em formatos antigos e novos do custom_fields.
+ */
+function extrairVariacoes(customFields: unknown): VariacaoCatalogo[] {
+  if (!customFields || typeof customFields !== 'object') return []
+
+  const cf = customFields as Record<string, unknown>
+  const rawVariations =
+    (Array.isArray(cf.variations) && cf.variations) ||
+    (Array.isArray(cf.variacoes) && cf.variacoes) ||
+    (Array.isArray(cf.sizes) && cf.sizes) ||
+    []
+
+  if (!Array.isArray(rawVariations) || rawVariations.length === 0) return []
+
+  return rawVariations
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null
+
+      const variacao = item as Record<string, unknown>
+      const nome = String(
+        variacao.name ??
+        variacao.nome ??
+        variacao.tamanho ??
+        variacao.label ??
+        ''
+      ).trim()
+
+      const estoqueObj =
+        variacao.estoque && typeof variacao.estoque === 'object'
+          ? (variacao.estoque as Record<string, unknown>)
+          : null
+
+      const estoque = estoqueObj
+        ? toNumber(estoqueObj.estoque ?? estoqueObj.quantidade ?? estoqueObj.stock)
+        : toNumber(variacao.stock ?? variacao.estoque ?? variacao.quantidade)
+
+      const ativa = variacao.is_active !== false && variacao.ativada !== false
+
+      if (!nome) return null
+
+      return { nome, estoque, ativa }
+    })
+    .filter((variacao): variacao is VariacaoCatalogo => Boolean(variacao))
+}
+
 /**
  * Extrai tamanhos/variações do custom_fields do produto.
- * O FacilZap armazena variações (tamanhos) em custom_fields.variations.
  */
 function extrairTamanhos(customFields: unknown): string[] {
-  if (!customFields || typeof customFields !== 'object') return []
-  const cf = customFields as Record<string, unknown>
-  const variations = cf.variations as Array<{
-    name: string
-    stock: number
-    is_active?: boolean
-  }> | undefined
-
-  if (!Array.isArray(variations) || variations.length === 0) return []
-
-  return variations
-    .filter((v) => v.is_active !== false && (v.stock === -1 || v.stock > 0))
-    .map((v) => v.name)
-    .filter(Boolean)
+  return extrairVariacoes(customFields)
+    .filter((v) => v.ativa && (v.estoque === -1 || v.estoque > 0))
+    .map((v) => v.nome)
 }
 
 /**
@@ -42,21 +91,34 @@ function extrairCores(customFields: unknown): Array<{ nome: string; hex: string;
 }
 
 function produtoTemEstoque(rawStock: unknown, customFields: unknown): boolean {
-  if (typeof rawStock === 'number') {
-    if (rawStock === -1) return true
-    if (rawStock > 0) return true
-  }
+  const stock = toNumber(rawStock)
+  if (stock === -1 || stock > 0) return true
 
-  return extrairTamanhos(customFields).length > 0
+  return extrairVariacoes(customFields).some(
+    (variacao) => variacao.ativa && (variacao.estoque === -1 || variacao.estoque > 0)
+  )
 }
 
 function mapRow(p: Record<string, unknown>, ordem?: number, destaque?: boolean): ProdutoCatalogo {
   const images = Array.isArray(p.images) ? (p.images as string[]).filter(Boolean) : []
   const fotoUrl = (p.image_url as string | null) || images[0] || ''
+  const variacoes = extrairVariacoes(p.custom_fields)
+  const tamanhos = variacoes
+    .filter((v) => v.ativa && (v.estoque === -1 || v.estoque > 0))
+    .map((v) => v.nome)
 
   // Estoque: -1 significa sem controle (tratar como disponível)
-  const estoqueRaw = typeof p.stock === 'number' ? p.stock : 0
-  const estoque = estoqueRaw === -1 ? 9999 : estoqueRaw
+  const estoqueVariacoes = variacoes.reduce((acc, variacao) => {
+    if (!variacao.ativa) return acc
+    if (variacao.estoque === -1) return 9999
+    return acc + Math.max(0, variacao.estoque)
+  }, 0)
+  const estoqueRaw = toNumber(p.stock)
+  const estoque = estoqueVariacoes > 0
+    ? estoqueVariacoes
+    : estoqueRaw === -1
+      ? 9999
+      : estoqueRaw
 
   // Normalizer FacilZap: price = preço efetivo (já com desconto se houver),
   // compare_at_price = preço original (mais alto, riscado).
@@ -78,7 +140,7 @@ function mapRow(p: Record<string, unknown>, ordem?: number, destaque?: boolean):
     fotos_urls: images.length > 1 ? images : undefined,
     categoria: (p.category as string | null) || 'Geral',
     cores: extrairCores(p.custom_fields),
-    tamanhos: extrairTamanhos(p.custom_fields),
+    tamanhos,
     estoque,
     ativo: Boolean(p.is_active),
     destaque: destaque ?? false,

@@ -217,11 +217,6 @@ export default function ProdutoDetalheCliente({ slug, produtoId }: Props) {
               )}
             </div>
 
-            {/* Descrição */}
-            {produto.descricao && (
-              <p className="text-sm text-gray-500 leading-relaxed">{produto.descricao}</p>
-            )}
-
             {/* Seletor de cores */}
             {temCores && (
               <div className="space-y-2">
@@ -269,6 +264,11 @@ export default function ProdutoDetalheCliente({ slug, produtoId }: Props) {
 
             {semEstoque && (
               <p className="text-sm text-gray-400 text-center py-2">Produto indisponível no momento</p>
+            )}
+
+            {/* Descrição */}
+            {produto.descricao && (
+              <p className="text-sm text-gray-500 leading-relaxed">{produto.descricao}</p>
             )}
 
             <Link
