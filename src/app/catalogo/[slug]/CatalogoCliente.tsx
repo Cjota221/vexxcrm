@@ -71,7 +71,7 @@ export default function CatalogoCliente({ slug, whatsapp }: Props) {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
-              placeholder="Buscar produtos..."
+              placeholder="Pesquisar categoria"
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
               className="w-full bg-gray-100 border border-gray-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:bg-white transition-all"
@@ -88,7 +88,7 @@ export default function CatalogoCliente({ slug, whatsapp }: Props) {
           <Search className="absolute left-7 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
             type="text"
-            placeholder="Buscar..."
+            placeholder="Pesquisar categoria"
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             className="w-full bg-gray-100 border border-gray-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-400 transition-all"

@@ -97,7 +97,7 @@ export default function ProdutoCard({ produto, slug, corPrimaria = '#dc2ade' }: 
               onClick={handleAdicionar}
               className="absolute bottom-2 right-2 w-9 h-9 rounded-full flex items-center justify-center text-white shadow-lg opacity-0 group-hover:opacity-100 translate-y-1 group-hover:translate-y-0 transition-all duration-200 active:scale-90"
               style={{ backgroundColor: corPrimaria }}
-              aria-label="Adicionar ao carrinho"
+              aria-label="Comprar"
             >
               <Plus className="w-4 h-4" />
             </button>
@@ -148,7 +148,7 @@ export default function ProdutoCard({ produto, slug, corPrimaria = '#dc2ade' }: 
             style={!semEstoque ? { backgroundColor: corPrimaria } : {}}
           >
             <ShoppingBag className="w-4 h-4" />
-            {semEstoque ? 'Indisponível' : temTamanhos ? 'Escolher tamanhos' : 'Adicionar'}
+            {semEstoque ? 'Indisponível' : 'Comprar'}
           </button>
         </div>
       </div>

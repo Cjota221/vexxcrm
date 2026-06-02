@@ -306,7 +306,7 @@ function SingleAddButton({ produto, corPrimaria, semEstoque }: { produto: Produt
       style={!semEstoque && !adicionado ? { backgroundColor: corPrimaria, color: 'white', boxShadow: `0 8px 24px ${corPrimaria}40` }
         : adicionado ? { backgroundColor: '#22c55e', color: 'white' } : {}}
     >
-      {adicionado ? <><Check className="w-5 h-5" /> Adicionado!</> : <><ShoppingBag className="w-5 h-5" />{semEstoque ? 'Indisponível' : 'Adicionar ao carrinho'}</>}
+      {adicionado ? <><Check className="w-5 h-5" /> Adicionado!</> : <><ShoppingBag className="w-5 h-5" />{semEstoque ? 'Indisponível' : 'Comprar'}</>}
     </button>
   )
 }

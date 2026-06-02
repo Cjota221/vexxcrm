@@ -135,7 +135,7 @@ export default function SeletorTamanhos({ produto, corPrimaria = '#dc2ade', onAd
           }
         >
           <ShoppingBag className="w-4 h-4" />
-          {adicionado ? 'Adicionado!' : totalItens > 0 ? `Adicionar ${totalItens} peça${totalItens !== 1 ? 's' : ''}` : 'Selecione os tamanhos'}
+          {adicionado ? 'Adicionado!' : totalItens > 0 ? `Comprar ${totalItens} peça${totalItens !== 1 ? 's' : ''}` : 'Selecione os tamanhos'}
         </button>
       </div>
     </div>
