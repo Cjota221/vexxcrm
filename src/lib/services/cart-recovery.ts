@@ -20,6 +20,17 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { eventBus } from '@/lib/event-bus';
+import { getTenantEvolutionConfig, sendTextMessage } from '@/lib/services/evolution.service';
+
+/** Anti-ban: delay entre cada envio individual */
+const DELAY_ENTRE_ENVIOS_MS = 15_000;
+/** Anti-ban: pausa longa a cada 10 envios */
+const PAUSA_A_CADA_N = 10;
+const PAUSA_LONGA_MS = 60_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 export interface RecoveryQueueItem {
   id: string;
@@ -171,8 +182,43 @@ export async function processCartRecoveryQueue(
     }
 
     if (item.send_mode === 'auto') {
-      // TODO: Integrar com FacilZap API para envio real
-      // Por ora, emitir SSE e marcar como 'sent'
+      // Buscar telefone do cliente para envio via WhatsApp
+      const { data: clientData } = await supabase
+        .from('clients')
+        .select('phone')
+        .eq('id', item.client_id)
+        .single();
+
+      const phone = clientData?.phone;
+
+      if (phone && !phone.startsWith('ig:')) {
+        try {
+          // Buscar config Evolution do tenant
+          const evolutionConfig = getTenantEvolutionConfig(item.tenant_id);
+
+          if (evolutionConfig) {
+            // Anti-ban: delay entre envios
+            if (stats.sent > 0) {
+              await sleep(DELAY_ENTRE_ENVIOS_MS);
+            }
+            // Anti-ban: pausa longa a cada 10 envios
+            if (stats.sent > 0 && stats.sent % PAUSA_A_CADA_N === 0) {
+              console.log(`[CartRecovery] ⏸️ Pausa anti-ban após ${stats.sent} envios...`);
+              await sleep(PAUSA_LONGA_MS);
+            }
+
+            await sendTextMessage(evolutionConfig, phone, item.message_preview);
+            console.log(`[CartRecovery] 📱 WhatsApp enviado para ${phone}`);
+          } else {
+            console.warn(`[CartRecovery] Sem config Evolution para tenant ${item.tenant_id}`);
+          }
+        } catch (err) {
+          console.error(`[CartRecovery] Erro ao enviar WhatsApp para ${phone}:`, String(err));
+          // Não bloquear a fila — continuar com os próximos
+        }
+      }
+
+      // Emitir SSE para atualizar o painel em tempo real
       eventBus.emitToTenant('anne_recovery_sent', item.tenant_id, {
         client_id: item.client_id,
         chat_id: item.chat_id,
