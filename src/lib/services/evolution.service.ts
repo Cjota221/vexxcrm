@@ -414,8 +414,10 @@ export async function sendMediaMessage(
       media: mediaUrl,
       mediatype: mediaType,
       caption: caption || undefined,
+      // fileName necessário em algumas versões da Evolution para vídeo/documento
+      fileName: mediaType === 'video' ? 'video.mp4' : mediaType === 'document' ? 'arquivo.pdf' : undefined,
     }),
-  }, 20_000); // 20s — uploads de mídia são mais lentos
+  }, 30_000); // 30s — vídeos grandes podem demorar mais
 
   if (!response.ok) {
     const errorBody = await safeJson(response, 'Enviar mídia').catch(() => ({}));

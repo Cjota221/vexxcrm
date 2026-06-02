@@ -633,17 +633,16 @@ async function handleNewMessage(
   }
 
   // ━━━ ANNE AUDIO TRANSCRIPTION + AUTO-REPLY ━━━
-  // Transcreve áudio inbound via Whisper e processa como texto pela Anne
+  // Transcreve áudio inbound via Whisper e processa como texto pela Anne.
+  // FIX: chamada via HTTP separada para evitar timeout do Netlify Lambda
+  // (a função principal retorna imediatamente; a transcrição roda em nova invocação)
   if (!fromMe && type === 'audio' && mediaUrl) {
-    transcribeAndReply(supabase, {
-      tenantId,
-      clientId: client.id,
-      conversationId,
-      remoteJid,
-      messageId: savedMessage.id,
-      audioUrl: mediaUrl,
-      clientPhone: phoneNormalized,
-    }).catch(err => console.warn('[Webhook] Erro na transcrição de áudio:', err));
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://vexxcrm.netlify.app';
+    fetch(`${appUrl}/api/whatsapp/transcribe-audio`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageId: savedMessage.id }),
+    }).catch(err => console.warn('[Webhook] Erro ao disparar transcrição:', err));
   }
   } catch (err) {
     console.error('[Webhook] Erro crítico em handleNewMessage:', err);
@@ -792,6 +791,41 @@ async function handleGroupMessage(
     convId = newConv.id;
   }
 
+  // ── Download de mídia do grupo para Storage permanente ────────────────────
+  let groupMediaUrl: string | undefined;
+  let groupMimetype: string | undefined;
+  const msgContent = data.message || {};
+
+  if (messageContent.imageMessage) {
+    groupMediaUrl = messageContent.imageMessage.url || messageContent.imageMessage.directPath;
+    groupMimetype = messageContent.imageMessage.mimetype;
+  } else if (messageContent.videoMessage) {
+    groupMediaUrl = messageContent.videoMessage.url || messageContent.videoMessage.directPath;
+    groupMimetype = messageContent.videoMessage.mimetype;
+  } else if (messageContent.audioMessage) {
+    groupMediaUrl = messageContent.audioMessage.url || messageContent.audioMessage.directPath;
+    groupMimetype = messageContent.audioMessage.mimetype;
+  } else if (messageContent.documentMessage) {
+    groupMediaUrl = messageContent.documentMessage.url || messageContent.documentMessage.directPath;
+    groupMimetype = messageContent.documentMessage.mimetype;
+  }
+
+  if (groupMediaUrl && ['image', 'video', 'audio', 'document'].includes(type)) {
+    try {
+      const config = getTenantEvolutionConfig(tenantId);
+      const permanentUrl = await downloadMediaToStorage(
+        config,
+        { id: data.key.id, remoteJid: groupJid, fromMe },
+        msgContent as Record<string, unknown>,
+        tenantId,
+        groupMimetype
+      );
+      if (permanentUrl) groupMediaUrl = permanentUrl;
+    } catch {
+      // Manter URL original se falhar
+    }
+  }
+
   // Inserir mensagem
   const externalId = data.key.id;
   const msgPayload = {
@@ -803,16 +837,32 @@ async function handleGroupMessage(
     sender_name: fromMe ? 'Você' : senderName,
     content,
     type,
+    media_url: groupMediaUrl || null,
+    media_mime_type: groupMimetype || null,
     status: fromMe ? 'sent' : 'delivered',
     created_at: msgTs,
   };
 
+  let savedGroupMsg: { id: string } | null = null;
   if (externalId) {
-    await supabase
+    const { data: upserted } = await supabase
       .from('messages')
-      .upsert(msgPayload, { onConflict: 'tenant_id,external_id', ignoreDuplicates: true });
+      .upsert(msgPayload, { onConflict: 'tenant_id,external_id', ignoreDuplicates: true })
+      .select('id')
+      .single();
+    savedGroupMsg = upserted;
   } else {
-    await supabase.from('messages').insert(msgPayload);
+    const { data: inserted } = await supabase.from('messages').insert(msgPayload).select('id').single();
+    savedGroupMsg = inserted;
+  }
+
+  // ── FIX: Emitir SSE para o frontend atualizar em tempo real ───────────────
+  if (savedGroupMsg) {
+    eventBus.emitToTenant('new_message', tenantId, {
+      client_id: null,
+      group_jid: groupJid,
+      message: { ...msgPayload, id: savedGroupMsg.id },
+    });
   }
 
   // Atualizar preview da conversa
