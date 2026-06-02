@@ -224,6 +224,7 @@ async function processarLeadMeta(leadData: LeadgenValue): Promise<void> {
     await dispararLeadCapi(capiConfig.meta_pixel_id, capiConfig.meta_access_token, {
       email: email ?? undefined,
       phone,
+      nome,
       leadId: leadData.leadgen_id,
       campaignId: leadData.campaign_id,
       formId: leadData.form_id,

@@ -19,6 +19,8 @@ import { META_BASE } from '@/lib/meta-config';
 export interface CapiUserData {
   email?: string;     // será hasheado com SHA-256
   phone?: string;     // será hasheado com SHA-256
+  fn?: string;        // primeiro nome — será hasheado com SHA-256
+  ln?: string;        // sobrenome — será hasheado com SHA-256
   client_ip_address?: string;
   client_user_agent?: string;
   fbc?: string;       // Facebook click ID (cookie _fbc)
@@ -85,6 +87,8 @@ export async function enviarEventoCapi(
     const userData: Record<string, string> = {};
     if (ev.user_data.email) userData.em = sha256(ev.user_data.email);
     if (ev.user_data.phone) userData.ph = hashPhone(ev.user_data.phone);
+    if (ev.user_data.fn) userData.fn = sha256(ev.user_data.fn);
+    if (ev.user_data.ln) userData.ln = sha256(ev.user_data.ln);
     if (ev.user_data.client_ip_address) userData.client_ip_address = ev.user_data.client_ip_address;
     if (ev.user_data.client_user_agent) userData.client_user_agent = ev.user_data.client_user_agent;
     if (ev.user_data.fbc) userData.fbc = ev.user_data.fbc;
@@ -138,6 +142,7 @@ export async function dispararLeadCapi(
   dados: {
     email?: string;
     phone?: string;
+    nome?: string;      // nome completo — será separado em fn + ln
     leadId?: string;
     campaignId?: string;
     formId?: string;
@@ -147,6 +152,12 @@ export async function dispararLeadCapi(
   }
 ): Promise<void> {
   if (!pixelId || !accessToken) return;
+
+  // Separar nome completo em primeiro nome e sobrenome
+  const partes = (dados.nome || '').trim().split(' ');
+  const fn = partes[0] || undefined;
+  const ln = partes.length > 1 ? partes.slice(1).join(' ') : undefined;
+
   await enviarEventoCapi(
     { pixelId, accessToken },
     {
@@ -155,6 +166,8 @@ export async function dispararLeadCapi(
       user_data: {
         email: dados.email,
         phone: dados.phone,
+        fn,
+        ln,
         client_ip_address: dados.clientIp,
         client_user_agent: dados.userAgent,
       },
