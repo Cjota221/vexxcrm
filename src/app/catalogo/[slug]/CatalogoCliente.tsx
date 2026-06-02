@@ -38,7 +38,7 @@ export default function CatalogoCliente({ slug, whatsapp }: Props) {
       p.nome.toLowerCase().includes(busca.toLowerCase()) ||
       p.categoria.toLowerCase().includes(busca.toLowerCase())
     const categoriaOk = categoriaAtiva === 'todas' || p.categoria === categoriaAtiva
-    return buscaOk && categoriaOk && p.ativo
+    return buscaOk && categoriaOk && p.ativo && p.estoque > 0
   })
 
   return (

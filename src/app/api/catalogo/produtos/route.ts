@@ -41,6 +41,15 @@ function extrairCores(customFields: unknown): Array<{ nome: string; hex: string;
     .map((c) => ({ nome: c.nome, hex: c.hex ?? '#888888', estoque: c.estoque ?? 0 }))
 }
 
+function produtoTemEstoque(rawStock: unknown, customFields: unknown): boolean {
+  if (typeof rawStock === 'number') {
+    if (rawStock === -1) return true
+    if (rawStock > 0) return true
+  }
+
+  return extrairTamanhos(customFields).length > 0
+}
+
 function mapRow(p: Record<string, unknown>, ordem?: number, destaque?: boolean): ProdutoCatalogo {
   const images = Array.isArray(p.images) ? (p.images as string[]).filter(Boolean) : []
   const fotoUrl = (p.image_url as string | null) || images[0] || ''
@@ -153,6 +162,7 @@ export async function GET(req: NextRequest) {
           const meta = ordemMap.get(String(p.id))
           return mapRow(p as Record<string, unknown>, meta?.ordem, meta?.destaque)
         })
+        .filter((p) => p.estoque > 0)
         .sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0))
     } else {
       // === MODO CATÁLOGO COMPLETO: todos os produtos ativos do tenant ===
@@ -169,7 +179,10 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: 'Erro ao carregar produtos' }, { status: 500 })
       }
 
-      produtos = (rows ?? []).map((p) => mapRow(p as Record<string, unknown>))
+      produtos = (rows ?? [])
+        .filter((p) => produtoTemEstoque(p.stock, p.custom_fields))
+        .map((p) => mapRow(p as Record<string, unknown>))
+        .filter((p) => p.estoque > 0)
     }
 
     // Salvar em cache
